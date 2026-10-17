@@ -42,7 +42,7 @@ import XCTest
         if !settings.staticTexts["澈"].exists {
             let add = settings.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Add New Keyboard")).firstMatch
             if !add.waitForExistence(timeout: 20) {
-                let screenshot = XCTAttachment(screenshot: XCUIDevice.shared.screenshot()); screenshot.name = "keyboard-settings-navigation"; screenshot.lifetime = .keepAlways; self.add(screenshot)
+                let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); screenshot.name = "keyboard-settings-navigation"; screenshot.lifetime = .keepAlways; self.add(screenshot)
                 let snapshot = settings.debugDescription
                 let detail = XCTAttachment(string: snapshot); detail.name = "keyboard-settings-tree"; detail.lifetime = .keepAlways; self.add(detail)
                 if settings.descendants(matching: .any).count < 3 {
