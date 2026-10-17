@@ -43,16 +43,21 @@ extension KeyboardSettings {
         return UIColor { trait in
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             color.getRed(&r, green: &g, blue: &b, alpha: &a)
-            let luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
-            if trait.userInterfaceStyle == .dark && luminance < 0.45 {
-                let mix: CGFloat = 0.55
-                return UIColor(red: r + (1-r)*mix, green: g + (1-g)*mix, blue: b + (1-b)*mix, alpha: 1)
+            func component(_ value: CGFloat) -> Double {
+                let value = Double(value)
+                return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
             }
-            if trait.userInterfaceStyle != .dark && luminance > 0.55 {
-                let scale: CGFloat = 0.42 / max(0.01, luminance)
-                return UIColor(red: r*scale, green: g*scale, blue: b*scale, alpha: 1)
+            let dark = trait.userInterfaceStyle == .dark
+            let background = component(dark ? 0.18 : 0.97)
+            let target: CGFloat = dark ? 1 : 0
+            for step in 0...20 {
+                let mix = CGFloat(step) / 20
+                let red = r + (target-r)*mix, green = g + (target-g)*mix, blue = b + (target-b)*mix
+                let ink = component(red) * 0.2126 + component(green) * 0.7152 + component(blue) * 0.0722
+                let contrast = (max(ink, background) + 0.05) / (min(ink, background) + 0.05)
+                if contrast >= 4.5 { return UIColor(red: red, green: green, blue: blue, alpha: 1) }
             }
-            return color
+            return dark ? .white : .black
         }
     }
     var onAccentColor: UIColor {

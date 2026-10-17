@@ -16,10 +16,12 @@ public final class InputEngine {
         var text: String; var reading: String; var score: Double; var tokens: Int
         var abbreviated: Int = 0; var completed: Bool = false
         var usesInitials = false; var edits = 0
+        var initialRun = 0; var repairedTrailingInitial = false
     }
     private struct Token {
         let text: String; let reading: String; let score: Double; let abbreviated: Bool; let completed: Bool
         var edits = 0
+        var repairedTrailingInitial = false; var leadingInitialPenalty = 0.0
     }
     private struct Match { let tokens: [Token]; let canExtend: Bool }
     private var matches: [String: Match] = [:]
@@ -33,6 +35,8 @@ public final class InputEngine {
     private var correctedMatches: [String: [Token]] = [:]
     private var correctedOrder: [String] = []
     private var nextCorrectedEviction = 0
+    private var initialScores: [String: Double] = [:]
+    private static let initials = Set("bpmfdtnlgkhjqxrzcsyw")
     public let chinese: Lexicon
     public let english: Lexicon
     public init(chinese: Lexicon, english: Lexicon) {
@@ -91,12 +95,18 @@ public final class InputEngine {
         if cancelled() { return [] }
         let hasVowel = input.contains { "aeiouv".contains($0) }
         let spelling = hasVowel ? PinyinSpelling.reachablePrefix(input) : input.count
+        var consonants = 0, longestRun = 0
+        for letter in input {
+            consonants = Self.initials.contains(letter) ? consonants + 1 : 0
+            longestRun = max(longestRun, consonants)
+        }
+        let mixed = spelling < input.count && longestRun <= 4
         var ranked = primary.filter { $0.abbreviated == 0 || !hasVowel || spelling == input.count }
         // A wrong adjacent key may still form legal pinyin (ke instead of le).
         // Compare spelling and word-sequence likelihood jointly, while retaining the literal reading.
         let intentionalInitials = primary.first.map { $0.usesInitials && $0.abbreviated == 0 } ?? false
         if hasVowel, (4...96).contains(input.count), !intentionalInitials {
-            var alternatives = decodeCorrections(input, cancelled: cancelled)
+            var alternatives = decodeCorrections(input, mixed: mixed, cancelled: cancelled)
             // Valid spelling requires a clear score gain before correction can outrank it.
             if spelling == input.count { for index in alternatives.indices { alternatives[index].score -= 1 } }
             ranked += alternatives
@@ -105,9 +115,10 @@ public final class InputEngine {
         var seen = Set<String>()
         var best = Array(ranked.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
             .filter { seen.insert($0.text).inserted }.prefix(8))
-        if let literal = primary.first, spelling == input.count, !best.contains(where: { $0.text == literal.text }) {
-            if best.count == 8 { best.removeLast() }; best.append(literal)
-        }
+        // Preserve literal initialisms (including place names) alongside a likely repair.
+        let literals = mixed ? Array(primary.prefix(2)) : (spelling == input.count ? Array(primary.prefix(1)) : [])
+        let additional = literals.filter { literal in !best.contains(where: { $0.text == literal.text }) }
+        if !additional.isEmpty { best = Array(best.prefix(8 - additional.count)) + additional }
         return best.map {
                 Candidate(text: $0.text, reading: $0.reading, consumed: input.count,
                           score: 44 + $0.score / Double(max(1, input.count)))
@@ -174,35 +185,97 @@ public final class InputEngine {
         var ranked: [Token] = []
         for (entry, penalty) in entries {
             let exact = token(entry, for: entry.key)
+            let letters = Array(key)
+            let trailing = letters.last.map { Self.initials.contains($0) && $0 != entry.key.last && $0 != letters.dropLast().last } ?? false
+            let leading = String(key.dropFirst()) == entry.key && letters.first != letters.dropFirst().first && letters.first.map(Self.initials.contains) == true
             ranked.append(Token(text: exact.text, reading: exact.reading, score: exact.score - penalty,
-                                abbreviated: false, completed: false, edits: 1))
+                                abbreviated: false, completed: false, edits: 1,
+                                repairedTrailingInitial: trailing, leadingInitialPenalty: leading ? 1 : 0))
         }
         ranked.sort { left, right in left.score == right.score ? left.text < right.text : left.score > right.score }
         var result: [Token] = []
         for candidate in ranked where seen.insert(candidate.text).inserted {
             result.append(candidate); if result.count == 8 { break }
         }
+        cacheCorrections(result, for: key); return result
+    }
+    private func cacheCorrections(_ result: [Token], for key: String) {
         if correctedOrder.count < 1_024 { correctedOrder.append(key) }
         else {
             correctedMatches.removeValue(forKey: correctedOrder[nextCorrectedEviction]); correctedOrder[nextCorrectedEviction] = key
             nextCorrectedEviction = (nextCorrectedEviction + 1) % 1_024
         }
-        correctedMatches[key] = result; return result
+        correctedMatches[key] = result
+    }
+    /// Interpolate word and character likelihoods when vowels are absent. This avoids
+    /// treating every initial as an unrelated word or allowing rare names to dominate.
+    private func initialScore(_ entry: LexiconEntry) -> Double {
+        let cacheKey = entry.key + ":" + entry.text
+        if let score = initialScores[cacheKey] { return score }
+        let letters = Array(entry.text), syllables = entry.reading.split(separator: " ")
+        guard letters.count == syllables.count else { return -100 }
+        var characters = 0.0
+        for (letter, syllable) in zip(letters, syllables) {
+            var frequency: UInt32 = 1
+            for word in chinese.lookup("e:" + String(syllable), limit: 24) where word.text == String(letter) {
+                frequency = max(frequency, word.frequency)
+            }
+            characters += log((Double(frequency) + 1) / 10_000_000) - 1
+        }
+        let score = token(entry, for: entry.key).score * 0.35 + characters * 0.65 - 1
+        if initialScores.count >= 2_048 { initialScores.removeAll(keepingCapacity: true) }
+        initialScores[cacheKey] = score; return score
+    }
+    private func initialTokens(_ key: String, cancelled: () -> Bool) -> [Token] {
+        guard (1...6).contains(key.count), key.allSatisfy(Self.initials.contains) else { return [] }
+        let cacheKey = "a:" + key
+        if let cached = correctedMatches[cacheKey] { return cached }
+        var ranked: [Token] = []
+        func append(_ spelling: String, penalty: Double, edits: Int) {
+            let entries = chinese.lookup((spelling.count == 1 ? "p:" : "a:") + spelling, limit: spelling.count == 1 ? 24 : 12)
+            for entry in entries where entry.text.count == spelling.count && abbreviation(entry.reading) == spelling {
+                ranked.append(Token(text: entry.text, reading: entry.reading, score: initialScore(entry) - penalty,
+                                    abbreviated: true, completed: false, edits: edits))
+            }
+        }
+        append(key, penalty: 0, edits: 0)
+        if key.count > 1 {
+            var letters = Array(key)
+            for index in letters.indices {
+                if cancelled() { return [] }
+                let original = letters[index]
+                for letter in Self.initials.sorted() where letter != original {
+                    letters[index] = letter
+                    let changed = String(letters)
+                    if let penalty = PinyinSpelling.editPenalty(key, changed), penalty <= 2.4 {
+                        append(changed, penalty: penalty, edits: 1)
+                    }
+                }
+                letters[index] = original
+            }
+        }
+        ranked.sort { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+        var seen = Set<String>(), counts = [0, 0], result: [Token] = []
+        for value in ranked where counts[value.edits] < 6 && seen.insert(value.text).inserted {
+            result.append(value); counts[value.edits] += 1
+        }
+        cacheCorrections(result, for: cacheKey); return result
     }
     /// Search word boundaries and typo alternatives together; never materialize whole-sentence variants.
-    private func decodeCorrections(_ input: String, cancelled: () -> Bool) -> [Path] {
+    private func decodeCorrections(_ input: String, mixed: Bool, cancelled: () -> Bool) -> [Path] {
         let chars = Array(input), count = chars.count, budget = count >= 12 ? 2 : 1
         var paths = [[Path]](repeating: [], count: count + 1)
         paths[0] = [Path(text: "", reading: "", score: 0, tokens: 0)]
         func insert(_ path: Path, at end: Int) {
-            var bucket = paths[end].filter { $0.edits == path.edits }
+            guard path.initialRun <= 4 else { return }
+            var bucket = paths[end].filter { $0.edits == path.edits && $0.initialRun == path.initialRun }
             if let index = bucket.firstIndex(where: { $0.text == path.text }) {
                 guard path.score > bucket[index].score else { return }; bucket.remove(at: index)
             }
             let index = bucket.firstIndex { $0.score < path.score || ($0.score == path.score && $0.text > path.text) } ?? bucket.count
             guard index < 4 else { return }
             bucket.insert(path, at: index); if bucket.count > 4 { bucket.removeLast() }
-            paths[end] = paths[end].filter { $0.edits != path.edits } + bucket
+            paths[end] = paths[end].filter { $0.edits != path.edits || $0.initialRun != path.initialRun } + bucket
         }
         for start in 0..<count {
             if cancelled() { return [] }
@@ -224,19 +297,30 @@ public final class InputEngine {
                         }
                     }
                 }
-                if canEdit, end - start <= 13 { tokens += correctionTokens(key, cancelled: cancelled) }
+                if canEdit, end - start <= 13 {
+                    let initialsOnly = mixed && key.count > 1 && key.allSatisfy(Self.initials.contains)
+                    for value in correctionTokens(key, cancelled: cancelled) where !initialsOnly || value.text.count > 1 { tokens.append(value) }
+                }
+                if mixed { tokens += initialTokens(key, cancelled: cancelled) }
                 for token in tokens {
                     for base in bases where base.edits + token.edits <= budget {
+                        // A repair must not quietly swallow the next syllable's initial.
+                        let boundaryPenalty = token.abbreviated && base.repairedTrailingInitial ? 3.0 : 0
+                        let leadingPenalty = mixed ? token.leadingInitialPenalty : 0
                         insert(Path(text: base.text + token.text,
                                     reading: base.reading + (base.reading.isEmpty ? "" : " ") + token.reading,
-                                    score: base.score + token.score, tokens: base.tokens + 1,
-                                    completed: token.completed, edits: base.edits + token.edits), at: end)
+                                    score: base.score + token.score - boundaryPenalty - leadingPenalty, tokens: base.tokens + 1,
+                                    abbreviated: base.abbreviated + (token.abbreviated ? token.text.count : 0),
+                                    completed: token.completed, usesInitials: base.usesInitials || token.abbreviated,
+                                    edits: base.edits + token.edits,
+                                    initialRun: token.abbreviated ? base.initialRun + token.text.count : 0,
+                                    repairedTrailingInitial: mixed && token.repairedTrailingInitial), at: end)
                     }
                 }
                 if !canExtend && (!canEdit || end - start >= 13) { break }
             }
         }
-        return paths[count].filter { $0.edits > 0 }
+        return paths[count].filter { $0.edits > 0 || (mixed && $0.abbreviated > 0) }
     }
     private func abbreviation(_ reading: String) -> String { reading.split(separator: " ").compactMap(\.first).map(String.init).joined() }
     private func token(_ entry: LexiconEntry, for key: String, completion: Bool = false) -> Token {

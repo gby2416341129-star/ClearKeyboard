@@ -54,6 +54,34 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(engine.candidates("shanghaai").first?.text, "上海")
         XCTAssertTrue(engine.chinese.lookup("e:nichifanlema").isEmpty, "The sentence must be decoded from words, not patched into the lexicon")
     }
+    func testMixedFullPinyinAndInitialsWithAdjacentKeyErrors() {
+        let cases = ["nichifankm": "你吃饭了吗", "nichifanlm": "你吃饭了吗",
+                     "nchifanlm": "你吃饭了吗", "nichifanlma": "你吃饭了吗",
+                     "nidaojiakm": "你到家了吗", "nixiabankm": "你下班了吗",
+                     "nishuijiaokm": "你睡觉了吗", "wochifanlm": "我吃饭了吗"]
+        for (input, expected) in cases {
+            let values = engine.candidates(input)
+            XCTAssertEqual(values.first?.text, expected, input)
+            XCTAssertEqual(values.first?.consumed, input.count, input)
+        }
+        let values = engine.candidates("nichifankm")
+        XCTAssertEqual(values.first?.reading, "ni chi fan le ma")
+        XCTAssertTrue(values.contains { $0.text == "你吃饭昆明" })
+        XCTAssertTrue(values.contains { $0.text == "你吃饭开门" })
+        XCTAssertEqual(engine.candidates("kunming").first?.text, "昆明")
+        XCTAssertEqual(engine.candidates("kaimen").first?.text, "开门")
+    }
+    func testMixedInitialTypingBackspaceAndCancellationRemainConsistent() {
+        let spelling = "nichifankm"
+        let prefixes = (1...spelling.count).map { String(spelling.prefix($0)) }
+        for input in prefixes + Array(prefixes.reversed()) + ["nichifanlm", "nichifankm"] {
+            let fresh = InputEngine(chinese: engine.chinese, english: engine.english)
+            XCTAssertEqual(engine.candidates(input), fresh.candidates(input), input)
+        }
+        var checks = 0
+        XCTAssertTrue(engine.candidates("nixiabankm", cancelled: { checks += 1; return checks > 70 }).isEmpty)
+        XCTAssertEqual(engine.candidates("nixiabankm").first?.text, "你下班了吗")
+    }
     func testTypoCandidatesKeepTheLiteralReadingAvailable() {
         let spelling = "nichifankema", values = engine.candidates(spelling)
         XCTAssertTrue(values.contains { $0.reading.replacingOccurrences(of: " ", with: "") == spelling })

@@ -26,7 +26,7 @@ final class CandidateLatencyTests: XCTestCase {
     }
     func testTypoCorrectionLatencyDuringIncrementalTyping() throws {
         let engine = try InputEngine.bundled()
-        let strings = ["nichifankema", "nichjfankema", "womenjintianquchifan", "nichifnalemeilaopo"]
+        let strings = ["nichifankema", "nichjfankema", "womenjintianquchifan", "nichifnalemeilaopo", "nichifankm", "nixiabankm"]
         var timings: [Double] = []
         for input in strings {
             for length in 1...input.count {

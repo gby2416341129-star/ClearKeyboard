@@ -3,6 +3,28 @@ import CoreGraphics
 @testable import ClearCore
 
 final class InteractionTests: XCTestCase {
+    func testSpaceFaceAndTouchTargetStayCenteredAcrossPagesAndHandModes() throws {
+        for page in [KeyboardPage.letters, .numbers, .symbols] {
+            for globe in [false, true] {
+                let row = try XCTUnwrap(KeyboardLayout.rows(page: page, globe: globe).last)
+                let index = try XCTUnwrap(row.keys.firstIndex { $0.action == .space })
+                let before = row.keys.prefix(index).reduce(0) { $0 + $1.units }
+                let space = row.keys[index]
+                XCTAssertEqual(before + space.units / 2, 5, accuracy: 0.0001)
+                XCTAssertGreaterThanOrEqual(space.units, 4)
+                for width: CGFloat in [320, 393, 420, 430] {
+                    for hand in HandMode.allCases {
+                        let layout = KeyboardGeometry.layout(size: CGSize(width: width, height: 276), metrics: .init(), hand: hand)
+                        let hit = CGRect(x: CGFloat(before) * layout.unitWidth, y: 0, width: CGFloat(space.units) * layout.unitWidth, height: layout.rowPitch)
+                        let face = KeyboardGeometry.keyPlate(in: CGRect(origin: .zero, size: hit.size), action: .space, units: space.units)
+                        XCTAssertEqual(hit.midX, layout.keys.width / 2, accuracy: 0.001)
+                        XCTAssertEqual(hit.minX + face.midX, layout.keys.width / 2, accuracy: 0.001)
+                        XCTAssertEqual(layout.rowPitch, 56)
+                    }
+                }
+            }
+        }
+    }
     func testSystemLayoutKeepsOneMainAreaAcrossHostFramesAndHandModes() {
         let metrics = KeyboardGeometry.Metrics()
         for height: CGFloat in [216, 276, 351, 472, 701, 912] {

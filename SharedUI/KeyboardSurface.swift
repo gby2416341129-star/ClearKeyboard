@@ -11,8 +11,8 @@ import ImageIO
     private let candidateScroll = UIScrollView()
     private let candidateStack = UIStackView()
     private let hint = UILabel()
-    private let keyGlassGroup = UIVisualEffectView()
-    private var keysContainer: UIView { keyGlassGroup.contentView }
+    private let keyGlassGroup = UIView()
+    private var keysContainer: UIView { keyGlassGroup }
     private var movingCursor = false
     private let sideRail = UIStackView()
     private var keys: [(KeyButton, Int, Double, Double)] = []
@@ -143,10 +143,6 @@ import ImageIO
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
             appearanceSignature = style; backdrop.apply(settings, systemBacked: systemBacked); tintColor = settings.accentInkColor
-            let reduced = settings.glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
-            if #available(iOS 26.0, *), !reduced {
-                let group = UIGlassContainerEffect(); group.spacing = 0; keyGlassGroup.effect = group
-            } else { keyGlassGroup.effect = nil }
         }
         for (button, _, _, _) in keys {
             var title: String? = nil
@@ -173,8 +169,8 @@ import ImageIO
                 button.accessibilityLabel = "候选：" + candidate.text; button.accessibilityIdentifier = "candidate.\(candidate.text)"
                 button.heightAnchor.constraint(equalToConstant: 44).isActive = true
                 if index == 0 {
-                    button.backgroundColor = settings.accentColor.withAlphaComponent(0.12)
-                    button.layer.cornerRadius = 10; button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+                    button.backgroundColor = .secondarySystemFill
+                    button.layer.cornerRadius = 8; button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
                 }
                 let calculation = model.arithmetic != nil
                 button.addAction(UIAction { [weak model] _ in if calculation { model?.chooseArithmetic(candidate.text) } else { model?.choose(candidate) } }, for: .touchUpInside)

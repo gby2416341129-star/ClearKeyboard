@@ -1,33 +1,30 @@
 import UIKit
 
 final class GlassBackdrop: UIView {
-    private let gradient = CAGradientLayer()
     private let material = UIVisualEffectView()
-    private let wash = UIView()
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.addSublayer(gradient); addSubview(material); addSubview(wash)
+        addSubview(material)
         isUserInteractionEnabled = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() { super.layoutSubviews(); gradient.frame = bounds; material.frame = bounds; wash.frame = bounds }
+    override func layoutSubviews() { super.layoutSubviews(); material.frame = bounds }
     func apply(_ settings: KeyboardSettings, systemBacked: Bool = false) {
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled || settings.glass == .solid
         isOpaque = false; backgroundColor = reduced ? .secondarySystemBackground : .clear
-        gradient.isHidden = true
         if reduced || systemBacked { material.effect = nil }
         else if #available(iOS 26.0, *) {
             let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
             glass.isInteractive = false; material.effect = glass
             material.cornerConfiguration = .corners(radius: .fixed(28))
         } else { material.effect = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
-        wash.backgroundColor = reduced ? .clear : settings.accentColor.withAlphaComponent(settings.glassOpacity * (systemBacked ? 0.025 : 0.06))
     }
 }
 
 final class KeyButton: UIButton {
     let key: KeyboardKey
     private let plate = UIVisualEffectView()
+    private let pressWash = UIView()
     private let caption = CenteredKeyLabel()
     private let icon = UIImageView()
     private var repeatTimer: Timer?
@@ -52,8 +49,11 @@ final class KeyButton: UIButton {
 
     init(key: KeyboardKey) {
         self.key = key; super.init(frame: .zero)
-        addSubview(plate); plate.isUserInteractionEnabled = false; plate.layer.cornerRadius = 7
+        addSubview(plate); plate.isUserInteractionEnabled = false; plate.layer.cornerRadius = 8
+        plate.layer.cornerCurve = .continuous
         plate.layer.borderWidth = 0.5
+        plate.contentView.addSubview(pressWash); pressWash.isUserInteractionEnabled = false
+        pressWash.layer.cornerRadius = 8; pressWash.layer.cornerCurve = .continuous
         plate.contentView.addSubview(caption); caption.isUserInteractionEnabled = false; caption.contentMode = .redraw
         plate.contentView.addSubview(icon); icon.isUserInteractionEnabled = false; icon.contentMode = .center
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 21, weight: .regular)
@@ -96,34 +96,34 @@ final class KeyButton: UIButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews(); plate.frame = KeyboardGeometry.keyPlate(in: bounds, action: key.action, units: key.units)
-        let base: CGFloat = key.action == .language ? 15 : key.label.count == 1 ? 23 : 16
+        let base: CGFloat = key.action == .language ? 14 : key.label.count == 1 ? 23 : 16
         let fontSize = min(base, max(10, min(plate.bounds.width * 0.88, plate.bounds.height * 0.65)))
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
-        caption.frame = plate.bounds; icon.frame = plate.bounds
-        plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 7).cgPath
+        caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
+        plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 8).cgPath
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; haptics = settings.haptics
-        let utility: Bool
-        switch key.action { case .text, .space: utility = false; default: utility = true }
+        let dark = traitCollection.userInterfaceStyle == .dark
+        let utility = key.action == .shift || key.action == .delete || (key.units == 1.5 && key.label.count > 1)
         let reduced = settings.glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
-        let base = settings.glass == .clear ? (utility ? 0.22 : 0.30) : (utility ? 0.40 : 0.48)
-        let alpha = reduced ? 1.0 : base + settings.glassOpacity * 0.40
-        plate.backgroundColor = active ? accent.withAlphaComponent(0.22) : (utility ? UIColor.tertiarySystemFill : UIColor.systemBackground).withAlphaComponent(alpha)
-        plate.layer.borderColor = UIColor.label.withAlphaComponent(0.06).cgColor
-        plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.09
-        plate.layer.shadowRadius = 0.6; plate.layer.shadowOffset = CGSize(width: 0, height: 1)
-        if #available(iOS 26.0, *), !reduced {
-            let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
-            glass.tintColor = settings.accentColor.withAlphaComponent(key.action == .enter ? 0.24 : 0.035)
-            glass.isInteractive = !UIAccessibility.isReduceMotionEnabled
-            plate.cornerConfiguration = .corners(radius: .fixed(8))
-            plate.effect = glass; plate.backgroundColor = .clear
-            plate.layer.borderWidth = 0; plate.layer.shadowOpacity = 0
+        // A continuous system glass sheet supplies the backdrop. Key faces transmit
+        // that material instead of stacking 30 separate refracting lenses on top.
+        plate.effect = nil
+        if reduced {
+            plate.backgroundColor = UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
+            plate.layer.borderWidth = 0
         } else {
-            plate.effect = nil; plate.layer.borderWidth = 0.5
+            let base = settings.glass == .clear ? (dark ? 0.14 : 0.62) : (dark ? 0.25 : 0.78)
+            let alpha = min(0.92, base + settings.glassOpacity * 0.12)
+            plate.backgroundColor = UIColor.white.withAlphaComponent(utility ? alpha * 0.58 : alpha)
+            plate.layer.borderWidth = 0.5
         }
-        caption.textColor = key.action == .enter || key.action == .language ? settings.accentInkColor : .label
+        plate.layer.borderColor = UIColor.white.withAlphaComponent(dark ? 0.18 : 0.65).cgColor
+        plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.10
+        plate.layer.shadowRadius = 0.5; plate.layer.shadowOffset = CGSize(width: 0, height: 0.5)
+        pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
+        caption.textColor = .label
         icon.tintColor = .label
         if key.action == .shift { icon.image = UIImage(systemName: capsLocked ? "capslock.fill" : (active ? "shift.fill" : "shift")) }
         if let title { updateTitle(title) }
@@ -138,7 +138,7 @@ final class KeyButton: UIButton {
         plate.alpha = active ? 0.1 : 1
     }
     @objc private func down() {
-        didRepeat = false; suppressTap = false; plate.alpha = 0.70
+        didRepeat = false; suppressTap = false; pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
         if haptics { if feedback == nil { feedback = UIImpactFeedbackGenerator(style: .light) }; feedback?.impactOccurred(intensity: 0.35) }
         guard key.action == .delete else { return }
         let start = DispatchWorkItem { [weak self] in
@@ -154,7 +154,7 @@ final class KeyButton: UIButton {
         cancelPress()
         if shouldFire { onAction?(key.action) }
     }
-    @objc func cancelPress() { repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil; plate.alpha = cursorMode ? 0.1 : 1 }
+    @objc func cancelPress() { repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil; pressWash.backgroundColor = .clear; plate.alpha = cursorMode ? 0.1 : 1 }
     @objc private func cursorGesture(_ gesture: UILongPressGestureRecognizer) {
         let point = gesture.location(in: window)
         switch gesture.state {

@@ -185,6 +185,68 @@ import UIKit
             XCTAssertEqual(a.convert(a.bounds, to: surface).minY - q.convert(q.bounds, to: surface).minY, 56, accuracy: 0.1)
         }
     }
+    func testBottomRowSpaceIsCenteredAndLanguageStillSwitchesWithOneTap() throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        for hand in HandMode.allCases {
+            controller.model.settings.hand = hand
+            surface.frame = CGRect(x: 0, y: 0, width: 420, height: surface.desiredHeight)
+            settleLayout(surface)
+            let space = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .space })
+            let layout = KeyboardGeometry.layout(size: surface.bounds.size, metrics: .init(), hand: hand)
+            let hit = space.convert(space.bounds, to: surface)
+            let plate = try XCTUnwrap(space.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+            space.layoutIfNeeded()
+            XCTAssertEqual(hit.midX, layout.keys.midX, accuracy: 0.1)
+            XCTAssertEqual(plate.convert(plate.bounds, to: surface).midX, layout.keys.midX, accuracy: 0.1)
+            XCTAssertEqual(hit.height, 56, accuracy: 0.1)
+            controller.model.settings.language = .chinese
+            try tap(.language, in: surface)
+            XCTAssertEqual(controller.model.settings.language, .english)
+            try tap(.language, in: surface)
+            XCTAssertEqual(controller.model.settings.language, .chinese)
+        }
+    }
+    func testNeutralKeyFacesRemainTranslucentAndSolidFallbackIsOpaque() throws {
+        try XCTSkipIf(UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled)
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            var colors: [UIColor] = []
+            for key in KeyboardLayout.rows(page: .letters, globe: false).last!.keys {
+                let button = KeyButton(key: key); button.overrideUserInterfaceStyle = style
+                var settings = testSettings(); settings.customAccentHex = "#FF00FF"
+                button.apply(settings)
+                let face = try XCTUnwrap(button.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+                let color = try XCTUnwrap(face.backgroundColor)
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                XCTAssertTrue(color.getRed(&r, green: &g, blue: &b, alpha: &a))
+                XCTAssertEqual(r, g, accuracy: 0.001); XCTAssertEqual(g, b, accuracy: 0.001)
+                XCTAssertLessThan(a, 0.95, "The key must transmit the continuous glass backdrop")
+                colors.append(color)
+                settings.glass = .solid; button.apply(settings)
+                XCTAssertEqual(face.backgroundColor?.cgColor.alpha ?? 0, 1, accuracy: 0.001)
+                let label = try XCTUnwrap(descendants(button).compactMap { $0 as? CenteredKeyLabel }.first)
+                XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), UIColor.label.resolvedColor(with: button.traitCollection))
+            }
+            XCTAssertTrue(colors.dropFirst().allSatisfy { $0.isEqual(colors[0]) }, "Space and language must use the same neutral bottom-row material")
+        }
+    }
+    func testCandidateAccentRemainsReadableOnLightAndDarkMaterials() {
+        func linear(_ value: CGFloat) -> Double {
+            let v = Double(value); return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            for hex in ["#298A70", "#3370B8", "#AF5278", "#646E7A", "#FFFFFF", "#000000", "#FF00FF"] {
+                var settings = testSettings(); settings.customAccentHex = hex
+                let color = settings.accentInkColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                color.getRed(&r, green: &g, blue: &b, alpha: &a)
+                let ink = linear(r)*0.2126 + linear(g)*0.7152 + linear(b)*0.0722
+                let background = linear(style == .dark ? 0.18 : 0.97)
+                XCTAssertGreaterThanOrEqual((max(ink, background)+0.05)/(min(ink, background)+0.05), 4.5, hex)
+            }
+        }
+    }
     private func snapshot(_ view: UIView, name: String) {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
         let image = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in view.drawHierarchy(in: view.bounds, afterScreenUpdates: true) }
@@ -480,6 +542,19 @@ import UIKit
         XCTAssertEqual(controller.model.candidates.first?.text, "你吃饭了吗")
         let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你吃饭了吗" })
         XCTAssertTrue(candidate.isEnabled); candidate.sendActions(for: .touchUpInside)
+        XCTAssertEqual(controller.textView.text, "你吃饭了吗")
+        XCTAssertNil(controller.textView.markedTextRange)
+    }
+    func testMixedInitialsTypoRendersAndCommitsWithoutChangingHostPinyin() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        let spelling = "nichifankm"
+        for letter in spelling { controller.model.handle(.text(String(letter))) }
+        try await waitFor { controller.model.candidatesAreCurrent }
+        XCTAssertEqual(controller.textView.text, spelling)
+        XCTAssertEqual(controller.model.candidates.first?.text, "你吃饭了吗")
+        try tap(.space, in: controller.view)
         XCTAssertEqual(controller.textView.text, "你吃饭了吗")
         XCTAssertNil(controller.textView.markedTextRange)
     }

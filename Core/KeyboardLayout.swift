@@ -36,9 +36,12 @@ public enum KeyboardLayout {
                     KeyboardRow(["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "•"].map { KeyboardKey($0) }),
                     KeyboardRow([KeyboardKey("123", .page(.numbers), units: 1.5)] + [".", ",", "?", "!", "'"].map { KeyboardKey($0, units: 1.4) } + [KeyboardKey("⌫", .delete, units: 1.5)])]
         }
-        let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: 1.25)
-        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 1)] : []) +
-            [KeyboardKey("空格", .space, units: globe ? 4.35 : 5.35), KeyboardKey("中", .language, units: 1.15), KeyboardKey("换行", .enter, units: 2.25)]
+        let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: globe ? 1 : 1.2)
+        // Equal side totals keep both the space face and its touch target on the midline.
+        // The optional in-app globe stays on the leading side; iOS owns it in the extension.
+        let side = globe ? 2.8 : 2.4
+        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 0.85)] : []) +
+            [KeyboardKey("中", .language, units: globe ? 0.95 : 1.2), KeyboardKey("空格", .space, units: 10 - side * 2), KeyboardKey("换行", .enter, units: side)]
         return rows + [KeyboardRow(bottom)]
     }
 }
