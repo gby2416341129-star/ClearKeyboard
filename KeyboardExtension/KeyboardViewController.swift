@@ -13,6 +13,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var heightRefreshQueued = false
     private var heightRefreshSignatures = Set<String>()
     private var hostKeyboardType: UIKeyboardType?
+    private var lastLayoutLog = ""
+    private var layoutLogCount = 0
     private var isPresented = false
 
     override func loadView() {
@@ -61,6 +63,11 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // Squeezing the surface into that frame permanently changed both key size and font size.
         let top = max(view.bounds.minY, view.bounds.maxY - surface.desiredHeight)
         surface.frame = CGRect(x: view.bounds.minX, y: top, width: max(0, view.bounds.width), height: surface.desiredHeight)
+        let layout = "root=\(view.bounds) content=\(surface.frame) parent=\(view.superview?.bounds ?? .zero) window=\(view.window?.bounds ?? .zero)"
+        if layout != lastLayoutLog && layoutLogCount < 12 {
+            lastLayoutLog = layout; layoutLogCount += 1
+            NSLog("CLEAR_KEYBOARD_LAYOUT %@", layout)
+        }
         updateHeight(surface.desiredHeight)
         if abs(view.bounds.height - surface.desiredHeight) > 0.5 { queueHeightRefresh() }
     }
@@ -229,8 +236,8 @@ final class KeyboardInputView: UIInputView {
     }
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: KeyboardGeometry.preferredHeight()), inputViewStyle: .keyboard)
-        // The remote host must use our explicit height instead of a mask-derived cached frame.
-        translatesAutoresizingMaskIntoConstraints = false
+        // UIKit owns the remote view's width. Preserve our content height when its parent resizes.
+        autoresizingMask = [.flexibleWidth]
         allowsSelfSizing = true; isOpaque = false; backgroundColor = .clear
         setContentCompressionResistancePriority(.required, for: .vertical)
     }

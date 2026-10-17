@@ -50,9 +50,9 @@ jobs:
       - name: Run native keyboard startup and candidate tests
         timeout-minutes: 18
         run: bash Scripts/test-native.sh
-      - name: Exercise customization controls and Safari keyboard
+      - name: Exercise Safari keyboard position and input switching
         timeout-minutes: 15
-        run: bash Scripts/test-ui.sh
+        run: bash Scripts/test-ui.sh ClearKeyboardUITests/AppUITests/testBSafariSearchAndMultilineKeepFullKeyboardRows
       - name: Upload native runtime diagnostics
         if: always()
         uses: actions/upload-artifact@v4

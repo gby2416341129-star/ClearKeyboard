@@ -58,9 +58,17 @@ import XCTest
     }
     private func chooseKeyboard(in app: XCUIApplication) {
         let q = app.descendants(matching: .any).matching(identifier: "key.text.q").firstMatch
-        for _ in 0..<6 {
+        if q.waitForExistence(timeout: 2) { return }
+        let globe = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Next keyboard' OR label CONTAINS[c] 'Switch keyboard' OR label CONTAINS '下一个键盘'")).firstMatch
+        XCTAssertTrue(globe.waitForExistence(timeout: 3), app.debugDescription)
+        globe.press(forDuration: 1)
+        let named = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "澈")).firstMatch
+        if named.waitForExistence(timeout: 3) {
+            named.tap()
+            if q.waitForExistence(timeout: 8) { return }
+        } else if globe.exists { globe.tap() }
+        for _ in 0..<8 {
             if q.waitForExistence(timeout: 2) { return }
-            let globe = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Next keyboard' OR label CONTAINS[c] 'Switch keyboard' OR label CONTAINS '下一个键盘'")).firstMatch
             XCTAssertTrue(globe.exists, "System keyboard switch is missing\n" + app.debugDescription); globe.tap()
         }
         XCTFail("Clear keyboard did not appear\n" + app.debugDescription)
