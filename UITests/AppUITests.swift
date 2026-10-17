@@ -92,7 +92,7 @@ import XCTest
         XCTAssertTrue(q.isHittable && language.isHittable, context + " clipped a keyboard row")
         print("SAFARI_ROWS " + context + " q=" + String(describing: q.frame) + " language=" + String(describing: language.frame))
     }
-    private func focusInput(_ field: XCUIElement, in app: XCUIApplication) {
+    private func focusInput(_ field: XCUIElement, in app: XCUIApplication, expectedFocus: String? = nil) {
         let q = app.descendants(matching: .any).matching(identifier: "key.text.q").firstMatch
         let globe = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Next keyboard' OR label CONTAINS[c] 'Switch keyboard' OR label CONTAINS '下一个键盘'")).firstMatch
         for attempt in 0..<3 {
@@ -103,6 +103,12 @@ import XCTest
                 // Use a fresh interior coordinate when that first tap only dismissed the keyboard.
                 field.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.25)).tap()
             }
+            if let expectedFocus {
+                // A visible keyboard can still belong to the previous DOM field. Check
+                // the fixture's actual focus event before measuring or sending a key.
+                let focused = app.webViews.staticTexts["Editing: " + expectedFocus].firstMatch
+                if !focused.waitForExistence(timeout: 2) { continue }
+            }
             if q.waitForExistence(timeout: 2) || globe.waitForExistence(timeout: 2) {
                 chooseKeyboard(in: app); return
             }
@@ -111,14 +117,16 @@ import XCTest
     }
     func testBSafariSearchAndMultilineKeepFullKeyboardRows() throws {
         continueAfterFailure = false; clear.launch(); try enableKeyboard()
-        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"); safari.activate()
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"); safari.launch()
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 10))
         for title in ["Continue", "Continue", "Start Browsing", "Not Now"] {
             if safari.buttons[title].waitForExistence(timeout: 2) { safari.buttons[title].tap() }
         }
         let search = safari.webViews.searchFields.matching(identifier: "Safari search size check").firstMatch
         let fallbackSearch = safari.webViews.textFields.matching(identifier: "Safari search size check").firstMatch
         let field = search.waitForExistence(timeout: 5) ? search : fallbackSearch
-        XCTAssertTrue(field.waitForExistence(timeout: 8), safari.debugDescription); focusInput(field, in: safari)
+        XCTAssertTrue(field.waitForExistence(timeout: 8), safari.debugDescription)
+        focusInput(field, in: safari, expectedFocus: "Safari search size check")
         let q = safari.descendants(matching: .any).matching(identifier: "key.text.q").firstMatch
         let z = safari.descendants(matching: .any).matching(identifier: "key.text.z").firstMatch
         let language = safari.descendants(matching: .any).matching(identifier: "key.language").firstMatch
@@ -130,17 +138,19 @@ import XCTest
         assertFullRows(in: safari, context: "Safari search input")
         let searchHeight = q.frame.height
         q.tap(); XCTAssertTrue((field.value as? String)?.lowercased().contains("q") == true)
+        // Commit this field's marked spelling and select English before testing a
+        // literal ASCII key. Committing Chinese 'w' may correctly produce a Han word.
+        if language.label.hasPrefix("中文") { language.tap() }
+        XCTAssertTrue(language.label.hasPrefix("英文"))
         attachment(safari, name: "safari-search-keyboard")
         let multiline = safari.webViews.textViews.matching(identifier: "Safari multiline size check").firstMatch
-        XCTAssertTrue(multiline.exists); focusInput(multiline, in: safari)
+        XCTAssertTrue(multiline.exists); focusInput(multiline, in: safari, expectedFocus: "Safari multiline size check")
         XCTAssertEqual(q.frame.height, searchHeight, accuracy: 1)
         XCTAssertEqual(q.frame.height, 56, accuracy: 0.5)
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
         assertFullRows(in: safari, context: "Safari multiline input")
         let w = safari.descendants(matching: .any).matching(identifier: "key.text.w").firstMatch
         w.tap()
-        // Commit the marked spelling before asking WebKit's accessibility value for text.
-        language.tap()
         let typed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS[c] %@", "w"), object: multiline)
         XCTAssertEqual(XCTWaiter.wait(for: [typed], timeout: 5), .completed, "Typing must reach the newly focused textarea\n" + safari.debugDescription)
         attachment(safari, name: "safari-multiline-keyboard")
@@ -164,10 +174,10 @@ import XCTest
             if done.exists { done.tap() }
         }
         for attempt in 1...2 {
-            focusInput(field, in: safari); assertFullRows(in: safari, context: "Search reactivation \(attempt)")
-            focusInput(multiline, in: safari); assertFullRows(in: safari, context: "Multiline reactivation \(attempt)")
+            focusInput(field, in: safari, expectedFocus: "Safari search size check"); assertFullRows(in: safari, context: "Search reactivation \(attempt)")
+            focusInput(multiline, in: safari, expectedFocus: "Safari multiline size check"); assertFullRows(in: safari, context: "Multiline reactivation \(attempt)")
         }
         clear.activate(); safari.activate()
-        focusInput(multiline, in: safari); assertFullRows(in: safari, context: "Safari after changing host app")
+        focusInput(multiline, in: safari, expectedFocus: "Safari multiline size check"); assertFullRows(in: safari, context: "Safari after changing host app")
     }
 }
