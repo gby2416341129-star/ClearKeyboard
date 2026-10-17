@@ -232,7 +232,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             after: document.contextAfter, document: document.documentIdentity, language: settings.language)
     }
     func acceptsCandidateContext(_ context: CandidateContext?) -> Bool {
-        guard let context else { return false }
+        guard let context, document?.selectedText.isEmpty == true else { return false }
         return context == activeCandidateContext()
     }
     func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?) {

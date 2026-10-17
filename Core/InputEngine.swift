@@ -57,6 +57,11 @@ public final class InputEngine {
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], compose: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
+        if !compose, matureDecoder != nil, input.count >= 3,
+           associations?.lookup("e:" + input, limit: 1).isEmpty == false,
+           chinese.lookup("e:" + input, limit: 1).isEmpty {
+            return cancelled() ? [] : [Candidate(text: raw, reading: raw, consumed: input.count)]
+        }
         if compose, let matureDecoder {
             if cancelled() { return [] }
             // Explicit shorthand aliases retain their established meaning on
@@ -77,10 +82,10 @@ public final class InputEngine {
                 // default. Recognized English such as iphone/hello stays literal.
                 if chinese.lookup("e:" + input, limit: 1).isEmpty { output.insert(literal, at: 0) }
                 else { output.insert(literal, at: min(1, output.count)) }
-            } else if input.count >= 5, !raw.contains("'") {
+            } else if input.count >= 6, !raw.contains("'"), !result.contains(where: { $0.consumed == input.count && FuzzyPinyin.normalize($0.reading) == input }) {
                 // Decode a genuine pinyin prefix and preserve a recognized English
                 // suffix as one token, instead of turning every Latin letter into Hanzi.
-                for length in stride(from: min(20, input.count - 2), through: 3, by: -1) {
+                for length in stride(from: min(20, input.count - 2), through: 4, by: -1) {
                     if cancelled() { return [] }
                     let suffix = String(input.suffix(length)), prefix = String(input.dropLast(length))
                     guard associations?.lookup("e:" + suffix, limit: 1).isEmpty == false,
@@ -411,7 +416,9 @@ public final class InputEngine {
         guard !context.isEmpty, context.last?.isWhitespace != true else { return [] }
         for length in stride(from: min(6, context.count), through: 1, by: -1) {
             let prefix = String(context.suffix(length))
-            for word in (associations ?? chinese).lookup("t:" + prefix, limit: 16) where word.text.count > length {
+            let recent = associations?.lookup("t:" + prefix, limit: 8) ?? []
+            let established = chinese.lookup("t:" + prefix, limit: associations == nil ? 12 : 4)
+            for word in recent + established where word.text.count > length {
                 let suffix = String(word.text.dropFirst(length))
                 if seen.insert(suffix).inserted { output.append(Candidate(text: suffix, consumed: 0)) }
             }

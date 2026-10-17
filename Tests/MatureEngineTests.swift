@@ -33,6 +33,7 @@ final class MatureEngineTests: XCTestCase {
     }
     func testChineseModePreservesRecognizedEnglishAndMixedTokens() {
         for word in ["iphone", "iPhone", "hello", "keyboard", "app"] { XCTAssertEqual(engine.candidates(word).first?.text, word, word) }
+        XCTAssertEqual(engine.candidates("hello", compose: false).first?.text, "hello")
         XCTAssertEqual(engine.candidates("wodeiphone").first?.text, "我的iphone")
         XCTAssertEqual(engine.candidates("women").first?.text, "我们")
         XCTAssertEqual(engine.candidates("shanghai").first?.text, "上海")
