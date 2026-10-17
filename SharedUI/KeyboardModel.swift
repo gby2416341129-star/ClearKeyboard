@@ -13,11 +13,13 @@ import os
     func deleteBackward()
     func moveCursor(_ offset: Int)
     func nextKeyboard()
+    func setMarkedText(_ text: String)
+    func unmarkText()
 }
 
 @MainActor final class KeyboardModel {
     weak var document: KeyboardDocument?
-    var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings); onChange?() } }
+    var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings); if clipboardActive { startClipboardCapture() }; onChange?() } }
     private(set) var page: KeyboardPage = .letters
     private(set) var shifted = false
     private(set) var capsLocked = false
@@ -26,6 +28,8 @@ import os
     var candidatesAreCurrent: Bool { candidateGeneration == generation }
     private(set) var engineState = "离线词库加载中…"
     var onChange: (() -> Void)?
+    let clipboardCapture = ClipboardCapture()
+    private var clipboardActive = false
     private var store: SettingsStore
     private var engine: InputEngine?
     private let queue = DispatchQueue(label: "clear.candidates", qos: .userInitiated)
@@ -69,8 +73,21 @@ import os
         learningEpoch = store.defaults.string(forKey: "clear.learned.epoch")
         refreshCandidates()
     }
-    func clearComposition() { composition.clear(); refreshCandidates() }
-    func cursorChanged() { composition.clear(); refreshCandidates() }
+    func clearComposition() {
+        if !composition.raw.isEmpty { document?.setMarkedText(""); document?.unmarkText() }
+        composition.clear(); refreshCandidates()
+    }
+    func cursorChanged() { if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates() }
+    func finishCompositionAsTyped() { if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear() }
+    private func syncMarkedText() {
+        document?.setMarkedText(composition.raw)
+        if composition.raw.isEmpty { document?.unmarkText() }
+    }
+    func startClipboardCapture() {
+        clipboardActive = true
+        clipboardCapture.activate(settings: settings, allowed: document?.fullAccess == true)
+    }
+    func stopClipboardCapture() { clipboardActive = false; clipboardCapture.stop() }
     func moveCursor(_ offset: Int) { commitComposition(); document?.moveCursor(offset); refreshCandidates() }
     func beginCursorMovement() { commitComposition(); refreshCandidates() }
     func toggleLanguage() {
@@ -85,8 +102,10 @@ import os
         case .text(let text):
             if settings.language == .chinese && page == .letters && text.first?.isLetter == true && !shifted {
                 if !composition.append(text) { commitComposition(); _ = composition.append(text) }
+                syncMarkedText()
             } else if settings.language == .chinese && text == "'" && !composition.isEmpty {
                 _ = composition.append(text)
+                syncMarkedText()
             } else {
                 commitComposition()
                 document?.insert(shifted && page == .letters ? text.uppercased() : punctuation(text))
@@ -100,13 +119,14 @@ import os
             manualShift = true
             lastShift = now
         case .delete:
-            if !composition.raw.isEmpty { composition.deleteBackward() } else { document?.deleteBackward() }
+            if !composition.raw.isEmpty { composition.deleteBackward(); syncMarkedText() } else { document?.deleteBackward() }
         case .space:
             if composition.isEmpty { document?.insert(" ") } else { commitComposition(flushRemainder: false) }
         case .enter:
             if composition.isEmpty { document?.insert("\n") } else { commitComposition(flushRemainder: false) }
         case .page(let next): page = next
         case .globe: commitComposition(); document?.nextKeyboard()
+        case .language: toggleLanguage(); return
         }
         refreshCandidates()
     }
@@ -120,17 +140,24 @@ import os
         let current = candidateGeneration == generation ? candidates.first : nil
         let fallback = current ?? engine?.candidates(composition.raw, fuzzy: settings.fuzzyPairs, learned: learned, compose: false).first
         if let candidate = fallback {
-            document?.insert(candidate.text); composition.consume(candidate.consumed)
+            document?.setMarkedText(candidate.text); document?.unmarkText(); composition.consume(candidate.consumed)
             // Preserve any spelling not covered by a partial candidate.
             if flushRemainder && !composition.isEmpty { document?.insert(composition.normalized) }
             learn(candidate.text)
-        } else { document?.insert(composition.normalized) }
+        } else { document?.setMarkedText(composition.normalized); document?.unmarkText() }
         if flushRemainder || fallback == nil { composition.clear() }
+        else if !composition.raw.isEmpty { syncMarkedText() }
     }
     func choose(_ candidate: Candidate) {
         guard candidateGeneration == generation, candidates.contains(candidate), let document else { return }
         if settings.language == .chinese {
-            document.insert(candidate.text); composition.consume(candidate.consumed); learn(candidate.text)
+            if composition.raw.isEmpty { document.insert(candidate.text) }
+            else {
+                document.setMarkedText(candidate.text); document.unmarkText()
+                composition.consume(candidate.consumed)
+                if !composition.raw.isEmpty { syncMarkedText() }
+            }
+            learn(candidate.text)
         } else {
             guard document.selectedText.isEmpty, document.contextBefore == englishSnapshot else { refreshCandidates(); return }
             let word = EnglishContext.word(in: englishSnapshot)
@@ -189,7 +216,7 @@ import os
         guard epoch == learningEpoch else { learned = [:]; learningEpoch = epoch; return }
         store.defaults.set(learned, forKey: "clear.learned.v1")
     }
-    func suspend() { work?.cancel(); cancellation.cancel(); generation += 1; flushLearning() }
+    func suspend() { stopClipboardCapture(); work?.cancel(); cancellation.cancel(); generation += 1; flushLearning() }
 }
 
 private final class QueryCancellation: @unchecked Sendable {

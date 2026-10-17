@@ -73,6 +73,7 @@ final class KeyButton: UIButton {
         case .space: accessibilityLabel = "空格，按住并拖动以移动光标"
         case .enter: accessibilityLabel = "回车"
         case .globe: accessibilityLabel = "下一个键盘，按住选择键盘"
+        case .language: accessibilityLabel = "切换中文和英文"
         default: break
         }
         addTarget(self, action: #selector(down), for: .touchDown)
@@ -86,7 +87,8 @@ final class KeyButton: UIButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews(); plate.frame = KeyboardGeometry.keyPlate(in: bounds)
-        let fontSize = min(key.label.count == 1 ? CGFloat(23) : 16, max(12, plate.bounds.width * 0.88))
+        let base: CGFloat = key.action == .language ? 15 : key.label.count == 1 ? 23 : 16
+        let fontSize = min(base, max(10, min(plate.bounds.width * 0.88, plate.bounds.height * 0.65)))
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
         caption.frame = plate.bounds; icon.frame = plate.bounds
         plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 7).cgPath
@@ -112,7 +114,7 @@ final class KeyButton: UIButton {
         } else {
             plate.effect = nil; plate.layer.borderWidth = 0.5
         }
-        caption.textColor = key.action == .enter ? settings.accentInkColor : .label
+        caption.textColor = key.action == .enter || key.action == .language ? settings.accentInkColor : .label
         icon.tintColor = .label
         if key.action == .shift { icon.image = UIImage(systemName: capsLocked ? "capslock.fill" : (active ? "shift.fill" : "shift")) }
         if let title { updateTitle(title) }

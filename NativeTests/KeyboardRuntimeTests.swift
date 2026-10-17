@@ -2,6 +2,7 @@ import XCTest
 import UIKit
 
 @MainActor final class KeyboardRuntimeTests: XCTestCase {
+    private func testSettings() -> KeyboardSettings { var settings = KeyboardSettings(); settings.automaticClipboard = false; return settings }
     private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
     private func waitFor(_ predicate: () -> Bool) async throws {
         for _ in 0..<160 {
@@ -28,7 +29,7 @@ import UIKit
         }
     }
     func testTypingLabChineseAndEnglishCandidates() async throws {
-        let controller = TypingLabController(settings: KeyboardSettings())
+        let controller = TypingLabController(settings: testSettings())
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = controller; window.makeKeyAndVisible()
@@ -37,6 +38,8 @@ import UIKit
         defer { window.isHidden = true; controller.model.suspend() }
         try await waitFor { controller.model.engineState == "离线就绪" }
         for letter in "nihao" { try tap(.text(String(letter)), in: controller.view) }
+        XCTAssertEqual(controller.textView.text, "nihao", "The host input must show the active pinyin")
+        XCTAssertNotNil(controller.textView.markedTextRange)
         try await waitFor { controller.model.candidatesAreCurrent }
         XCTAssertTrue(controller.model.candidates.contains { $0.text == "你好" }, "Pinyin did not produce a Chinese candidate")
         XCTAssertTrue(descendants(controller.view).compactMap { $0 as? UIButton }.contains { $0.title(for: .normal) == "你好" }, "Chinese candidates did not render")
@@ -47,7 +50,9 @@ import UIKit
         snapshot(controller.view, name: "pinyin-candidates")
         try tap(.space, in: controller.view)
         XCTAssertTrue(controller.textView.text.hasSuffix("你好"))
-        controller.model.toggleLanguage()
+        XCTAssertNil(controller.textView.markedTextRange)
+        try tap(.language, in: controller.view)
+        XCTAssertEqual(controller.model.settings.language, .english)
         controller.model.settings.autoCapitalization = false
         controller.textView.text = ""; controller.textView.selectedRange = NSRange(location: 0, length: 0)
         controller.model.cursorChanged()
@@ -59,7 +64,7 @@ import UIKit
         XCTAssertEqual(controller.textView.text, "hello ")
     }
     func testSelectionNotificationsAndExternalSettingsPreserveComposition() async throws {
-        let settings = KeyboardSettings()
+        let settings = testSettings()
         let controller = TypingLabController(settings: settings); controller.loadViewIfNeeded()
         try await waitFor { controller.model.engineState == "离线就绪" }
         controller.model.handle(.text("n")); controller.model.handle(.text("i"))
@@ -70,18 +75,19 @@ import UIKit
         controller.model.suspend()
     }
     func testTextViewInputRoutesThroughChineseEngine() async throws {
-        let controller = TypingLabController(settings: KeyboardSettings()); controller.loadViewIfNeeded()
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
         try await waitFor { controller.model.engineState == "离线就绪" }
         for letter in "nihao" {
             XCTAssertFalse(controller.textView(controller.textView, shouldChangeTextIn: controller.textView.selectedRange, replacementText: String(letter)))
         }
         try await waitFor { controller.model.candidatesAreCurrent }
         XCTAssertTrue(controller.model.candidates.contains { $0.text == "你好" })
-        XCTAssertEqual(controller.textView.text, "")
+        XCTAssertEqual(controller.textView.text, "nihao")
+        XCTAssertNotNil(controller.textView.markedTextRange)
         controller.model.suspend()
     }
     func testTypingLabFitsAllFourRowsWhileComposing() async throws {
-        let controller = TypingLabController(settings: KeyboardSettings()); controller.loadViewIfNeeded()
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 380)
         controller.model.handle(.text("n"))
         controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
@@ -92,7 +98,7 @@ import UIKit
         controller.model.suspend()
     }
     func testToolbarAndSideRailWorkInBothHandModes() async throws {
-        let controller = TypingLabController(settings: KeyboardSettings()); controller.loadViewIfNeeded()
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene); window.rootViewController = controller; window.makeKeyAndVisible()
         defer { window.isHidden = true; controller.model.suspend() }
@@ -136,5 +142,76 @@ import UIKit
         XCTAssertFalse(descendants(controller.view).compactMap { $0 as? KeyButton }.isEmpty)
         for view in descendants(controller.view) { XCTAssertTrue(view.frame.origin.x.isFinite && view.frame.origin.y.isFinite) }
         controller.beginAppearanceTransition(false, animated: false); controller.endAppearanceTransition()
+    }
+    func testMarkedTextReplacementDeletionAndSelection() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        controller.insert("前文 👨‍👩‍👧‍👦 后文")
+        controller.textView.selectedRange = NSRange(location: 0, length: 2)
+        controller.textViewDidChangeSelection(controller.textView)
+        for letter in "nihao" { controller.model.handle(.text(String(letter))) }
+        XCTAssertEqual(controller.textView.text, "nihao 👨‍👩‍👧‍👦 后文")
+        controller.model.handle(.delete)
+        XCTAssertEqual(controller.textView.text, "niha 👨‍👩‍👧‍👦 后文")
+        controller.model.handle(.text("o"))
+        try await waitFor { controller.model.candidatesAreCurrent }
+        controller.model.choose(try XCTUnwrap(controller.model.candidates.first { $0.text == "你好" }))
+        XCTAssertEqual(controller.textView.text, "你好 👨‍👩‍👧‍👦 后文")
+        XCTAssertNil(controller.textView.markedTextRange)
+        controller.model.handle(.text("n")); controller.model.clearComposition()
+        XCTAssertEqual(controller.textView.text, "你好 👨‍👩‍👧‍👦 后文")
+        controller.model.handle(.text("n")); controller.model.handle(.delete)
+        XCTAssertEqual(controller.textView.text, "你好 👨‍👩‍👧‍👦 后文")
+        XCTAssertNil(controller.textView.markedTextRange)
+    }
+    func testAllRowsFitHostResizeAndLargeParentCorners() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        if #available(iOS 26.0, *) { controller.view.cornerConfiguration = .corners(radius: .fixed(180)) }
+        for hand in HandMode.allCases {
+            controller.model.settings.hand = hand
+            for height: CGFloat in [180, 216, 240, 280] {
+                surface.frame = CGRect(x: 0, y: 0, width: 393, height: height)
+                surface.setNeedsLayout(); surface.layoutIfNeeded()
+                for key in descendants(surface).compactMap({ $0 as? KeyButton }) {
+                    let frame = key.convert(key.bounds, to: surface)
+                    XCTAssertLessThanOrEqual(frame.maxY, height, "Bottom row exceeded actual host height")
+                    XCTAssertGreaterThanOrEqual(frame.minX, 0); XCTAssertLessThanOrEqual(frame.maxX, 393.1)
+                }
+                XCTAssertEqual(surface.layer.cornerRadius, 28, accuracy: 0.5)
+            }
+        }
+        snapshot(surface, name: "compressed-host")
+    }
+    func testAutomaticClipboardCaptureAndPermissionGating() async throws {
+        let suite = "clear.capture.tests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = root.appendingPathComponent("clipboard.json")
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        var count = 1, reads = 0, text = "第一次复制"
+        let name = Notification.Name("clear.capture." + UUID().uuidString)
+        let capture = ClipboardCapture(defaults: defaults, makeStore: { ClipboardStore(url: url) }, changeCount: { count }, hasStrings: { true }, readText: { reads += 1; return text }, notificationName: name)
+        var settings = KeyboardSettings(); settings.automaticClipboard = true
+        capture.activate(settings: settings, allowed: false)
+        XCTAssertEqual(reads, 0)
+        capture.activate(settings: settings, allowed: true)
+        XCTAssertEqual(ClipboardStore(url: url).clips.map(\.text), ["第一次复制"])
+        capture.activate(settings: settings, allowed: true)
+        XCTAssertEqual(reads, 1, "Reopening must not reread the same clipboard version")
+        count += 1; text = "第二次复制"
+        NotificationCenter.default.post(name: name, object: nil)
+        try await waitFor { reads == 2 }
+        XCTAssertEqual(ClipboardStore(url: url).clips.map(\.text), ["第二次复制", "第一次复制"])
+        capture.stop(); count += 1; text = "后台复制"
+        NotificationCenter.default.post(name: name, object: nil)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(reads, 2)
+        capture.activate(settings: settings, allowed: true)
+        XCTAssertEqual(ClipboardStore(url: url).clips.first?.text, "后台复制")
+        settings.automaticClipboard = false; capture.activate(settings: settings, allowed: true)
+        count += 1; capture.captureIfChanged(); XCTAssertEqual(reads, 3)
     }
 }

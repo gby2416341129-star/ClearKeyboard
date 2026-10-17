@@ -8,10 +8,12 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var documentID: UUID?
     private var previousContext = ""
     private var expectedContext: String?
+    private var recentOwnContexts: [String] = []
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
+        inputView?.allowsSelfSizing = true
         model = KeyboardModel(document: self)
         surface = KeyboardSurface(model: model)
         surface.configureGlobe = { [weak self] button in
@@ -28,6 +30,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated); model?.reloadSettings()
     }
+    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); model?.startClipboardCapture() }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface else { return }
@@ -39,13 +42,14 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if abs((heightConstraint?.constant ?? 0) - newHeight) > 0.5 { heightConstraint?.constant = newHeight }
     }
     override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated); surface?.stopInteractions(); model?.suspend(); model?.clearComposition()
+        super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         guard let model, let surface else { return }
         let identifier = connectedDocumentIdentifier(), context = contextBefore
-        if identifier != documentID || (context != previousContext && context != expectedContext) {
+        if identifier != documentID || (context != previousContext && context != expectedContext && !recentOwnContexts.contains(context)) {
+            recentOwnContexts.removeAll()
             surface.closePanel(); model.cursorChanged()
         } else if model.composition.isEmpty { model.refreshCandidates() }
         documentID = identifier; previousContext = context; expectedContext = nil
@@ -81,15 +85,35 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     func insert(_ text: String) {
         expectedContext = contextBefore + text
+        rememberOwnContext(expectedContext)
         textDocumentProxy.insertText(text); previousContext = contextBefore
+        rememberOwnContext(previousContext)
     }
+    private var markedSpelling = ""
+    func setMarkedText(_ text: String) {
+        let context = contextBefore
+        let prefix = !markedSpelling.isEmpty && context.hasSuffix(markedSpelling) ? String(context.dropLast(markedSpelling.count)) : context
+        expectedContext = prefix + text
+        rememberOwnContext(expectedContext)
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+        markedSpelling = text; previousContext = contextBefore
+        rememberOwnContext(previousContext)
+    }
+    func unmarkText() { textDocumentProxy.unmarkText(); markedSpelling = ""; previousContext = contextBefore }
     func deleteBackward() {
         expectedContext = String(contextBefore.dropLast())
+        rememberOwnContext(expectedContext)
         textDocumentProxy.deleteBackward(); previousContext = contextBefore
+        rememberOwnContext(previousContext)
     }
     func moveCursor(_ offset: Int) {
         textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
         previousContext = contextBefore; expectedContext = previousContext
     }
     func nextKeyboard() { advanceToNextInputMode() }
+    private func rememberOwnContext(_ context: String?) {
+        guard let context else { return }
+        recentOwnContexts.append(context)
+        if recentOwnContexts.count > 32 { recentOwnContexts.removeFirst(recentOwnContexts.count - 32) }
+    }
 }

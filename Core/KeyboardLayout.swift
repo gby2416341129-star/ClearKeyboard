@@ -1,7 +1,7 @@
 import Foundation
 
 public enum KeyAction: Equatable {
-    case text(String), shift, delete, page(KeyboardPage), globe, space, enter
+    case text(String), shift, delete, page(KeyboardPage), globe, language, space, enter
 }
 public struct KeyboardKey: Equatable {
     public let label: String
@@ -37,8 +37,8 @@ public enum KeyboardLayout {
                     KeyboardRow([KeyboardKey("123", .page(.numbers), units: 1.5)] + [".", ",", "?", "!", "'"].map { KeyboardKey($0, units: 1.4) } + [KeyboardKey("⌫", .delete, units: 1.5)])]
         }
         let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: 1.25)
-        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 1.15)] : []) +
-            [KeyboardKey("空格", .space, units: globe ? 5.2 : 6.35), KeyboardKey("换行", .enter, units: 2.4)]
+        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 1)] : []) +
+            [KeyboardKey("空格", .space, units: globe ? 4.35 : 5.35), KeyboardKey("中", .language, units: 1.15), KeyboardKey("换行", .enter, units: 2.25)]
         return rows + [KeyboardRow(bottom)]
     }
 }

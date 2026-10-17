@@ -24,7 +24,7 @@ public enum ToolbarTool: String, Codable, CaseIterable, Identifiable {
         switch self { case .language: return "中 / EN"; case .clipboard: return "剪贴板"; case .emoji: return "表情"; case .oneHand: return "单手"; case .appearance: return "外观" }
     }
     public var symbol: String {
-        switch self { case .language: return "globe.asia.australia"; case .clipboard: return "clipboard"; case .emoji: return "face.smiling"; case .oneHand: return "keyboard"; case .appearance: return "slider.horizontal.3" }
+        switch self { case .language: return "character.bubble.fill"; case .clipboard: return "doc.on.clipboard.fill"; case .emoji: return "face.smiling.fill"; case .oneHand: return "keyboard.fill"; case .appearance: return "slider.horizontal.3" }
     }
 }
 
@@ -44,14 +44,17 @@ public struct KeyboardSettings: Codable, Equatable {
     public var learnChoices = false
     public var haptics = false
     public var autoCapitalization = true
-    public var clipboardLifetimeHours: Double = 1
+    /// Zero means no time-based expiry. Optional flag keeps pre-0.1.3 settings readable.
+    public var clipboardLifetimeHours: Double = 168
+    public var automaticClipboard: Bool? = nil
+    public var capturesClipboard: Bool { automaticClipboard ?? true }
     public init() {}
 
     public mutating func sanitize() {
         customAccentHex = customAccentHex.flatMap { RGBColor(hex: $0)?.hex }
         glassOpacity = min(1, max(0.15, glassOpacity.isFinite ? glassOpacity : 0.52))
         keyHeight = min(58, max(44, keyHeight.isFinite ? keyHeight : 50))
-        clipboardLifetimeHours = min(24, max(0.25, clipboardLifetimeHours.isFinite ? clipboardLifetimeHours : 1))
+        clipboardLifetimeHours = clipboardLifetimeHours == 0 ? 0 : min(8_760, max(0.25, clipboardLifetimeHours.isFinite ? clipboardLifetimeHours : 168))
         oneHandWidth = oneHandWidth.flatMap { $0.isFinite ? min(0.88, max(0.68, $0)) : nil }
         var seen = Set<ToolbarTool>()
         toolbar = toolbar.filter { seen.insert($0).inserted }

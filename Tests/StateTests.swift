@@ -14,8 +14,10 @@ final class StateTests: XCTestCase {
         let encoded = try JSONEncoder().encode(KeyboardSettings())
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object.removeValue(forKey: "oneHandWidth")
+        object.removeValue(forKey: "automaticClipboard")
         let decoded = try JSONDecoder().decode(KeyboardSettings.self, from: JSONSerialization.data(withJSONObject: object))
         XCTAssertEqual(decoded.oneHandFraction, 0.78)
+        XCTAssertTrue(decoded.capturesClipboard)
         var settings = decoded; settings.oneHandWidth = 10; settings.sanitize(); XCTAssertEqual(settings.oneHandFraction, 0.88)
     }
     func testSystemLetterRows() {
@@ -42,6 +44,7 @@ final class StateTests: XCTestCase {
     func testGlobeAndReturnRemainAvailable() {
         let bottom = KeyboardLayout.rows(page: .letters).last!.keys
         XCTAssertTrue(bottom.contains { $0.action == .globe })
+        XCTAssertTrue(bottom.contains { $0.action == .language })
         XCTAssertEqual(bottom.last?.action, .enter)
     }
     func testCompositionConsumptionHonorsApostrophes() {
@@ -89,5 +92,21 @@ final class StateTests: XCTestCase {
         for value in ["", "#12345", "#GGFF00", "#00000000"] { XCTAssertNil(RGBColor(hex: value)) }
         var settings = KeyboardSettings(); settings.customAccentHex = "invalid"; settings.sanitize()
         XCTAssertNil(settings.customAccentHex)
+    }
+    func testClipboardLifetimeSettings() {
+        var settings = KeyboardSettings(); settings.clipboardLifetimeHours = 168; settings.sanitize()
+        XCTAssertEqual(settings.clipboardLifetimeHours, 168)
+        settings.clipboardLifetimeHours = 0; settings.automaticClipboard = false; settings.sanitize()
+        XCTAssertEqual(settings.clipboardLifetimeHours, 0); XCTAssertFalse(settings.capturesClipboard)
+        settings.clipboardLifetimeHours = .nan; settings.sanitize()
+        XCTAssertEqual(settings.clipboardLifetimeHours, 168)
+    }
+    func testFourRowsFitCompressedHostHeight() {
+        for height: CGFloat in [0, 48, 180, 216, 240, 280, 500] {
+            let row = KeyboardGeometry.rowHeight(availableHeight: height)
+            XCTAssertGreaterThanOrEqual(row, 0)
+            XCTAssertLessThanOrEqual(48 + row * 4, max(48, height))
+            XCTAssertLessThanOrEqual(row, 56)
+        }
     }
 }

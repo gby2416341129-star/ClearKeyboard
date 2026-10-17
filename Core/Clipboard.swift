@@ -10,15 +10,17 @@ public struct Clip: Codable, Equatable, Identifiable {
     }
 }
 public final class ClipboardStore {
+    public static let itemLimit = 200
     private let url: URL
     public private(set) var clips: [Clip] = []
     public init(url: URL) {
         self.url = url
         if let data = try? Data(contentsOf: url), let stored = try? JSONDecoder().decode([Clip].self, from: data) {
-            clips = Array(stored.prefix(20))
+            clips = Array(stored.prefix(Self.itemLimit))
         }
     }
     public func prune(lifetime: TimeInterval, now: Date = Date()) {
+        guard lifetime > 0, lifetime.isFinite else { return }
         let previous = clips
         clips.removeAll { !$0.pinned && now.timeIntervalSince($0.createdAt) > lifetime }
         if clips != previous { persist() }
@@ -28,7 +30,7 @@ public final class ClipboardStore {
         let clean = String(text.prefix(2_000))
         if let old = clips.first(where: { $0.text == clean && $0.pinned }) { clips.removeAll { $0.id == old.id }; clips.insert(old, at: 0) }
         else { clips.removeAll { $0.text == clean }; clips.insert(Clip(text: clean, createdAt: now), at: 0) }
-        while clips.count > 20 {
+        while clips.count > Self.itemLimit {
             if let index = clips.lastIndex(where: { !$0.pinned }) { clips.remove(at: index) } else { clips.removeLast() }
         }
         persist()

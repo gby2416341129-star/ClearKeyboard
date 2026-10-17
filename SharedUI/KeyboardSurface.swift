@@ -6,8 +6,6 @@ import UIKit
     var configureGlobe: ((UIButton) -> Void)? { didSet { layoutSignature = ""; render() } }
     private let backdrop = GlassBackdrop()
     private let toolbar = UIStackView()
-    private let spelling = UILabel()
-    private let clearSpelling = UIButton(type: .system)
     private let candidateScroll = UIScrollView()
     private let candidateStack = UIStackView()
     private let hint = UILabel()
@@ -32,22 +30,18 @@ import UIKit
     private var initialized = false
     private var rendering = false
     private var renderQueued = false
-    private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty ? 40 : 0 }
-    private var headerHeight: CGFloat { 44 + candidateHeight }
+    private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty ? 48 : 0 }
+    private var headerHeight: CGFloat { 48 }
     var desiredHeight: CGFloat { headerHeight + CGFloat(model.settings.keyHeight + 6) * 4 + 8 }
 
     init(model: KeyboardModel) {
         self.model = model; super.init(frame: .zero)
         clipsToBounds = true; addSubview(backdrop)
         layer.cornerCurve = .continuous; layer.cornerRadius = 28
-        if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .containerConcentric(minimum: 28)) }
+        // Remote hosts may advertise a much larger corner radius; never inherit it.
+        if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(28)) }
         toolbar.axis = .horizontal; toolbar.distribution = .fill; toolbar.alignment = .center; toolbar.spacing = 10
-        addSubview(toolbar); addSubview(spelling); addSubview(clearSpelling)
-        spelling.font = .monospacedSystemFont(ofSize: 16, weight: .medium); spelling.textColor = .label
-        spelling.lineBreakMode = .byTruncatingHead
-        clearSpelling.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        clearSpelling.accessibilityLabel = "清除拼音"
-        clearSpelling.addAction(UIAction { [weak model] _ in model?.clearComposition() }, for: .touchUpInside)
+        addSubview(toolbar)
         addSubview(candidateScroll); candidateScroll.addSubview(candidateStack)
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateStack.axis = .horizontal; candidateStack.spacing = 22; candidateStack.alignment = .center
@@ -68,6 +62,10 @@ import UIKit
             view.appearanceSignature = ""; view.render()
         }
         initialized = true; render()
+        model.clipboardCapture.onCapture = { [weak self] in
+            guard let self, self.panelKind == .clipboard else { return }
+            self.panelKind = nil; self.showPanel(.clipboard)
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     deinit { observerTokens.forEach { NotificationCenter.default.removeObserver($0) } }
@@ -81,26 +79,24 @@ import UIKit
         let available = max(0, bounds.width - left - right)
         let width = settings.hand == .full ? available : available * settings.oneHandFraction
         let origin = settings.hand == .right ? bounds.width - right - width : left
-        toolbar.frame = CGRect(x: origin + 12, y: 0, width: max(0, width - 24), height: 44)
-        spelling.frame = CGRect(x: origin + 16, y: 0, width: max(0, width - 70), height: 44)
-        clearSpelling.frame = CGRect(x: origin + width - 48, y: 0, width: 44, height: 44)
-        candidateScroll.frame = CGRect(x: origin + 14, y: 44, width: max(0, width - 28), height: candidateHeight)
-        let fitting = candidateStack.systemLayoutSizeFitting(CGSize(width: UIView.layoutFittingCompressedSize.width, height: 40),
+        toolbar.frame = CGRect(x: origin + 16, y: 0, width: max(0, width - 32), height: headerHeight)
+        candidateScroll.frame = CGRect(x: origin + 16, y: 0, width: max(0, width - 32), height: candidateHeight)
+        let fitting = candidateStack.systemLayoutSizeFitting(CGSize(width: UIView.layoutFittingCompressedSize.width, height: 44),
             withHorizontalFittingPriority: .fittingSizeLevel, verticalFittingPriority: .required)
-        candidateStack.frame = CGRect(x: 2, y: 0, width: max(0, fitting.width), height: 40)
+        candidateStack.frame = CGRect(x: 2, y: 2, width: max(0, fitting.width), height: 44)
         candidateStack.layoutIfNeeded()
-        candidateScroll.contentSize = CGSize(width: candidateStack.frame.width + 12, height: 40)
+        candidateScroll.contentSize = CGSize(width: candidateStack.frame.width + 12, height: 48)
         hint.frame = candidateScroll.frame
         status.frame = CGRect(x: origin + 12, y: 2, width: max(0, width - 24), height: 40)
-        keyGlassGroup.frame = CGRect(x: origin, y: headerHeight, width: width, height: max(0, desiredHeight - headerHeight))
-        let unit = width / 10, rowHeight = CGFloat(settings.keyHeight + 6)
+        keyGlassGroup.frame = CGRect(x: origin, y: headerHeight, width: width, height: max(0, bounds.height - headerHeight))
+        let unit = width / 10, rowHeight = KeyboardGeometry.rowHeight(availableHeight: bounds.height, header: headerHeight, preferred: CGFloat(settings.keyHeight + 6))
         for (button, row, start, units) in keys {
             button.frame = CGRect(x: CGFloat(start) * unit, y: CGFloat(row) * rowHeight, width: CGFloat(units) * unit, height: rowHeight)
         }
         sideRail.isHidden = settings.hand == .full
         sideRail.frame = CGRect(x: settings.hand == .right ? left + 4 : origin + width + 4, y: headerHeight + 8,
-            width: max(0, available - width - 8), height: rowHeight * 4 - 16)
-        panel?.frame = CGRect(x: origin + 8, y: headerHeight, width: max(0, width - 16), height: max(0, desiredHeight - headerHeight - 8))
+            width: max(0, available - width - 8), height: max(0, rowHeight * 4 - 16))
+        panel?.frame = CGRect(x: origin + 12, y: headerHeight, width: max(0, width - 24), height: max(0, bounds.height - headerHeight - 12))
     }
     func render() {
         guard initialized else { return }
@@ -146,13 +142,16 @@ import UIKit
         for (button, _, _, _) in keys {
             var title: String? = nil
             if button.key.action == .space { title = settings.language == .chinese ? "空格" : "space" }
+            if button.key.action == .language { title = settings.language == .chinese ? "中" : "EN" }
             if button.key.action == .enter { title = model.composition.isEmpty ? (model.document?.enterTitle ?? "换行") : "确认" }
             if appearanceChanged { button.apply(settings, title: title, active: button.key.action == .shift && model.shifted, capsLocked: model.capsLocked) }
             else if let title { button.updateTitle(title) }
+            if button.key.action == .language {
+                button.accessibilityLabel = settings.language == .chinese ? "中文，点按切换英文" : "英文，点按切换中文"
+                button.accessibilityIdentifier = "key.language"
+            }
         }
-        spelling.text = model.composition.raw
-        toolbar.isHidden = !model.composition.raw.isEmpty
-        spelling.isHidden = model.composition.raw.isEmpty; clearSpelling.isHidden = spelling.isHidden
+        toolbar.isHidden = candidateHeight > 0
         if candidateSnapshot != model.candidates {
             candidateSnapshot = model.candidates
             candidateStack.arrangedSubviews.forEach { candidateStack.removeArrangedSubview($0); $0.removeFromSuperview() }
@@ -161,7 +160,11 @@ import UIKit
                 button.titleLabel?.font = .systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
                 button.setTitleColor(index == 0 ? settings.accentInkColor : .label, for: .normal)
                 button.accessibilityLabel = "候选：" + candidate.text; button.accessibilityIdentifier = "candidate.\(candidate.text)"
-                button.heightAnchor.constraint(equalToConstant: 40).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                if index == 0 {
+                    button.backgroundColor = settings.accentColor.withAlphaComponent(0.12)
+                    button.layer.cornerRadius = 10; button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+                }
                 button.addAction(UIAction { [weak model] _ in model?.choose(candidate) }, for: .touchUpInside)
                 candidateStack.addArrangedSubview(button)
             }
@@ -180,12 +183,11 @@ import UIKit
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
-        config.image = image ?? symbol.flatMap { UIImage(systemName: $0) }
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        config.image = image ?? symbol.map { ToolArtwork.image(symbol: $0, size: 34) }
         config.baseForegroundColor = .secondaryLabel
-        config.background.backgroundColor = UIColor.tertiarySystemFill
+        config.background.backgroundColor = .clear
         config.background.cornerRadius = 17
-        config.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 7, bottom: 7, trailing: 7)
+        config.contentInsets = .zero
         button.configuration = config; button.accessibilityLabel = label
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
         button.heightAnchor.constraint(equalToConstant: 34).isActive = true
@@ -195,7 +197,7 @@ import UIKit
     private func rebuildToolbar() {
         toolbar.arrangedSubviews.forEach { toolbar.removeArrangedSubview($0); $0.removeFromSuperview() }
         let brand = circleButton(symbol: toolbarEditing ? "checkmark" : (toolboxVisible ? "chevron.down" : nil),
-            image: toolbarEditing || toolboxVisible ? nil : ClearBrand.image(22), label: toolbarEditing ? "完成工具栏编辑" : "键盘工具") { [weak self] in
+            image: toolbarEditing || toolboxVisible ? nil : ToolArtwork.brand(size: 34), label: toolbarEditing ? "完成工具栏编辑" : "键盘工具") { [weak self] in
                 guard let self else { return }
                 if self.toolbarEditing { self.closePanel() }
                 else if self.toolboxVisible { self.closePanel() }
@@ -331,13 +333,12 @@ import UIKit
             for offset in 0..<3 {
                 guard start + offset < items.count else { row.addArrangedSubview(UIView()); continue }
                 let (title, symbol, action) = items[start + offset]
-                var config = UIButton.Configuration.plain(); config.title = title; config.image = UIImage(systemName: symbol)
-                config.imagePlacement = .top; config.imagePadding = 8; config.baseForegroundColor = .label
-                config.background.backgroundColor = .tertiarySystemFill; config.background.cornerRadius = 14
-                config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 23, weight: .regular)
+                var config = UIButton.Configuration.plain(); config.title = title; config.image = ToolArtwork.image(symbol: symbol, size: 32)
+                config.imagePlacement = .top; config.imagePadding = 7; config.baseForegroundColor = .label
+                config.background.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.5); config.background.cornerRadius = 16
                 config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 11); return result }
                 let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
-                button.heightAnchor.constraint(equalToConstant: 66).isActive = true; row.addArrangedSubview(button)
+                button.heightAnchor.constraint(equalToConstant: 72).isActive = true; row.addArrangedSubview(button)
             }
             stack.addArrangedSubview(row)
         }
@@ -407,21 +408,22 @@ import UIKit
     }
     private func buildClipboard(_ stack: UIStackView) {
         guard model.document?.fullAccess == true else {
-            stack.addArrangedSubview(note("在系统设置中为「澈」开启完全访问后，可手动读取剪贴板。输入和离线词库无需此权限。")); return
+            stack.addArrangedSubview(note("开启「允许完全访问」后可自动保存复制的文字。首次读取请允许系统的粘贴请求。")); return
         }
         let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)); clipboard = store
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3600)
         let commands = UIStackView(); commands.axis = .horizontal; commands.distribution = .fillEqually
-        commands.addArrangedSubview(actionButton("读取系统剪贴板", symbol: "plus") { [weak self] in
+        commands.addArrangedSubview(actionButton("保存当前内容", symbol: "plus") { [weak self] in
             guard let self else { return }
-            let text = UIPasteboard.general.string
-            if let text { store.add(text) }
+            let saved = self.model.clipboardCapture.captureManually()
             self.panelKind = nil; self.showPanel(.clipboard)
-            if text == nil { self.showStatus("剪贴板中没有可读取的文字") }
+            if !saved { self.showStatus("没有可读取的文字，请检查系统粘贴权限") }
         })
         commands.addArrangedSubview(actionButton("清空") { [weak self] in store.clear(); self?.panelKind = nil; self?.showPanel(.clipboard) })
         stack.addArrangedSubview(commands)
-        if store.clips.isEmpty { stack.addArrangedSubview(note("只保存你主动读取的内容；未固定项目按设置自动过期。")); return }
+        let lifetime = model.settings.clipboardLifetimeHours
+        stack.addArrangedSubview(note((model.settings.capturesClipboard ? "自动收录已开启" : "自动收录已关闭") + " · " + (lifetime == 0 ? "永久保留" : lifetime >= 24 ? "保留 \(Int(lifetime / 24)) 天" : "保留 \(Int(lifetime * 60)) 分钟")))
+        if store.clips.isEmpty { stack.addArrangedSubview(note("复制文字后，打开澈键盘即可收录。系统询问粘贴权限时请允许；保留时间可在 App 的「输入」中修改。")); return }
         let scroll = UIScrollView(); scroll.heightAnchor.constraint(equalToConstant: 126).isActive = true
         let list = UIStackView(); list.axis = .vertical; list.spacing = 4; list.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(list); stack.addArrangedSubview(scroll)

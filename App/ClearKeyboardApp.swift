@@ -10,7 +10,9 @@ import UIKit
 
 @MainActor final class Preferences: ObservableObject {
     private let store: SettingsStore
-    @Published var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings) } }
+    private let clipboardCapture = ClipboardCapture()
+    private var active = false
+    @Published var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings); if active { activate() } } }
     init() {
         let activeStore = SettingsStore(defaults: SharedStorage.defaults(allowShared: true))
         store = activeStore; settings = activeStore.load()
@@ -24,6 +26,8 @@ import UIKit
         store.defaults.removeObject(forKey: "clear.learned.v1")
     }
     func clearClipboard() { ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)).clear() }
+    func activate() { active = true; clipboardCapture.activate(settings: settings, allowed: true) }
+    func deactivate() { active = false; clipboardCapture.stop() }
 }
 
 struct RootView: View {
@@ -34,7 +38,9 @@ struct RootView: View {
             NavigationStack { CustomizationView() }.tabItem { Label("定制", systemImage: "slider.horizontal.3") }
             NavigationStack { InputSettingsView() }.tabItem { Label("输入", systemImage: "keyboard") }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload() }
+        .onAppear { preferences.activate() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in preferences.deactivate() }
     }
 }
 
@@ -107,7 +113,7 @@ struct SetupView: View {
                     Label("输入时，长按地球键切换到澈", systemImage: "3.circle")
                 }
                 Section("可选：完全访问") {
-                    Text("开启后可同步本 App 的设置，并手动读取剪贴板、复制图片贴纸。不开启仍可离线打字，也能在键盘工具栏调节外观和单手模式。")
+                    Text("开启后可同步本 App 的设置、自动收录复制的文字和复制图片贴纸。首次读取请允许系统的粘贴请求。不开启仍可离线打字，也能在键盘工具栏调节外观和单手模式。")
                     Button("打开系统设置") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
                 }
                 Section { Text("密码框、部分电话号码框和禁用第三方键盘的 App 会使用系统键盘。回车行为由当前 App 决定。") }

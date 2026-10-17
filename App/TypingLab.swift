@@ -55,7 +55,8 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
         placeholder.frame = CGRect(x: 16, y: 17, width: max(0, view.bounds.width - 32), height: 22)
         surface.frame = CGRect(x: 0, y: view.bounds.height - height, width: view.bounds.width, height: height)
     }
-    override func viewWillDisappear(_ animated: Bool) { super.viewWillDisappear(animated); surface?.stopInteractions(); model?.suspend(); textView.resignFirstResponder() }
+    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); model?.startClipboardCapture() }
+    override func viewWillDisappear(_ animated: Bool) { super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend(); textView.resignFirstResponder() }
     func applyExternalSettings(_ settings: KeyboardSettings) {
         guard initialSettings != settings else { return }
         initialSettings = settings
@@ -95,6 +96,12 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
     var fullAccess: Bool { true }
     var prefersEnglish: Bool { false }
     func insert(_ text: String) { editingInternally = true; textView.insertText(text); rememberSelection(); editingInternally = false }
+    func setMarkedText(_ text: String) {
+        editingInternally = true
+        textView.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+        rememberSelection(); editingInternally = false
+    }
+    func unmarkText() { editingInternally = true; textView.unmarkText(); rememberSelection(); editingInternally = false }
     func deleteBackward() { editingInternally = true; textView.deleteBackward(); rememberSelection(); editingInternally = false }
     func moveCursor(_ offset: Int) {
         editingInternally = true

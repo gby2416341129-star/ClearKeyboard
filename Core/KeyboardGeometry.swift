@@ -2,6 +2,11 @@ import Foundation
 import CoreGraphics
 
 public enum KeyboardGeometry {
+    /// Fit the four rows to the height the host actually gives us, including during resize animations.
+    public static func rowHeight(availableHeight: CGFloat, header: CGFloat = 48, preferred: CGFloat = 56) -> CGFloat {
+        guard availableHeight.isFinite, header.isFinite, preferred.isFinite else { return 0 }
+        return min(max(0, preferred), max(0, availableHeight - header - 8) / 4)
+    }
     /// UIKit can lay out a key at zero size while its input view is being attached.
     public static func keyPlate(in bounds: CGRect) -> CGRect {
         guard bounds.origin.x.isFinite, bounds.origin.y.isFinite,

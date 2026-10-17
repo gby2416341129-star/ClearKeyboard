@@ -9,10 +9,10 @@ final class ClipboardTests: XCTestCase {
         store = ClipboardStore(url: root.appendingPathComponent("clipboard.json"))
     }
     override func tearDown() { try? FileManager.default.removeItem(at: root) }
-    func testOnlyTwentyItemsRetained() {
-        for value in 0..<30 { store.add("clip \(value)") }
-        XCTAssertEqual(store.clips.count, 20)
-        XCTAssertEqual(store.clips.first?.text, "clip 29")
+    func testTwoHundredItemsRetained() {
+        for value in 0..<210 { store.add("clip \(value)") }
+        XCTAssertEqual(store.clips.count, 200)
+        XCTAssertEqual(store.clips.first?.text, "clip 209")
     }
     func testDeduplicationAndPersistence() {
         store.add("hello"); store.add("hello")
@@ -33,5 +33,16 @@ final class ClipboardTests: XCTestCase {
         for value in 0..<12 { store.add("\(value)"); store.togglePin(store.clips[0].id) }
         XCTAssertEqual(store.clips.filter(\.pinned).count, 10)
         store.clear(); XCTAssertTrue(store.clips.isEmpty)
+    }
+    func testSevenDaysAndPermanentRetention() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let week: TimeInterval = 7 * 24 * 3600
+        store.add("old", now: start)
+        store.add("recent", now: start.addingTimeInterval(60))
+        store.prune(lifetime: week, now: start.addingTimeInterval(week + 1))
+        XCTAssertEqual(store.clips.map(\.text), ["recent"])
+        store.prune(lifetime: 0, now: start.addingTimeInterval(100 * week))
+        XCTAssertEqual(store.clips.map(\.text), ["recent"])
+        XCTAssertEqual(ClipboardStore(url: root.appendingPathComponent("clipboard.json")).clips, store.clips)
     }
 }

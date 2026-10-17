@@ -69,7 +69,7 @@ struct CustomizationView: View {
             }
             Section {
                 ForEach(preferences.settings.toolbar) { item in
-                    HStack { Label(item.title, systemImage: item.symbol); Spacer(); Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary) }
+                    HStack { Image(uiImage: ToolArtwork.image(symbol: item.symbol, size: 28)); Text(item.title); Spacer(); Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary) }
                 }
                 .onMove { source, destination in preferences.settings.toolbar.move(fromOffsets: source, toOffset: destination) }
                 .onDelete { offsets in
@@ -80,7 +80,7 @@ struct CustomizationView: View {
                     Button { preferences.settings.toolbar.append(item) } label: { Label("添加" + item.title, systemImage: "plus.circle") }
                         .disabled(preferences.settings.toolbar.filter { $0 != .language }.count >= 3)
                 }
-            } header: { Text("工具栏 · 拖动排序") } footer: { Text("最多放三个快捷工具；也可在键盘内长按工具栏调整。中 / EN 始终可在工具面板中切换。") }
+            } header: { Text("工具栏 · 拖动排序") } footer: { Text("最多放三个快捷工具；也可在键盘内长按工具栏调整。空格旁的中 / EN 键可一键切换语言。") }
         }
         .navigationTitle("定制").toolbar { EditButton() }
         .onAppear { preferences.reload(); hexInput = preferences.settings.accentRGB.hex }
@@ -108,10 +108,12 @@ struct InputSettingsView: View {
                 }
             }
             Section("剪贴板") {
+                Toggle("自动保存复制的文字", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 }))
                 Picker("未固定内容保留", selection: $preferences.settings.clipboardLifetimeHours) {
-                    Text("15 分钟").tag(0.25); Text("1 小时").tag(1.0); Text("24 小时").tag(24.0)
+                    Text("15 分钟").tag(0.25); Text("1 小时").tag(1.0); Text("1 天").tag(24.0)
+                    Text("7 天").tag(168.0); Text("30 天").tag(720.0); Text("永久").tag(0.0)
                 }
-                Text("不自动读取系统剪贴板。最多保存 20 条、每条 2,000 字，最多固定 10 条。固定内容保留至你手动删除。")
+                Text("App 或澈键盘打开时自动收录最新复制的文字；需要完全访问和系统粘贴许可。iOS 不允许在后台持续收集复制历史。最多 200 条、每条 2,000 字，最多固定 10 条；永久保留不会按时间过期。")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("清空剪贴板记录", role: .destructive) { preferences.clearClipboard() }
             }
@@ -123,7 +125,7 @@ struct InputSettingsView: View {
             }
             Section("隐私") {
                 Label("没有账号、广告或网络请求", systemImage: "lock.shield")
-                Text("不记录原始按键或整段输入。可选的选词学习只记录已选词的次数。剪贴板由你主动保存，文件使用设备数据保护。")
+                Text("不记录原始按键或整段输入。可选的选词学习只记录已选词的次数。剪贴板仅在本机保存，可关闭自动收录、设置保留时间或随时清空；文件使用设备数据保护。")
                     .font(.caption).foregroundStyle(.secondary)
                 NavigationLink("开源许可") { LicenseView() }
             }
