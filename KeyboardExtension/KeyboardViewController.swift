@@ -63,10 +63,10 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         guard let model, let surface else { return }
+        // Remote context reads are synchronous. A drag only needs to send caret offsets;
+        // reconcile the context once when the trackpad session ends.
+        if model.isMovingCursor { return }
         let identifier = connectedDocumentIdentifier(), context = contextBefore
-        if model.isMovingCursor {
-            documentID = identifier; previousContext = context; expectedContext = context; return
-        }
         if identifier != documentID || (context != previousContext && context != expectedContext && !recentOwnContexts.contains(context)) {
             recentOwnContexts.removeAll()
             surface.closePanel(); model.cursorChanged()
@@ -129,6 +129,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     func moveCursor(_ offset: Int) {
         textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+        if model?.isMovingCursor == true { return }
         previousContext = contextBefore; expectedContext = previousContext
     }
     func beginTrackpad() { trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter) }
@@ -137,7 +138,11 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let offset = state.offset(translation: translation); trackpad = state
         if offset != 0 { moveCursor(offset) }
     }
-    func endTrackpad() { trackpad = nil }
+    func endTrackpad() {
+        trackpad = nil; documentID = connectedDocumentIdentifier()
+        previousContext = contextBefore; expectedContext = previousContext
+        rememberOwnContext(previousContext)
+    }
     func nextKeyboard() { advanceToNextInputMode() }
     func clearInput() -> DeletedInput? {
         guard connectedDocumentIdentifier() != nil else { return nil }

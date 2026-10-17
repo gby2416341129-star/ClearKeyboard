@@ -6,6 +6,18 @@ TEST_DEVICE="$(cat .build/native-device-id)"
 python3 -m http.server 8765 --bind 127.0.0.1 --directory UITests > .build/UITestDiagnostics/server.log 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+python3 - <<'PY'
+import time, urllib.request
+for attempt in range(40):
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:8765/safari-fixture.html', timeout=1) as response:
+            assert response.status == 200
+        break
+    except OSError:
+        time.sleep(0.1)
+else:
+    raise RuntimeError('Safari fixture server did not start')
+PY
 xcrun simctl openurl "$TEST_DEVICE" 'http://127.0.0.1:8765/safari-fixture.html'
 set +e
 xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \

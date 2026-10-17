@@ -256,6 +256,7 @@ editor.inputMode = 'none';
 
 function switchLanguage() { commit(); language = language === 'zh' ? 'en' : 'zh'; page = 'letters'; shift = false; renderCandidates(); renderKeys(); }
 function setHand(value) { finishSpaceTrackpad(true); hand = value; document.querySelectorAll('button[data-hand]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.hand === value))); renderKeys(); }
+function toggleOneHand() { const next = hand === 'right' ? 'left' : 'right'; closePanel(); setHand(next); }
 function closePanel() { panel.classList.remove('open'); panelType = ''; renderToolbar(); }
 const toolLabels = {language:'中 / EN',clipboard:'剪贴板',emoji:'表情',onehand:'单手模式',appearance:'外观',toolbar:'定制工具栏'};
 function renderToolbar() {
@@ -289,6 +290,7 @@ function renderToolbar() {
     }
     button.onclick = () => {
       if (panelType === 'toolbar') { pinnedTools = pinnedTools.filter(value => value !== tool); openPanel('toolbar',true); }
+      else if (tool === 'onehand') toggleOneHand();
       else openPanel(tool);
     };
     tools.append(button);
@@ -325,6 +327,7 @@ function openPanel(type, refresh = false) {
           else { toast('先移除一个工具，再添加'); return; }
           openPanel('toolbar',true);
         } else if (name === 'language') { closePanel(); switchLanguage(); }
+        else if (name === 'onehand') toggleOneHand();
         else openPanel(name);
       };
       items.append(button);

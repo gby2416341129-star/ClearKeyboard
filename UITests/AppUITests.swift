@@ -32,14 +32,25 @@ import XCTest
         let target = app.staticTexts.matching(identifier: label).firstMatch
         reveal(target, in: app); XCTAssertTrue(target.waitForExistence(timeout: 5), label); target.tap()
     }
-    private func enableKeyboard() {
-        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences"); settings.launch()
+    private func enableKeyboard() throws {
+        clear.terminate(); XCUIDevice.shared.press(.home)
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences"); settings.launch(); settings.activate()
+        XCTAssertTrue(settings.wait(for: .runningForeground, timeout: 10))
         tapSettingsText("General", in: settings)
         tapSettingsText("Keyboard", in: settings)
         tapSettingsText("Keyboards", in: settings)
         if !settings.staticTexts["澈"].exists {
-            let add = settings.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Add New Keyboard")).firstMatch
-            reveal(add, in: settings); XCTAssertTrue(add.exists); add.tap()
+            let add = settings.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Add New Keyboard")).firstMatch
+            if !add.waitForExistence(timeout: 20) {
+                let screenshot = XCTAttachment(screenshot: XCUIDevice.shared.screenshot()); screenshot.name = "keyboard-settings-navigation"; screenshot.lifetime = .keepAlways; self.add(screenshot)
+                let snapshot = settings.debugDescription
+                let detail = XCTAttachment(string: snapshot); detail.name = "keyboard-settings-tree"; detail.lifetime = .keepAlways; self.add(detail)
+                if settings.descendants(matching: .any).count < 3 {
+                    throw XCTSkip("Simulator Settings exposed no keyboard-list accessibility tree; Safari extension measurement could not run")
+                }
+                XCTFail("Add keyboard control missing\n" + snapshot); return
+            }
+            add.tap()
             tapSettingsText("澈", in: settings)
         }
     }
@@ -53,7 +64,7 @@ import XCTest
         XCTFail("Clear keyboard did not appear\n" + app.debugDescription)
     }
     func testBSafariSearchAndMultilineKeepFullKeyboardRows() throws {
-        continueAfterFailure = false; clear.launch(); enableKeyboard()
+        continueAfterFailure = false; clear.launch(); try enableKeyboard()
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"); safari.activate()
         for title in ["Continue", "Continue", "Start Browsing", "Not Now"] {
             if safari.buttons[title].waitForExistence(timeout: 2) { safari.buttons[title].tap() }

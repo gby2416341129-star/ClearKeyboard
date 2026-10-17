@@ -120,6 +120,23 @@ import UIKit
             full.sendActions(for: .touchUpInside); XCTAssertEqual(controller.model.settings.hand, .full)
         }
     }
+    func testOneHandIconImmediatelyChangesSideWithoutAnExtraPanel() throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: 700)
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        surface.setToolPinned(.emoji, pinned: false); surface.setToolPinned(.oneHand, pinned: true)
+        for expected in [HandMode.right, .left, .right] {
+            let button = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "toolbar.oneHand" })
+            button.sendActions(for: .touchUpInside)
+            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded(); surface.layoutIfNeeded()
+            XCTAssertEqual(controller.model.settings.hand, expected)
+            XCTAssertFalse(descendants(surface).compactMap { $0 as? UIButton }.contains { $0.title(for: .normal) == "完成" })
+            XCTAssertTrue(descendants(surface).compactMap { $0 as? KeyButton }.allSatisfy { !$0.isHidden && $0.superview?.superview?.isHidden == false })
+        }
+        let full = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "onehand.full" })
+        full.sendActions(for: .touchUpInside); XCTAssertEqual(controller.model.settings.hand, .full)
+    }
     private func snapshot(_ view: UIView, name: String) {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
         let image = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in view.drawHierarchy(in: view.bounds, afterScreenUpdates: true) }

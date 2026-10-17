@@ -228,7 +228,7 @@ import ImageIO
             let button = circleButton(symbol: tool.symbol, label: tool.title) { [weak self] in
                 guard let self else { return }
                 if self.toolbarEditing { self.setToolPinned(tool, pinned: false) }
-                else { self.showPanel(tool) }
+                else { self.activateTool(tool) }
             }
             button.accessibilityIdentifier = "toolbar.\(tool.rawValue)"
             let drag = UIDragInteraction(delegate: self); drag.isEnabled = true; button.addInteraction(drag)
@@ -312,6 +312,13 @@ import ImageIO
         panel?.removeFromSuperview(); panel = nil; panelKind = nil; toolboxVisible = false; toolbarEditing = false
         keyGlassGroup.isHidden = false; render()
     }
+    private func activateTool(_ tool: ToolbarTool) {
+        if tool == .oneHand {
+            closePanel()
+            model.settings.hand = model.settings.hand == .right ? .left : .right
+        } else if tool == .language { closePanel(); model.toggleLanguage() }
+        else { showPanel(tool) }
+    }
     func stopInteractions() { keys.forEach { $0.0.stopTracking() }; setCursorMode(false); statusWork?.cancel(); status.isHidden = true; closePanel() }
     private func showStatus(_ text: String) {
         statusWork?.cancel(); status.text = text; status.textColor = model.settings.accentInkColor
@@ -337,7 +344,7 @@ import ImageIO
         let stack = panelStack(title: "键盘工具")
         let items: [(String, String, () -> Void)] = ToolbarTool.allCases.map { tool in
             (tool == .language ? "中 / EN" : tool.title, tool.symbol, { [weak self] in
-                guard let self else { return }; if tool == .language { self.closePanel(); self.model.toggleLanguage() } else { self.showPanel(tool) }
+                self?.activateTool(tool)
             })
         } + [("定制工具栏", "rectangle.3.group.fill", { [weak self] in self?.showToolbarEditor() })]
         buildGrid(items, in: stack); render()
