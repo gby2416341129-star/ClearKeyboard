@@ -6,7 +6,7 @@ const panel = document.getElementById('panel');
 let page = 'letters', language = 'zh', shift = false, caps = false, lastShift = 0;
 let composition = '', hand = 'full', currentCandidates = [], panelType = '', clips = [];
 let pinnedTools = ['clipboard','emoji','appearance'];
-let handWidth = .78, toolbarHold = null;
+let handWidth = .78, toolbarHold = null, compositionStart = -1;
 
 const paths = {
   shift: '<path d="M12 3 3 12h5v8h8v-8h5L12 3Z"/>',
@@ -45,6 +45,16 @@ function insert(text) {
   editor.value = editor.value.slice(0,start) + text + editor.value.slice(end);
   editor.setSelectionRange(start + text.length, start + text.length);
 }
+function markPinyin(next) {
+  if (compositionStart < 0) compositionStart = editor.selectionStart;
+  editor.setSelectionRange(compositionStart, compositionStart + composition.length);
+  insert(next); composition = next;
+  if (!next) compositionStart = -1;
+}
+function replacePinyin(text) {
+  if (compositionStart >= 0) editor.setSelectionRange(compositionStart, compositionStart + composition.length);
+  insert(text); composition = ''; compositionStart = -1;
+}
 function getCandidates() {
   if (language === 'zh') {
     if (!composition) return [];
@@ -55,7 +65,7 @@ function getCandidates() {
   return word ? englishWords.filter(value => value.startsWith(word.toLowerCase()) && value !== word.toLowerCase()).slice(0,6) : [];
 }
 function renderCandidates() {
-  currentCandidates = getCandidates(); keyboard.classList.toggle('composing', !!composition);
+  currentCandidates = getCandidates(); keyboard.classList.toggle('composing', spaceGesture.active || !!composition || currentCandidates.length > 0);
   document.getElementById('spelling').textContent = composition;
   const container = document.getElementById('candidates'); container.replaceChildren();
   container.classList.toggle('visible', spaceGesture.active || !!composition || currentCandidates.length > 0);
@@ -70,7 +80,7 @@ function renderCandidates() {
   });
 }
 function choose(text) {
-  if (language === 'zh') { insert(text); composition = ''; }
+  if (language === 'zh') { replacePinyin(text); }
   else {
     const word = editor.value.slice(0,editor.selectionStart).match(/[a-zA-Z]+$/)?.[0] || '';
     editor.setSelectionRange(editor.selectionStart - word.length, editor.selectionStart);
@@ -78,7 +88,7 @@ function choose(text) {
   }
   renderCandidates(); renderKeys();
 }
-function commit() { if (composition) { insert(currentCandidates[0] || composition); composition = ''; } }
+function commit() { if (composition) replacePinyin(currentCandidates[0] || composition); }
 function key(label, action = label, units = 1, utility = false) { return {label,action,units,utility}; }
 function rows() {
   let result;
@@ -90,7 +100,7 @@ function rows() {
       (page === 'numbers' ? ['-','/',':',';','(',')','$','&','@','"'] : ['_','\\','|','~','<','>','€','£','¥','•']).map(char => key(char)),
       [key(page === 'numbers' ? '#+=' : '123',page === 'numbers' ? 'symbols' : 'numbers',1.5,true),...['.',',','?','!',"'"].map(char => key(char,char,1.4)),key('删除','delete',1.5,true)]];
   }
-  return [...result,[key(page === 'letters' ? '123' : 'ABC',page === 'letters' ? 'numbers' : 'letters',1.25,true),key('切换语言','globe',1.15,true),key(language === 'zh' ? '空格' : 'space','space',5.2),key(composition ? '确认' : '换行','enter',2.4,true)]];
+  return [...result,[key(page === 'letters' ? '123' : 'ABC',page === 'letters' ? 'numbers' : 'letters',1.25,true),key('下一个键盘','globe',1,true),key(language === 'zh' ? '空格' : 'space','space',4.35),key(language === 'zh' ? '中' : 'EN','language',1.15,true),key(composition ? '确认' : '换行','enter',2.25,true)]];
 }
 
 const metricsContext = document.createElement('canvas').getContext('2d',{willReadFrequently:true});
@@ -133,7 +143,7 @@ function renderKeys() {
       const graphic = ['shift','delete','globe'].includes(item.action);
       button.className = 'key' + (item.utility ? ' utility' : '') + (!graphic && item.label.length > 1 ? ' small' : '') + (item.action === 'enter' ? ' enter' : '') + (item.action === 'shift' && shift ? ' active' : '');
       button.style.flex = item.units; button.dataset.action = item.action;
-      button.setAttribute('aria-label',({shift:'Shift',delete:'删除',globe:'切换语言',space:'空格，按住并滑动以移动光标',enter:'回车'})[item.action] || item.label);
+      button.setAttribute('aria-label',({shift:'Shift',delete:'删除',globe:'下一个键盘',language:'切换中文和英文',space:'空格，按住并滑动以移动光标',enter:'回车'})[item.action] || item.label);
       const face = document.createElement('span'); face.className = 'key-face';
       if (graphic) face.innerHTML = icon(item.action === 'shift' && caps ? 'capslock' : item.action);
       else {
@@ -167,16 +177,17 @@ function press(action) {
   if (action === 'shift') { const now = Date.now(); caps = now - lastShift < 300; shift = caps ? true : !shift; lastShift = now; }
   else if (['letters','numbers','symbols'].includes(action)) page = action;
   else if (action === 'delete') {
-    if (composition) composition = composition.slice(0,-1);
+    if (composition) markPinyin(composition.slice(0,-1));
     else if (editor.selectionStart !== editor.selectionEnd) insert('');
     else if (editor.selectionStart) {
       const bounds = graphemeBoundaries(editor.value), pos = editor.selectionStart;
       const previous = bounds.filter(value => value < pos).pop() ?? 0;
       editor.setSelectionRange(previous,pos); insert('');
     }
-  } else if (action === 'globe') switchLanguage();
+  } else if (action === 'language') switchLanguage();
+  else if (action === 'globe') toast('原生版本：切换系统键盘');
   else if (action === 'space' || action === 'enter') { if (composition) commit(); else insert(action === 'space' ? ' ' : '\n'); }
-  else if (language === 'zh' && page === 'letters' && !shift && /^[a-z]$/.test(action)) composition += action;
+  else if (language === 'zh' && page === 'letters' && !shift && /^[a-z]$/.test(action)) markPinyin(composition + action);
   else {
     commit(); const punctuation = {',':'，','.':'。','?':'？','!':'！'};
     insert(shift && page === 'letters' ? action.toUpperCase() : language === 'zh' ? (punctuation[action] || action) : action);
@@ -295,7 +306,8 @@ function openPanel(type, refresh = false) {
     const names = type === 'tools' ? ['language','clipboard','emoji','onehand','appearance','toolbar'] : ['clipboard','emoji','onehand','appearance'];
     names.forEach(name => {
       const button = document.createElement('button');
-      button.innerHTML = icon(name === 'onehand' || name === 'language' ? 'keyboard' : name === 'toolbar' ? 'appearance' : name);
+      button.dataset.color = name;
+      button.innerHTML = '<i class="color-icon">' + icon(name === 'onehand' || name === 'language' ? 'keyboard' : name === 'toolbar' ? 'appearance' : name) + '</i>';
       const label = document.createElement('span'); label.textContent = (type === 'toolbar' ? (pinnedTools.includes(name) ? '− ' : '+ ') : '') + toolLabels[name]; button.append(label);
       button.onclick = () => {
         if (type === 'toolbar') {
@@ -319,7 +331,7 @@ function openPanel(type, refresh = false) {
     const add = document.createElement('button'); add.className = 'clip'; add.textContent = '＋ 添加示例内容';
     add.onclick = () => { clips.unshift('为你留一份灵感。'); panelType = ''; openPanel('clipboard'); }; panel.append(add);
     clips.forEach(text => { const button = document.createElement('button'); button.className = 'clip'; button.textContent = text; button.onclick = () => { commit(); insert(text); closePanel(); renderCandidates(); }; panel.append(button); });
-    note.textContent = '预览只保存示例。原生版本由用户主动读取系统剪贴板。';
+    note.textContent = '预览只保存示例。原生版自动收录复制的文字，可设保留 7 天或永久。';
   } else if (type === 'onehand') {
     const segment = document.createElement('div'); segment.className = 'segments';
     [['full','标准'],['left','左手'],['right','右手']].forEach(([value,label]) => { const button = document.createElement('button'); button.textContent = label; button.setAttribute('aria-pressed',String(value === hand)); button.onclick = () => { setHand(value); closePanel(); }; segment.append(button); }); panel.append(segment);
@@ -373,7 +385,7 @@ function installRefraction() {
   document.body.append(svg);
 }
 document.querySelector('.drop').innerHTML = icon('brand');
-document.querySelector('.clear-spelling').innerHTML = icon('close'); document.querySelector('.clear-spelling').onclick = () => { composition = ''; renderCandidates(); renderKeys(); };
+document.querySelector('.clear-spelling').innerHTML = icon('close'); document.querySelector('.clear-spelling').onclick = () => { markPinyin(''); renderCandidates(); renderKeys(); };
 document.querySelector('.enable span').innerHTML = icon('arrow');
 document.querySelectorAll('[data-tab]').forEach(button => {
   button.querySelector('b').innerHTML = icon(({home:'brand',custom:'appearance',input:'keyboard'})[button.dataset.tab]);
@@ -392,7 +404,7 @@ document.getElementById('opacity').oninput = event => {
 document.getElementById('enable').onclick = () => { document.getElementById('setup').classList.add('open'); document.getElementById('dim').style.display = 'block'; };
 function closeSetup() { document.getElementById('setup').classList.remove('open'); document.getElementById('dim').style.display = 'none'; }
 document.getElementById('setup-done').onclick = closeSetup; document.getElementById('dim').onclick = closeSetup;
-editor.addEventListener('input',() => { composition = ''; renderCandidates(); });
+editor.addEventListener('input',() => { composition = ''; compositionStart = -1; renderCandidates(); });
 window.addEventListener('resize',() => requestAnimationFrame(alignKeyLegends));
 document.fonts.ready.then(alignKeyLegends);
 installRefraction(); editor.setSelectionRange(editor.value.length,editor.value.length); renderToolbar(); renderKeys(); renderCandidates();

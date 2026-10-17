@@ -1,6 +1,6 @@
 # 生成 iPhone IPA
 
-**已生成 0.1.2（3）未签名 IPA。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38997390063) 使用 Xcode 26.6，已通过 33 项核心测试、主 App 和键盘扩展的 Release arm64 iPhone 目标编译、IPA 包检查与 8 项原生运行测试。具体交付版本的记录见 `Validation/native-build.json`；安装前仍需签名。
+**已生成 0.1.3（4）未签名 IPA。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39010537002) 使用 Xcode 26.6，已通过 36 项核心测试、主 App 和键盘扩展的 Release arm64 iPhone 目标编译、IPA 包检查与 11 项原生运行测试。具体交付版本的记录见 `Validation/native-build.json`；安装前仍需签名。
 
 ## GitHub 云构建
 

@@ -53,3 +53,22 @@
 @media(max-width:430px){.phone h2{font-size:22px}.tool{width:31px;min-width:31px;height:31px;min-height:31px}.toolbar-tools{gap:8px}.restore button{font-size:8px}}
 .key-grid,.toolbar{transition:none}
 .screen{overflow:clip}
+
+/* v0.1.3: colorful native-style tool tiles; candidates replace the toolbar. */
+.keyboard{position:relative;padding-top:48px;corner-shape:superellipse;border-radius:28px}
+.toolbar{position:absolute;top:0;left:0;right:0;height:48px;padding:0 12px}
+.toolbar-tools{height:48px}.spelling,.clear-spelling{display:none!important}
+.candidates{position:absolute;top:0;left:0;right:0;padding:0 16px;align-items:center}
+.candidates.visible{height:48px}.candidate{height:34px;border-radius:10px;font-size:17px;padding:0 9px}
+.candidate:first-child{background:rgba(var(--rgb),.12)}
+.tool{color:#fff!important;border-radius:11px;padding:7px;background:linear-gradient(140deg,#40cfc2,#218ab9)}
+.tool svg{width:19px;height:19px}.tool.brand-tool svg{width:23px;height:23px}
+.tool[data-tool=clipboard],.color-icon{background:linear-gradient(140deg,#50b0ff,#316eed)}
+.tool[data-tool=emoji],[data-color=emoji] .color-icon{background:linear-gradient(140deg,#ffc744,#ff7d29)}
+.tool[data-tool=onehand],[data-color=onehand] .color-icon{background:linear-gradient(140deg,#ad91ff,#7059e6)}
+.tool[data-tool=appearance],[data-color=appearance] .color-icon,[data-color=toolbar] .color-icon{background:linear-gradient(140deg,#ff92b0,#db5797)}
+[data-color=language] .color-icon{background:linear-gradient(140deg,#40cfc2,#218ab9)}
+.color-icon{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:10px;color:#fff}
+.color-icon svg{width:20px;height:20px}.toolbox-grid button{min-height:72px;background:#57695e0c;border-radius:16px}
+.key[data-action=language] .key-face{font-size:14px;color:var(--ink-accent)}
+.setting-row select{border:0;color:var(--ink-accent);background:transparent;font-size:12px}

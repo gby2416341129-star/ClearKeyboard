@@ -13,29 +13,29 @@
       "platform": "iOS device"
     }
   ],
-  "sha256": "676ff2bdf682745a3e5b9b06c27c31f603de26215ffe7197287fcb44009c2ed5",
+  "sha256": "692a31ee8f61957bb957e5b0f1bddc0bb59c3f7e87fa5258a9396ed74b4746a2",
   "signing": "unsigned build; no signing verification performed",
   "installableAsDelivered": false,
   "deviceTesting": "not performed",
-  "version": "0.1.2 (3)",
+  "version": "0.1.3 (4)",
   "configuration": "Release",
   "xcode": "26.6 (17F113)",
   "sdk": "iPhoneOS 26.5",
   "minimumOS": "iOS 18.0",
-  "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38997390063",
-  "sourceCommit": "7f5c6b54ad66b0f9794853e07bd822886de13326",
+  "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39010537002",
+  "sourceCommit": "8d83a8912d739ce9e76dfca15659c5cfe02d8473",
   "coreTests": {
-    "executed": 33,
+    "executed": 36,
     "failures": 0
   },
   "nativeRuntimeTests": {
     "status": "passed",
-    "executed": 8,
+    "executed": 11,
     "failures": 0,
     "skipped": 0,
-    "sourceCommit": "7f5c6b54ad66b0f9794853e07bd822886de13326",
-    "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38997390063",
-    "jobId": 117292823045,
+    "sourceCommit": "8d83a8912d739ce9e76dfca15659c5cfe02d8473",
+    "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39010537002",
+    "jobId": 117331948934,
     "device": {
       "deviceName": "iPhone 17 Pro",
       "architecture": "arm64",
@@ -45,8 +45,11 @@
     },
     "testCases": [
       "HomeScreenshots.testHomeSafeAreaAndAppearance",
+      "KeyboardRuntimeTests.testAllRowsFitHostResizeAndLargeParentCorners",
+      "KeyboardRuntimeTests.testAutomaticClipboardCaptureAndPermissionGating",
       "KeyboardRuntimeTests.testAZeroAndNarrowKeyLayout",
       "KeyboardRuntimeTests.testKeyboardControllerLifecycle",
+      "KeyboardRuntimeTests.testMarkedTextReplacementDeletionAndSelection",
       "KeyboardRuntimeTests.testSelectionNotificationsAndExternalSettingsPreserveComposition",
       "KeyboardRuntimeTests.testTextViewInputRoutesThroughChineseEngine",
       "KeyboardRuntimeTests.testToolbarAndSideRailWorkInBothHandModes",
@@ -54,25 +57,18 @@
       "KeyboardRuntimeTests.testTypingLabFitsAllFourRowsWhileComposing"
     ],
     "screenshots": [
+      "NativeScreenshots/compressed-host.png",
       "NativeScreenshots/home-dark.png",
       "NativeScreenshots/home-light.png",
       "NativeScreenshots/pinyin-candidates.png",
       "NativeScreenshots/single-hand-left.png",
       "NativeScreenshots/single-hand-right.png"
     ],
-    "coverage": "UIKit control events, text editing callbacks, layout, toolbar mutations, left/right side rails, safe area, and controller startup before connecting a remote host.",
-    "notCovered": "Physical iPhone installation or signing, third-party app remote input connections, native finger drag gestures, latency, memory peaks or battery measurements.",
-    "startupRegression": {
-      "beforeCommit": "fd78c4d1d604efdbb1ce18e42d77f70f9bf5d314",
-      "exception": "EXC_BREAKPOINT / SIGTRAP",
-      "location": "KeyboardViewController.viewDidLoad(), former line 25",
-      "bridge": "UUID._unconditionallyBridgeFromObjectiveC",
-      "context": "UIKit returned a nil document identifier before the remote host connection existed.",
-      "after": "The public Objective-C getter preserves the optional value; pre-connection startup regression passed."
-    },
-    "artifactSha256": "ce468eb44cfba89b08360a2bcfb5994d4420a6b7d214151ec6311195837f509a"
+    "coverage": "UIKit marked pinyin in the input field, selection replacement, deletion, candidate commit, direct language key, automatic clipboard events and permission/disable gating with an injected clipboard, all four rows at 180–280 pt in both hand modes, a parent with a large radius, toolbar mutations, home safe areas and pre-connection controller startup.",
+    "notCovered": "Physical iPhone signing/installation, WeChat or Search remote input connections, real system paste permission dialogs, native finger drag gestures, memory peaks, latency or energy measurements.",
+    "artifactSha256": "e5e66ec491f86076480aa9f32018e4983a8c6d77845e106c3cfeb4dbfc0efb5b"
   },
   "principalClass": "ClearKeyboardViewController",
-  "artifactSha256": "467d7225a4b8dc88a260c727c16c8c215bc1bad2f8727f50af23985da7b2136f",
-  "bytes": 9203514
+  "artifactSha256": "bf78682b028e2b06fc78fa3f8a6fc7992a6efdbe9b26e7a077e3168f9446206e",
+  "bytes": 9230713
 }
