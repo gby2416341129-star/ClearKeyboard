@@ -59,7 +59,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // A cached host frame is provisional, especially when Safari changes input traits.
         // Keep the requested key pitch while UIKit negotiates the remote view's final height.
         // Squeezing the surface into that frame permanently changed both key size and font size.
-        surface.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: max(0, view.bounds.width), height: surface.desiredHeight)
+        let top = max(view.bounds.minY, view.bounds.maxY - surface.desiredHeight)
+        surface.frame = CGRect(x: view.bounds.minX, y: top, width: max(0, view.bounds.width), height: surface.desiredHeight)
         updateHeight(surface.desiredHeight)
         if abs(view.bounds.height - surface.desiredHeight) > 0.5 { queueHeightRefresh() }
     }
@@ -86,7 +87,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
                 self.view.invalidateIntrinsicContentSize()
                 self.view.setNeedsUpdateConstraints(); self.view.setNeedsLayout()
                 self.view.superview?.setNeedsLayout()
-                self.parent?.preferredContentSizeDidChange(forChildContentContainer: self)
             }
         }
     }
@@ -229,6 +229,8 @@ final class KeyboardInputView: UIInputView {
     }
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: KeyboardGeometry.preferredHeight()), inputViewStyle: .keyboard)
+        // The remote host must use our explicit height instead of a mask-derived cached frame.
+        translatesAutoresizingMaskIntoConstraints = false
         allowsSelfSizing = true; isOpaque = false; backgroundColor = .clear
         setContentCompressionResistancePriority(.required, for: .vertical)
     }

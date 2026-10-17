@@ -342,6 +342,7 @@ import UIKit
         let input = try XCTUnwrap(controller.view as? KeyboardInputView)
         let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
         XCTAssertTrue(input.allowsSelfSizing)
+        XCTAssertFalse(input.translatesAutoresizingMaskIntoConstraints)
         XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 393, height: 0)).height, surface.desiredHeight, accuracy: 1)
         XCTAssertTrue(surface.systemBacked); XCTAssertFalse(surface.isOpaque)
         XCTAssertEqual(surface.layer.cornerRadius, 0)
@@ -372,10 +373,11 @@ import UIKit
         let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.q" })
         let a = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.a" })
-        for height: CGFloat in [216, 245, 276, 330, 245, 276] {
+        for height: CGFloat in [216, 245, 276, 330, 701, 245, 276] {
             controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: height)
             controller.view.setNeedsLayout(); controller.view.layoutIfNeeded(); surface.layoutIfNeeded()
             XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(surface.frame.minY, max(0, controller.view.bounds.height - surface.desiredHeight), accuracy: 0.5)
             XCTAssertEqual(input.sizeThatFits(CGSize(width: 420, height: height)).height, surface.desiredHeight, accuracy: 0.5)
             XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 420, height: height)).height, surface.desiredHeight, accuracy: 0.5)
             XCTAssertEqual(input.intrinsicContentSize.height, surface.desiredHeight, accuracy: 0.5)

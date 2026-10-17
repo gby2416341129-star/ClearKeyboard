@@ -76,6 +76,8 @@ import XCTest
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5, context)
         XCTAssertEqual(z.frame.minY - a.frame.minY, 56, accuracy: 0.5, context)
         XCTAssertEqual(language.frame.minY - z.frame.minY, 56, accuracy: 0.5, context)
+        XCTAssertGreaterThan(q.frame.minY, app.frame.height * 0.5, context + " placed keys over the webpage")
+        XCTAssertLessThan(language.frame.maxY, app.frame.height - 34, context + " covered the system keyboard controls")
         XCTAssertTrue(q.isHittable && language.isHittable, context + " clipped a keyboard row")
         print("SAFARI_ROWS " + context + " q=" + String(describing: q.frame) + " language=" + String(describing: language.frame))
     }
@@ -114,16 +116,25 @@ import XCTest
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
         XCTAssertGreaterThan(z.frame.minY, q.frame.maxY)
         XCTAssertGreaterThanOrEqual(language.frame.minY, z.frame.maxY)
+        assertFullRows(in: safari, context: "Safari search input")
         let searchHeight = q.frame.height
-        q.tap(); attachment(safari, name: "safari-search-keyboard")
+        q.tap(); XCTAssertTrue((field.value as? String)?.lowercased().contains("q") == true)
+        attachment(safari, name: "safari-search-keyboard")
         let multiline = safari.webViews.textViews.matching(identifier: "Safari multiline size check").firstMatch
         XCTAssertTrue(multiline.exists); focusInput(multiline, in: safari)
         XCTAssertEqual(q.frame.height, searchHeight, accuracy: 1)
         XCTAssertEqual(q.frame.height, 56, accuracy: 0.5)
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
+        assertFullRows(in: safari, context: "Safari multiline input")
+        let w = safari.descendants(matching: .any).matching(identifier: "key.text.w").firstMatch
+        w.tap(); XCTAssertTrue((multiline.value as? String)?.lowercased().contains("w") == true, "Typing must reach the newly focused textarea")
         attachment(safari, name: "safari-multiline-keyboard")
+        // Safari compresses its address capsule while editing a web form. Dismiss that
+        // input with the observed accessory control, then select the actual address field.
+        let formDone = safari.buttons["Done"]
+        XCTAssertTrue(formDone.exists, safari.debugDescription); formDone.tap()
         // The address bar uses different input traits from a webpage search field.
-        let address = safari.textFields.matching(NSPredicate(format: "identifier == 'URL' OR label CONTAINS[c] 'Address'")).firstMatch
+        let address = safari.textFields.matching(NSPredicate(format: "identifier == 'TabBarItemTitle' OR identifier == 'URL' OR label CONTAINS[c] 'Address'")).firstMatch
         if address.exists && address.isHittable { focusInput(address, in: safari) }
         else {
             let location = safari.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'URL' OR label == 'Address' OR label == 'Search or enter website name' OR (elementType == 9 AND label CONTAINS '127.0.0.1')")).firstMatch

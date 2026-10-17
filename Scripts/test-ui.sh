@@ -24,7 +24,7 @@ xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
   -derivedDataPath .build/Native -resultBundlePath .build/UIResults.xcresult \
   -destination-timeout 60 -parallel-testing-enabled NO \
-  -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180 \
+  -test-timeouts-enabled YES -maximum-test-execution-time-allowance 300 \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test 2>&1 | tee .build/ui-tests.log
 TEST_EXIT=${PIPESTATUS[0]}
 set -e
