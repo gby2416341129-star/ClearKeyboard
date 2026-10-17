@@ -34,6 +34,10 @@ if __name__ == "__main__":
     app_product = obj("product:app", "PBXFileReference", explicitFileType=q("wrapper.application"), path=q("ClearKeyboard.app"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     ext_product = obj("product:extension", "PBXFileReference", explicitFileType=q("wrapper.app-extension"), path=q("ClearKeyboardExtension.appex"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     products = obj("group:products", "PBXGroup", children=arr([app_product, ext_product]), name=q("Products"), sourceTree=q("<group>"))
+    runtime_sources = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "NativeTests").glob("*.swift"))
+    for path in runtime_sources: refs[path] = reference(path)
+    test_product = obj("product:runtime-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardRuntimeTests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
+    objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product]) + "; name = Products; sourceTree = \"<group>\"; }"
     group = obj("group:main", "PBXGroup", children=arr(list(refs.values()) + [products]), sourceTree=q("<group>"))
     common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0"}
     def configurations(target, extra):
@@ -41,7 +45,9 @@ if __name__ == "__main__":
         for mode in ["Debug", "Release"]:
             settings = dict(common_settings, **extra)
             settings.update({"SWIFT_OPTIMIZATION_LEVEL": "-Onone" if mode == "Debug" else "-O", "DEBUG_INFORMATION_FORMAT": "dwarf" if mode == "Debug" else "dwarf-with-dsym"})
-            if mode == "Debug": settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = "DEBUG"
+            if mode == "Debug":
+                settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = "DEBUG"
+                settings["ENABLE_TESTABILITY"] = "YES"
             rendered = "{ " + " ".join(f"{key} = {q(value)};" for key, value in settings.items()) + " }"
             values.append(obj(f"config:{target}:{mode}", "XCBuildConfiguration", baseConfigurationReference=refs["Config/Project.xcconfig"], buildSettings=rendered, name=q(mode)))
         return obj(f"configs:{target}", "XCConfigurationList", buildConfigurations=arr(values), defaultConfigurationIsVisible="0", defaultConfigurationName=q("Release"))
@@ -57,7 +63,12 @@ if __name__ == "__main__":
     embed = obj("phase:app:Embed", "PBXCopyFilesBuildPhase", buildActionMask="2147483647", dstPath=q(""), dstSubfolderSpec="13", files=arr([embed_build]), name=q("Embed App Extensions"), runOnlyForDeploymentPostprocessing="0")
     app_phases = [phase("app", "Sources", "PBXSourcesBuildPhase", shared + [p for p in sources if p.startswith("App/")]), phase("app", "Frameworks", "PBXFrameworksBuildPhase", []), phase("app", "Resources", "PBXResourcesBuildPhase", resources + licenses + [asset]), embed]
     app = obj("target:app", "PBXNativeTarget", buildConfigurationList=app_configs, buildPhases=arr(app_phases), buildRules="()", dependencies=arr([dependency]), name=q("ClearKeyboard"), productName=q("ClearKeyboard"), productReference=app_product, productType=q("com.apple.product-type.application"))
-    project = obj("project", "PBXProject", attributes="{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; }", buildConfigurationList=project_configs, compatibilityVersion=q("Xcode 14.0"), developmentRegion=q("zh-Hans"), hasScannedForEncodings="0", knownRegions=arr([q("zh-Hans"), q("en"), q("Base")]), mainGroup=group, productRefGroup=products, projectDirPath=q(""), projectRoot=q(""), targets=arr([app, ext]))
+    test_configs = configurations("runtime-tests", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).RuntimeTests", "PRODUCT_NAME": "ClearKeyboardRuntimeTests", "GENERATE_INFOPLIST_FILE": "YES", "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/ClearKeyboard.app/ClearKeyboard", "BUNDLE_LOADER": "$(TEST_HOST)", "CODE_SIGN_ENTITLEMENTS": "", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"})
+    app_proxy = obj("proxy:app", "PBXContainerItemProxy", containerPortal=uid("project"), proxyType="1", remoteGlobalIDString=app, remoteInfo=q("ClearKeyboard"))
+    app_dependency = obj("dependency:app", "PBXTargetDependency", target=app, targetProxy=app_proxy)
+    test_phases = [phase("runtime-tests", "Sources", "PBXSourcesBuildPhase", shared + ["App/TypingLab.swift", "KeyboardExtension/KeyboardViewController.swift"] + runtime_sources), phase("runtime-tests", "Frameworks", "PBXFrameworksBuildPhase", []), phase("runtime-tests", "Resources", "PBXResourcesBuildPhase", [])]
+    runtime_target = obj("target:runtime-tests", "PBXNativeTarget", buildConfigurationList=test_configs, buildPhases=arr(test_phases), buildRules="()", dependencies=arr([app_dependency]), name=q("ClearKeyboardRuntimeTests"), productName=q("ClearKeyboardRuntimeTests"), productReference=test_product, productType=q("com.apple.product-type.bundle.unit-test"))
+    project = obj("project", "PBXProject", attributes="{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; }", buildConfigurationList=project_configs, compatibilityVersion=q("Xcode 14.0"), developmentRegion=q("zh-Hans"), hasScannedForEncodings="0", knownRegions=arr([q("zh-Hans"), q("en"), q("Base")]), mainGroup=group, productRefGroup=products, projectDirPath=q(""), projectRoot=q(""), targets=arr([app, ext, runtime_target]))
     folder = ROOT / "ClearKeyboard.xcodeproj"
     folder.mkdir(exist_ok=True)
     text = "// !$*UTF8*$!\n{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {\n"
@@ -75,4 +86,7 @@ if __name__ == "__main__":
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>'''
     (schemes / "ClearKeyboard.xcscheme").write_text(scheme, encoding="utf-8")
+    test_ref = f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{runtime_target}" BuildableName="ClearKeyboardRuntimeTests.xctest" BlueprintName="ClearKeyboardRuntimeTests" ReferencedContainer="container:ClearKeyboard.xcodeproj"/>'
+    runtime_scheme = scheme.replace('<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"/>', f'<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO">{test_ref}</TestableReference></Testables></TestAction>')
+    (schemes / "ClearKeyboardRuntime.xcscheme").write_text(runtime_scheme, encoding="utf-8")
     print(f"Generated {len(objects)} Xcode objects, {len(sources)} Swift sources, app + keyboard extension.")
