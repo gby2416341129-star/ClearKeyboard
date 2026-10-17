@@ -116,7 +116,12 @@ public final class InputEngine {
         var best = Array(ranked.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
             .filter { seen.insert($0.text).inserted }.prefix(8))
         // Preserve literal initialisms (including place names) alongside a likely repair.
-        let literals = mixed ? Array(primary.prefix(2)) : (spelling == input.count ? Array(primary.prefix(1)) : [])
+        let tailLength = input.reversed().prefix { Self.initials.contains($0) }.count
+        let literalPrefix = String(input.dropLast(tailLength))
+        var literals: [Path] = []
+        if mixed && (2...4).contains(tailLength) {
+            literals = Array(primary.filter { FuzzyPinyin.normalize($0.reading).hasPrefix(literalPrefix) }.prefix(2))
+        } else if spelling == input.count { literals = Array(primary.prefix(1)) }
         let additional = literals.filter { literal in !best.contains(where: { $0.text == literal.text }) }
         if !additional.isEmpty { best = Array(best.prefix(8 - additional.count)) + additional }
         return best.map {
