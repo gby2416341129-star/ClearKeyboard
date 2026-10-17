@@ -10,13 +10,26 @@ import UIKit
 
 @MainActor final class Preferences: ObservableObject {
     private let store: SettingsStore
-    let clipboardCapture = ClipboardCapture()
+    let clipboardCapture: ClipboardCapture
     private var active = false
     private var returningFromClipboardSettings = false
-    @Published var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings); if active { activate() } } }
-    init() {
-        let activeStore = SettingsStore(defaults: SharedStorage.defaults(allowShared: true))
-        store = activeStore; settings = activeStore.load()
+    @Published private var storedSettings: KeyboardSettings
+    var settings: KeyboardSettings {
+        get { storedSettings }
+        set {
+            // Normalize a local value before publishing. Mutating an @Published value
+            // from its own observer re-enters the wrapped setter during a UI binding write.
+            var clean = newValue; clean.sanitize()
+            guard clean != storedSettings else { return }
+            storedSettings = clean
+            store.save(clean)
+            if active { clipboardCapture.activate(settings: clean, allowed: true) }
+        }
+    }
+    init(store: SettingsStore? = nil, clipboardCapture: ClipboardCapture? = nil) {
+        let activeStore = store ?? SettingsStore(defaults: SharedStorage.defaults(allowShared: true))
+        self.store = activeStore; self.clipboardCapture = clipboardCapture ?? ClipboardCapture()
+        storedSettings = activeStore.load()
     }
     func reload() {
         let saved = store.load()

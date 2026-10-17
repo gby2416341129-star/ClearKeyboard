@@ -23,6 +23,7 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
     private var editingInternally = false
     private var lastSelection = NSRange(location: NSNotFound, length: 0)
     private var lastText = ""
+    private var trackpadAnchor: CGPoint?
     init(settings: KeyboardSettings) { initialSettings = settings; super.init(nibName: nil, bundle: nil) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func viewDidLoad() {
@@ -119,6 +120,19 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
         editingInternally = false
     }
     func nextKeyboard() { model.toggleLanguage() }
+    func beginTrackpad() {
+        guard let selection = textView.selectedTextRange else { return }
+        let rect = textView.caretRect(for: selection.end)
+        trackpadAnchor = CGPoint(x: rect.midX, y: rect.midY)
+    }
+    func trackCursor(translation: CGPoint) {
+        guard let anchor = trackpadAnchor, translation.x.isFinite, translation.y.isFinite,
+              let position = textView.closestPosition(to: CGPoint(x: anchor.x + translation.x, y: anchor.y + translation.y)) else { return }
+        editingInternally = true
+        textView.selectedTextRange = textView.textRange(from: position, to: position)
+        rememberSelection(); textView.scrollRangeToVisible(textView.selectedRange); editingInternally = false
+    }
+    func endTrackpad() { trackpadAnchor = nil }
     func clearInput() -> DeletedInput? {
         guard let text = textView.text, !text.isEmpty else { return nil }
         let value = DeletedInput(text: text, selection: textView.selectedRange)

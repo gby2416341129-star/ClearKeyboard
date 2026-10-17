@@ -2,10 +2,11 @@ import Foundation
 import CoreGraphics
 
 public enum KeyboardGeometry {
-    public static func contentHeight(total: CGFloat, preferred: CGFloat, reservedBottom: CGFloat) -> CGFloat {
-        guard total.isFinite, preferred.isFinite, reservedBottom.isFinite else { return 0 }
-        // Some hosts already provide only the extension's content rectangle.
-        return max(0, total >= preferred + reservedBottom - 1 ? total - max(0, reservedBottom) : total)
+    public static func contentHeight(total: CGFloat, preferred: CGFloat) -> CGFloat {
+        guard total.isFinite, preferred.isFinite else { return 0 }
+        // This is the extension's content, not the system-owned globe/home-indicator area.
+        // Never add or subtract a browser's inherited safe-area inset from these rows.
+        return max(0, min(total, preferred))
     }
     /// Fit the four rows to the height the host actually gives us, including during resize animations.
     public static func rowHeight(availableHeight: CGFloat, header: CGFloat = 48, preferred: CGFloat = 56) -> CGFloat {

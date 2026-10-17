@@ -29,22 +29,23 @@ struct CustomizationView: View {
                 }.padding(.vertical, 8)
             }
             Section("玻璃材质") {
-                Picker("材质", selection: $preferences.settings.glass) { ForEach(GlassPreset.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented)
+                Picker("材质", selection: $preferences.settings.glass) { ForEach(GlassPreset.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented).accessibilityIdentifier("custom.glass")
                 VStack(alignment: .leading) {
                     HStack { Text("遮罩浓度"); Spacer(); Text(preferences.settings.glassOpacity, format: .percent.precision(.fractionLength(0))).foregroundStyle(.secondary) }
-                    Slider(value: $preferences.settings.glassOpacity, in: 0.15...1)
+                    Slider(value: $preferences.settings.glassOpacity, in: 0.15...1).accessibilityIdentifier("custom.opacity")
                 }
-                ColorPicker("自定义任意颜色", selection: customColor, supportsOpacity: false)
+                ColorPicker("自定义任意颜色", selection: customColor, supportsOpacity: false).accessibilityIdentifier("custom.color")
                 HStack {
                     Text("HEX")
-                    TextField("#RRGGBB", text: $hexInput).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                    TextField("#RRGGBB", text: $hexInput).accessibilityIdentifier("custom.hex").textInputAutocapitalization(.characters).autocorrectionDisabled()
                         .font(.system(.body, design: .monospaced)).multilineTextAlignment(.trailing).submitLabel(.done).onSubmit(applyHex)
-                    Button("应用", action: applyHex)
+                    Button("应用", action: applyHex).accessibilityIdentifier("custom.applyHex")
                 }
                 if invalidHex { Text("请输入 #RRGGBB 或 #RGB 色值").font(.caption).foregroundStyle(.red) }
                 HStack {
                     ForEach(Accent.allCases) { color in
                         Button(color.title) { preferences.settings.accent = color; preferences.settings.customAccentHex = nil; hexInput = preferences.settings.accentRGB.hex; invalidHex = false }
+                            .accessibilityIdentifier("custom.accent." + color.rawValue)
                             .frame(maxWidth: .infinity)
                     }
                 }.buttonStyle(.borderless)
@@ -54,16 +55,16 @@ struct CustomizationView: View {
             Section("按键与单手") {
                 VStack(alignment: .leading) {
                     HStack { Text("按键高度"); Spacer(); Text("\(Int(preferences.settings.keyHeight)) pt").foregroundStyle(.secondary) }
-                    Slider(value: $preferences.settings.keyHeight, in: 44...58, step: 1)
+                    Slider(value: $preferences.settings.keyHeight, in: 44...58, step: 1).accessibilityIdentifier("custom.keyHeight")
                 }
-                Picker("键盘宽度", selection: $preferences.settings.hand) { ForEach(HandMode.allCases) { Text($0.title).tag($0) } }
+                Picker("键盘宽度", selection: $preferences.settings.hand) { ForEach(HandMode.allCases) { Text($0.title).tag($0) } }.pickerStyle(.menu).accessibilityIdentifier("custom.hand")
                 if preferences.settings.hand != .full {
                     VStack(alignment: .leading) {
                         Text("单手宽度").font(.subheadline)
                         Slider(value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), in: 0.68...0.88)
                     }
                 }
-                Toggle("轻触反馈", isOn: $preferences.settings.haptics)
+                Toggle("轻触反馈", isOn: $preferences.settings.haptics).accessibilityIdentifier("custom.haptics")
                 Text("字母、数字、符号页均沿用 iOS 的位置关系。长按空格可拖动光标；长按删除连续删除；双击 Shift 锁定大写。")
                     .font(.caption).foregroundStyle(.secondary)
             }

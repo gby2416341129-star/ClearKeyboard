@@ -13,6 +13,13 @@ public struct Candidate: Equatable {
 /// Call from a serial user-initiated queue. Immutable dictionaries allow a bounded fast lookup at commit time.
 public final class InputEngine {
     private struct Path { var text: String; var reading: String; var score: Double; var tokens: Int }
+    private struct Token { let text: String; let reading: String; let score: Double }
+    private struct Match { let token: Token?; let canExtend: Bool }
+    private var matches: [String: Match] = [:]
+    private var matchOrder: [String] = []
+    private var nextEviction = 0
+    private static let cacheLimit = 2_048
+    private static let conversational = ["hd": "好的", "nh": "你好", "wm": "我们", "xx": "谢谢", "zj": "再见"]
     private var previousSentence = ""
     private var previousPaths: [Path?] = []
     public let chinese: Lexicon
@@ -65,38 +72,50 @@ public final class InputEngine {
         let chars = Array(input), count = chars.count
         var paths = [Path?](repeating: nil, count: count + 1)
         paths[0] = Path(text: "", reading: "", score: 0, tokens: 0)
-        // Revisit only the trailing word window when typing extends or deletes the previous spelling.
-        let common = zip(input, previousSentence).prefix { $0.0 == $0.1 }.count
+        // A cancelled query can still leave a fully settled prefix for the next query.
+        let common = min(zip(input, previousSentence).prefix { $0.0 == $0.1 }.count, max(0, previousPaths.count - 1))
         let restart = max(0, common - 24)
-        if common > 0, previousPaths.count > common {
-            for index in 0...common { paths[index] = previousPaths[index] }
+        if common > 0 { for index in 0...common { paths[index] = previousPaths[index] } }
+        func checkpoint(_ settled: Int) {
+            previousSentence = input; previousPaths = Array(paths.prefix(settled + 1))
         }
         for start in restart..<count {
+            if cancelled() { checkpoint(start); return nil }
             guard let base = paths[start] else { continue }
-            if cancelled() { return nil }
             for end in (start + 1)...min(count, start + 24) {
-                if cancelled() { return nil }
-                let key = String(chars[start..<end])
-                var entries = chinese.lookup("e:" + key, limit: 2)
-                if key.count <= 12 {
-                    entries += chinese.lookup("a:" + key, limit: 12).filter { abbreviation($0.reading) == key }
+                if cancelled() { checkpoint(start); return nil }
+                let found = match(String(chars[start..<end]))
+                if let token = found.token {
+                    let score = base.score + token.score
+                    if paths[end] == nil || score > paths[end]!.score {
+                        paths[end] = Path(text: base.text + token.text, reading: base.reading + (base.reading.isEmpty ? "" : " ") + token.reading, score: score, tokens: base.tokens + 1)
+                    }
                 }
-                guard let entry = entries.max(by: { tokenScore($0, key: key) < tokenScore($1, key: key) }) else { continue }
-                let score = base.score + tokenScore(entry, key: key)
-                if paths[end] == nil || score > paths[end]!.score {
-                    paths[end] = Path(text: base.text + entry.text, reading: base.reading + (base.reading.isEmpty ? "" : " ") + entry.reading, score: score, tokens: base.tokens + 1)
-                }
+                // No full-pinyin or initial prefix exists beyond this point.
+                if !found.canExtend { break }
             }
         }
-        previousSentence = input; previousPaths = paths
+        checkpoint(count)
         guard let path = paths[count], path.tokens > 1 else { return nil }
         return Candidate(text: path.text, reading: path.reading, consumed: count, score: 44 + path.score / Double(path.tokens) / 10)
     }
     private func abbreviation(_ reading: String) -> String { reading.split(separator: " ").compactMap(\.first).map(String.init).joined() }
-    private func tokenScore(_ entry: LexiconEntry, key: String) -> Double {
-        let exact = FuzzyPinyin.normalize(entry.reading) == key
-        let common = ["hd": "好的", "nh": "你好", "wm": "我们", "xx": "谢谢", "zj": "再见"]
-        return log((Double(entry.frequency) + 1) / 10_000_000) - 2.5 + (exact ? 1.5 : 0) + (common[key] == entry.text ? 5 : 0)
+    private func match(_ key: String) -> Match {
+        if let cached = matches[key] { return cached }
+        let initials = key.count <= 12 ? chinese.lookup("a:" + key, limit: 12) : []
+        let entries = chinese.lookup("e:" + key, limit: 2) + initials.filter { abbreviation($0.reading) == key }
+        var best: Token?
+        for entry in entries {
+            let score = log((Double(entry.frequency) + 1) / 10_000_000) - 2.5 + (entry.key == key ? 1.5 : 0) + (Self.conversational[key] == entry.text ? 5 : 0)
+            if best == nil || score > best!.score { best = Token(text: entry.text, reading: entry.reading, score: score) }
+        }
+        let result = Match(token: best, canExtend: !initials.isEmpty || chinese.contains("p:" + key))
+        if matchOrder.count < Self.cacheLimit { matchOrder.append(key) }
+        else {
+            matches.removeValue(forKey: matchOrder[nextEviction]); matchOrder[nextEviction] = key
+            nextEviction = (nextEviction + 1) % Self.cacheLimit
+        }
+        matches[key] = result; return result
     }
 
     public func predictions(after context: String) -> [Candidate] {

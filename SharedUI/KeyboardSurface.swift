@@ -127,7 +127,7 @@ import ImageIO
                     let button = KeyButton(key: key)
                     if key.action == .globe, let configureGlobe { configureGlobe(button) }
                     else { button.onAction = { [weak model] action in model?.handle(action) } }
-                    button.onCursor = { [weak model] offset in model?.moveCursor(offset) }
+                    button.onCursor = { [weak model] translation in model?.trackCursor(translation: translation) }
                     button.onCursorBegan = { [weak self] in self?.model.beginCursorMovement(); self?.setCursorMode(true) }
                     button.onCursorEnded = { [weak self] in self?.model.endCursorMovement(); self?.setCursorMode(false) }
                     button.onDeleteHint = { [weak self, weak button] direction in self?.showDeleteHint(direction, near: button) }
@@ -194,7 +194,7 @@ import ImageIO
         }
         candidateScroll.isHidden = movingCursor || candidateHeight == 0
         hint.isHidden = !movingCursor
-        hint.text = movingCursor ? "左右滑动，移动光标" : nil
+        hint.text = movingCursor ? "滑动键盘，移动光标" : nil
         onHeightChange?(desiredHeight); setNeedsLayout()
     }
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {

@@ -3,7 +3,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/NativeDiagnostics
 xcrun simctl list devices available -j > .build/native-devices.json
-TEST_DEVICE="$(python3 -c 'import json; d=json.load(open(".build/native-devices.json")); print(next(v["udid"] for k,vs in sorted(d["devices"].items(),reverse=True) if "iOS-26" in k for v in vs if "iPhone" in v["name"] and v.get("isAvailable")))')"
+TEST_DEVICE="$(python3 -c 'import json; d=json.load(open(".build/native-devices.json")); vs=[v for k,vs in sorted(d["devices"].items(),reverse=True) if "iOS" in k for v in vs if "iPhone" in v["name"] and v.get("isAvailable")]; print(next((v["udid"] for v in vs if "Air" in v["name"]),vs[0]["udid"]))')"
+printf '%s\n' "$TEST_DEVICE" > .build/native-device-id
+set +e
+swift Scripts/observer-baseline.swift > .build/observer-reproduction.log 2>&1
+BASELINE_EXIT=$?
+set -e
+printf 'legacy_observer_exit=%s\n' "$BASELINE_EXIT" >> .build/observer-reproduction.log
+cat .build/observer-reproduction.log
 python3 - "$TEST_DEVICE" > .build/native-boot.log 2>&1 <<'PY' &
 import subprocess, sys
 device = sys.argv[1]

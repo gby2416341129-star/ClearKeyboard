@@ -36,8 +36,11 @@ if __name__ == "__main__":
     products = obj("group:products", "PBXGroup", children=arr([app_product, ext_product]), name=q("Products"), sourceTree=q("<group>"))
     runtime_sources = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "NativeTests").glob("*.swift"))
     for path in runtime_sources: refs[path] = reference(path)
+    ui_sources = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "UITests").glob("*.swift"))
+    for path in ui_sources: refs[path] = reference(path)
     test_product = obj("product:runtime-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardRuntimeTests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
-    objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product]) + "; name = Products; sourceTree = \"<group>\"; }"
+    ui_product = obj("product:ui-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardUITests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
+    objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product, ui_product]) + "; name = Products; sourceTree = \"<group>\"; }"
     group = obj("group:main", "PBXGroup", children=arr(list(refs.values()) + [products]), sourceTree=q("<group>"))
     common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0"}
     def configurations(target, extra):
@@ -68,7 +71,10 @@ if __name__ == "__main__":
     app_dependency = obj("dependency:app", "PBXTargetDependency", target=app, targetProxy=app_proxy)
     test_phases = [phase("runtime-tests", "Sources", "PBXSourcesBuildPhase", shared + ["App/TypingLab.swift", "KeyboardExtension/KeyboardViewController.swift"] + runtime_sources), phase("runtime-tests", "Frameworks", "PBXFrameworksBuildPhase", []), phase("runtime-tests", "Resources", "PBXResourcesBuildPhase", [])]
     runtime_target = obj("target:runtime-tests", "PBXNativeTarget", buildConfigurationList=test_configs, buildPhases=arr(test_phases), buildRules="()", dependencies=arr([app_dependency]), name=q("ClearKeyboardRuntimeTests"), productName=q("ClearKeyboardRuntimeTests"), productReference=test_product, productType=q("com.apple.product-type.bundle.unit-test"))
-    project = obj("project", "PBXProject", attributes="{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; }", buildConfigurationList=project_configs, compatibilityVersion=q("Xcode 14.0"), developmentRegion=q("zh-Hans"), hasScannedForEncodings="0", knownRegions=arr([q("zh-Hans"), q("en"), q("Base")]), mainGroup=group, productRefGroup=products, projectDirPath=q(""), projectRoot=q(""), targets=arr([app, ext, runtime_target]))
+    ui_configs = configurations("ui-tests", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).UITests", "PRODUCT_NAME": "ClearKeyboardUITests", "GENERATE_INFOPLIST_FILE": "YES", "TEST_TARGET_NAME": "ClearKeyboard", "CODE_SIGN_ENTITLEMENTS": "", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"})
+    ui_phases = [phase("ui-tests", "Sources", "PBXSourcesBuildPhase", ui_sources), phase("ui-tests", "Frameworks", "PBXFrameworksBuildPhase", []), phase("ui-tests", "Resources", "PBXResourcesBuildPhase", [])]
+    ui_target = obj("target:ui-tests", "PBXNativeTarget", buildConfigurationList=ui_configs, buildPhases=arr(ui_phases), buildRules="()", dependencies=arr([app_dependency]), name=q("ClearKeyboardUITests"), productName=q("ClearKeyboardUITests"), productReference=ui_product, productType=q("com.apple.product-type.bundle.ui-testing"))
+    project = obj("project", "PBXProject", attributes="{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; }", buildConfigurationList=project_configs, compatibilityVersion=q("Xcode 14.0"), developmentRegion=q("zh-Hans"), hasScannedForEncodings="0", knownRegions=arr([q("zh-Hans"), q("en"), q("Base")]), mainGroup=group, productRefGroup=products, projectDirPath=q(""), projectRoot=q(""), targets=arr([app, ext, runtime_target, ui_target]))
     folder = ROOT / "ClearKeyboard.xcodeproj"
     folder.mkdir(exist_ok=True)
     text = "// !$*UTF8*$!\n{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {\n"
@@ -89,4 +95,7 @@ if __name__ == "__main__":
     test_ref = f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{runtime_target}" BuildableName="ClearKeyboardRuntimeTests.xctest" BlueprintName="ClearKeyboardRuntimeTests" ReferencedContainer="container:ClearKeyboard.xcodeproj"/>'
     runtime_scheme = scheme.replace('<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"/>', f'<TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO">{test_ref}</TestableReference></Testables></TestAction>')
     (schemes / "ClearKeyboardRuntime.xcscheme").write_text(runtime_scheme, encoding="utf-8")
+    ui_ref = f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{ui_target}" BuildableName="ClearKeyboardUITests.xctest" BlueprintName="ClearKeyboardUITests" ReferencedContainer="container:ClearKeyboard.xcodeproj"/>'
+    ui_scheme = runtime_scheme.replace(test_ref, ui_ref)
+    (schemes / "ClearKeyboardUI.xcscheme").write_text(ui_scheme, encoding="utf-8")
     print(f"Generated {len(objects)} Xcode objects, {len(sources)} Swift sources, app + keyboard extension.")

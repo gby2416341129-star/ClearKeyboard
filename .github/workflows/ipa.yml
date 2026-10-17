@@ -44,12 +44,15 @@ jobs:
           NOTE
   native-runtime:
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Run native keyboard startup and candidate tests
         timeout-minutes: 18
         run: bash Scripts/test-native.sh
+      - name: Exercise customization controls and Safari keyboard
+        timeout-minutes: 15
+        run: bash Scripts/test-ui.sh
       - name: Upload native runtime diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,4 +64,7 @@ jobs:
             .build/native-boot.log
             .build/NativeDiagnostics
             .build/native-devices.json
+            .build/observer-reproduction.log
+            .build/ui-tests.log
+            .build/UITestDiagnostics
           retention-days: 7

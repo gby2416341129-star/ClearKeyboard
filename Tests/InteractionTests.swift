@@ -29,8 +29,16 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(motion.advance(points: .nan), 0)
     }
     func testSystemBottomAreaIsNotSubtractedTwice() {
-        XCTAssertEqual(KeyboardGeometry.contentHeight(total: 351, preferred: 276, reservedBottom: 75), 276)
-        XCTAssertEqual(KeyboardGeometry.contentHeight(total: 276, preferred: 276, reservedBottom: 75), 276)
-        XCTAssertEqual(KeyboardGeometry.contentHeight(total: 216, preferred: 276, reservedBottom: 0), 216)
+        XCTAssertEqual(KeyboardGeometry.contentHeight(total: 351, preferred: 276), 276)
+        XCTAssertEqual(KeyboardGeometry.contentHeight(total: 276, preferred: 276), 276)
+        XCTAssertEqual(KeyboardGeometry.contentHeight(total: 216, preferred: 276), 216)
+    }
+    func testTransientHostHeightDoesNotStretchOrOverflowRows() {
+        for total: CGFloat in [0, 180, 216, 276, 315, 351, 912] {
+            let height = KeyboardGeometry.contentHeight(total: total, preferred: 276)
+            XCTAssertLessThanOrEqual(height, 276)
+            XCTAssertLessThanOrEqual(height, total)
+        }
+        XCTAssertEqual(KeyboardGeometry.contentHeight(total: .nan, preferred: 276), 0)
     }
 }

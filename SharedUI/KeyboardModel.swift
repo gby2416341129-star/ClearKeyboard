@@ -14,6 +14,9 @@ import os
     func insert(_ text: String)
     func deleteBackward()
     func moveCursor(_ offset: Int)
+    func beginTrackpad()
+    func trackCursor(translation: CGPoint)
+    func endTrackpad()
     func nextKeyboard()
     func setMarkedText(_ text: String)
     func unmarkText()
@@ -111,8 +114,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard !isMovingCursor else { return }
         commitComposition(); isMovingCursor = true; deletionUndo = nil
         cancellation.cancel(); work?.cancel(); generation += 1; candidates = []; arithmetic = nil
+        document?.beginTrackpad()
     }
-    func endCursorMovement() { guard isMovingCursor else { return }; isMovingCursor = false; refreshCandidates() }
+    func trackCursor(translation: CGPoint) { guard isMovingCursor else { return }; document?.trackCursor(translation: translation) }
+    func endCursorMovement() { guard isMovingCursor else { return }; document?.endTrackpad(); isMovingCursor = false; refreshCandidates() }
     func clearInput() {
         guard let document else { return }
         let spelling = composition
@@ -145,8 +150,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
         defer { os_signpost(.end, log: signpost, name: "KeyAction", signpostID: event) }
         switch action {
         case .text(let text):
-            let mathContext = document?.contextBefore ?? ""
-            let mathCharacter = text.count == 1 && "xX+-*/×÷().".contains(text) && mathContext.last.map({ $0.isNumber || $0 == ")" }) == true
+            let possibleOperator = composition.isEmpty && text.count == 1 && "xX+-*/×÷().".contains(text)
+            let mathCharacter = possibleOperator && document?.contextBefore.last.map({ $0.isNumber || $0 == ")" }) == true
             if mathCharacter {
                 commitComposition(); document?.insert(text)
             } else if settings.language == .chinese && page == .letters && text.first?.isLetter == true {
@@ -228,10 +233,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
         generation += 1; let requestedGeneration = generation
         cancellation.cancel(); let token = QueryCancellation(); cancellation = token
         work?.cancel(); candidateGeneration = -1
-        arithmetic = composition.isEmpty && document?.selectedText.isEmpty == true ? InlineArithmetic.result(in: document?.contextBefore ?? "") : nil
-        if arithmetic != nil || engine == nil || document?.selectedText.isEmpty != true { candidates = [] }
+        let selectionIsEmpty = document?.selectedText.isEmpty == true
+        let context = composition.isEmpty || settings.language == .english ? (document?.contextBefore ?? "") : ""
+        arithmetic = composition.isEmpty && selectionIsEmpty ? InlineArithmetic.result(in: context) : nil
+        if arithmetic != nil || engine == nil || !selectionIsEmpty { candidates = [] }
         if settings.language == .english && !capsLocked && !manualShift, let document {
-            let context = document.contextBefore
             let trimmed = context.trimmingCharacters(in: .whitespaces)
             switch document.capitalization {
             case .allCharacters: shifted = settings.autoCapitalization
@@ -244,10 +250,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if arithmetic != nil { candidateGeneration = requestedGeneration }
         onChange?()
         if arithmetic != nil { candidateGeneration = requestedGeneration; return }
-        guard let engine, let document, document.selectedText.isEmpty else { return }
-        let raw = composition.raw, context = document.contextBefore, settings = self.settings, learned = self.learned
+        guard let engine, document != nil, selectionIsEmpty else { return }
+        let raw = composition.raw, settings = self.settings, learned = self.learned
         englishSnapshot = context
         let job = DispatchWorkItem { [weak self] in
+            guard !token.isCancelled else { return }
             let result: [Candidate]
             if settings.language == .chinese {
                 result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], cancelled: { token.isCancelled })
@@ -255,6 +262,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 let word = EnglishContext.word(in: context)
                 result = word.isEmpty ? (settings.predictions ? engine.englishPredictions(after: context) : []) : engine.englishCandidates(prefix: word)
             }
+            guard !token.isCancelled else { return }
             DispatchQueue.main.async {
                 guard let self, self.generation == requestedGeneration else { return }
                 self.candidates = result; self.candidateGeneration = requestedGeneration; self.onChange?()

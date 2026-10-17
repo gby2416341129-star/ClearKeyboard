@@ -54,23 +54,28 @@ public final class Lexicon {
         let base = 32 + id * 28
         return LexiconEntry(key: string(base), text: string(base + 8), reading: string(base + 16), frequency: u32(base + 24))
     }
-    public func lookup(_ key: String, limit: Int = 24) -> [LexiconEntry] {
+    private func indexEntry(for key: String) -> Int? {
         let target = Array(key.utf8)
-        func compare(_ position: Int) -> Int {
-            let base = indexOffset + position * 16
-            let start = stringsOffset + Int(u32(base)), length = Int(u32(base + 4))
-            return data.withUnsafeBytes { raw in
-                let bytes = raw.bindMemory(to: UInt8.self)
+        // One mapped-byte access for the complete binary search, without nested Data access per field.
+        return data.withUnsafeBytes { raw in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            func number(_ offset: Int) -> Int { Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: UInt32.self))) }
+            func compare(_ position: Int) -> Int {
+                let base = indexOffset + position * 16
+                let start = stringsOffset + number(base), length = number(base + 4)
                 for i in 0..<min(length, target.count) {
                     if bytes[start + i] != target[i] { return bytes[start + i] < target[i] ? -1 : 1 }
                 }
                 return length == target.count ? 0 : (length < target.count ? -1 : 1)
             }
+            var low = 0, high = indexCount
+            while low < high { let mid = (low + high) / 2; if compare(mid) < 0 { low = mid + 1 } else { high = mid } }
+            return low < indexCount && compare(low) == 0 ? indexOffset + low * 16 : nil
         }
-        var low = 0, high = indexCount
-        while low < high { let mid = (low + high) / 2; if compare(mid) < 0 { low = mid + 1 } else { high = mid } }
-        guard low < indexCount, compare(low) == 0 else { return [] }
-        let base = indexOffset + low * 16
+    }
+    public func contains(_ key: String) -> Bool { indexEntry(for: key) != nil }
+    public func lookup(_ key: String, limit: Int = 24) -> [LexiconEntry] {
+        guard let base = indexEntry(for: key) else { return [] }
         let start = Int(u32(base + 8)), count = min(max(0, limit), Int(u32(base + 12)))
         return (0..<count).compactMap { entry(Int(u32(resultsOffset + (start + $0) * 4))) }
     }

@@ -36,13 +36,12 @@ final class KeyButton: UIButton {
     private var draggingCursor = false
     private var suppressTap = false
     private var cursorMode = false
-    private var cursorX: CGFloat = 0
-    private var cursorMotion = CursorMotion()
-    private var pendingCursor = 0
+    private var cursorOrigin = CGPoint.zero
+    private var pendingCursor: CGPoint?
     private var cursorDisplayLink: CADisplayLink?
     private var deletionDirection = 0
     var onAction: ((KeyAction) -> Void)?
-    var onCursor: ((Int) -> Void)?
+    var onCursor: ((CGPoint) -> Void)?
     var onCursorBegan: (() -> Void)?
     var onCursorEnded: (() -> Void)?
     var onDeleteSwipe: ((Bool) -> Void)?
@@ -69,6 +68,10 @@ final class KeyButton: UIButton {
         caption.isHidden = icon.image != nil
         isAccessibilityElement = true; accessibilityTraits = .keyboardKey
         accessibilityLabel = key.label
+        switch key.action {
+        case .text(let value): accessibilityIdentifier = "key.text." + value.lowercased()
+        default: accessibilityIdentifier = "key." + key.label
+        }
         switch key.action {
         case .shift: accessibilityLabel = "切换大小写"
         case .delete: accessibilityLabel = "删除"
@@ -132,7 +135,7 @@ final class KeyButton: UIButton {
         cursorMode = active
         if key.action != .space { isUserInteractionEnabled = !active }
         caption.isHidden = active || icon.image != nil; icon.isHidden = active
-        plate.alpha = active ? 0.65 : 1
+        plate.alpha = active ? 0.1 : 1
     }
     @objc private func down() {
         didRepeat = false; suppressTap = false; plate.alpha = 0.70
@@ -151,13 +154,12 @@ final class KeyButton: UIButton {
         cancelPress()
         if shouldFire { onAction?(key.action) }
     }
-    @objc func cancelPress() { repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil; plate.alpha = cursorMode ? 0.65 : 1 }
+    @objc func cancelPress() { repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil; plate.alpha = cursorMode ? 0.1 : 1 }
     @objc private func cursorGesture(_ gesture: UILongPressGestureRecognizer) {
-        let x = gesture.location(in: window).x
+        let point = gesture.location(in: window)
         switch gesture.state {
         case .began:
-            draggingCursor = true; suppressTap = true; cursorX = x
-            cursorMotion.reset(); pendingCursor = 0
+            draggingCursor = true; suppressTap = true; cursorOrigin = point; pendingCursor = nil
             onCursorBegan?()
             let link = CADisplayLink(target: self, selector: #selector(flushCursor))
             let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
@@ -165,17 +167,17 @@ final class KeyButton: UIButton {
             link.add(to: .main, forMode: .common); cursorDisplayLink = link
             if haptics { feedback?.impactOccurred(intensity: 0.5) }
         case .changed:
-            pendingCursor += cursorMotion.advance(points: x - cursorX); cursorX = x
+            pendingCursor = CGPoint(x: point.x - cursorOrigin.x, y: point.y - cursorOrigin.y)
         default:
             if gesture.state == .ended { flushCursor() }
-            cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = 0
+            cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = nil
             if draggingCursor { draggingCursor = false; onCursorEnded?() }
             cancelPress()
         }
     }
     @objc private func flushCursor() {
-        guard pendingCursor != 0 else { return }
-        let offset = pendingCursor; pendingCursor = 0; onCursor?(offset)
+        guard let translation = pendingCursor else { return }
+        pendingCursor = nil; onCursor?(translation)
     }
     @objc private func deletionGesture(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
@@ -192,7 +194,7 @@ final class KeyButton: UIButton {
     }
     func stopTracking() {
         suppressTap = true
-        cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = 0
+        cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = nil
         onDeleteHint?(nil)
         if draggingCursor { draggingCursor = false; onCursorEnded?() }
         cancelPress()

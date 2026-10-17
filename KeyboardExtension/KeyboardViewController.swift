@@ -9,6 +9,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var previousContext = ""
     private var expectedContext: String?
     private var recentOwnContexts: [String] = []
+    private var trackpad: ProxyTrackpad?
 
     override func loadView() {
         let keyboard = KeyboardInputView()
@@ -27,26 +28,34 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         }
         view.addSubview(surface)
         surface.onHeightChange = { [weak self] height in self?.updateHeight(height) }
-        let constraint = view.heightAnchor.constraint(equalToConstant: surface.desiredHeight)
-        constraint.priority = .init(999); constraint.isActive = true; heightConstraint = constraint
+        updateHeight(surface.desiredHeight)
         documentID = connectedDocumentIdentifier()
         previousContext = contextBefore
     }
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated); model?.reloadSettings()
+        if let surface { updateHeight(surface.desiredHeight) }
+    }
+    override func updateViewConstraints() {
+        if let surface { updateHeight(surface.desiredHeight) }
+        super.updateViewConstraints()
     }
     override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); model?.startClipboardCapture() }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface else { return }
-        let height = KeyboardGeometry.contentHeight(total: view.bounds.height, preferred: surface.desiredHeight, reservedBottom: view.safeAreaInsets.bottom)
+        let height = KeyboardGeometry.contentHeight(total: view.bounds.height, preferred: surface.desiredHeight)
         surface.frame = CGRect(x: 0, y: 0, width: max(0, view.bounds.width), height: height)
         updateHeight(surface.desiredHeight)
     }
     private func updateHeight(_ height: CGFloat) {
         (view as? KeyboardInputView)?.contentHeight = height
-        let newHeight = height + view.safeAreaInsets.bottom
-        if abs((heightConstraint?.constant ?? 0) - newHeight) > 0.5 { heightConstraint?.constant = newHeight }
+        if heightConstraint == nil {
+            let constraint = view.heightAnchor.constraint(equalToConstant: height)
+            constraint.identifier = "clear.keyboard.content-height"
+            constraint.priority = .required; constraint.isActive = true; heightConstraint = constraint
+        } else if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
+        if abs(preferredContentSize.height - height) > 0.5 { preferredContentSize = CGSize(width: 0, height: height) }
     }
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
@@ -122,6 +131,13 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
         previousContext = contextBefore; expectedContext = previousContext
     }
+    func beginTrackpad() { trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter) }
+    func trackCursor(translation: CGPoint) {
+        guard var state = trackpad else { return }
+        let offset = state.offset(translation: translation); trackpad = state
+        if offset != 0 { moveCursor(offset) }
+    }
+    func endTrackpad() { trackpad = nil }
     func nextKeyboard() { advanceToNextInputMode() }
     func clearInput() -> DeletedInput? {
         guard connectedDocumentIdentifier() != nil else { return nil }
@@ -158,9 +174,9 @@ final class KeyboardInputView: UIInputView {
         allowsSelfSizing = true; isOpaque = false; backgroundColor = .clear
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: contentHeight + safeAreaInsets.bottom) }
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: contentHeight) }
     override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
-        CGSize(width: targetSize.width, height: contentHeight + safeAreaInsets.bottom)
+        CGSize(width: targetSize.width, height: contentHeight)
     }
     override func systemLayoutSizeFitting(_ targetSize: CGSize, withHorizontalFittingPriority: UILayoutPriority, verticalFittingPriority: UILayoutPriority) -> CGSize {
         systemLayoutSizeFitting(targetSize)

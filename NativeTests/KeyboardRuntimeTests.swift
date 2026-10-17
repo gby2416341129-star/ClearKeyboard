@@ -285,12 +285,29 @@ import UIKit
         let input = try XCTUnwrap(controller.view as? KeyboardInputView)
         let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
         XCTAssertTrue(input.allowsSelfSizing)
-        XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 393, height: 0)).height, surface.desiredHeight + input.safeAreaInsets.bottom, accuracy: 1)
+        XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 393, height: 0)).height, surface.desiredHeight, accuracy: 1)
         XCTAssertTrue(surface.systemBacked); XCTAssertFalse(surface.isOpaque)
         XCTAssertEqual(surface.layer.cornerRadius, 0)
         let backdrop = try XCTUnwrap(surface.subviews.compactMap { $0 as? GlassBackdrop }.first)
         XCTAssertLessThan(backdrop.backgroundColor?.cgColor.alpha ?? 0, 0.1)
         XCTAssertFalse(backdrop.isOpaque)
+    }
+    func testBrowserSafeAreaDoesNotAlterRequestedKeyboardContentHeight() throws {
+        let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
+        let input = try XCTUnwrap(controller.view as? KeyboardInputView)
+        let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
+        for inset: CGFloat in [0, 34, 75, 108] {
+            controller.additionalSafeAreaInsets.bottom = inset
+            controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: surface.desiredHeight)
+            controller.view.setNeedsUpdateConstraints(); controller.view.updateConstraintsIfNeeded()
+            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+            XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 420, height: 0)).height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(controller.preferredContentSize.height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
+            let constraint = try XCTUnwrap(input.constraints.first { $0.identifier == "clear.keyboard.content-height" })
+            XCTAssertEqual(constraint.priority, .required)
+            for key in descendants(surface).compactMap({ $0 as? KeyButton }) { XCTAssertGreaterThanOrEqual(key.bounds.height, 50) }
+        }
     }
     func testSystemPasteControlSavesProvidedTextWithoutReadingClipboard() async throws {
         let suite = "clear.paste.tests." + UUID().uuidString
@@ -305,6 +322,41 @@ import UIKit
         receiver.paste(itemProviders: [NSItemProvider(object: "系统粘贴保存" as NSString)])
         try await waitFor { ClipboardStore(url: url).clips.first?.text == "系统粘贴保存" }
         XCTAssertEqual(reads, 0, "System paste payloads must not trigger a second programmatic clipboard read")
+    }
+    func testRapidLongTypingProducesLatestCandidates() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        let spelling = String(repeating: "hd", count: 50)
+        let start = ProcessInfo.processInfo.systemUptime
+        for letter in spelling { controller.model.handle(.text(String(letter))) }
+        try await waitFor { controller.model.candidatesAreCurrent }
+        XCTAssertEqual(controller.model.composition.raw, spelling)
+        XCTAssertEqual(controller.model.candidates.first?.text, String(repeating: "好的", count: 50))
+        XCTAssertEqual(controller.model.candidates.first?.consumed, spelling.count)
+        print("RAPID_TYPING_100_KEYS_MS \((ProcessInfo.processInfo.systemUptime-start)*1000)")
+    }
+    func testTrackpadUsesRealVisualLinesInTypingLab() throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: 700)
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        defer { controller.model.suspend() }
+        let text = String(repeating: "hello world ", count: 14)
+        controller.insert(text)
+        let selection = try XCTUnwrap(controller.textView.selectedTextRange)
+        let original = controller.textView.caretRect(for: selection.end)
+        let lineHeight = try XCTUnwrap(controller.textView.font).lineHeight
+        controller.model.beginCursorMovement()
+        var changes = 0; controller.model.onChange = { changes += 1 }
+        controller.model.trackCursor(translation: CGPoint(x: 0, y: -lineHeight))
+        let moved = try XCTUnwrap(controller.textView.selectedTextRange)
+        XCTAssertLessThan(controller.textView.caretRect(for: moved.end).midY, original.midY)
+        XCTAssertLessThan(controller.textView.selectedRange.location, text.utf16.count)
+        XCTAssertEqual(changes, 0)
+        controller.model.trackCursor(translation: .zero)
+        XCTAssertEqual(controller.textView.selectedRange.location, text.utf16.count)
+        controller.model.endCursorMovement(); XCTAssertGreaterThan(changes, 0)
+        XCTAssertEqual(controller.textView.text, text)
     }
     func testGlassShowsContentBehindKeyboard() async throws {
         let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
