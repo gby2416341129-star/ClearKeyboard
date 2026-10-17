@@ -10,12 +10,17 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var expectedContext: String?
     private var recentOwnContexts: [String] = []
 
+    override func loadView() {
+        let keyboard = KeyboardInputView()
+        inputView = keyboard; view = keyboard
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
         inputView?.allowsSelfSizing = true
         model = KeyboardModel(document: self)
-        surface = KeyboardSurface(model: model)
+        surface = KeyboardSurface(model: model, systemBacked: true)
         surface.configureGlobe = { [weak self] button in
             guard let self else { return }
             button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
@@ -34,10 +39,12 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface else { return }
-        surface.frame = CGRect(x: 0, y: 0, width: max(0, view.bounds.width), height: max(0, view.bounds.height - view.safeAreaInsets.bottom))
+        let height = KeyboardGeometry.contentHeight(total: view.bounds.height, preferred: surface.desiredHeight, reservedBottom: view.safeAreaInsets.bottom)
+        surface.frame = CGRect(x: 0, y: 0, width: max(0, view.bounds.width), height: height)
         updateHeight(surface.desiredHeight)
     }
     private func updateHeight(_ height: CGFloat) {
+        (view as? KeyboardInputView)?.contentHeight = height
         let newHeight = height + view.safeAreaInsets.bottom
         if abs((heightConstraint?.constant ?? 0) - newHeight) > 0.5 { heightConstraint?.constant = newHeight }
     }
@@ -48,6 +55,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         super.textDidChange(textInput)
         guard let model, let surface else { return }
         let identifier = connectedDocumentIdentifier(), context = contextBefore
+        if model.isMovingCursor {
+            documentID = identifier; previousContext = context; expectedContext = context; return
+        }
         if identifier != documentID || (context != previousContext && context != expectedContext && !recentOwnContexts.contains(context)) {
             recentOwnContexts.removeAll()
             surface.closePanel(); model.cursorChanged()
@@ -62,6 +72,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         return proxy.perform(getter)?.takeUnretainedValue() as? UUID
     }
     var contextBefore: String { textDocumentProxy.documentContextBeforeInput ?? "" }
+    var contextAfter: String { textDocumentProxy.documentContextAfterInput ?? "" }
+    var documentIdentity: String { connectedDocumentIdentifier()?.uuidString ?? "disconnected" }
     var selectedText: String { textDocumentProxy.selectedText ?? "" }
     var fullAccess: Bool { hasFullAccess }
     var needsGlobe: Bool { needsInputModeSwitchKey }
@@ -111,9 +123,46 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         previousContext = contextBefore; expectedContext = previousContext
     }
     func nextKeyboard() { advanceToNextInputMode() }
+    func clearInput() -> DeletedInput? {
+        guard connectedDocumentIdentifier() != nil else { return nil }
+        let before = contextBefore, selected = selectedText, after = contextAfter
+        let text = before + selected + after
+        guard !text.isEmpty, text.count <= 4_096 else { return nil }
+        let snapshot = DeletedInput(text: text, selection: NSRange(location: before.utf16.count, length: selected.utf16.count))
+        if !selected.isEmpty { insert("") }
+        if !after.isEmpty { moveCursor(after.count) }
+        for _ in before + after { deleteBackward() }
+        return snapshot
+    }
+    func restoreInput(_ value: DeletedInput) -> Bool {
+        guard connectedDocumentIdentifier() != nil else { return false }
+        insert(value.text)
+        let prefix = (value.text as NSString).substring(to: min(value.selection.location, value.text.utf16.count))
+        moveCursor(prefix.count - value.text.count)
+        return true
+    }
     private func rememberOwnContext(_ context: String?) {
         guard let context else { return }
         recentOwnContexts.append(context)
         if recentOwnContexts.count > 32 { recentOwnContexts.removeFirst(recentOwnContexts.count - 32) }
+    }
+}
+
+/// UIKit explicitly asks this view for its fitting height when allowsSelfSizing is enabled.
+final class KeyboardInputView: UIInputView {
+    var contentHeight: CGFloat = 284 {
+        didSet { if abs(contentHeight - oldValue) > 0.5 { invalidateIntrinsicContentSize() } }
+    }
+    init() {
+        super.init(frame: .zero, inputViewStyle: .keyboard)
+        allowsSelfSizing = true; isOpaque = false; backgroundColor = .clear
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: contentHeight + safeAreaInsets.bottom) }
+    override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
+        CGSize(width: targetSize.width, height: contentHeight + safeAreaInsets.bottom)
+    }
+    override func systemLayoutSizeFitting(_ targetSize: CGSize, withHorizontalFittingPriority: UILayoutPriority, verticalFittingPriority: UILayoutPriority) -> CGSize {
+        systemLayoutSizeFitting(targetSize)
     }
 }

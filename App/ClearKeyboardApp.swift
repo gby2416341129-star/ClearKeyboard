@@ -10,8 +10,9 @@ import UIKit
 
 @MainActor final class Preferences: ObservableObject {
     private let store: SettingsStore
-    private let clipboardCapture = ClipboardCapture()
+    let clipboardCapture = ClipboardCapture()
     private var active = false
+    private var returningFromClipboardSettings = false
     @Published var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings); if active { activate() } } }
     init() {
         let activeStore = SettingsStore(defaults: SharedStorage.defaults(allowShared: true))
@@ -26,17 +27,24 @@ import UIKit
         store.defaults.removeObject(forKey: "clear.learned.v1")
     }
     func clearClipboard() { ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)).clear() }
-    func activate() { active = true; clipboardCapture.activate(settings: settings, allowed: true) }
+    func activate() {
+        active = true; clipboardCapture.activate(settings: settings, allowed: true)
+        if returningFromClipboardSettings { returningFromClipboardSettings = false; clipboardCapture.retryAfterPermissionChange() }
+    }
     func deactivate() { active = false; clipboardCapture.stop() }
+    func openClipboardSettings() {
+        returningFromClipboardSettings = true
+        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+    }
 }
 
 struct RootView: View {
     @EnvironmentObject private var preferences: Preferences
     var body: some View {
         TabView {
-            NavigationStack { HomeView() }.tabItem { Label { Text("澈") } icon: { Image(uiImage: ClearBrand.image()).renderingMode(.template) } }
-            NavigationStack { CustomizationView() }.tabItem { Label("定制", systemImage: "slider.horizontal.3") }
-            NavigationStack { InputSettingsView() }.tabItem { Label("输入", systemImage: "keyboard") }
+            NavigationStack { HomeView() }.tabItem { Label { Text("澈") } icon: { Image(uiImage: ClearBrand.image()).renderingMode(.original) } }
+            NavigationStack { CustomizationView() }.tabItem { Label { Text("定制") } icon: { Image(uiImage: ToolArtwork.image(symbol: "paintpalette.fill", size: 24)).renderingMode(.original) } }
+            NavigationStack { InputSettingsView() }.tabItem { Label { Text("输入") } icon: { Image(uiImage: ToolArtwork.image(symbol: "keyboard.fill", size: 24)).renderingMode(.original) } }
         }
         .onAppear { preferences.activate() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
@@ -79,9 +87,7 @@ struct HomeView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack(spacing: 12) {
-                Image(uiImage: ClearBrand.image(34)).renderingMode(.template).foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(LinearGradient(colors: [Color(preferences.settings.accentColor), Color(preferences.settings.accentColor).opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 14))
+                Image(uiImage: ClearBrand.image(38)).renderingMode(.original).frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("澈").font(.system(size: 21, weight: .semibold))
                     Text("CLEAR").font(.system(size: 9, weight: .medium, design: .rounded)).tracking(2.5).foregroundStyle(.secondary)
@@ -96,7 +102,7 @@ struct HomeView: View {
         .onAppear { preferences.reload() }
     }
     private func quickLink(_ title: String, symbol: String) -> some View {
-        HStack(spacing: 7) { Image(systemName: symbol); Text(title).font(.system(size: 12, weight: .medium)) }
+        HStack(spacing: 7) { Image(uiImage: ToolArtwork.image(symbol: symbol, size: 22)).renderingMode(.original); Text(title).font(.system(size: 12, weight: .medium)) }
             .frame(maxWidth: .infinity).padding(.vertical, 15)
             .foregroundStyle(.primary).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }

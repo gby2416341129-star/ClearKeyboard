@@ -214,4 +214,111 @@ import UIKit
         settings.automaticClipboard = false; capture.activate(settings: settings, allowed: true)
         count += 1; capture.captureIfChanged(); XCTAssertEqual(reads, 3)
     }
+    func testLongAbbreviationAndUppercaseChineseLegends() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        let spelling = String(repeating: "hd", count: 20)
+        for letter in spelling { try tap(.text(String(letter)), in: controller.view) }
+        try await waitFor { controller.model.candidatesAreCurrent }
+        XCTAssertEqual(controller.textView.text, spelling)
+        XCTAssertEqual(controller.model.candidates.first?.text, String(repeating: "好的", count: 20))
+        let letters = descendants(controller.view).compactMap { $0 as? KeyButton }.filter {
+            if case .text(let text) = $0.key.action { return text.count == 1 && text.first?.isLetter == true }; return false
+        }
+        XCTAssertEqual(letters.count, 26)
+        XCTAssertTrue(letters.allSatisfy { $0.key.label == $0.key.label.uppercased() })
+    }
+    func testTrackpadDoesNotRefreshCandidatesPerStep() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        try await waitFor { controller.model.candidatesAreCurrent }
+        controller.insert("光标测试 👨‍👩‍👧‍👦 hello world")
+        let original = controller.textView.text
+        let onChange = controller.model.onChange
+        var changes = 0
+        controller.model.onChange = { changes += 1; onChange?() }
+        controller.model.beginCursorMovement()
+        for _ in 0..<10 { controller.model.moveCursor(-1) }
+        for _ in 0..<10 { controller.model.moveCursor(1) }
+        XCTAssertEqual(changes, 0, "Dragging must not query candidates or rebuild the keyboard on each move")
+        XCTAssertEqual(controller.textView.text, original)
+        controller.model.endCursorMovement(); XCTAssertGreaterThan(changes, 0)
+        XCTAssertEqual(controller.textView.text, original)
+    }
+    func testClearAndUndoRestoresCompositionAndProtectsOtherDocument() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        controller.insert("前文 👨‍👩‍👧‍👦 ")
+        for letter in "nihao" { controller.model.handle(.text(String(letter))) }
+        let text = controller.textView.text
+        controller.model.clearInput()
+        XCTAssertEqual(controller.textView.text, ""); XCTAssertTrue(controller.model.canUndoClearInput)
+        XCTAssertTrue(controller.model.undoClearInput())
+        XCTAssertEqual(controller.textView.text, text); XCTAssertEqual(controller.model.composition.raw, "nihao")
+        XCTAssertNotNil(controller.textView.markedTextRange)
+        controller.model.clearInput()
+        let other = TypingLabController(settings: testSettings()); other.loadViewIfNeeded(); other.insert("其他输入框")
+        defer { other.model.suspend() }
+        controller.model.document = other
+        XCTAssertFalse(controller.model.undoClearInput())
+        XCTAssertEqual(other.textView.text, "其他输入框")
+    }
+    func testInlineArithmeticThroughKeyboardPages() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        controller.model.handle(.page(.numbers))
+        controller.model.handle(.text("9")); controller.model.handle(.text("9"))
+        controller.model.handle(.page(.letters)); controller.model.handle(.text("x"))
+        controller.model.handle(.page(.numbers))
+        controller.model.handle(.text("8")); controller.model.handle(.text("8"))
+        XCTAssertEqual(controller.textView.text, "99x88")
+        XCTAssertEqual(controller.model.arithmetic?.candidates, ["8712", "99x88=8712"])
+        let result = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.8712" })
+        XCTAssertTrue(result.isEnabled); result.sendActions(for: .touchUpInside)
+        XCTAssertEqual(controller.textView.text, "8712")
+    }
+    func testInputViewFitsOwnContentAndTransparentSurfaceHasOneOutline() throws {
+        let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 276)
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        let input = try XCTUnwrap(controller.view as? KeyboardInputView)
+        let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
+        XCTAssertTrue(input.allowsSelfSizing)
+        XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 393, height: 0)).height, surface.desiredHeight + input.safeAreaInsets.bottom, accuracy: 1)
+        XCTAssertTrue(surface.systemBacked); XCTAssertFalse(surface.isOpaque)
+        XCTAssertEqual(surface.layer.cornerRadius, 0)
+        let backdrop = try XCTUnwrap(surface.subviews.compactMap { $0 as? GlassBackdrop }.first)
+        XCTAssertLessThan(backdrop.backgroundColor?.cgColor.alpha ?? 0, 0.1)
+        XCTAssertFalse(backdrop.isOpaque)
+    }
+    func testSystemPasteControlSavesProvidedTextWithoutReadingClipboard() async throws {
+        let suite = "clear.paste.tests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), url = root.appendingPathComponent("clips.json")
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        var reads = 0
+        let capture = ClipboardCapture(defaults: defaults, makeStore: { ClipboardStore(url: url) }, changeCount: { 1 }, hasStrings: { true }, readText: { reads += 1; return "should not be read" })
+        let button = ClipboardPasteButton(capture: capture)
+        let system = try XCTUnwrap(descendants(button).compactMap { $0 as? UIPasteControl }.first)
+        let receiver = try XCTUnwrap(system.target as? UIResponder)
+        receiver.paste(itemProviders: [NSItemProvider(object: "系统粘贴保存" as NSString)])
+        try await waitFor { ClipboardStore(url: url).clips.first?.text == "系统粘贴保存" }
+        XCTAssertEqual(reads, 0, "System paste payloads must not trigger a second programmatic clipboard read")
+    }
+    func testGlassShowsContentBehindKeyboard() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene); let host = UIViewController(); host.view.backgroundColor = .systemBackground
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; controller.model.suspend() }
+        let backdrop = UIView(frame: CGRect(x: 0, y: 0, width: 393, height: 276))
+        let gradient = CAGradientLayer(); gradient.frame = backdrop.bounds
+        gradient.colors = [UIColor.systemOrange.withAlphaComponent(0.7).cgColor, UIColor.systemTeal.withAlphaComponent(0.8).cgColor, UIColor.systemBlue.withAlphaComponent(0.7).cgColor]
+        gradient.startPoint = .zero; gradient.endPoint = CGPoint(x: 1, y: 1); backdrop.layer.addSublayer(gradient)
+        let label = UILabel(frame: CGRect(x: 40, y: 70, width: 310, height: 130)); label.text = "你好\nHELLO"; label.numberOfLines = 2; label.textAlignment = .center; label.font = .systemFont(ofSize: 48, weight: .bold); label.textColor = UIColor.white.withAlphaComponent(0.5); backdrop.addSubview(label)
+        host.view.addSubview(backdrop)
+        let surface = KeyboardSurface(model: controller.model, systemBacked: true); surface.frame = backdrop.frame; host.view.addSubview(surface)
+        surface.layoutIfNeeded(); snapshot(surface.superview!, name: "glass-transparency")
+    }
 }

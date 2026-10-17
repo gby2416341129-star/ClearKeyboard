@@ -2,6 +2,11 @@ import Foundation
 import CoreGraphics
 
 public enum KeyboardGeometry {
+    public static func contentHeight(total: CGFloat, preferred: CGFloat, reservedBottom: CGFloat) -> CGFloat {
+        guard total.isFinite, preferred.isFinite, reservedBottom.isFinite else { return 0 }
+        // Some hosts already provide only the extension's content rectangle.
+        return max(0, total >= preferred + reservedBottom - 1 ? total - max(0, reservedBottom) : total)
+    }
     /// Fit the four rows to the height the host actually gives us, including during resize animations.
     public static func rowHeight(availableHeight: CGFloat, header: CGFloat = 48, preferred: CGFloat = 56) -> CGFloat {
         guard availableHeight.isFinite, header.isFinite, preferred.isFinite else { return 0 }

@@ -1,12 +1,13 @@
 import Foundation
 
 public struct Composition: Equatable {
+    public static let maximumLength = 256
     public private(set) var raw = ""
     public var normalized: String { FuzzyPinyin.normalize(raw) }
     public var isEmpty: Bool { normalized.isEmpty }
     public init() {}
     @discardableResult public mutating func append(_ text: String) -> Bool {
-        guard normalized.count + FuzzyPinyin.normalize(text).count <= 64 else { return false }
+        guard normalized.count + FuzzyPinyin.normalize(text).count <= Self.maximumLength else { return false }
         raw += text; return true
     }
     public mutating func deleteBackward() { if !raw.isEmpty { raw.removeLast() } }

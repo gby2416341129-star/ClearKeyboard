@@ -21,7 +21,7 @@ struct CustomizationView: View {
         Form {
             Section {
                 HStack(spacing: 10) {
-                    Image(uiImage: ClearBrand.image(30)).renderingMode(.template).foregroundStyle(.tint)
+                    Image(uiImage: ClearBrand.image(32)).renderingMode(.original)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("你的清透，自有分寸。").font(.headline)
                         Text("外观改变，熟悉的按键位置不变。").font(.caption).foregroundStyle(.secondary)
@@ -108,12 +108,16 @@ struct InputSettingsView: View {
                 }
             }
             Section("剪贴板") {
-                Toggle("自动保存复制的文字", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 }))
+                Toggle("自动收录复制内容", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 }))
+                Text("一次设置：系统设置 → 澈 → 从其他 App 粘贴 → 允许；键盘设置中开启完全访问。之后无需每次确认。若此项尚未出现，先复制内容并打开澈的剪贴板一次。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("设置粘贴权限") { preferences.openClipboardSettings() }
+                ClipboardSaveControl(capture: preferences.clipboardCapture).frame(height: 38)
                 Picker("未固定内容保留", selection: $preferences.settings.clipboardLifetimeHours) {
                     Text("15 分钟").tag(0.25); Text("1 小时").tag(1.0); Text("1 天").tag(24.0)
                     Text("7 天").tag(168.0); Text("30 天").tag(720.0); Text("永久").tag(0.0)
                 }
-                Text("App 或澈键盘打开时自动收录最新复制的文字；需要完全访问和系统粘贴许可。iOS 不允许在后台持续收集复制历史。最多 200 条、每条 2,000 字，最多固定 10 条；永久保留不会按时间过期。")
+                Text("支持文字、链接、图片及 8 MB 内的附件。App 或澈键盘打开时收录当前内容；全部关闭期间无法收集每一次复制。最多 200 条、文字每条 2,000 字、附件共 32 MB；固定上限 10 条。永久不会按时间过期，仍受容量限制。图片和附件点按后复制到系统剪贴板，再在输入框粘贴。")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("清空剪贴板记录", role: .destructive) { preferences.clearClipboard() }
             }
@@ -131,6 +135,12 @@ struct InputSettingsView: View {
             }
         }.navigationTitle("输入").onAppear { preferences.reload() }
     }
+}
+
+private struct ClipboardSaveControl: UIViewRepresentable {
+    let capture: ClipboardCapture
+    func makeUIView(context: Context) -> ClipboardPasteButton { ClipboardPasteButton(capture: capture) }
+    func updateUIView(_ uiView: ClipboardPasteButton, context: Context) {}
 }
 
 private struct LicenseView: View {

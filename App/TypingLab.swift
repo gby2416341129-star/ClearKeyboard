@@ -14,6 +14,7 @@ struct TypingLab: UIViewControllerRepresentable {
 }
 
 final class TypingLabController: UIViewController, KeyboardDocument, UITextViewDelegate {
+    let documentIdentity = UUID().uuidString
     let textView = UITextView()
     private let placeholder = UILabel()
     var model: KeyboardModel!
@@ -65,7 +66,7 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
     private func rememberSelection() { lastSelection = textView.selectedRange; lastText = textView.text ?? "" }
     func textViewDidChangeSelection(_ textView: UITextView) {
         guard !editingInternally, lastSelection != textView.selectedRange || lastText != textView.text else { return }
-        rememberSelection(); model?.cursorChanged()
+        rememberSelection(); if model?.isMovingCursor != true { model?.cursorChanged() }
     }
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         guard !editingInternally, let model else { return true }
@@ -89,6 +90,10 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
         let range = textView.selectedRange
         guard range.location != NSNotFound, range.location <= value.length, range.length <= value.length - range.location else { return "" }
         return value.substring(with: range)
+    }
+    var contextAfter: String {
+        let value = (textView.text ?? "") as NSString
+        return value.substring(from: min(value.length, NSMaxRange(textView.selectedRange)))
     }
     var enterTitle: String { "换行" }
     var needsGlobe: Bool { true }
@@ -114,4 +119,15 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
         editingInternally = false
     }
     func nextKeyboard() { model.toggleLanguage() }
+    func clearInput() -> DeletedInput? {
+        guard let text = textView.text, !text.isEmpty else { return nil }
+        let value = DeletedInput(text: text, selection: textView.selectedRange)
+        editingInternally = true; textView.unmarkText(); textView.text = ""; textView.selectedRange = NSRange(location: 0, length: 0)
+        rememberSelection(); editingInternally = false; return value
+    }
+    func restoreInput(_ value: DeletedInput) -> Bool {
+        guard (textView.text ?? "").isEmpty else { return false }
+        editingInternally = true; textView.text = value.text; textView.selectedRange = value.selection
+        rememberSelection(); editingInternally = false; return true
+    }
 }

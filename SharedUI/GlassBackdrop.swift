@@ -11,21 +11,17 @@ final class GlassBackdrop: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() { super.layoutSubviews(); gradient.frame = bounds; material.frame = bounds; wash.frame = bounds }
-    func apply(_ settings: KeyboardSettings) {
+    func apply(_ settings: KeyboardSettings, systemBacked: Bool = false) {
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled || settings.glass == .solid
-        backgroundColor = .secondarySystemBackground
-        let dark = traitCollection.userInterfaceStyle == .dark
-        gradient.colors = [settings.accentColor.withAlphaComponent(dark ? 0.48 : 0.32).cgColor,
-                           UIColor.systemBackground.withAlphaComponent(0.25).cgColor,
-                           settings.accentColor.withAlphaComponent(dark ? 0.26 : 0.20).cgColor]
-        gradient.startPoint = CGPoint(x: 0, y: 0); gradient.endPoint = CGPoint(x: 1, y: 1)
-        gradient.isHidden = reduced
-        if reduced { material.effect = nil }
+        isOpaque = false; backgroundColor = reduced ? .secondarySystemBackground : .clear
+        gradient.isHidden = true
+        if reduced || systemBacked { material.effect = nil }
         else if #available(iOS 26.0, *) {
-            // Individual keys share a glass container; avoid stacking a second sheet of glass behind them.
-            material.effect = nil
+            let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
+            glass.isInteractive = false; material.effect = glass
+            material.cornerConfiguration = .corners(radius: .fixed(28))
         } else { material.effect = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
-        wash.backgroundColor = UIColor.systemBackground.withAlphaComponent(reduced ? 1 : settings.glassOpacity * 0.14)
+        wash.backgroundColor = reduced ? .clear : settings.accentColor.withAlphaComponent(settings.glassOpacity * (systemBacked ? 0.025 : 0.06))
     }
 }
 
@@ -41,10 +37,16 @@ final class KeyButton: UIButton {
     private var suppressTap = false
     private var cursorMode = false
     private var cursorX: CGFloat = 0
+    private var cursorMotion = CursorMotion()
+    private var pendingCursor = 0
+    private var cursorDisplayLink: CADisplayLink?
+    private var deletionDirection = 0
     var onAction: ((KeyAction) -> Void)?
     var onCursor: ((Int) -> Void)?
     var onCursorBegan: (() -> Void)?
     var onCursorEnded: (() -> Void)?
+    var onDeleteSwipe: ((Bool) -> Void)?
+    var onDeleteHint: ((Int?) -> Void)?
     var accent = UIColor.systemTeal
     var haptics = false
     private var feedback: UIImpactFeedbackGenerator?
@@ -82,6 +84,10 @@ final class KeyButton: UIButton {
         if key.action == .space {
             let cursor = UILongPressGestureRecognizer(target: self, action: #selector(cursorGesture(_:)))
             cursor.minimumPressDuration = 0.35; cursor.allowableMovement = 14; addGestureRecognizer(cursor)
+        }
+        if key.action == .delete {
+            let swipe = UIPanGestureRecognizer(target: self, action: #selector(deletionGesture(_:)))
+            swipe.maximumNumberOfTouches = 1; addGestureRecognizer(swipe)
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -151,21 +157,46 @@ final class KeyButton: UIButton {
         switch gesture.state {
         case .began:
             draggingCursor = true; suppressTap = true; cursorX = x
+            cursorMotion.reset(); pendingCursor = 0
             onCursorBegan?()
+            let link = CADisplayLink(target: self, selector: #selector(flushCursor))
+            let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
+            link.add(to: .main, forMode: .common); cursorDisplayLink = link
             if haptics { feedback?.impactOccurred(intensity: 0.5) }
         case .changed:
-            let delta = Int((x - cursorX) / 9)
-            if delta != 0 { onCursor?(delta); cursorX += CGFloat(delta) * 9 }
+            pendingCursor += cursorMotion.advance(points: x - cursorX); cursorX = x
         default:
+            if gesture.state == .ended { flushCursor() }
+            cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = 0
             if draggingCursor { draggingCursor = false; onCursorEnded?() }
             cancelPress()
         }
     }
+    @objc private func flushCursor() {
+        guard pendingCursor != 0 else { return }
+        let offset = pendingCursor; pendingCursor = 0; onCursor?(offset)
+    }
+    @objc private func deletionGesture(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began, .changed:
+            suppressTap = true; repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
+            let y = gesture.translation(in: window).y
+            deletionDirection = y < -24 ? 1 : y > 24 ? -1 : 0
+            onDeleteHint?(deletionDirection)
+        case .ended:
+            if deletionDirection != 0 { onDeleteSwipe?(deletionDirection == 1) }
+            onDeleteHint?(nil); deletionDirection = 0; cancelPress()
+        default: onDeleteHint?(nil); deletionDirection = 0; cancelPress()
+        }
+    }
     func stopTracking() {
         suppressTap = true
+        cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = 0
+        onDeleteHint?(nil)
         if draggingCursor { draggingCursor = false; onCursorEnded?() }
         cancelPress()
     }
     override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { stopTracking() } }
-    deinit { repeatTimer?.invalidate(); repeatStart?.cancel() }
+    deinit { repeatTimer?.invalidate(); repeatStart?.cancel(); cursorDisplayLink?.invalidate() }
 }

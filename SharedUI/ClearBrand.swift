@@ -3,6 +3,9 @@ import UIKit
 @MainActor enum ClearBrand {
     private static var cache: [CGFloat: UIImage] = [:]
     static func image(_ size: CGFloat = 24) -> UIImage {
+        return ToolArtwork.brand(size: size)
+    }
+    private static func legacyImage(_ size: CGFloat) -> UIImage {
         if let image = cache[size] { return image }
         let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { _ in
             UIColor.white.setStroke(); UIColor.white.setFill()

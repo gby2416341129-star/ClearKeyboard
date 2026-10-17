@@ -3,6 +3,8 @@ import os
 
 @MainActor protocol KeyboardDocument: AnyObject {
     var contextBefore: String { get }
+    var contextAfter: String { get }
+    var documentIdentity: String { get }
     var selectedText: String { get }
     var enterTitle: String { get }
     var needsGlobe: Bool { get }
@@ -15,7 +17,11 @@ import os
     func nextKeyboard()
     func setMarkedText(_ text: String)
     func unmarkText()
+    func clearInput() -> DeletedInput?
+    func restoreInput(_ value: DeletedInput) -> Bool
 }
+
+struct DeletedInput { let text: String; let selection: NSRange }
 
 @MainActor final class KeyboardModel {
     weak var document: KeyboardDocument?
@@ -25,6 +31,10 @@ import os
     private(set) var capsLocked = false
     private(set) var composition = Composition()
     private(set) var candidates: [Candidate] = []
+    private(set) var arithmetic: ArithmeticResult?
+    private(set) var isMovingCursor = false
+    private var deletionUndo: (DeletedInput, String, String, String, Composition)?
+    var canUndoClearInput: Bool { deletionUndo != nil }
     var candidatesAreCurrent: Bool { candidateGeneration == generation }
     private(set) var engineState = "离线词库加载中…"
     var onChange: (() -> Void)?
@@ -77,7 +87,11 @@ import os
         if !composition.raw.isEmpty { document?.setMarkedText(""); document?.unmarkText() }
         composition.clear(); refreshCandidates()
     }
-    func cursorChanged() { if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates() }
+    func cursorChanged() {
+        guard !isMovingCursor else { return }
+        deletionUndo = nil
+        if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates()
+    }
     func finishCompositionAsTyped() { if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear() }
     private func syncMarkedText() {
         document?.setMarkedText(composition.raw)
@@ -88,19 +102,54 @@ import os
         clipboardCapture.activate(settings: settings, allowed: document?.fullAccess == true)
     }
     func stopClipboardCapture() { clipboardActive = false; clipboardCapture.stop() }
-    func moveCursor(_ offset: Int) { commitComposition(); document?.moveCursor(offset); refreshCandidates() }
-    func beginCursorMovement() { commitComposition(); refreshCandidates() }
+    func moveCursor(_ offset: Int) {
+        if !isMovingCursor { commitComposition() }
+        document?.moveCursor(offset)
+        if !isMovingCursor { refreshCandidates() }
+    }
+    func beginCursorMovement() {
+        guard !isMovingCursor else { return }
+        commitComposition(); isMovingCursor = true; deletionUndo = nil
+        cancellation.cancel(); work?.cancel(); generation += 1; candidates = []; arithmetic = nil
+    }
+    func endCursorMovement() { guard isMovingCursor else { return }; isMovingCursor = false; refreshCandidates() }
+    func clearInput() {
+        guard let document else { return }
+        let spelling = composition
+        document.unmarkText(); composition.clear()
+        if let deleted = document.clearInput() {
+            deletionUndo = (deleted, document.documentIdentity, document.contextBefore, document.contextAfter, spelling)
+        }
+        refreshCandidates()
+    }
+    @discardableResult func undoClearInput() -> Bool {
+        guard let document, let (deleted, identity, before, after, spelling) = deletionUndo,
+              document.documentIdentity == identity, document.contextBefore == before,
+              document.contextAfter == after, document.selectedText.isEmpty else { deletionUndo = nil; return false }
+        deletionUndo = nil
+        let restored = document.restoreInput(deleted)
+        if restored, !spelling.raw.isEmpty, document.contextBefore.hasSuffix(spelling.raw) {
+            for _ in spelling.raw { document.deleteBackward() }
+            composition = spelling; syncMarkedText()
+        }
+        refreshCandidates(); return restored
+    }
     func toggleLanguage() {
         commitComposition(); settings.language = settings.language == .chinese ? .english : .chinese
         page = .letters; shifted = false; capsLocked = false; manualShift = false; refreshCandidates()
     }
     func handle(_ action: KeyAction) {
+        deletionUndo = nil
         let event = OSSignpostID(log: signpost)
         os_signpost(.begin, log: signpost, name: "KeyAction", signpostID: event)
         defer { os_signpost(.end, log: signpost, name: "KeyAction", signpostID: event) }
         switch action {
         case .text(let text):
-            if settings.language == .chinese && page == .letters && text.first?.isLetter == true && !shifted {
+            let mathContext = document?.contextBefore ?? ""
+            let mathCharacter = text.count == 1 && "xX+-*/×÷().".contains(text) && mathContext.last.map({ $0.isNumber || $0 == ")" }) == true
+            if mathCharacter {
+                commitComposition(); document?.insert(text)
+            } else if settings.language == .chinese && page == .letters && text.first?.isLetter == true {
                 if !composition.append(text) { commitComposition(); _ = composition.append(text) }
                 syncMarkedText()
             } else if settings.language == .chinese && text == "'" && !composition.isEmpty {
@@ -113,6 +162,7 @@ import os
                 if page != .letters && [".", ",", "?", "!"].contains(text) { page = .letters }
             }
         case .shift:
+            if settings.language == .chinese { toggleLanguage(); return }
             let now = Date()
             if now.timeIntervalSince(lastShift) < 0.3 { capsLocked = true; shifted = true }
             else { shifted.toggle(); capsLocked = false }
@@ -135,6 +185,12 @@ import os
         return [",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）" ][text] ?? text
     }
     func insertLiteral(_ text: String) { commitComposition(); document?.insert(text); refreshCandidates() }
+    func chooseArithmetic(_ text: String) {
+        guard let document, let arithmetic, arithmetic.candidates.contains(text),
+              composition.isEmpty, document.selectedText.isEmpty, document.contextBefore.hasSuffix(arithmetic.expression) else { return }
+        for _ in arithmetic.expression { document.deleteBackward() }
+        document.insert(text); refreshCandidates()
+    }
     private func commitComposition(flushRemainder: Bool = true) {
         guard !composition.isEmpty else { composition.clear(); return }
         let current = candidateGeneration == generation ? candidates.first : nil
@@ -168,10 +224,12 @@ import os
         refreshCandidates()
     }
     func refreshCandidates() {
+        guard !isMovingCursor else { return }
         generation += 1; let requestedGeneration = generation
         cancellation.cancel(); let token = QueryCancellation(); cancellation = token
         work?.cancel(); candidateGeneration = -1
-        if engine == nil || document?.selectedText.isEmpty != true { candidates = [] }
+        arithmetic = composition.isEmpty && document?.selectedText.isEmpty == true ? InlineArithmetic.result(in: document?.contextBefore ?? "") : nil
+        if arithmetic != nil || engine == nil || document?.selectedText.isEmpty != true { candidates = [] }
         if settings.language == .english && !capsLocked && !manualShift, let document {
             let context = document.contextBefore
             let trimmed = context.trimmingCharacters(in: .whitespaces)
@@ -183,7 +241,9 @@ import os
             default: shifted = false
             }
         }
+        if arithmetic != nil { candidateGeneration = requestedGeneration }
         onChange?()
+        if arithmetic != nil { candidateGeneration = requestedGeneration; return }
         guard let engine, let document, document.selectedText.isEmpty else { return }
         let raw = composition.raw, context = document.contextBefore, settings = self.settings, learned = self.learned
         englishSnapshot = context

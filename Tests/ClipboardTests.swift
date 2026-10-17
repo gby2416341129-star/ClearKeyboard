@@ -45,4 +45,32 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(store.clips.map(\.text), ["recent"])
         XCTAssertEqual(ClipboardStore(url: root.appendingPathComponent("clipboard.json")).clips, store.clips)
     }
+    func testAttachmentPersistenceDeduplicationAndRemoval() throws {
+        let data = Data([0, 1, 2, 3, 4])
+        XCTAssertTrue(store.addAttachment(data, typeIdentifier: "public.png", name: "图片"))
+        XCTAssertTrue(store.addAttachment(data, typeIdentifier: "public.png", name: "图片"))
+        XCTAssertEqual(store.clips.count, 1)
+        let reloaded = ClipboardStore(url: root.appendingPathComponent("clipboard.json"))
+        let clip = try XCTUnwrap(reloaded.clips.first)
+        XCTAssertEqual(reloaded.attachmentData(for: clip), data)
+        reloaded.delete(clip.id)
+        XCTAssertNil(reloaded.attachmentData(for: clip))
+    }
+    func testAttachmentLimitsAndExpiration() {
+        XCTAssertFalse(store.addAttachment(Data(), typeIdentifier: "public.data", name: "empty"))
+        XCTAssertFalse(store.addAttachment(Data(repeating: 0, count: ClipboardStore.attachmentLimit + 1), typeIdentifier: "public.data", name: "large"))
+        let old = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(store.addAttachment(Data([4, 5]), typeIdentifier: "com.adobe.pdf", name: "PDF", now: old))
+        let clip = store.clips[0]
+        store.prune(lifetime: 168 * 3600, now: old.addingTimeInterval(169 * 3600))
+        XCTAssertTrue(store.clips.isEmpty); XCTAssertNil(store.attachmentData(for: clip))
+    }
+    func testOldTextClipsRemainReadable() throws {
+        store.add("old text")
+        let data = try Data(contentsOf: root.appendingPathComponent("clipboard.json"))
+        var values = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        values[0].removeValue(forKey: "attachment")
+        try JSONSerialization.data(withJSONObject: values).write(to: root.appendingPathComponent("clipboard.json"))
+        XCTAssertEqual(ClipboardStore(url: root.appendingPathComponent("clipboard.json")).clips.first?.text, "old text")
+    }
 }

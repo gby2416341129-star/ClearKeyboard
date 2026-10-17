@@ -28,7 +28,26 @@ final class EngineTests: XCTestCase {
     func testChineseContinuation() { XCTAssertTrue(engine.predictions(after: "中华").contains { $0.text == "人民共和国" }) }
     func testEnglishCompletion() { XCTAssertTrue(engine.englishCandidates(prefix: "hell").contains { $0.text == "hello" }) }
     func testEnglishContinuation() { XCTAssertEqual(engine.englishPredictions(after: "thank ").first?.text, "you") }
-    func testEmptyAndOverlongInput() { XCTAssertTrue(engine.candidates("").isEmpty); XCTAssertTrue(engine.candidates(String(repeating: "a", count: 65)).isEmpty) }
+    func testEmptyAndOverlongInput() { XCTAssertTrue(engine.candidates("").isEmpty); XCTAssertTrue(engine.candidates(String(repeating: "a", count: Composition.maximumLength + 1)).isEmpty) }
+    func testContinuousAbbreviationsDoNotLoseCandidates() {
+        for count in [2, 6, 12, 40] {
+            let input = String(repeating: "hd", count: count)
+            let results = engine.candidates(input)
+            XCTAssertEqual(results.first?.text, String(repeating: "好的", count: count))
+            XCTAssertEqual(results.first?.consumed, input.count)
+        }
+    }
+    func testLongFullPinyinAndMixedAbbreviations() {
+        let full = String(repeating: "haode", count: 15)
+        XCTAssertTrue(engine.candidates(full).contains { $0.consumed == full.count && $0.text == String(repeating: "好的", count: 15) })
+        XCTAssertTrue(engine.candidates("nihaohd").contains { $0.text == "你好好的" && $0.consumed == 7 })
+    }
+    func testIncrementalSentenceCacheMatchesFreshQueries() throws {
+        for spelling in ["hdhdhdhdhdhdhd", "hdhdhdhdhdhd", "hdhdhdhdhdhdhdhd", "nihaonihaonihaonihaonihao"] {
+            let fresh = InputEngine(chinese: engine.chinese, english: engine.english)
+            XCTAssertEqual(engine.candidates(spelling), fresh.candidates(spelling))
+        }
+    }
     func testCancellation() { XCTAssertTrue(engine.candidates("zhongguo", cancelled: { true }).isEmpty) }
     func testCandidatesHaveUniqueText() {
         for input in ["a", "shi", "zhong", "nh", "nihao", "shurufa"] {

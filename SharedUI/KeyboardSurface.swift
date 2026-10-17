@@ -1,7 +1,9 @@
 import UIKit
+import ImageIO
 
 @MainActor final class KeyboardSurface: UIView, UIDragInteractionDelegate, UIDropInteractionDelegate {
     let model: KeyboardModel
+    let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
     var configureGlobe: ((UIButton) -> Void)? { didSet { layoutSignature = ""; render() } }
     private let backdrop = GlassBackdrop()
@@ -21,6 +23,8 @@ import UIKit
     private var toolbarSignature = ""
     private var railMode: HandMode?
     private var candidateSnapshot: [Candidate] = []
+    private var arithmeticSnapshot: ArithmeticResult?
+    private let deleteHint = UILabel()
     private var panel: UIView?
     private var clipboard: ClipboardStore?
     private var observerTokens: [NSObjectProtocol] = []
@@ -30,16 +34,16 @@ import UIKit
     private var initialized = false
     private var rendering = false
     private var renderQueued = false
-    private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty ? 48 : 0 }
-    private var headerHeight: CGFloat { 48 }
+    private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
+    private var headerHeight: CGFloat { 44 }
     var desiredHeight: CGFloat { headerHeight + CGFloat(model.settings.keyHeight + 6) * 4 + 8 }
 
-    init(model: KeyboardModel) {
-        self.model = model; super.init(frame: .zero)
-        clipsToBounds = true; addSubview(backdrop)
-        layer.cornerCurve = .continuous; layer.cornerRadius = 28
+    init(model: KeyboardModel, systemBacked: Bool = false) {
+        self.model = model; self.systemBacked = systemBacked; super.init(frame: .zero)
+        isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked; addSubview(backdrop)
+        layer.cornerCurve = .continuous; layer.cornerRadius = systemBacked ? 0 : 28
         // Remote hosts may advertise a much larger corner radius; never inherit it.
-        if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(28)) }
+        if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28)) }
         toolbar.axis = .horizontal; toolbar.distribution = .fill; toolbar.alignment = .center; toolbar.spacing = 10
         addSubview(toolbar)
         addSubview(candidateScroll); candidateScroll.addSubview(candidateStack)
@@ -52,6 +56,9 @@ import UIKit
         addSubview(status); status.isHidden = true; status.textAlignment = .center
         status.font = .systemFont(ofSize: 12); status.backgroundColor = .secondarySystemBackground
         status.layer.cornerRadius = 10; status.clipsToBounds = true
+        addSubview(deleteHint); deleteHint.isHidden = true; deleteHint.isUserInteractionEnabled = false
+        deleteHint.font = .systemFont(ofSize: 13, weight: .semibold); deleteHint.textAlignment = .center
+        deleteHint.textColor = .white; deleteHint.layer.cornerRadius = 10; deleteHint.clipsToBounds = true
         model.onChange = { [weak self] in self?.render() }
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -109,19 +116,26 @@ import UIKit
         }
         rendering = true; defer { rendering = false }
         let settings = model.settings
-        let signature = "\(model.page)-\(model.shifted)-\(model.capsLocked)-\(model.document?.needsGlobe ?? true)"
+        let uppercase = settings.language == .chinese || model.shifted
+        let signature = "\(model.page)-\(uppercase)-\(model.capsLocked)-\(model.document?.needsGlobe ?? true)"
         if signature != layoutSignature && !movingCursor {
             layoutSignature = signature
             keys.forEach { $0.0.removeFromSuperview() }; keys = []
-            for (rowIndex, row) in KeyboardLayout.rows(page: model.page, uppercase: model.shifted, globe: model.document?.needsGlobe ?? true).enumerated() {
+            for (rowIndex, row) in KeyboardLayout.rows(page: model.page, uppercase: uppercase, globe: model.document?.needsGlobe ?? true).enumerated() {
                 var start = row.insetUnits
                 for key in row.keys {
                     let button = KeyButton(key: key)
                     if key.action == .globe, let configureGlobe { configureGlobe(button) }
                     else { button.onAction = { [weak model] action in model?.handle(action) } }
                     button.onCursor = { [weak model] offset in model?.moveCursor(offset) }
-                    button.onCursorBegan = { [weak self] in self?.setCursorMode(true); self?.model.beginCursorMovement() }
-                    button.onCursorEnded = { [weak self] in self?.setCursorMode(false) }
+                    button.onCursorBegan = { [weak self] in self?.model.beginCursorMovement(); self?.setCursorMode(true) }
+                    button.onCursorEnded = { [weak self] in self?.model.endCursorMovement(); self?.setCursorMode(false) }
+                    button.onDeleteHint = { [weak self, weak button] direction in self?.showDeleteHint(direction, near: button) }
+                    button.onDeleteSwipe = { [weak self] clear in
+                        guard let self else { return }
+                        if clear { self.model.clearInput(); self.showStatus(self.model.canUndoClearInput ? "已清空，下滑删除键可撤回" : "没有可清空的输入") }
+                        else { self.showStatus(self.model.undoClearInput() ? "已恢复删除的内容" : "没有可撤回的删除") }
+                    }
                     keysContainer.addSubview(button); keys.append((button, rowIndex, start, key.units)); start += key.units
                 }
             }
@@ -133,7 +147,7 @@ import UIKit
         let style = "\(settings.glass)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.glassOpacity)-\(settings.haptics)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
-            appearanceSignature = style; backdrop.apply(settings); tintColor = settings.accentInkColor
+            appearanceSignature = style; backdrop.apply(settings, systemBacked: systemBacked); tintColor = settings.accentInkColor
             let reduced = settings.glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
             if #available(iOS 26.0, *), !reduced {
                 let group = UIGlassContainerEffect(); group.spacing = 0; keyGlassGroup.effect = group
@@ -152,10 +166,12 @@ import UIKit
             }
         }
         toolbar.isHidden = candidateHeight > 0
-        if candidateSnapshot != model.candidates {
+        if candidateSnapshot != model.candidates || arithmeticSnapshot != model.arithmetic {
             candidateSnapshot = model.candidates
+            arithmeticSnapshot = model.arithmetic
             candidateStack.arrangedSubviews.forEach { candidateStack.removeArrangedSubview($0); $0.removeFromSuperview() }
-            for (index, candidate) in model.candidates.enumerated() {
+            let displayed = model.arithmetic?.candidates.map { Candidate(text: $0, consumed: 0) } ?? model.candidates
+            for (index, candidate) in displayed.enumerated() {
                 let button = UIButton(type: .system); button.setTitle(candidate.text, for: .normal)
                 button.titleLabel?.font = .systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
                 button.setTitleColor(index == 0 ? settings.accentInkColor : .label, for: .normal)
@@ -165,7 +181,8 @@ import UIKit
                     button.backgroundColor = settings.accentColor.withAlphaComponent(0.12)
                     button.layer.cornerRadius = 10; button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
                 }
-                button.addAction(UIAction { [weak model] _ in model?.choose(candidate) }, for: .touchUpInside)
+                let calculation = model.arithmetic != nil
+                button.addAction(UIAction { [weak model] _ in if calculation { model?.chooseArithmetic(candidate.text) } else { model?.choose(candidate) } }, for: .touchUpInside)
                 candidateStack.addArrangedSubview(button)
             }
             candidateScroll.setContentOffset(.zero, animated: false)
@@ -183,10 +200,10 @@ import UIKit
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
-        config.image = image ?? symbol.map { ToolArtwork.image(symbol: $0, size: 34) }
+        config.image = image ?? symbol.map { ToolArtwork.image(symbol: $0, size: 28) }
         config.baseForegroundColor = .secondaryLabel
         config.background.backgroundColor = .clear
-        config.background.cornerRadius = 17
+        config.background.cornerRadius = 0
         config.contentInsets = .zero
         button.configuration = config; button.accessibilityLabel = label
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
@@ -197,7 +214,7 @@ import UIKit
     private func rebuildToolbar() {
         toolbar.arrangedSubviews.forEach { toolbar.removeArrangedSubview($0); $0.removeFromSuperview() }
         let brand = circleButton(symbol: toolbarEditing ? "checkmark" : (toolboxVisible ? "chevron.down" : nil),
-            image: toolbarEditing || toolboxVisible ? nil : ToolArtwork.brand(size: 34), label: toolbarEditing ? "完成工具栏编辑" : "键盘工具") { [weak self] in
+            image: toolbarEditing || toolboxVisible ? nil : ToolArtwork.brand(size: 28), label: toolbarEditing ? "完成工具栏编辑" : "键盘工具") { [weak self] in
                 guard let self else { return }
                 if self.toolbarEditing { self.closePanel() }
                 else if self.toolboxVisible { self.closePanel() }
@@ -283,6 +300,14 @@ import UIKit
         movingCursor = active; toolbar.isUserInteractionEnabled = !active; sideRail.isUserInteractionEnabled = !active
         keys.forEach { $0.0.setCursorMode(active) }; render()
     }
+    private func showDeleteHint(_ direction: Int?, near button: KeyButton?) {
+        guard let direction, let button else { deleteHint.isHidden = true; return }
+        let key = button.convert(button.bounds, to: self)
+        deleteHint.frame = CGRect(x: max(8, min(bounds.width - 154, key.maxX - 146)), y: max(2, key.minY - 38), width: 146, height: 34)
+        deleteHint.text = direction > 0 ? "↑ 松手清空" : direction < 0 ? "↓ 松手撤回" : "↑ 清空  ·  ↓ 撤回"
+        deleteHint.backgroundColor = direction < 0 ? .systemTeal : direction > 0 ? .systemRed : .darkGray
+        deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
+    }
     func closePanel() {
         panel?.removeFromSuperview(); panel = nil; panelKind = nil; toolboxVisible = false; toolbarEditing = false
         keyGlassGroup.isHidden = false; render()
@@ -296,15 +321,15 @@ import UIKit
         statusWork = hide; DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: hide)
     }
     private func panelStack(title: String) -> UIStackView {
-        let container = UIView(); container.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.97)
-        container.layer.cornerRadius = 18; addSubview(container); panel = container; keyGlassGroup.isHidden = true
+        let container = UIView(); container.backgroundColor = .clear
+        addSubview(container); panel = container; keyGlassGroup.isHidden = true
         let scroll = UIScrollView(); scroll.translatesAutoresizingMaskIntoConstraints = false; container.addSubview(scroll)
         NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor), scroll.topAnchor.constraint(equalTo: container.topAnchor), scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor)])
         let stack = UIStackView(); stack.axis = .vertical; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = false; scroll.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 12), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -12), stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 10), stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12), stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -24)])
         let header = UIStackView(); header.axis = .horizontal
-        let label = UILabel(); label.text = title; label.font = .systemFont(ofSize: 15, weight: .semibold); header.addArrangedSubview(label)
-        header.addArrangedSubview(actionButton("完成", symbol: "chevron.down") { [weak self] in self?.closePanel() }); stack.addArrangedSubview(header)
+        let label = UILabel(); label.text = title; label.font = .systemFont(ofSize: 14, weight: .semibold); header.addArrangedSubview(label)
+        header.addArrangedSubview(actionButton("完成") { [weak self] in self?.closePanel() }); stack.addArrangedSubview(header)
         return stack
     }
     private func showToolbox() {
@@ -314,7 +339,7 @@ import UIKit
             (tool == .language ? "中 / EN" : tool.title, tool.symbol, { [weak self] in
                 guard let self else { return }; if tool == .language { self.closePanel(); self.model.toggleLanguage() } else { self.showPanel(tool) }
             })
-        } + [("定制工具栏", "slider.horizontal.3", { [weak self] in self?.showToolbarEditor() })]
+        } + [("定制工具栏", "rectangle.3.group.fill", { [weak self] in self?.showToolbarEditor() })]
         buildGrid(items, in: stack); render()
     }
     private func showToolbarEditor() {
@@ -335,10 +360,10 @@ import UIKit
                 let (title, symbol, action) = items[start + offset]
                 var config = UIButton.Configuration.plain(); config.title = title; config.image = ToolArtwork.image(symbol: symbol, size: 32)
                 config.imagePlacement = .top; config.imagePadding = 7; config.baseForegroundColor = .label
-                config.background.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.5); config.background.cornerRadius = 16
+                config.background.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.18); config.background.cornerRadius = 14
                 config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 11); return result }
                 let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
-                button.heightAnchor.constraint(equalToConstant: 72).isActive = true; row.addArrangedSubview(button)
+                button.heightAnchor.constraint(equalToConstant: 76).isActive = true; row.addArrangedSubview(button)
             }
             stack.addArrangedSubview(row)
         }
@@ -413,24 +438,32 @@ import UIKit
         let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)); clipboard = store
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3600)
         let commands = UIStackView(); commands.axis = .horizontal; commands.distribution = .fillEqually
-        commands.addArrangedSubview(actionButton("保存当前内容", symbol: "plus") { [weak self] in
-            guard let self else { return }
-            let saved = self.model.clipboardCapture.captureManually()
-            self.panelKind = nil; self.showPanel(.clipboard)
-            if !saved { self.showStatus("没有可读取的文字，请检查系统粘贴权限") }
-        })
+        commands.addArrangedSubview(ClipboardPasteButton(capture: model.clipboardCapture))
         commands.addArrangedSubview(actionButton("清空") { [weak self] in store.clear(); self?.panelKind = nil; self?.showPanel(.clipboard) })
         stack.addArrangedSubview(commands)
         let lifetime = model.settings.clipboardLifetimeHours
         stack.addArrangedSubview(note((model.settings.capturesClipboard ? "自动收录已开启" : "自动收录已关闭") + " · " + (lifetime == 0 ? "永久保留" : lifetime >= 24 ? "保留 \(Int(lifetime / 24)) 天" : "保留 \(Int(lifetime * 60)) 分钟")))
-        if store.clips.isEmpty { stack.addArrangedSubview(note("复制文字后，打开澈键盘即可收录。系统询问粘贴权限时请允许；保留时间可在 App 的「输入」中修改。")); return }
+        if store.clips.isEmpty { stack.addArrangedSubview(note("复制后会自动收录。请在系统设置的「澈 → 从其他 App 粘贴」选「允许」，并开启键盘完全访问；也可点系统粘贴按钮直接保存。支持文字、链接、图片与 8 MB 内的附件。")); return }
         let scroll = UIScrollView(); scroll.heightAnchor.constraint(equalToConstant: 126).isActive = true
         let list = UIStackView(); list.axis = .vertical; list.spacing = 4; list.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(list); stack.addArrangedSubview(scroll)
         NSLayoutConstraint.activate([list.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor), list.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor), list.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor), list.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor), list.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)])
         for clip in store.clips {
             let row = UIStackView(); row.axis = .horizontal; row.spacing = 6
-            let paste = actionButton(String(clip.text.prefix(40))) { [weak self] in self?.model.insertLiteral(clip.text); self?.closePanel() }
+            let title = clip.attachment.map { clip.text + " · " + ByteCountFormatter.string(fromByteCount: Int64($0.byteCount), countStyle: .file) } ?? String(clip.text.prefix(40))
+            let paste = actionButton(title) { [weak self] in
+                guard let self else { return }
+                if let attachment = clip.attachment, let data = store.attachmentData(for: clip) {
+                    UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
+                    self.closePanel(); self.showStatus("已复制，请在输入框粘贴")
+                } else { self.model.insertLiteral(clip.text); self.closePanel() }
+            }
+            if clip.attachment?.typeIdentifier.hasPrefix("public.") == true, let data = store.attachmentData(for: clip),
+               let source = CGImageSourceCreateWithData(data as CFData, nil),
+               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 72, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) {
+                paste.setImage(UIImage(cgImage: image), for: .normal); paste.imageView?.contentMode = .scaleAspectFit
+                paste.imageView?.widthAnchor.constraint(equalToConstant: 36).isActive = true
+            }
             paste.contentHorizontalAlignment = .leading; paste.titleLabel?.lineBreakMode = .byTruncatingTail
             row.addArrangedSubview(paste)
             let pin = actionButton(clip.pinned ? "已固定" : "固定") { [weak self] in store.togglePin(clip.id); self?.panelKind = nil; self?.showPanel(.clipboard) }

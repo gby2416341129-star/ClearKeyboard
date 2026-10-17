@@ -24,7 +24,7 @@ public enum ToolbarTool: String, Codable, CaseIterable, Identifiable {
         switch self { case .language: return "中 / EN"; case .clipboard: return "剪贴板"; case .emoji: return "表情"; case .oneHand: return "单手"; case .appearance: return "外观" }
     }
     public var symbol: String {
-        switch self { case .language: return "character.bubble.fill"; case .clipboard: return "doc.on.clipboard.fill"; case .emoji: return "face.smiling.fill"; case .oneHand: return "keyboard.fill"; case .appearance: return "slider.horizontal.3" }
+        switch self { case .language: return "character.bubble.fill"; case .clipboard: return "doc.on.clipboard.fill"; case .emoji: return "face.smiling.fill"; case .oneHand: return "keyboard.fill"; case .appearance: return "paintpalette.fill" }
     }
 }
 

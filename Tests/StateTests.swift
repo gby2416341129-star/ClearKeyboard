@@ -54,8 +54,8 @@ final class StateTests: XCTestCase {
         buffer.clear(); XCTAssertTrue(buffer.isEmpty)
     }
     func testCompositionBoundIsEnforced() {
-        var buffer = Composition(); XCTAssertTrue(buffer.append(String(repeating: "a", count: 64)))
-        XCTAssertFalse(buffer.append("a")); XCTAssertEqual(buffer.normalized.count, 64)
+        var buffer = Composition(); XCTAssertTrue(buffer.append(String(repeating: "a", count: Composition.maximumLength)))
+        XCTAssertFalse(buffer.append("a")); XCTAssertEqual(buffer.normalized.count, Composition.maximumLength)
     }
     func testNormalizationAndBoundedFuzzyVariants() {
         XCTAssertEqual(FuzzyPinyin.normalize("LÜ'e 123"), "lve")
