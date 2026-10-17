@@ -5,6 +5,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var model: KeyboardModel!
     private var surface: KeyboardSurface!
     private var heightConstraint: NSLayoutConstraint?
+    private var widthConstraint: NSLayoutConstraint?
+    private var surfaceHeightConstraint: NSLayoutConstraint?
     private var documentID: UUID?
     private var previousContext = ""
     private var expectedContext: String?
@@ -12,7 +14,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var trackpad: ProxyTrackpad?
     private var lastLayoutLog = ""
     private var layoutLogCount = 0
-    private var isPresented = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -26,13 +27,20 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
             button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
         }
         view.addSubview(surface)
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        let contentHeight = surface.heightAnchor.constraint(equalToConstant: surface.desiredHeight)
+        contentHeight.identifier = "clear.keyboard.surface-height"; surfaceHeightConstraint = contentHeight
+        NSLayoutConstraint.activate([
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor), contentHeight
+        ])
         surface.onHeightChange = { [weak self] height in self?.updateHeight(height) }
         updateHeight(surface.desiredHeight)
         documentID = connectedDocumentIdentifier()
         previousContext = contextBefore
     }
     override func viewWillAppear(_ animated: Bool) {
-        isPresented = false
         super.viewWillAppear(animated); model?.reloadSettings()
         if let surface { updateHeight(surface.desiredHeight) }
     }
@@ -42,7 +50,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        isPresented = true
         if let surface { updateHeight(surface.desiredHeight) }
         model?.startClipboardCapture()
     }
@@ -52,8 +59,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // A cached host frame is provisional, especially when Safari changes input traits.
         // Keep the requested key pitch while UIKit negotiates the remote view's final height.
         // Squeezing the surface into that frame permanently changed both key size and font size.
-        let top = max(view.bounds.minY, view.bounds.maxY - surface.desiredHeight)
-        surface.frame = CGRect(x: view.bounds.minX, y: top, width: max(0, view.bounds.width), height: surface.desiredHeight)
+        surface.layoutIfNeeded()
         let layout = "root=\(view.bounds) content=\(surface.frame) parent=\(view.superview?.bounds ?? .zero) window=\(view.window?.bounds ?? .zero)"
         if layout != lastLayoutLog && layoutLogCount < 12 {
             lastLayoutLog = layout; layoutLogCount += 1
@@ -62,18 +68,25 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         updateHeight(surface.desiredHeight)
     }
     private func updateHeight(_ height: CGFloat) {
-        // UIKit manages the input view and its width. One height constraint is the only
-        // sizing authority; self-sizing, preferredContentSize and repeated invalidations
-        // previously fed a growing height back into Safari's remote keyboard host.
-        guard isPresented else { return }
+        if abs((surfaceHeightConstraint?.constant ?? 0) - height) > 0.5 { surfaceHeightConstraint?.constant = height }
+        let hostWidth = view.window?.bounds.width ?? view.bounds.width
+        guard hostWidth.isFinite, hostWidth > 0 else { return }
+        // Resolve both axes before enabling UIKit's native self-sizing. A zero-width
+        // fitting result cannot be hosted; a mask-derived height preserves a stale frame.
+        // The surface uses constraints too, so its temporary frame never becomes a sizing input.
+        view.translatesAutoresizingMaskIntoConstraints = false
+        if widthConstraint == nil {
+            let constraint = view.widthAnchor.constraint(equalToConstant: hostWidth)
+            constraint.identifier = "clear.keyboard.system-width"; constraint.isActive = true; widthConstraint = constraint
+        } else if abs((widthConstraint?.constant ?? 0) - hostWidth) > 0.5 { widthConstraint?.constant = hostWidth }
         if heightConstraint == nil {
             let constraint = view.heightAnchor.constraint(equalToConstant: height)
             constraint.identifier = "clear.keyboard.content-height"
             constraint.priority = .required; constraint.isActive = true; heightConstraint = constraint
         } else if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
+        if inputView?.allowsSelfSizing != true { inputView?.allowsSelfSizing = true }
     }
     override func viewWillDisappear(_ animated: Bool) {
-        isPresented = false
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
     }
     override func textDidChange(_ textInput: UITextInput?) {
