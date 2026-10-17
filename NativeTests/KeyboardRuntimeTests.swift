@@ -368,6 +368,7 @@ import UIKit
     }
     func testCachedSafariFramesNeverCompressTheExtensionKeys() throws {
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
+        let input = try XCTUnwrap(controller.view as? KeyboardInputView)
         let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.q" })
         let a = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.a" })
@@ -375,6 +376,9 @@ import UIKit
             controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: height)
             controller.view.setNeedsLayout(); controller.view.layoutIfNeeded(); surface.layoutIfNeeded()
             XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(input.sizeThatFits(CGSize(width: 420, height: height)).height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 420, height: height)).height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(input.intrinsicContentSize.height, surface.desiredHeight, accuracy: 0.5)
             XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
             XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
             XCTAssertEqual(KeyboardGeometry.keyPlate(in: q.bounds).height, 45, accuracy: 0.5)

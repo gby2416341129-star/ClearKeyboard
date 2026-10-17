@@ -233,6 +233,11 @@ final class KeyboardInputView: UIInputView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: contentHeight) }
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        // Some host transitions still ask UIView's fitting API. Its default returns the
+        // previous bounds, which can disagree with the self-sizing height requested above.
+        systemLayoutSizeFitting(size)
+    }
     override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
         CGSize(width: targetSize.width, height: contentHeight)
     }
