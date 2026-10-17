@@ -1,6 +1,11 @@
 import XCTest
 import UIKit
 
+@MainActor private final class KeyboardHostTextView: UITextView {
+    let keyboard = KeyboardViewController(nibName: nil, bundle: nil)
+    override var inputViewController: UIInputViewController? { keyboard }
+}
+
 @MainActor final class KeyboardRuntimeTests: XCTestCase {
     private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
     private func waitFor(_ predicate: () -> Bool) async throws {
@@ -104,15 +109,25 @@ import UIKit
         let attachment = XCTAttachment(image: image); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
     }
     func testKeyboardControllerLifecycle() async throws {
-        let controller = KeyboardViewController(nibName: nil, bundle: nil)
-        controller.textDidChange(nil)
-        controller.loadViewIfNeeded()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 320)
-        controller.beginAppearanceTransition(true, animated: false); controller.endAppearanceTransition()
-        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
-        controller.textDidChange(nil)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIViewController()
+        let textView = KeyboardHostTextView(frame: CGRect(x: 20, y: 100, width: 330, height: 160))
+        textView.returnKeyType = .send
+        textView.autocorrectionType = .no
+        host.view.addSubview(textView); window.rootViewController = host; window.makeKeyAndVisible()
+        defer { textView.resignFirstResponder(); window.isHidden = true }
+        XCTAssertTrue(textView.becomeFirstResponder())
+        let controller = textView.keyboard
+        try await waitFor { controller.isViewLoaded && !self.descendants(controller.view).compactMap { $0 as? KeyButton }.isEmpty }
+        XCTAssertEqual(controller.enterTitle, "发送")
         try await Task.sleep(nanoseconds: 300_000_000)
-        XCTAssertFalse(descendants(controller.view).compactMap { $0 as? KeyButton }.isEmpty)
-        controller.beginAppearanceTransition(false, animated: false); controller.endAppearanceTransition()
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        XCTAssertGreaterThan(controller.view.bounds.width, 0)
+        for letter in "nihao" { try tap(.text(String(letter)), in: controller.view) }
+        try await waitFor { self.descendants(controller.view).compactMap { $0 as? UIButton }.contains { $0.title(for: .normal) == "你好" } }
+        try tap(.space, in: controller.view)
+        XCTAssertEqual(textView.text, "你好")
+        snapshot(controller.view, name: "hosted-keyboard-controller")
     }
 }

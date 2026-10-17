@@ -78,6 +78,7 @@ struct CustomizationView: View {
                 }
                 ForEach(ToolbarTool.allCases.filter { !preferences.settings.toolbar.contains($0) }) { item in
                     Button { preferences.settings.toolbar.append(item) } label: { Label("添加" + item.title, systemImage: "plus.circle") }
+                        .disabled(preferences.settings.toolbar.filter { $0 != .language }.count >= 3)
                 }
             } header: { Text("工具栏 · 拖动排序") } footer: { Text("最多放三个快捷工具；也可在键盘内长按工具栏调整。中 / EN 始终可在工具面板中切换。") }
         }

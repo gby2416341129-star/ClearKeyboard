@@ -16,10 +16,11 @@ xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime \
   -derivedDataPath .build/Native -resultBundlePath .build/NativeResults.xcresult \
   -destination-timeout 60 -parallel-testing-enabled NO \
   -test-timeouts-enabled YES -maximum-test-execution-time-allowance 90 \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test 2>&1 | tee .build/native-tests.log
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test 2>&1 | tee .build/native-tests.log
 TEST_EXIT=${PIPESTATUS[0]}
 set -e
 xcrun xcresulttool export attachments --path .build/NativeResults.xcresult --output-path .build/NativeDiagnostics/Images || true
+xcrun xcresulttool export diagnostics --path .build/NativeResults.xcresult --output-path .build/NativeDiagnostics/CrashLogs || true
 xcrun simctl spawn "$TEST_DEVICE" log show --last 5m --style compact \
   --predicate 'process == "ClearKeyboard" OR process == "ClearKeyboardExtension"' \
   > .build/NativeDiagnostics/runtime.log 2>&1 || true

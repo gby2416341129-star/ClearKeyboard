@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 public enum KeyboardGeometry {
     /// UIKit can lay out a key at zero size while its input view is being attached.
