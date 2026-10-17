@@ -22,7 +22,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         surface.onHeightChange = { [weak self] height in self?.updateHeight(height) }
         let constraint = view.heightAnchor.constraint(equalToConstant: surface.desiredHeight)
         constraint.priority = .init(999); constraint.isActive = true; heightConstraint = constraint
-        documentID = textDocumentProxy.documentIdentifier
+        documentID = connectedDocumentIdentifier()
         previousContext = contextBefore
     }
     override func viewWillAppear(_ animated: Bool) {
@@ -44,11 +44,18 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         guard let model, let surface else { return }
-        let identifier = textDocumentProxy.documentIdentifier, context = contextBefore
+        let identifier = connectedDocumentIdentifier(), context = contextBefore
         if identifier != documentID || (context != previousContext && context != expectedContext) {
             surface.closePanel(); model.cursorChanged()
         } else if model.composition.isEmpty { model.refreshCandidates() }
         documentID = identifier; previousContext = context; expectedContext = nil
+    }
+    private func connectedDocumentIdentifier() -> UUID? {
+        // UIKit can return nil before connecting the host, despite its nonoptional Swift UUID declaration.
+        // Call the public Objective-C getter so the absent value stays optional during bridging.
+        let getter = #selector(getter: UITextDocumentProxy.documentIdentifier)
+        guard let proxy = textDocumentProxy as? NSObject, proxy.responds(to: getter) else { return nil }
+        return proxy.perform(getter)?.takeUnretainedValue() as? UUID
     }
     var contextBefore: String { textDocumentProxy.documentContextBeforeInput ?? "" }
     var selectedText: String { textDocumentProxy.selectedText ?? "" }

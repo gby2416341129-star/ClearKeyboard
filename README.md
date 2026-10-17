@@ -117,7 +117,8 @@ KeyboardExtension/    系统键盘入口与文本代理
 SharedUI/             共用 UIKit 键盘、玻璃、交互与异步候选控制
 Core/                 可独立测试的布局、设置、组合状态、离线引擎、剪贴板
 Core/Resources/       内置 pinyin.clx / english.clx
-Tests/                31 个核心 XCTest 用例
+Tests/                33 个核心 XCTest 用例
+NativeTests/          原生初始化、候选、工具栏、单手与安全区检查
 Config/               Info.plist、签名、App Group、隐私清单
 Data/                 补充词表、可复现来源与 SHA-256
 Scripts/              词库编译、工程生成、数据验证、Mac 构建入口

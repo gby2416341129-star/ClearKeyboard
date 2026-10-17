@@ -7,7 +7,8 @@ import UIKit
     func testHomeSafeAreaAndAppearance() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: ClearKeyboard.RootView().environmentObject(ClearKeyboard.Preferences()))
+        let preferences = ClearKeyboard.Preferences()
+        let controller = UIHostingController(rootView: ClearKeyboard.RootView().environmentObject(preferences).tint(Color(preferences.settings.accentInkColor)))
         window.rootViewController = controller; window.makeKeyAndVisible()
         defer { window.isHidden = true }
         for style in [UIUserInterfaceStyle.light, .dark] {

@@ -60,6 +60,5 @@ jobs:
             .build/native-build.log
             .build/native-boot.log
             .build/NativeDiagnostics
-            .build/NativeResults.xcresult
             .build/native-devices.json
           retention-days: 7

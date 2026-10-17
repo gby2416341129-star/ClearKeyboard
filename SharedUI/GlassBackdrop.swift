@@ -86,6 +86,8 @@ final class KeyButton: UIButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews(); plate.frame = KeyboardGeometry.keyPlate(in: bounds)
+        let fontSize = min(key.label.count == 1 ? CGFloat(23) : 16, max(12, plate.bounds.width * 0.88))
+        if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
         caption.frame = plate.bounds; icon.frame = plate.bounds
         plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 7).cgPath
     }

@@ -235,7 +235,7 @@ document.addEventListener('visibilitychange',() => { if (document.hidden) finish
 editor.inputMode = 'none';
 
 function switchLanguage() { commit(); language = language === 'zh' ? 'en' : 'zh'; page = 'letters'; shift = false; renderCandidates(); renderKeys(); }
-function setHand(value) { finishSpaceTrackpad(true); hand = value; document.querySelectorAll('[data-hand]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.hand === value))); renderKeys(); }
+function setHand(value) { finishSpaceTrackpad(true); hand = value; document.querySelectorAll('button[data-hand]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.hand === value))); renderKeys(); }
 function closePanel() { panel.classList.remove('open'); panelType = ''; renderToolbar(); }
 const toolLabels = {language:'中 / EN',clipboard:'剪贴板',emoji:'表情',onehand:'单手模式',appearance:'外观',toolbar:'定制工具栏'};
 function renderToolbar() {
@@ -380,7 +380,7 @@ document.querySelectorAll('[data-tab]').forEach(button => {
   button.onclick = () => { const name = button.dataset.tab; document.querySelectorAll('[data-tab]').forEach(value => value.setAttribute('aria-selected',String(value === button))); document.querySelectorAll('.app-page').forEach(value => value.classList.remove('visible')); if (name !== 'home') document.getElementById(name+'-page').classList.add('visible'); };
 });
 document.querySelectorAll('[data-glass]').forEach(button => button.onclick = () => setGlass(button.dataset.glass));
-document.querySelectorAll('[data-hand]').forEach(button => button.onclick = () => setHand(button.dataset.hand));
+document.querySelectorAll('button[data-hand]').forEach(button => button.onclick = () => setHand(button.dataset.hand));
 document.querySelectorAll('[data-accent]').forEach(button => button.onclick = () => setColor(accents[button.dataset.accent][0],button.dataset.accent));
 document.getElementById('custom-color').addEventListener('input',event => setColor(event.target.value));
 document.getElementById('hex-color').addEventListener('keydown',event => { if (event.key === 'Enter') setColor(event.target.value); });

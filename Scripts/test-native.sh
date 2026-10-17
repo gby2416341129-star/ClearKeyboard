@@ -33,7 +33,8 @@ xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime \
 TEST_EXIT=${PIPESTATUS[0]}
 set -e
 xcrun xcresulttool export attachments --path .build/NativeResults.xcresult --output-path .build/NativeDiagnostics/Images || true
-xcrun xcresulttool export diagnostics --path .build/NativeResults.xcresult --output-path .build/NativeDiagnostics/CrashLogs || true
+xcrun xcresulttool get test-results summary --path .build/NativeResults.xcresult > .build/NativeDiagnostics/result-summary.json || true
+xcrun xcresulttool get test-results tests --path .build/NativeResults.xcresult > .build/NativeDiagnostics/result-tests.json || true
 xcrun simctl spawn "$TEST_DEVICE" log show --last 5m --style compact \
   --predicate 'process == "ClearKeyboard" OR process == "ClearKeyboardExtension"' \
   > .build/NativeDiagnostics/runtime.log 2>&1 || true
