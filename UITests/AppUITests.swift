@@ -77,6 +77,24 @@ import XCTest
         XCTAssertEqual(z.frame.minY - a.frame.minY, 56, accuracy: 0.5, context)
         XCTAssertEqual(language.frame.minY - z.frame.minY, 56, accuracy: 0.5, context)
         XCTAssertTrue(q.isHittable && language.isHittable, context + " clipped a keyboard row")
+        print("SAFARI_ROWS " + context + " q=" + String(describing: q.frame) + " language=" + String(describing: language.frame))
+    }
+    private func focusInput(_ field: XCUIElement, in app: XCUIApplication) {
+        let q = app.descendants(matching: .any).matching(identifier: "key.text.q").firstMatch
+        let globe = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Next keyboard' OR label CONTAINS[c] 'Switch keyboard' OR label CONTAINS '下一个键盘'")).firstMatch
+        for attempt in 0..<3 {
+            if attempt == 0 { field.tap() }
+            else {
+                print("SAFARI_FOCUS_RETRY \(attempt)")
+                // WebKit can finish a marked-text session before focusing a different DOM input.
+                // Use a fresh interior coordinate when that first tap only dismissed the keyboard.
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.25)).tap()
+            }
+            if q.waitForExistence(timeout: 2) || globe.waitForExistence(timeout: 2) {
+                chooseKeyboard(in: app); return
+            }
+        }
+        XCTFail("Safari did not focus the requested input\n" + app.debugDescription)
     }
     func testBSafariSearchAndMultilineKeepFullKeyboardRows() throws {
         continueAfterFailure = false; clear.launch(); try enableKeyboard()
@@ -87,8 +105,7 @@ import XCTest
         let search = safari.webViews.searchFields.matching(identifier: "Safari search size check").firstMatch
         let fallbackSearch = safari.webViews.textFields.matching(identifier: "Safari search size check").firstMatch
         let field = search.waitForExistence(timeout: 5) ? search : fallbackSearch
-        XCTAssertTrue(field.waitForExistence(timeout: 8), safari.debugDescription); field.tap()
-        chooseKeyboard(in: safari)
+        XCTAssertTrue(field.waitForExistence(timeout: 8), safari.debugDescription); focusInput(field, in: safari)
         let q = safari.descendants(matching: .any).matching(identifier: "key.text.q").firstMatch
         let z = safari.descendants(matching: .any).matching(identifier: "key.text.z").firstMatch
         let language = safari.descendants(matching: .any).matching(identifier: "key.language").firstMatch
@@ -100,18 +117,18 @@ import XCTest
         let searchHeight = q.frame.height
         q.tap(); attachment(safari, name: "safari-search-keyboard")
         let multiline = safari.webViews.textViews.matching(identifier: "Safari multiline size check").firstMatch
-        XCTAssertTrue(multiline.exists); multiline.tap(); chooseKeyboard(in: safari)
+        XCTAssertTrue(multiline.exists); focusInput(multiline, in: safari)
         XCTAssertEqual(q.frame.height, searchHeight, accuracy: 1)
         XCTAssertEqual(q.frame.height, 56, accuracy: 0.5)
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
         attachment(safari, name: "safari-multiline-keyboard")
         // The address bar uses different input traits from a webpage search field.
         let address = safari.textFields.matching(NSPredicate(format: "identifier == 'URL' OR label CONTAINS[c] 'Address'")).firstMatch
-        if address.exists && address.isHittable { address.tap() }
+        if address.exists && address.isHittable { focusInput(address, in: safari) }
         else {
             let location = safari.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'URL' OR label == 'Address' OR label == 'Search or enter website name' OR (elementType == 9 AND label CONTAINS '127.0.0.1')")).firstMatch
             XCTAssertTrue(location.waitForExistence(timeout: 5), "Address bar missing\n" + safari.debugDescription)
-            location.tap()
+            focusInput(location, in: safari)
         }
         assertFullRows(in: safari, context: "Safari address bar")
         let cancel = safari.buttons["Cancel"]
@@ -121,10 +138,10 @@ import XCTest
             if done.exists { done.tap() }
         }
         for attempt in 1...2 {
-            field.tap(); assertFullRows(in: safari, context: "Search reactivation \(attempt)")
-            multiline.tap(); assertFullRows(in: safari, context: "Multiline reactivation \(attempt)")
+            focusInput(field, in: safari); assertFullRows(in: safari, context: "Search reactivation \(attempt)")
+            focusInput(multiline, in: safari); assertFullRows(in: safari, context: "Multiline reactivation \(attempt)")
         }
         clear.activate(); safari.activate()
-        multiline.tap(); assertFullRows(in: safari, context: "Safari after changing host app")
+        focusInput(multiline, in: safari); assertFullRows(in: safari, context: "Safari after changing host app")
     }
 }

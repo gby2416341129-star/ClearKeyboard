@@ -50,7 +50,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         isPresented = true
         // A remote host can cache its default height before our input view is attached.
         // Negotiate once after attachment even when the desired height has not changed.
-        queueHeightRefresh(force: true)
+        queueHeightRefresh()
         model?.startClipboardCapture()
     }
     override func viewDidLayoutSubviews() {
@@ -61,15 +61,15 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // Squeezing the surface into that frame permanently changed both key size and font size.
         surface.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: max(0, view.bounds.width), height: surface.desiredHeight)
         updateHeight(surface.desiredHeight)
-        if view.bounds.height + 0.5 < surface.desiredHeight { queueHeightRefresh() }
+        if abs(view.bounds.height - surface.desiredHeight) > 0.5 { queueHeightRefresh() }
     }
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         if let surface { updateHeight(surface.desiredHeight); queueHeightRefresh() }
     }
-    private func queueHeightRefresh(force: Bool = false) {
+    private func queueHeightRefresh() {
         guard isPresented, !heightRefreshQueued, let surface, view.window != nil,
-              force || view.bounds.height + 0.5 < surface.desiredHeight else { return }
+              abs(view.bounds.height - surface.desiredHeight) > 0.5 else { return }
         // Re-negotiate each distinct host geometry once, instead of exhausting two retries
         // before a later Safari address-bar / web-input transition. No timer or layout polling.
         let signature = "\(view.bounds.width.rounded())/\(view.bounds.height.rounded())/\(view.safeAreaInsets.bottom.rounded())/\(surface.desiredHeight)"
@@ -107,7 +107,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let type = textDocumentProxy.keyboardType
         guard type != hostKeyboardType else { return }
         hostKeyboardType = type; heightRefreshSignatures.removeAll()
-        if let surface { updateHeight(surface.desiredHeight); queueHeightRefresh(force: true) }
+        if let surface { updateHeight(surface.desiredHeight); queueHeightRefresh() }
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
@@ -117,7 +117,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if model.isMovingCursor { return }
         let identifier = connectedDocumentIdentifier(), context = contextBefore
         if identifier != documentID {
-            heightRefreshSignatures.removeAll(); updateHeight(surface.desiredHeight); queueHeightRefresh(force: true)
+            heightRefreshSignatures.removeAll(); updateHeight(surface.desiredHeight); queueHeightRefresh()
         }
         if identifier != documentID || (context != previousContext && context != expectedContext && !recentOwnContexts.contains(context)) {
             recentOwnContexts.removeAll()
