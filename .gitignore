@@ -8,3 +8,7 @@ xcuserdata/
 __pycache__/
 dist/
 pending-feedback.json
+
+.rime-cache/
+Core/Resources/Rime/
+Core/Resources/associations.clx

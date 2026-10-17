@@ -79,6 +79,15 @@ def main():
         assert bucket_count <= 24
         previous = fingerprint
     checks.append(f'pinyin corrections: all {record_count} mapped records, bounded buckets and source checksum validated')
+    association = Dictionary(ROOT / "Core/Resources/associations.clx")
+    assert association.count >= 300_000
+    rime = ROOT / "Core/Resources/Rime"
+    for name in ("clear_pinyin.schema.yaml", "clear_pinyin.table.bin", "clear_pinyin.prism.bin"):
+        assert (rime / "build" / name).is_file(), name
+    model = rime / "wanxiang-lts-zh-hans.gram"
+    with model.open("rb") as stream:
+        assert hashlib.file_digest(stream, "sha256").hexdigest() == "1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488"
+    checks.append("Wanxiang association/English index, compiled Rime data and context model checksum validated")
     for path in list((ROOT / "Config").glob("*.plist")) + list((ROOT / "Config").glob("*.entitlements")) + list((ROOT / "Config").glob("*.xcprivacy")):
         with path.open("rb") as stream: plistlib.load(stream)
     checks.append("all property lists, entitlements and privacy manifests parsed")

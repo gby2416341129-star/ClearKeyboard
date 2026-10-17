@@ -1,9 +1,9 @@
 import XCTest
 @testable import ClearCore
 
-final class EngineTests: XCTestCase {
+final class FallbackEngineTests: XCTestCase {
     private var engine: InputEngine!
-    override func setUpWithError() throws { engine = try InputEngine.bundled() }
+    override func setUpWithError() throws { engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english")) }
     func testBundledVocabulary() {
         XCTAssertEqual(engine.chinese.count, 65_137)
         XCTAssertEqual(engine.english.count, 50_000)

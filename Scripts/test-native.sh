@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [[ ! -f Core/Resources/Rime/build/clear_pinyin.table.bin ]]; then python3 Scripts/prepare_rime.py; fi
 mkdir -p .build/NativeDiagnostics
 xcrun simctl list devices available -j > .build/native-devices.json
 TEST_DEVICE="$(python3 -c 'import json; d=json.load(open(".build/native-devices.json")); vs=[v for k,vs in sorted(d["devices"].items(),reverse=True) if "iOS" in k for v in vs if "iPhone" in v["name"] and v.get("isAvailable")]; print(next((v["udid"] for v in vs if "Air" in v["name"]),vs[0]["udid"]))')"

@@ -2,9 +2,9 @@ import XCTest
 import CoreGraphics
 @testable import ClearCore
 
-final class CandidateLatencyTests: XCTestCase {
+final class FallbackCandidateLatencyTests: XCTestCase {
     func testCandidateRankingPreservesCommonWordsAndLongAbbreviations() throws {
-        let engine = try InputEngine.bundled()
+        let engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english"))
         for (input, expected) in ["nihao": "你好", "nh": "你好", "hdhdhdhdhdhd": "好的好的好的好的好的好的",
                                   "womenshiyongshurufa": "我们使用输入法", "nihaohd": "你好好的",
                                   "xi'an": "西安", "haodehaodehaodehaode": "好的好的好的好的"] {
@@ -12,7 +12,7 @@ final class CandidateLatencyTests: XCTestCase {
         }
     }
     func testSpellingRepairIsBoundedAndCancellable() throws {
-        let engine = try InputEngine.bundled()
+        let engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english"))
         XCTAssertEqual(PinyinSpelling.editPenalty("chifna", "chifan"), 1.5)
         XCTAssertEqual(PinyinSpelling.editPenalty("chifn", "chifan"), 3.5)
         XCTAssertLessThan(try XCTUnwrap(PinyinSpelling.editPenalty("ke", "le")), try XCTUnwrap(PinyinSpelling.editPenalty("ke", "de")))
@@ -25,7 +25,7 @@ final class CandidateLatencyTests: XCTestCase {
         XCTAssertEqual(engine.candidates("nichifnalemeilaopo").first?.text, "你吃饭了没老婆")
     }
     func testTypoCorrectionLatencyDuringIncrementalTyping() throws {
-        let engine = try InputEngine.bundled()
+        let engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english"))
         let strings = ["nichifankema", "nichjfankema", "womenjintianquchifan", "nichifnalemeilaopo", "nichifankm", "nixiabankm"]
         var timings: [Double] = []
         for input in strings {
@@ -41,7 +41,7 @@ final class CandidateLatencyTests: XCTestCase {
         XCTAssertLessThan(p95, 200, "Bounded typo matching must remain interactive in a debug simulator build")
     }
     func testCancelledSentenceLeavesReusableCorrectPrefix() throws {
-        let engine = try InputEngine.bundled()
+        let engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english"))
         var checks = 0
         _ = engine.candidates(String(repeating: "hd", count: 40), cancelled: { checks += 1; return checks > 35 })
         let text = String(repeating: "hd", count: 41)
@@ -49,7 +49,7 @@ final class CandidateLatencyTests: XCTestCase {
         XCTAssertEqual(engine.candidates("nihaoshijiehd").first, InputEngine(chinese: engine.chinese, english: engine.english).candidates("nihaoshijiehd").first)
     }
     func testIncrementalLatencyComparedWithPreviousSegmenter() throws {
-        let engine = try InputEngine.bundled()
+        let engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english"))
         let reference = ReferenceInputEngine(chinese: engine.chinese, english: engine.english)
         let strings = (2...80).map { String(String(repeating: "hd", count: 40).prefix($0)) }
         func timing(_ query: (String) -> [Candidate]) -> [Double] {

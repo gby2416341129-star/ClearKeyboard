@@ -17,4 +17,18 @@ using original common-word priorities and a length heuristic; compact indexed CL
 The English priorities are heuristic ranks, not measured corpus frequencies.
 
 All original application sources, supplemental vocabulary and design assets were created for this project.
-No upstream input engine, network service, analytics SDK, or external font is embedded in the app.
+Rime 1.17.0 (BSD 3-Clause), pinned distribution 1.17.0-pack.10.0.0.
+https://github.com/rime/librime
+https://github.com/ghostflyby/librime-xcframework
+Engine, octagram and dependency notices: Rime-and-dependencies.txt.
+
+Wanxiang Chinese/English vocabulary: AMZ and contributors, CC BY 4.0.
+https://github.com/amzxyz/rime-wanxiang
+Revision ed55bd5c7f94dd06d333db0c51a7dbfe50cc9bd2.
+Modifications: tone marks normalized, entries compiled to Rime tables;
+frequent phrases indexed for continuation suggestions and English exact matching.
+Wanxiang simplified Chinese context model:
+https://github.com/amzxyz/rime-wanxiang-data/releases/tag/LTS
+SHA256 1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488.
+Full license: CC-BY-4.0.txt. Attribution does not imply endorsement.
+Network downloads occur only in the build tool. The keyboard runs offline.

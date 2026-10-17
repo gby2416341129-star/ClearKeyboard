@@ -39,6 +39,9 @@ public final class InputEngine {
     private static let initials = Set("bpmfdtnlgkhjqxrzcsyw")
     public let chinese: Lexicon
     public let english: Lexicon
+    private var matureDecoder: RimeDecoder?
+    private var associations: Lexicon?
+    public var chineseBackend: String { matureDecoder == nil ? "fallback" : "rime-wanxiang" }
     public init(chinese: Lexicon, english: Lexicon) {
         self.chinese = chinese; self.english = english
         correctionIndex = try? PinyinCorrectionIndex.bundled(lexiconCount: chinese.count)
@@ -46,12 +49,57 @@ public final class InputEngine {
     public static func bundled() throws -> InputEngine {
         let engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english"))
         guard engine.correctionIndex != nil else { throw LexiconError.invalidFormat }
+        engine.matureDecoder = try RimeDecoder.bundled()
+        engine.associations = try .bundled("associations")
         return engine
     }
 
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], compose: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
+        if compose, let matureDecoder {
+            if cancelled() { return [] }
+            // Explicit shorthand aliases retain their established meaning on
+            // repeated input; the general sentence decoder is no longer involved.
+            if input.count >= 2, input.count % 2 == 0, input == String(repeating: "hd", count: input.count / 2) {
+                return [Candidate(text: String(repeating: "好的", count: input.count / 2), reading: String(repeating: "hao de ", count: input.count / 2).trimmingCharacters(in: .whitespaces), consumed: raw.count, score: 120)]
+            }
+            let result = matureDecoder.candidates(raw.lowercased(), cancelled: cancelled)
+            if cancelled() { return [] }
+            var output = result.sorted {
+                $0.score + min(2, log(Double(learned[$0.text] ?? 0) + 1)) >
+                $1.score + min(2, log(Double(learned[$1.text] ?? 0) + 1))
+            }
+            let literal = Candidate(text: raw, reading: raw, consumed: raw.count, score: 80)
+            let isEnglishWord = input.count >= 3 && associations?.lookup("e:" + input, limit: 1).isEmpty == false
+            if isEnglishWord {
+                // Ambiguous complete pinyin words (e.g. women/我们) keep the Chinese
+                // default. Recognized English such as iphone/hello stays literal.
+                if chinese.lookup("e:" + input, limit: 1).isEmpty { output.insert(literal, at: 0) }
+                else { output.insert(literal, at: min(1, output.count)) }
+            } else if input.count >= 5, !raw.contains("'") {
+                // Decode a genuine pinyin prefix and preserve a recognized English
+                // suffix as one token, instead of turning every Latin letter into Hanzi.
+                for length in stride(from: min(20, input.count - 2), through: 3, by: -1) {
+                    if cancelled() { return [] }
+                    let suffix = String(input.suffix(length)), prefix = String(input.dropLast(length))
+                    guard associations?.lookup("e:" + suffix, limit: 1).isEmpty == false,
+                          PinyinSpelling.reachablePrefix(suffix) < suffix.count,
+                          PinyinSpelling.reachablePrefix(prefix) == prefix.count,
+                          chinese.lookup("e:" + input, limit: 1).isEmpty,
+                          let first = matureDecoder.candidates(prefix, cancelled: cancelled).first,
+                          first.consumed == prefix.count else { continue }
+                    output.insert(Candidate(text: first.text + suffix, consumed: raw.count, score: 110), at: 0); break
+                }
+            }
+            if !fuzzy.isEmpty {
+                for variant in FuzzyPinyin.variants(input, enabled: fuzzy).dropFirst() {
+                    output += matureDecoder.candidates(variant, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }
+                }
+            }
+            if !output.contains(where: { $0.text == raw }) { output.append(literal) }
+            var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(24))
+        }
         var choices: [Candidate] = []
         let explicit = raw.contains("'") ? raw.lowercased().split(separator: "'").map(String.init) : []
         func allowed(_ entry: LexiconEntry) -> Bool {
@@ -360,9 +408,10 @@ public final class InputEngine {
 
     public func predictions(after context: String) -> [Candidate] {
         var output: [Candidate] = [], seen = Set<String>()
-        for length in stride(from: min(3, context.count), through: 1, by: -1) {
+        guard !context.isEmpty, context.last?.isWhitespace != true else { return [] }
+        for length in stride(from: min(6, context.count), through: 1, by: -1) {
             let prefix = String(context.suffix(length))
-            for word in chinese.lookup("t:" + prefix, limit: 12) where word.text.count > length {
+            for word in (associations ?? chinese).lookup("t:" + prefix, limit: 16) where word.text.count > length {
                 let suffix = String(word.text.dropFirst(length))
                 if seen.insert(suffix).inserted { output.append(Candidate(text: suffix, consumed: 0)) }
             }

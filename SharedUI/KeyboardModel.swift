@@ -27,6 +27,13 @@ import os
 struct DeletedInput { let text: String; let selection: NSRange }
 
 @MainActor final class KeyboardModel {
+    struct CandidateContext: Equatable {
+        let raw: String; let before: String; let after: String
+        let document: String; let language: InputLanguage
+    }
+    private(set) var candidateContext: CandidateContext?
+    private var awaitingCommit = false
+    private var deferredActions: [KeyAction] = []
     weak var document: KeyboardDocument?
     var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings); if clipboardActive { startClipboardCapture() }; onChange?() } }
     private(set) var page: KeyboardPage = .letters
@@ -71,7 +78,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
             DispatchQueue.main.async {
                 guard let self else { return }
                 switch result {
-                case .success(let engine): self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
+                case .success(let engine):
+                    self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
+                    self.resumeDeferredActions()
                 case .failure: self.engineState = "词库不可用 · 可继续输入英文"; self.onChange?()
                 }
             }
@@ -144,6 +153,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
         page = .letters; shifted = false; capsLocked = false; manualShift = false; refreshCandidates()
     }
     func handle(_ action: KeyAction) {
+        if awaitingCommit { deferredActions.append(action); return }
+        if needsLatestCandidate(for: action), !candidatesAreCurrent, engine != nil {
+            deferUntilCandidates(action); return
+        }
         deletionUndo = nil
         let event = OSSignpostID(log: signpost)
         os_signpost(.begin, log: signpost, name: "KeyAction", signpostID: event)
@@ -211,6 +224,22 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func choose(_ candidate: Candidate) {
         guard candidateGeneration == generation, candidates.contains(candidate), let document else { return }
+        commitChoice(candidate, document: document)
+    }
+    private func activeCandidateContext() -> CandidateContext? {
+        guard let document else { return nil }
+        return CandidateContext(raw: composition.raw, before: document.contextBefore,
+            after: document.contextAfter, document: document.documentIdentity, language: settings.language)
+    }
+    func acceptsCandidateContext(_ context: CandidateContext?) -> Bool {
+        guard let context else { return false }
+        return context == activeCandidateContext()
+    }
+    func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?) {
+        guard !awaitingCommit, acceptsCandidateContext(context), let document else { return }
+        commitChoice(candidate, document: document)
+    }
+    private func commitChoice(_ candidate: Candidate, document: KeyboardDocument) {
         if settings.language == .chinese {
             if composition.raw.isEmpty { document.insert(candidate.text) }
             else {
@@ -227,6 +256,35 @@ struct DeletedInput { let text: String; let selection: NSRange }
             document.insert(output + " ")
         }
         refreshCandidates()
+    }
+    private func needsLatestCandidate(for action: KeyAction) -> Bool {
+        guard settings.language == .chinese, !composition.isEmpty else { return false }
+        if action == .delete { return false }
+        if case .text(let text) = action, page == .letters,
+           text.first?.isLetter == true || text == "'" { return false }
+        return true
+    }
+    private func deferUntilCandidates(_ action: KeyAction) {
+        guard let engine, let context = activeCandidateContext() else { return }
+        awaitingCommit = true; deferredActions.append(action)
+        cancellation.cancel(); work?.cancel()
+        let raw = composition.raw, fuzzy = settings.fuzzyPairs, choices = settings.learnChoices ? learned : [:]
+        queue.async { [weak self] in
+            let result = engine.candidates(raw, fuzzy: fuzzy, learned: choices)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard self.activeCandidateContext() == context else {
+                    self.awaitingCommit = false; self.deferredActions = []; self.refreshCandidates(); return
+                }
+                self.candidates = result; self.candidateGeneration = self.generation; self.candidateContext = context
+                self.awaitingCommit = false; self.resumeDeferredActions()
+            }
+        }
+    }
+    private func resumeDeferredActions() {
+        guard !awaitingCommit else { return }
+        let pending = deferredActions; deferredActions = []
+        for action in pending { handle(action) }
     }
     func refreshCandidates() {
         guard !isMovingCursor else { return }
@@ -247,7 +305,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
             default: shifted = false
             }
         }
-        if arithmetic != nil { candidateGeneration = requestedGeneration }
+        let queryContext = activeCandidateContext()
+        if arithmetic != nil { candidateGeneration = requestedGeneration; candidateContext = queryContext }
         onChange?()
         if arithmetic != nil { candidateGeneration = requestedGeneration; return }
         guard let engine, document != nil, selectionIsEmpty else { return }
@@ -265,7 +324,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
             guard !token.isCancelled else { return }
             DispatchQueue.main.async {
                 guard let self, self.generation == requestedGeneration else { return }
-                self.candidates = result; self.candidateGeneration = requestedGeneration; self.onChange?()
+                self.candidates = result; self.candidateGeneration = requestedGeneration
+                self.candidateContext = queryContext; self.onChange?()
             }
         }
         work = job; queue.async(execute: job)

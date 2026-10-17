@@ -1,0 +1,18 @@
+{
+  "revision": "ed55bd5c7f94dd06d333db0c51a7dbfe50cc9bd2",
+  "hashes": {
+    "static.zip": "9e9923112ee9cee9bb53c25b41e51a2d7ea2ab3d91f34c7c99682224a23718ac",
+    "dynamic.zip": "5beaca3b6263e8ddc4a053eaebe4a0de2e33c2fc36056dd7fa0a8b87edb88533",
+    "wanxiang-lts-zh-hans.gram": "1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488",
+    "zi.yaml": "dbb68f8b4ef93e48bf3632b3c4bc00b810c6bbb2e101635d6e14752444abe7c9",
+    "jichu.yaml": "0ff0b706549448787a8b80a957506fadfa3f592724a1ca6f07c299b17f8e7eca",
+    "duoyin.yaml": "b31bec6c64cc78bd1eec9fab0d978a6c040957e9dc83bc8bacdcc5ddf82d15b7",
+    "en.yaml": "3caf6a21c09c3b92a5167223a6a09f10b7fee0e32ffdb62415bbc0a946dcf551"
+  },
+  "words": 1529441,
+  "associationWords": 321580,
+  "associationContexts": 200982,
+  "frameworkVersion": "1.17.0-pack.10.0.0",
+  "associationChineseWords": 250000,
+  "associationEnglishWords": 71580
+}

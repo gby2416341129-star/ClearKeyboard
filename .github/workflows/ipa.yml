@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare verified offline Chinese engine and language model
+        run: python3 Scripts/prepare_rime.py
       - name: Validate dictionaries and project resources
         run: python3 Scripts/validate_resources.py
       - name: Run offline engine regression tests
@@ -52,6 +54,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare verified offline Chinese engine and language model
+        run: python3 Scripts/prepare_rime.py
       - name: Run native keyboard startup and candidate tests
         timeout-minutes: 18
         run: bash Scripts/test-native.sh

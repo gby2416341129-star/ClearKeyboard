@@ -69,6 +69,12 @@ def verify(path):
             for resource in ("pinyin.clx", "english.clx"):
                 with archive.open(prefix + resource) as stream:
                     require(stream.read(8) == b"CLRX0001", "Missing or incorrect offline dictionary")
+            with archive.open(prefix + "associations.clx") as stream:
+                require(stream.read(8) == b"CLRX0001", "Missing association and mixed-English dictionary")
+            rime = app + "Rime/"
+            for resource in ("build/clear_pinyin.schema.yaml", "build/clear_pinyin.table.bin", "build/clear_pinyin.prism.bin", "lua/clear_span.lua"):
+                require(rime + resource in names, "Missing precompiled Rime resource: " + resource)
+            require(rime + "wanxiang-lts-zh-hans.gram" in names, "Missing context language model")
             corrections = archive.read(prefix + 'pinyin-corrections.clx')
             require(len(corrections) >= 48 and corrections[:8] == b'CLRC0001', 'Missing spelling-correction index')
             words, records = struct.unpack_from('<2I', corrections, 8)
@@ -78,6 +84,8 @@ def verify(path):
             require(corrections[16:48] == hashlib.sha256(dictionary).digest(), 'Spelling index source checksum mismatch')
             require(prefix + "PrivacyInfo.xcprivacy" in names, "Privacy manifest missing")
             bundles.append({"bundleIdentifier": identifier, **binary})
+        with archive.open(app + "Rime/wanxiang-lts-zh-hans.gram") as stream:
+            require(hashlib.file_digest(stream, "sha256").hexdigest() == "1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488", "Context model checksum mismatch")
     return {
         "status": "passed",
         "checks": "ZIP integrity, bundle metadata, extension registration, executable permissions, arm64 iOS load commands, offline dictionaries, spelling-correction index and source checksum, privacy manifests",

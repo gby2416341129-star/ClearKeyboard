@@ -94,6 +94,17 @@ final class KeyButton: UIButton {
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        // Once this key owns a finger, tolerate the small release drift of fast
+        // taps. Initial hit testing still uses the original, non-overlapping cells.
+        if isTracking, case .text = key.action { return bounds.insetBy(dx: -7, dy: -10).contains(point) }
+        return super.point(inside: point, with: event)
+    }
+    func updateShift(active: Bool, capsLocked: Bool) {
+        guard key.action == .shift else { return }
+        icon.image = UIImage(systemName: capsLocked ? "capslock.fill" : active ? "shift.fill" : "shift")
+        accessibilityValue = capsLocked ? "大写锁定" : active ? "大写" : "小写"
+    }
     override func layoutSubviews() {
         super.layoutSubviews(); plate.frame = KeyboardGeometry.keyPlate(in: bounds, action: key.action, units: key.units)
         let base: CGFloat = key.action == .language ? 14 : key.label.count == 1 ? 23 : 16

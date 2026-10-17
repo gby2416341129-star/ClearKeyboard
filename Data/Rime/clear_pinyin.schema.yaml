@@ -1,0 +1,58 @@
+# ClearKeyboard configuration. Dictionary/model: Wanxiang, CC BY 4.0.
+schema:
+  schema_id: clear_pinyin
+  name: 澈拼音
+  version: '0.1.11'
+switches:
+  - name: ascii_mode
+    reset: 0
+engine:
+  processors: [speller, selector, express_editor]
+  segmentors: [abc_segmentor, fallback_segmentor]
+  translators: [script_translator]
+  filters: [uniquifier, lua_filter@*clear_span]
+speller:
+  alphabet: abcdefghijklmnopqrstuvwxyz
+  delimiter: " '"
+  algebra:
+    - abbrev/^([a-z]).+$/$1/
+    - abbrev/^(zh|ch|sh).+$/$1/
+    - derive/^([a-z])([a-z])(.*)$/$2$1$3/correction
+    - derive/^(.*)([aeiou])n$/$1n$2/correction
+    - derive/^([bpmfdtnlgkhjqxzcsryw]+)([aeiou]+)([ng]*)$/$1$3/correction
+    - derive/^(.*)a(.*)$/$1q$2/correction
+    - derive/^(.*)i(.*)$/$1j$2/correction
+    - derive/^(.*)n(.*)$/$1m$2/correction
+    - derive/^(.*)l(.*)$/$1k$2/correction
+    - derive/^(.*)n(.*)$/$1b$2/correction
+    - derive/^(.*)i(.*)$/$1o$2/correction
+    - derive/^(.*)o(.*)$/$1i$2/correction
+    - derive/^(.*)g(.*)$/$1f$2/correction
+    - derive/^(.*)ng$/$1gn/correction
+    - derive/^(.*)n$/$1/correction
+    - derive/^(.*)g$/$1/correction
+    - derive/^([a-z]+)([aeiou])([aeiou])$/$1$3$2/correction
+translator:
+  dictionary: clear_pinyin
+  prism: clear_pinyin
+  enable_user_dict: false
+  enable_sentence: true
+  enable_completion: true
+  enable_word_completion: false
+  enable_correction: true
+  strict_spelling: true
+  max_sentences: 4
+  always_show_comments: true
+  spelling_hints: 256
+  contextual_suggestions: false
+  max_homophones: 8
+grammar:
+  language: wanxiang-lts-zh-hans
+  collocation_max_length: 6
+  collocation_min_length: 2
+  collocation_penalty: -14
+  non_collocation_penalty: -6
+  weak_collocation_penalty: -100
+  rear_penalty: -18
+menu:
+  page_size: 16

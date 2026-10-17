@@ -3,7 +3,7 @@ import UIKit
 /// Cached multicolor objects, with no enclosing badge.
 @MainActor enum ToolArtwork {
     private static var cache: [String: UIImage] = [:]
-    static func brand(size: CGFloat = 28) -> UIImage { image(symbol: "clear.drop", size: size) }
+    static func brand(size: CGFloat = 28) -> UIImage { image(symbol: "clear.prism", size: size) }
     static func image(symbol: String, size: CGFloat = 28) -> UIImage {
         let key = "\(symbol):\(size)"
         if let image = cache[key] { return image }
@@ -24,28 +24,35 @@ import UIKit
                 path.lineWidth = width; path.lineCapStyle = .round; path.lineJoinStyle = .round; ink.setStroke(); path.stroke()
             }
             switch symbol {
-            case "clear.drop":
-                let drop = UIBezierPath(); drop.move(to: CGPoint(x: 16, y: 1))
-                drop.addCurve(to: CGPoint(x: 29, y: 20), controlPoint1: CGPoint(x: 22, y: 9), controlPoint2: CGPoint(x: 29, y: 13))
-                drop.addCurve(to: CGPoint(x: 3, y: 20), controlPoint1: CGPoint(x: 29, y: 35), controlPoint2: CGPoint(x: 3, y: 35))
-                drop.addCurve(to: CGPoint(x: 16, y: 1), controlPoint1: CGPoint(x: 3, y: 13), controlPoint2: CGPoint(x: 10, y: 9)); drop.close()
-                fill(drop, 0x69E8E3, 0x1767CE)
-                c.saveGState(); drop.addClip()
-                fill(UIBezierPath(ovalIn: CGRect(x: -6, y: 11, width: 31, height: 24)), 0xB9F8EE, 0x31BDB4)
-                c.restoreGState()
-                line([CGPoint(x: 11, y: 14), CGPoint(x: 8, y: 20)], UIColor.white.withAlphaComponent(0.8), 2.1)
+            case "clear.prism":
+                // A folded ribbon with an open center. Shared with the app icon.
+                let outer = UIBezierPath(roundedRect: CGRect(x: 3, y: 3, width: 26, height: 26), cornerRadius: 8)
+                let inner = UIBezierPath(roundedRect: CGRect(x: 10, y: 10, width: 12, height: 12), cornerRadius: 3)
+                outer.append(inner); outer.usesEvenOddFillRule = true
+                fill(outer, 0x64E6DB, 0x3D64DF)
+                let fold = UIBezierPath(); fold.move(to: CGPoint(x: 16, y: 3)); fold.addLine(to: CGPoint(x: 29, y: 16))
+                fold.addLine(to: CGPoint(x: 22, y: 22)); fold.addLine(to: CGPoint(x: 16, y: 10)); fold.close()
+                fill(fold, 0xA6F5E9, 0x37A8DB)
+                let edge = UIBezierPath(); edge.move(to: CGPoint(x: 3, y: 16)); edge.addLine(to: CGPoint(x: 10, y: 10))
+                edge.addLine(to: CGPoint(x: 16, y: 22)); edge.addLine(to: CGPoint(x: 16, y: 29)); edge.close()
+                fill(edge, 0x4086E0, 0x765CD7)
             case "doc.on.clipboard.fill":
-                fill(rect(5, 4, 20, 25, 4), 0x58B9FA, 0x2662D5)
-                fill(rect(9, 7, 19, 24, 3), 0xF6FCFF, 0xBADEFF)
-                fill(rect(10, 2, 10, 6, 2), 0x92E3EA, 0x258CAB)
-                for y: CGFloat in [13, 18, 23] { line([CGPoint(x: 13, y: y), CGPoint(x: 23, y: y)], color(0x528FC8), 1.8) }
+                fill(rect(3, 4, 26, 25, 6), 0x69BEFC, 0x2D6FDD)
+                fill(rect(7, 7, 18, 20, 3), 0xF6FCFF, 0xC4E3FF)
+                fill(rect(10, 3, 12, 6, 2.5), 0xB4F1EE, 0x57BCC7)
+                for y: CGFloat in [13, 18, 23] { line([CGPoint(x: 11, y: y), CGPoint(x: 21, y: y)], color(0x5689BD), 1.6) }
             case "face.smiling.fill":
-                fill(UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 28, height: 28)), 0xFFE788, 0xF4A325)
-                color(0x70401E).setFill()
-                UIBezierPath(ovalIn: CGRect(x: 9, y: 11, width: 3, height: 4)).fill()
-                UIBezierPath(ovalIn: CGRect(x: 20, y: 11, width: 3, height: 4)).fill()
-                let smile = UIBezierPath(); smile.move(to: CGPoint(x: 9, y: 20)); smile.addQuadCurve(to: CGPoint(x: 23, y: 20), controlPoint: CGPoint(x: 16, y: 30))
-                smile.lineWidth = 2.2; smile.lineCapStyle = .round; color(0xAC561E).setStroke(); smile.stroke()
+                // A friendly rounded face tile, with balanced eyes and a filled smile.
+                fill(rect(3, 3, 26, 26, 9), 0xFFE69B, 0xF9B84D)
+                color(0x794F2D).setFill()
+                UIBezierPath(roundedRect: CGRect(x: 10, y: 11, width: 2.5, height: 3.2), cornerRadius: 1.25).fill()
+                UIBezierPath(roundedRect: CGRect(x: 19.5, y: 11, width: 2.5, height: 3.2), cornerRadius: 1.25).fill()
+                let smile = UIBezierPath(); smile.move(to: CGPoint(x: 9, y: 18))
+                smile.addQuadCurve(to: CGPoint(x: 23, y: 18), controlPoint: CGPoint(x: 16, y: 22))
+                smile.addCurve(to: CGPoint(x: 9, y: 18), controlPoint1: CGPoint(x: 22, y: 27), controlPoint2: CGPoint(x: 10, y: 27)); smile.close()
+                fill(smile, 0x8B5931, 0xAC6D36)
+                let teeth = UIBezierPath(); teeth.move(to: CGPoint(x: 10.5, y: 19)); teeth.addQuadCurve(to: CGPoint(x: 21.5, y: 19), controlPoint: CGPoint(x: 16, y: 22))
+                teeth.lineWidth = 1.3; teeth.lineCapStyle = .round; color(0xFFF5DD).setStroke(); teeth.stroke()
             case "keyboard.fill":
                 fill(rect(1, 7, 30, 21, 5), 0x86BEE8, 0x4264A8)
                 fill(rect(3, 9, 26, 15, 3), 0xEDF5FC, 0xA4C4DD)
@@ -57,12 +64,12 @@ import UIKit
                 ("文" as NSString).draw(at: CGPoint(x: 5, y: 7), withAttributes: [.font: UIFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: UIColor.white])
                 ("A" as NSString).draw(at: CGPoint(x: 17, y: 13), withAttributes: [.font: UIFont.systemFont(ofSize: 14, weight: .semibold), .foregroundColor: UIColor.white])
             case "paintpalette.fill", "slider.horizontal.3":
-                fill(rect(3, 4, 24, 24, 7), 0xF3F5FA, 0xAEBED4)
+                fill(rect(3, 3, 26, 26, 7), 0xF3F5FA, 0xAEBED4)
                 let dots: [(CGFloat, CGFloat, UInt32, UInt32)] = [(8, 8, 0x5DCCF4, 0x1685D8), (17, 8, 0xFFA8D0, 0xDA4D97), (8, 17, 0xFFDD86, 0xEE9E32)]
                 for (x, y, top, bottom) in dots { fill(UIBezierPath(ovalIn: CGRect(x: x, y: y, width: 7, height: 7)), top, bottom) }
-                c.saveGState(); c.translateBy(x: 22, y: 21); c.rotate(by: .pi / 5)
+                c.saveGState(); c.translateBy(x: 23, y: 20); c.rotate(by: .pi / 5)
                 fill(rect(-2, -9, 4, 16, 1.5), 0x84B9F7, 0x355A9D)
-                fill(rect(-3, 4, 6, 7, 2), 0xE6C49A, 0x9A674D); c.restoreGState()
+                fill(rect(-2.5, 3, 5, 5, 2), 0xE6C49A, 0x9A674D); c.restoreGState()
             case "rectangle.3.group.fill":
                 let tiles: [(CGFloat, CGFloat, UInt32, UInt32)] = [(3, 3, 0x8EDDF7, 0x2785DC), (18, 3, 0xC9B2FA, 0x8860D9), (3, 18, 0x81E5D3, 0x28AB93), (18, 18, 0xFFD78E, 0xF29442)]
                 for (x, y, top, bottom) in tiles { fill(rect(x, y, 11, 11, 3), top, bottom) }

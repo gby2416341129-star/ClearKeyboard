@@ -8,7 +8,7 @@ import ImageIO
     var configureGlobe: ((UIButton) -> Void)? { didSet { layoutSignature = ""; render() } }
     private let backdrop = GlassBackdrop()
     private let toolbar = UIStackView()
-    private let candidateScroll = UIScrollView()
+    private let candidateScroll = CandidateScrollView()
     private let candidateStack = UIStackView()
     private let hint = UILabel()
     private let keyGlassGroup = UIView()
@@ -22,6 +22,7 @@ import ImageIO
     private var railMode: HandMode?
     private var candidateSnapshot: [Candidate] = []
     private var arithmeticSnapshot: ArithmeticResult?
+    private var displayedCandidateContext: KeyboardModel.CandidateContext?
     private let deleteHint = UILabel()
     private var panel: UIView?
     private var clipboard: ClipboardStore?
@@ -48,6 +49,8 @@ import ImageIO
         addSubview(toolbar)
         addSubview(candidateScroll); candidateScroll.addSubview(candidateStack)
         candidateScroll.showsHorizontalScrollIndicator = false
+        candidateScroll.delaysContentTouches = false; candidateScroll.canCancelContentTouches = true
+        candidateScroll.onSettled = { [weak self] in self?.render() }
         candidateStack.axis = .horizontal; candidateStack.spacing = 22; candidateStack.alignment = .center
         addSubview(hint); hint.font = .systemFont(ofSize: 13); hint.textColor = .secondaryLabel
         hint.textAlignment = .center; hint.isUserInteractionEnabled = false
@@ -112,7 +115,7 @@ import ImageIO
         rendering = true; defer { rendering = false }
         let settings = model.settings
         let uppercase = settings.language == .chinese || model.shifted
-        let signature = "\(model.page)-\(uppercase)-\(model.capsLocked)-\(model.document?.needsGlobe ?? true)"
+        let signature = "\(model.page)-\(model.document?.needsGlobe ?? true)"
         if signature != layoutSignature && !movingCursor {
             layoutSignature = signature
             keys.forEach { $0.0.removeFromSuperview() }; keys = []
@@ -146,41 +149,60 @@ import ImageIO
         }
         for (button, _, _, _) in keys {
             var title: String? = nil
+            if case .text(let value) = button.key.action { title = uppercase && model.page == .letters ? value.uppercased() : value }
             if button.key.action == .space { title = settings.language == .chinese ? "空格" : "space" }
             if button.key.action == .language { title = settings.language == .chinese ? "中" : "EN" }
             if button.key.action == .enter { title = model.composition.isEmpty ? (model.document?.enterTitle ?? "换行") : "确认" }
             if appearanceChanged { button.apply(settings, title: title, active: button.key.action == .shift && model.shifted, capsLocked: model.capsLocked) }
             else if let title { button.updateTitle(title) }
+            button.updateShift(active: model.shifted, capsLocked: model.capsLocked)
             if button.key.action == .language {
                 button.accessibilityLabel = settings.language == .chinese ? "中文，点按切换英文" : "英文，点按切换中文"
                 button.accessibilityIdentifier = "key.language"
             }
         }
         toolbar.isHidden = candidateHeight > 0
-        if candidateSnapshot != model.candidates || arithmeticSnapshot != model.arithmetic {
-            candidateSnapshot = model.candidates
-            arithmeticSnapshot = model.arithmetic
-            candidateStack.arrangedSubviews.forEach { candidateStack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        let candidateInteraction = candidateScroll.holdsCandidateUpdates || candidateScroll.isTracking || candidateScroll.isDragging || candidateScroll.isDecelerating || candidateStack.arrangedSubviews.contains { ($0 as? UIControl)?.isTracking == true }
+        if !candidateInteraction && (candidateSnapshot != model.candidates || arithmeticSnapshot != model.arithmetic || displayedCandidateContext != model.candidateContext) {
+            let resetOffset = displayedCandidateContext != model.candidateContext
+            candidateSnapshot = model.candidates; arithmeticSnapshot = model.arithmetic
+            displayedCandidateContext = model.candidateContext
             let displayed = model.arithmetic?.candidates.map { Candidate(text: $0, consumed: 0) } ?? model.candidates
+            while candidateStack.arrangedSubviews.count > displayed.count {
+                let view = candidateStack.arrangedSubviews.last!; candidateStack.removeArrangedSubview(view); view.removeFromSuperview()
+            }
             for (index, candidate) in displayed.enumerated() {
-                let button = UIButton(type: .system); button.setTitle(candidate.text, for: .normal)
+                let button: UIButton
+                if index < candidateStack.arrangedSubviews.count { button = candidateStack.arrangedSubviews[index] as! UIButton }
+                else {
+                    button = UIButton(type: .system)
+                    button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                    candidateStack.addArrangedSubview(button)
+                    button.addAction(UIAction { [weak self] _ in
+                        DispatchQueue.main.async { [weak self] in self?.render() }
+                    }, for: [.touchUpInside, .touchUpOutside, .touchCancel])
+                }
+                button.setTitle(candidate.text, for: .normal)
                 button.titleLabel?.font = .systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
                 button.setTitleColor(index == 0 ? settings.accentInkColor : .label, for: .normal)
-                button.accessibilityLabel = "候选：" + candidate.text; button.accessibilityIdentifier = "candidate.\(candidate.text)"
-                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-                if index == 0 {
-                    button.backgroundColor = .secondarySystemFill
-                    button.layer.cornerRadius = 8; button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-                }
-                let calculation = model.arithmetic != nil
-                button.addAction(UIAction { [weak model] _ in if calculation { model?.chooseArithmetic(candidate.text) } else { model?.choose(candidate) } }, for: .touchUpInside)
-                candidateStack.addArrangedSubview(button)
+                button.accessibilityLabel = "候选：" + candidate.text; button.accessibilityIdentifier = "candidate." + candidate.text
+                button.backgroundColor = index == 0 ? .secondarySystemFill : .clear
+                button.layer.cornerRadius = 8
+                button.contentEdgeInsets = UIEdgeInsets(top: 0, left: index == 0 ? 10 : 0, bottom: 0, right: index == 0 ? 10 : 0)
+                let calculation = model.arithmetic != nil, context = displayedCandidateContext
+                let actionID = UIAction.Identifier("candidate.commit")
+                button.removeAction(identifiedBy: actionID, for: .touchUpInside)
+                button.addAction(UIAction(identifier: actionID) { [weak model] _ in
+                    if calculation { model?.chooseArithmetic(candidate.text) }
+                    else { model?.chooseDisplayed(candidate, context: context) }
+                }, for: .touchUpInside)
             }
-            candidateScroll.setContentOffset(.zero, animated: false)
+            if resetOffset { candidateScroll.setContentOffset(.zero, animated: false) }
         }
+        let acceptsDisplayedCandidates = model.acceptsCandidateContext(displayedCandidateContext)
         for (index, view) in candidateStack.arrangedSubviews.enumerated() {
             guard let button = view as? UIButton else { continue }
-            button.isEnabled = model.candidatesAreCurrent
+            if !button.isTracking { button.isEnabled = acceptsDisplayedCandidates }
             if appearanceChanged { button.setTitleColor(index == 0 ? settings.accentInkColor : .label, for: .normal) }
         }
         candidateScroll.isHidden = movingCursor || candidateHeight == 0
@@ -506,4 +528,19 @@ import ImageIO
         if let data = image.pngData() { UIPasteboard.general.setItems([["public.png": data]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)]) }
         announce("贴纸已复制，请在消息框粘贴")
     }
+}
+
+@MainActor private final class CandidateScrollView: UIScrollView, UIScrollViewDelegate {
+    var onSettled: (() -> Void)?
+    private(set) var holdsCandidateUpdates = false
+    override init(frame: CGRect) { super.init(frame: frame); delegate = self }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func touchesShouldCancel(in view: UIView) -> Bool { true }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        DispatchQueue.main.async { [weak self] in self?.onSettled?() }
+    }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { holdsCandidateUpdates = true }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { holdsCandidateUpdates = false; onSettled?() } }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { holdsCandidateUpdates = false; onSettled?() }
 }

@@ -622,4 +622,63 @@ import UIKit
         let surface = KeyboardSurface(model: controller.model, systemBacked: true); surface.frame = backdrop.frame; host.view.addSubview(surface)
         surface.layoutIfNeeded(); snapshot(surface.superview!, name: "glass-transparency")
     }
+    func testHeldLetterSurvivesCaseChangesWithoutReplacingItsView() throws {
+        var settings = testSettings(); settings.language = .english; settings.autoCapitalization = false
+        let controller = TypingLabController(settings: settings); controller.loadViewIfNeeded()
+        let key = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("a") })
+        key.sendActions(for: .touchDown); controller.model.handle(.shift)
+        let after = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("a") })
+        XCTAssertTrue(key === after)
+        key.sendActions(for: .touchUpInside)
+        XCTAssertEqual(controller.textView.text, "A")
+    }
+    func testCandidateRefreshDuringScrollKeepsTheVisibleControlsAndOffset() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        for ch in "shi" { controller.model.handle(.text(String(ch))) }
+        try await waitFor { controller.model.candidatesAreCurrent }
+        settleLayout(controller.view)
+        let button = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier?.hasPrefix("candidate.") == true })
+        let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIScrollView }.first { $0.subviews.contains { $0 is UIStackView } })
+        XCTAssertFalse(scroll.delaysContentTouches); XCTAssertTrue(scroll.touchesShouldCancel(in: button))
+        scroll.delegate?.scrollViewWillBeginDragging?(scroll)
+        scroll.contentOffset = CGPoint(x: 32, y: 0)
+        controller.model.refreshCandidates()
+        try await waitFor { controller.model.candidatesAreCurrent }
+        XCTAssertTrue(descendants(controller.view).contains { $0 === button })
+        XCTAssertEqual(scroll.contentOffset.x, 32, accuracy: 0.1)
+        scroll.delegate?.scrollViewDidEndDragging?(scroll, willDecelerate: true)
+        scroll.delegate?.scrollViewDidEndDecelerating?(scroll)
+        XCTAssertEqual(scroll.contentOffset.x, 32, accuracy: 0.1)
+    }
+    func testImmediateSpaceAndFollowingKeysKeepEnglishInChineseMode() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        for ch in "iphone" { controller.model.handle(.text(String(ch))) }
+        controller.model.handle(.space)
+        for ch in "wodeiphone" { controller.model.handle(.text(String(ch))) }
+        controller.model.handle(.space)
+        try await waitFor { controller.model.composition.isEmpty && controller.textView.text == "iphone我的iphone" }
+        XCTAssertEqual(controller.model.settings.language, .chinese)
+    }
+    func testToolbarArtworkHasMatchingVisibleFootprints() throws {
+        func alphaBounds(_ image: UIImage) throws -> CGRect {
+            let cg = try XCTUnwrap(image.cgImage); let width = cg.width, height = cg.height
+            var pixels = [UInt8](repeating: 0, count: width * height * 4)
+            try pixels.withUnsafeMutableBytes { raw in
+                let context = try XCTUnwrap(CGContext(data: raw.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                context.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            }
+            var minX = width, minY = height, maxX = 0, maxY = 0
+            for y in 0..<height { for x in 0..<width where pixels[(y * width + x) * 4 + 3] > 24 {
+                minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
+            } }
+            return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX + 1), height: CGFloat(maxY - minY + 1))
+        }
+        let bounds = try ["doc.on.clipboard.fill", "face.smiling.fill", "paintpalette.fill"].map { try alphaBounds(ToolArtwork.image(symbol: $0, size: 32)) }
+        let widths = bounds.map(\.width), heights = bounds.map(\.height)
+        XCTAssertLessThan(widths.max()! / widths.min()!, 1.12)
+        XCTAssertLessThan(heights.max()! / heights.min()!, 1.12)
+    }
+
 }
