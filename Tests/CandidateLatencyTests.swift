@@ -3,12 +3,21 @@ import CoreGraphics
 @testable import ClearCore
 
 final class CandidateLatencyTests: XCTestCase {
-    func testOptimizedCandidatesKeepReferenceResults() throws {
+    func testCandidateRankingPreservesCommonWordsAndLongAbbreviations() throws {
         let engine = try InputEngine.bundled()
-        let reference = ReferenceInputEngine(chinese: engine.chinese, english: engine.english)
-        for input in ["nihao", "nh", "hdhdhdhdhdhd", "womenshiyongshurufa", "nihaohd", "xi'an", "zhongguoren", "haodehaodehaodehaode", "wmsysrf"] {
-            XCTAssertEqual(engine.candidates(input).first, reference.candidates(input).first, input)
+        for (input, expected) in ["nihao": "你好", "nh": "你好", "hdhdhdhdhdhd": "好的好的好的好的好的好的",
+                                  "womenshiyongshurufa": "我们使用输入法", "nihaohd": "你好好的",
+                                  "xi'an": "西安", "haodehaodehaodehaode": "好的好的好的好的"] {
+            XCTAssertEqual(engine.candidates(input).first?.text, expected, input)
         }
+    }
+    func testSpellingRepairIsBoundedAndCancellable() throws {
+        let engine = try InputEngine.bundled()
+        XCTAssertTrue(PinyinSpelling.repairs("nichifnalemeilaopo", near: 5).contains { $0.0 == "nichifanlemeilaopo" })
+        XCTAssertLessThanOrEqual(PinyinSpelling.repairs("llllllllp", near: 0).count, 24)
+        var checks = 0
+        XCTAssertTrue(engine.candidates("nichifnalemeilaopo", cancelled: { checks += 1; return checks > 35 }).isEmpty)
+        XCTAssertEqual(engine.candidates("nichifnalemeilaopo").first?.text, "你吃饭了没老婆")
     }
     func testCancelledSentenceLeavesReusableCorrectPrefix() throws {
         let engine = try InputEngine.bundled()

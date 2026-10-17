@@ -25,6 +25,47 @@ final class EngineTests: XCTestCase {
         let spelling = "womenshiyongshurufa"
         XCTAssertTrue(engine.candidates(spelling).contains { $0.consumed == spelling.count && $0.text.contains("输入法") })
     }
+    func testWholeSentenceKeepsWordsInsteadOfStitchingUnrelatedInitials() {
+        let cases = ["nichifanlemeilaopo": "你吃饭了没老婆",
+                     "womenshiyongshurufa": "我们使用输入法",
+                     "womenjintianquchifan": "我们今天去吃饭"]
+        for (spelling, expected) in cases { XCTAssertEqual(engine.candidates(spelling).first?.text, expected, spelling) }
+    }
+    func testFastTypingTranspositionMissingLetterAndNearbyKey() {
+        for spelling in ["nichifnalemeilaopo", "nichifnlemeilaopo", "nichifqnlemeilaopo"] {
+            let values = engine.candidates(spelling)
+            XCTAssertEqual(values.first?.text, "你吃饭了没老婆", spelling)
+            XCTAssertEqual(values.first?.reading, "ni chi fan le mei lao po")
+            XCTAssertEqual(values.first?.consumed, spelling.count)
+            XCTAssertFalse(values.contains { $0.text.contains("妇女啊") })
+        }
+    }
+    func testIncompleteFinalSyllableKeepsSentenceCandidates() {
+        for (spelling, expected) in ["chif": "吃饭", "laop": "老婆", "nichifanlemeilaop": "你吃饭了没老婆"] {
+            XCTAssertEqual(engine.candidates(spelling).first?.text, expected, spelling)
+            XCTAssertEqual(engine.candidates(spelling).first?.consumed, spelling.count)
+        }
+    }
+    func testUnrepairableSpellingOffersARealPrefixInsteadOfInventedSentence() {
+        let spelling = "nichifzzzzzalemeilaopo", values = engine.candidates(spelling)
+        XCTAssertFalse(values.isEmpty)
+        XCTAssertTrue(values.allSatisfy { $0.consumed < spelling.count })
+        XCTAssertTrue(values.contains { $0.text == "你" && $0.consumed == 2 })
+    }
+    func testCompletedTailNeverPoisonsTheNextIncrementalQuery() throws {
+        let spelling = "nichifanlemeilaopo"
+        for length in 1...spelling.count {
+            let prefix = String(spelling.prefix(length))
+            let fresh = InputEngine(chinese: engine.chinese, english: engine.english)
+            XCTAssertEqual(engine.candidates(prefix), fresh.candidates(prefix), prefix)
+        }
+    }
+    func testValidPinyinIsNotSilentlyRewrittenAsASpellingRepair() {
+        XCTAssertEqual(engine.candidates("nihao").first?.text, "你好")
+        XCTAssertEqual(engine.candidates("xian").first?.reading.replacingOccurrences(of: " ", with: ""), "xian")
+        XCTAssertTrue(engine.candidates("xi'an").allSatisfy { $0.reading.hasPrefix("xi an") })
+        XCTAssertEqual(engine.candidates("nihaohd").first?.text, "你好好的")
+    }
     func testChineseContinuation() { XCTAssertTrue(engine.predictions(after: "中华").contains { $0.text == "人民共和国" }) }
     func testEnglishCompletion() { XCTAssertTrue(engine.englishCandidates(prefix: "hell").contains { $0.text == "hello" }) }
     func testEnglishContinuation() { XCTAssertEqual(engine.englishPredictions(after: "thank ").first?.text, "you") }

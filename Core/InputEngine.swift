@@ -12,16 +12,21 @@ public struct Candidate: Equatable {
 
 /// Call from a serial user-initiated queue. Immutable dictionaries allow a bounded fast lookup at commit time.
 public final class InputEngine {
-    private struct Path { var text: String; var reading: String; var score: Double; var tokens: Int }
-    private struct Token { let text: String; let reading: String; let score: Double }
-    private struct Match { let token: Token?; let canExtend: Bool }
+    private struct Path {
+        var text: String; var reading: String; var score: Double; var tokens: Int
+        var abbreviated: Int = 0; var completed: Bool = false
+    }
+    private struct Token {
+        let text: String; let reading: String; let score: Double; let abbreviated: Bool; let completed: Bool
+    }
+    private struct Match { let tokens: [Token]; let canExtend: Bool }
     private var matches: [String: Match] = [:]
     private var matchOrder: [String] = []
     private var nextEviction = 0
     private static let cacheLimit = 2_048
     private static let conversational = ["hd": "好的", "nh": "你好", "wm": "我们", "xx": "谢谢", "zj": "再见"]
     private var previousSentence = ""
-    private var previousPaths: [Path?] = []
+    private var previousPaths: [[Path]] = []
     public let chinese: Lexicon
     public let english: Lexicon
     public init(chinese: Lexicon, english: Lexicon) { self.chinese = chinese; self.english = english }
@@ -51,7 +56,7 @@ public final class InputEngine {
             append(chinese.lookup("a:" + variant), consumed: input.count, bonus: 1 - penalty)
         }
         if compose && explicit.count < 2 && !choices.contains(where: { FuzzyPinyin.normalize($0.reading) == input }) {
-            if let sentence = sentence(input, cancelled: cancelled) { choices.append(sentence) }
+            choices += sentences(input, cancelled: cancelled)
         }
         // Partial candidates let the user commit one word, then continue the remaining spelling.
         if choices.isEmpty {
@@ -68,27 +73,74 @@ public final class InputEngine {
             .filter { seen.insert($0.text).inserted }.prefix(24).map { $0 }
     }
 
-    private func sentence(_ input: String, cancelled: () -> Bool) -> Candidate? {
+    private func sentences(_ input: String, cancelled: () -> Bool) -> [Candidate] {
+        let primary = decode(input, incremental: true, cancelled: cancelled)
+        if cancelled() { return [] }
+        let hasVowel = input.contains { "aeiouv".contains($0) }
+        let spelling = hasVowel ? PinyinSpelling.reachablePrefix(input) : input.count
+        var ranked = primary.filter { $0.abbreviated == 0 || !hasVowel || spelling == input.count }
+        // Only repair an invalid spelling. Valid syllables and intentional initials keep their meaning.
+        // A final incomplete syllable is handled by completion, without editing the host's marked text.
+        if hasVowel, spelling < input.count, input.count <= 96,
+           primary.first.map({ $0.abbreviated > 0 }) ?? true {
+            for (variant, penalty) in PinyinSpelling.repairs(input, near: spelling) {
+                if cancelled() { return [] }
+                var alternatives = decode(variant, incremental: false, allowInitials: false, cancelled: cancelled)
+                for index in alternatives.indices { alternatives[index].score -= penalty }
+                ranked += alternatives
+            }
+        }
+        if cancelled() { return [] }
+        var seen = Set<String>()
+        return ranked.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+            .filter { seen.insert($0.text).inserted }.prefix(8).map {
+                Candidate(text: $0.text, reading: $0.reading, consumed: input.count,
+                          score: 44 + $0.score / Double(max(1, input.count)))
+            }
+    }
+    private func decode(_ input: String, incremental: Bool, allowInitials: Bool = true, cancelled: () -> Bool) -> [Path] {
         let chars = Array(input), count = chars.count
-        var paths = [Path?](repeating: nil, count: count + 1)
-        paths[0] = Path(text: "", reading: "", score: 0, tokens: 0)
+        var paths = [[Path]](repeating: [], count: count + 1)
+        paths[0] = [Path(text: "", reading: "", score: 0, tokens: 0)]
         // A cancelled query can still leave a fully settled prefix for the next query.
-        let common = min(zip(input, previousSentence).prefix { $0.0 == $0.1 }.count, max(0, previousPaths.count - 1))
+        let common = incremental ? min(zip(input, previousSentence).prefix { $0.0 == $0.1 }.count, max(0, previousPaths.count - 1)) : 0
         let restart = max(0, common - 24)
         if common > 0 { for index in 0...common { paths[index] = previousPaths[index] } }
         func checkpoint(_ settled: Int) {
-            previousSentence = input; previousPaths = Array(paths.prefix(settled + 1))
+            if incremental { previousSentence = input; previousPaths = paths.prefix(settled + 1).map { $0.filter { !$0.completed } } }
+        }
+        func insert(_ path: Path, at end: Int) {
+            if let index = paths[end].firstIndex(where: { $0.text == path.text }) {
+                guard path.score > paths[end][index].score else { return }
+                paths[end].remove(at: index)
+            }
+            let index = paths[end].firstIndex { $0.score < path.score || ($0.score == path.score && $0.text > path.text) } ?? paths[end].count
+            if index < 4 { paths[end].insert(path, at: index); if paths[end].count > 4 { paths[end].removeLast() } }
         }
         for start in restart..<count {
-            if cancelled() { checkpoint(start); return nil }
-            guard let base = paths[start] else { continue }
+            if cancelled() { checkpoint(start); return [] }
+            let bases = paths[start].filter { !$0.completed }
+            guard !bases.isEmpty else { continue }
             for end in (start + 1)...min(count, start + 24) {
-                if cancelled() { checkpoint(start); return nil }
-                let found = match(String(chars[start..<end]))
-                if let token = found.token {
-                    let score = base.score + token.score
-                    if paths[end] == nil || score > paths[end]!.score {
-                        paths[end] = Path(text: base.text + token.text, reading: base.reading + (base.reading.isEmpty ? "" : " ") + token.reading, score: score, tokens: base.tokens + 1)
+                if cancelled() { checkpoint(start); return [] }
+                let key = String(chars[start..<end]), found = match(key)
+                var tokens = found.tokens.filter { allowInitials || !$0.abbreviated }
+                if end == count, allowInitials {
+                    for entry in chinese.lookup("p:" + key, limit: 8) where entry.key != key && entry.key.count - key.count <= 4 {
+                        let final = entry.reading.split(separator: " ").last?.count ?? 0
+                        // All preceding syllables must be fully typed; complete only the last syllable.
+                        if key.count > entry.key.count - final {
+                            tokens.append(token(entry, for: key, completion: true))
+                        }
+                    }
+                }
+                for token in tokens {
+                    for base in bases {
+                        insert(Path(text: base.text + token.text,
+                                    reading: base.reading + (base.reading.isEmpty ? "" : " ") + token.reading,
+                                    score: base.score + token.score, tokens: base.tokens + 1,
+                                    abbreviated: base.abbreviated + (token.abbreviated && Self.conversational[key] != token.text ? token.text.count : 0),
+                                    completed: token.completed), at: end)
                     }
                 }
                 // No full-pinyin or initial prefix exists beyond this point.
@@ -96,20 +148,25 @@ public final class InputEngine {
             }
         }
         checkpoint(count)
-        guard let path = paths[count], path.tokens > 1 else { return nil }
-        return Candidate(text: path.text, reading: path.reading, consumed: count, score: 44 + path.score / Double(path.tokens) / 10)
+        return paths[count]
     }
     private func abbreviation(_ reading: String) -> String { reading.split(separator: " ").compactMap(\.first).map(String.init).joined() }
+    private func token(_ entry: LexiconEntry, for key: String, completion: Bool = false) -> Token {
+        let abbreviated = !completion && entry.key != key
+        let score = log((Double(entry.frequency) + 1) / 10_000_000) - 2.5
+            + (abbreviated ? 0 : 1.5) + (Self.conversational[key] == entry.text ? 5 : 0)
+            + Double(max(0, entry.text.count - 1)) * 1.5
+            - (abbreviated ? Double(entry.text.count) * 3.5 : 0) - (completion ? 3 : 0)
+        return Token(text: entry.text, reading: entry.reading, score: score, abbreviated: abbreviated, completed: completion)
+    }
     private func match(_ key: String) -> Match {
         if let cached = matches[key] { return cached }
         let initials = key.count <= 12 ? chinese.lookup("a:" + key, limit: 12) : []
-        let entries = chinese.lookup("e:" + key, limit: 2) + initials.filter { abbreviation($0.reading) == key }
-        var best: Token?
-        for entry in entries {
-            let score = log((Double(entry.frequency) + 1) / 10_000_000) - 2.5 + (entry.key == key ? 1.5 : 0) + (Self.conversational[key] == entry.text ? 5 : 0)
-            if best == nil || score > best!.score { best = Token(text: entry.text, reading: entry.reading, score: score) }
-        }
-        let result = Match(token: best, canExtend: !initials.isEmpty || chinese.contains("p:" + key))
+        let entries = chinese.lookup("e:" + key, limit: 3) + initials.filter { abbreviation($0.reading) == key }
+        var seen = Set<String>()
+        let tokens = entries.filter { seen.insert($0.text).inserted }.map { token($0, for: key) }
+            .sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+        let result = Match(tokens: Array(tokens.prefix(4)), canExtend: !initials.isEmpty || chinese.contains("p:" + key))
         if matchOrder.count < Self.cacheLimit { matchOrder.append(key) }
         else {
             matches.removeValue(forKey: matchOrder[nextEviction]); matchOrder[nextEviction] = key

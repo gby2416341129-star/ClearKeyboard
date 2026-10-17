@@ -65,6 +65,19 @@ import XCTest
         }
         XCTFail("Clear keyboard did not appear\n" + app.debugDescription)
     }
+    private func assertFullRows(in app: XCUIApplication, context: String) {
+        chooseKeyboard(in: app)
+        let q = app.descendants(matching: .any).matching(identifier: "key.text.q").firstMatch
+        let a = app.descendants(matching: .any).matching(identifier: "key.text.a").firstMatch
+        let z = app.descendants(matching: .any).matching(identifier: "key.text.z").firstMatch
+        let language = app.descendants(matching: .any).matching(identifier: "key.language").firstMatch
+        // Measure screen-space hit rectangles, including any host view transform.
+        XCTAssertEqual(q.frame.height, 56, accuracy: 0.5, context + ": " + String(describing: q.frame))
+        XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5, context)
+        XCTAssertEqual(z.frame.minY - a.frame.minY, 56, accuracy: 0.5, context)
+        XCTAssertEqual(language.frame.minY - z.frame.minY, 56, accuracy: 0.5, context)
+        XCTAssertTrue(q.isHittable && language.isHittable, context + " clipped a keyboard row")
+    }
     func testBSafariSearchAndMultilineKeepFullKeyboardRows() throws {
         continueAfterFailure = false; clear.launch(); try enableKeyboard()
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"); safari.activate()
@@ -92,5 +105,26 @@ import XCTest
         XCTAssertEqual(q.frame.height, 56, accuracy: 0.5)
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
         attachment(safari, name: "safari-multiline-keyboard")
+        // The address bar uses different input traits from a webpage search field.
+        let address = safari.textFields.matching(NSPredicate(format: "identifier == 'URL' OR label CONTAINS[c] 'Address'")).firstMatch
+        if address.exists && address.isHittable { address.tap() }
+        else {
+            let location = safari.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'URL' OR label == 'Address' OR label == 'Search or enter website name' OR (elementType == 9 AND label CONTAINS '127.0.0.1')")).firstMatch
+            XCTAssertTrue(location.waitForExistence(timeout: 5), "Address bar missing\n" + safari.debugDescription)
+            location.tap()
+        }
+        assertFullRows(in: safari, context: "Safari address bar")
+        let cancel = safari.buttons["Cancel"]
+        if cancel.exists { cancel.tap() }
+        else {
+            let done = safari.buttons["Done"]
+            if done.exists { done.tap() }
+        }
+        for attempt in 1...2 {
+            field.tap(); assertFullRows(in: safari, context: "Search reactivation \(attempt)")
+            multiline.tap(); assertFullRows(in: safari, context: "Multiline reactivation \(attempt)")
+        }
+        clear.activate(); safari.activate()
+        multiline.tap(); assertFullRows(in: safari, context: "Safari after changing host app")
     }
 }

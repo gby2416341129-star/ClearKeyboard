@@ -366,6 +366,34 @@ import UIKit
             for key in descendants(surface).compactMap({ $0 as? KeyButton }) { XCTAssertGreaterThanOrEqual(key.bounds.height, 50) }
         }
     }
+    func testCachedSafariFramesNeverCompressTheExtensionKeys() throws {
+        let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.q" })
+        let a = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.a" })
+        for height: CGFloat in [216, 245, 276, 330, 245, 276] {
+            controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: height)
+            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded(); surface.layoutIfNeeded()
+            XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
+            XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
+            XCTAssertEqual(KeyboardGeometry.keyPlate(in: q.bounds).height, 45, accuracy: 0.5)
+        }
+    }
+    func testTypoSentenceAppearsInCandidatesAndCommitsCorrectedChinese() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        let spelling = "nichifnalemeilaopo"
+        for letter in spelling { controller.model.handle(.text(String(letter))) }
+        XCTAssertEqual(controller.textView.text, spelling, "Spelling repairs must not rewrite the host's active pinyin")
+        try await waitFor { controller.model.candidatesAreCurrent }
+        let candidate = try XCTUnwrap(controller.model.candidates.first)
+        XCTAssertEqual(candidate.text, "你吃饭了没老婆")
+        controller.model.choose(candidate)
+        XCTAssertEqual(controller.textView.text, "你吃饭了没老婆")
+        XCTAssertNil(controller.textView.markedTextRange)
+    }
     func testSystemPasteControlSavesProvidedTextWithoutReadingClipboard() async throws {
         let suite = "clear.paste.tests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -92,7 +92,8 @@ import ImageIO
         let gridInset = min(KeyboardGeometry.horizontalInset, width / 2)
         let gridWidth = max(0, width - gridInset * 2)
         keyGlassGroup.frame = CGRect(x: origin + gridInset, y: headerHeight, width: gridWidth, height: max(0, bounds.height - headerHeight))
-        let unit = gridWidth / 10, rowHeight = KeyboardGeometry.rowHeight(availableHeight: bounds.height, header: headerHeight, preferred: CGFloat(settings.keyHeight + 6))
+        let unit = gridWidth / 10
+        let rowHeight = systemBacked ? CGFloat(settings.keyHeight + 6) : KeyboardGeometry.rowHeight(availableHeight: bounds.height, header: headerHeight, preferred: CGFloat(settings.keyHeight + 6))
         for (button, row, start, units) in keys {
             button.frame = CGRect(x: CGFloat(start) * unit, y: CGFloat(row) * rowHeight, width: CGFloat(units) * unit, height: rowHeight)
         }

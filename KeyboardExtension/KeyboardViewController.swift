@@ -11,7 +11,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var recentOwnContexts: [String] = []
     private var trackpad: ProxyTrackpad?
     private var heightRefreshQueued = false
-    private var heightRefreshAttempts = 0
+    private var heightRefreshSignatures = Set<String>()
     private var isPresented = false
 
     override func loadView() {
@@ -36,7 +36,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         previousContext = contextBefore
     }
     override func viewWillAppear(_ animated: Bool) {
-        isPresented = false; heightRefreshAttempts = 0
+        isPresented = false; heightRefreshSignatures.removeAll()
         super.viewWillAppear(animated); model?.reloadSettings()
         if let surface { updateHeight(surface.desiredHeight) }
     }
@@ -49,31 +49,42 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         isPresented = true
         // A remote host can cache its default height before our input view is attached.
         // Negotiate once after attachment even when the desired height has not changed.
-        queueHeightRefresh()
+        queueHeightRefresh(force: true)
         model?.startClipboardCapture()
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface else { return }
-        let height = KeyboardGeometry.contentHeight(total: view.bounds.height, preferred: surface.desiredHeight)
-        surface.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: max(0, view.bounds.width), height: height)
+        // A cached host frame is provisional, especially when Safari changes input traits.
+        // Keep the requested key pitch while UIKit negotiates the remote view's final height.
+        // Squeezing the surface into that frame permanently changed both key size and font size.
+        surface.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: max(0, view.bounds.width), height: surface.desiredHeight)
         updateHeight(surface.desiredHeight)
         if view.bounds.height + 0.5 < surface.desiredHeight { queueHeightRefresh() }
     }
-    private func queueHeightRefresh() {
-        guard isPresented, !heightRefreshQueued, heightRefreshAttempts < 2, view.window != nil else { return }
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        if let surface { updateHeight(surface.desiredHeight); queueHeightRefresh() }
+    }
+    private func queueHeightRefresh(force: Bool = false) {
+        guard isPresented, !heightRefreshQueued, let surface, view.window != nil,
+              force || view.bounds.height + 0.5 < surface.desiredHeight else { return }
+        // Re-negotiate each distinct host geometry once, instead of exhausting two retries
+        // before a later Safari address-bar / web-input transition. No timer or layout polling.
+        let signature = "\(view.bounds.width.rounded())/\(view.bounds.height.rounded())/\(view.safeAreaInsets.bottom.rounded())/\(surface.desiredHeight)"
+        guard heightRefreshSignatures.insert(signature).inserted else { return }
         heightRefreshQueued = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.heightRefreshQueued = false
             guard self.isPresented, self.view.window != nil, let surface = self.surface else { return }
-            self.heightRefreshAttempts += 1
             UIView.performWithoutAnimation {
                 self.heightConstraint?.isActive = false; self.heightConstraint = nil
                 self.updateHeight(surface.desiredHeight)
                 self.view.invalidateIntrinsicContentSize()
                 self.view.setNeedsUpdateConstraints(); self.view.setNeedsLayout()
                 self.view.superview?.setNeedsLayout()
+                self.parent?.preferredContentSizeDidChange(forChildContentContainer: self)
             }
         }
     }
@@ -97,6 +108,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // reconcile the context once when the trackpad session ends.
         if model.isMovingCursor { return }
         let identifier = connectedDocumentIdentifier(), context = contextBefore
+        if identifier != documentID {
+            heightRefreshSignatures.removeAll(); updateHeight(surface.desiredHeight); queueHeightRefresh(force: true)
+        }
         if identifier != documentID || (context != previousContext && context != expectedContext && !recentOwnContexts.contains(context)) {
             recentOwnContexts.removeAll()
             surface.closePanel(); model.cursorChanged()
