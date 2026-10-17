@@ -2,7 +2,7 @@
 
 面向中文和英文的原生 iPhone 输入法，当前版本 **0.1.2 开发预览**。包含 SwiftUI 设置 App、UIKit 系统键盘扩展、离线词库和交互设计预览。
 
-**已生成未签名 IPA。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/workflows/ipa.yml) 使用 Xcode 26.6 / iPhoneOS 26.5，主 App 和键盘扩展均通过 Release arm64 真机目标编译，33 个 Swift 核心测试全部通过。安装前仍需签名；原生界面测试结果见 `Validation/native-build.json`，iPhone 真机性能与耗电仍待测量。
+**已生成未签名 IPA。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38997390063) 使用 Xcode 26.6 / iPhoneOS 26.5，主 App 和键盘扩展均通过 Release arm64 真机目标编译，33 个 Swift 核心测试全部通过。8 项原生运行测试全部通过，并已检查浅色、深色、单手和候选截图。安装前仍需签名；具体记录见 `Validation/native-build.json`，iPhone 真机切换、性能与耗电仍待验证。
 
 IPA 打包入口已提供：参见 [BUILD-IPA.md](BUILD-IPA.md)。可推送至 GitHub 的 `main` 分支自动构建、手动运行工作流，或在 Mac 执行 `bash Scripts/build-ipa.sh`；只有真机编译通过后才会生成包含键盘扩展的未签名 IPA，安装前仍需签名。
 
@@ -21,7 +21,7 @@ IPA 打包入口已提供：参见 [BUILD-IPA.md](BUILD-IPA.md)。可推送至 G
 
 0.1.2 移除了键盘闲置时的状态说明行，改为左侧品牌入口、右侧三个快捷工具；点品牌打开工具网格，长按快捷工具可增删和拖动排序。工具栏与按键一起靠左或靠右，另一侧提供换手、尺寸调整和恢复全尺寸。主 App 使用新的 C 形标志、紧凑标题和安全区布局。
 
-体验区的普通 SwiftUI 刷新会保留键盘当前语言；选区的重复通知不会清空拼音。候选栏按内容测量宽度，外部文本编辑事件也进入相同输入引擎。首次键盘布局为零尺寸时，按键底板会保持有限、非负的尺寸。
+体验区的普通 SwiftUI 刷新会保留键盘当前语言；选区的重复通知不会清空拼音。候选栏按内容测量宽度，外部文本编辑事件也进入相同输入引擎。首次键盘布局为零尺寸时，按键底板会保持有限、非负的尺寸。键盘尚未连接宿主时，空的文档 ID 不再触发 Swift UUID 转换崩溃。
 
 按键字符改为按可见字形轮廓居中；预览通过 116 个字形的截图像素检查，四种状态覆盖小写、大写、数字和符号。工具栏、地球、Shift、删除和底部导航均采用统一线条图标，原生使用 SF Symbols。
 

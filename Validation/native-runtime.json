@@ -1,0 +1,44 @@
+{
+  "status": "passed",
+  "executed": 8,
+  "failures": 0,
+  "skipped": 0,
+  "sourceCommit": "7f5c6b54ad66b0f9794853e07bd822886de13326",
+  "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38997390063",
+  "jobId": 117292823045,
+  "device": {
+    "deviceName": "iPhone 17 Pro",
+    "architecture": "arm64",
+    "osVersion": "26.5",
+    "osBuildNumber": "23F77",
+    "platform": "iOS Simulator"
+  },
+  "testCases": [
+    "HomeScreenshots.testHomeSafeAreaAndAppearance",
+    "KeyboardRuntimeTests.testAZeroAndNarrowKeyLayout",
+    "KeyboardRuntimeTests.testKeyboardControllerLifecycle",
+    "KeyboardRuntimeTests.testSelectionNotificationsAndExternalSettingsPreserveComposition",
+    "KeyboardRuntimeTests.testTextViewInputRoutesThroughChineseEngine",
+    "KeyboardRuntimeTests.testToolbarAndSideRailWorkInBothHandModes",
+    "KeyboardRuntimeTests.testTypingLabChineseAndEnglishCandidates",
+    "KeyboardRuntimeTests.testTypingLabFitsAllFourRowsWhileComposing"
+  ],
+  "screenshots": [
+    "NativeScreenshots/home-dark.png",
+    "NativeScreenshots/home-light.png",
+    "NativeScreenshots/pinyin-candidates.png",
+    "NativeScreenshots/single-hand-left.png",
+    "NativeScreenshots/single-hand-right.png"
+  ],
+  "coverage": "UIKit control events, text editing callbacks, layout, toolbar mutations, left/right side rails, safe area, and controller startup before connecting a remote host.",
+  "notCovered": "Physical iPhone installation or signing, third-party app remote input connections, native finger drag gestures, latency, memory peaks or battery measurements.",
+  "startupRegression": {
+    "beforeCommit": "fd78c4d1d604efdbb1ce18e42d77f70f9bf5d314",
+    "exception": "EXC_BREAKPOINT / SIGTRAP",
+    "location": "KeyboardViewController.viewDidLoad(), former line 25",
+    "bridge": "UUID._unconditionallyBridgeFromObjectiveC",
+    "context": "UIKit returned a nil document identifier before the remote host connection existed.",
+    "after": "The public Objective-C getter preserves the optional value; pre-connection startup regression passed."
+  },
+  "artifactSha256": "ce468eb44cfba89b08360a2bcfb5994d4420a6b7d214151ec6311195837f509a"
+}

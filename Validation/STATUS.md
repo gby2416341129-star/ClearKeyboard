@@ -1,20 +1,32 @@
-# 验证状态 · 2026-10-17
+# 验证状态 · 0.1.2（3）· 2026-10-17
 
-已在本次 Windows 环境完成：
+## GitHub / Xcode
 
-- 21 个 Swift 文件通过 Tree-sitter Swift 语法解析（含 Package.swift 与测试）；这不是 Swift 编译或 Apple SDK 类型检查。
-- 65,137 条中文、50,000 条英文记录和 307,696 个索引键全部检查边界、UTF-8、排序、候选 ID 及资源 SHA-256。
-- 全拼、简拼、补充短语、英文前缀、拼音分隔和中文续词的代表性数据查找通过。
-- Info.plist、App Group entitlements、隐私清单和共享 Scheme 均可解析。
-- Xcode 工程通过 OpenStep 解析，98 个对象；全部引用和源码／资源路径存在。
-- 原有 11 项浏览器交互与布局检查通过。新增空格长按／光标拖动／取消、触屏、Emoji 字素、任意颜色和 HEX、矢量图标与背景折射检查通过。
-- 116 个字形通过独立截图像素居中检查；在本次 1× 浏览器环境中，横向最大误差 < 1 px、纵向最大误差 1 px。
-- 预览截图已目视检查；这些结果均仅代表浏览器预览，不代表原生 iPhone 验证。
+主 App 和键盘扩展均通过 Xcode 26.6（17F113）的 Release arm64 iPhone 目标编译；使用 iPhoneOS 26.5 SDK，最低系统 iOS 18.0。33 个 Swift 核心 XCTest 全部通过。[构建记录](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38997390063)，源码提交 `7f5c6b54ad66b0f9794853e07bd822886de13326`。
 
-已在 GitHub macOS / Xcode 26.6 环境完成：31 个 Swift 核心 XCTest 全部通过；主 App 和键盘扩展的 Release arm64 iPhone 目标编译通过；IPA 打包和结构检查通过。构建使用 iPhoneOS 26.5 SDK，最低系统 iOS 18.0。详见 `native-build.json` 和[构建记录](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38994072222)。
+在 iPhone 17 Pro / iOS 26.5 模拟器中，8 项原生 XCTest 全部通过：
 
-IPA 检查：云端和下载后的本地检查结果一致；两个可执行文件均为 arm64 iOS 真机平台，内嵌键盘注册正确、两套离线词库及隐私清单齐全。GitHub Artifact、IPA 和随附报告的 SHA-256 相互核对通过。另用已删除的暂存合成 ZIP 验证校验器能拒绝模拟器二进制、缺失扩展、缺少执行权限、缺词库及纯源码 ZIP。交付 IPA **未签名**，不能直接安装到 iPhone。
+- 初次布局为零或极小尺寸时，按键视图没有无限或空矩形坐标。
+- 键盘控制器在尚未连接宿主时可加载、布局、接收生命周期回调，公开 Objective-C 主类名可解析。
+- App 内按键输入 `nihao` 能显示有实际宽高的「你好」候选；空格上屏；英文 `hell` 能补全并输入 `hello `。
+- 重复的选区通知不会清空拼音，普通 SwiftUI 更新不会重置当前中英文语言。
+- UITextView 编辑回调进入同一套中文输入引擎。
+- 左右单手模式均可更改工具栏顺序，保留换手、尺寸调整和全尺寸侧栏。
+- 固定高度体验区出现候选时，底排按键完整可见。
+- 首页浅色与深色截图、安全区检查通过。
 
-**尚未验证**：原生 UI 截图、iPhone 安装、签名、真机候选正确率、输入延迟、内存峰值、耗电、微信等宿主的回车发送行为、VoiceOver 与动态字体。
+截图保存在 `NativeScreenshots/`，测试摘要见 `native-runtime.json`。截图来自原生 UIKit / SwiftUI 窗口；不包含由系统进程绘制的状态栏。
 
-编译、资源和预览检查不能证明原生 App 在 iPhone 的实际运行表现，也不能证明已达到低功耗目标。
+## Windows 本地
+
+25 个 Swift 文件通过语法解析；完整词库、属性清单、权限文件和 Xcode 工程引用检查通过。工程有 135 个对象。预览的 12 项交互检查通过，包括工具栏增删与拖动排序、左右手切换、候选输入、颜色和 400 px 响应式布局。
+
+IPA 在云端及下载后分别完成 ZIP 完整性、元数据、扩展注册、执行权限、arm64 iOS 真机平台、两套词库和隐私清单检查，结果一致。Artifact、IPA、校验文件和检查报告的 SHA-256 核对一致。扩展元数据的主类名与二进制中的公开 Objective-C 类名一致。
+
+## 崩溃修正与验证范围
+
+原生测试重现了 `KeyboardViewController.viewDidLoad()` 读取空文档 ID 时发生的 `UUID._unconditionallyBridgeFromObjectiveC` / SIGTRAP。现在通过同一个公开属性的 Objective-C getter 保留空值，回归检查通过。同时修正了零尺寸按键底板的无效几何。
+
+初始化测试刻意覆盖尚未建立远程连接的状态；不模拟已安装键盘与第三方 App 的跨进程连接。App 内候选与编辑另由真实 UIKit 控件测试。
+
+交付 IPA 未签名。尚未完成本次新包在 iPhone 上的重新签名、安装和实际切换验证，也未测量真机延迟、耗电或内存峰值。微信等宿主的回车发送行为、VoiceOver 和动态字体仍待真机检查。
