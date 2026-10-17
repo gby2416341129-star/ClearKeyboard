@@ -166,8 +166,12 @@ public final class InputEngine {
         let initials = key.count <= 12 ? chinese.lookup("a:" + key, limit: 12) : []
         let entries = chinese.lookup("e:" + key, limit: 3) + initials.filter { abbreviation($0.reading) == key }
         var seen = Set<String>()
-        let tokens = entries.filter { seen.insert($0.text).inserted }.map { token($0, for: key) }
-            .sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+        var tokens: [Token] = []
+        for entry in entries where seen.insert(entry.text).inserted { tokens.append(token(entry, for: key)) }
+        tokens.sort { (left: Token, right: Token) -> Bool in
+            if left.score == right.score { return left.text < right.text }
+            return left.score > right.score
+        }
         let result = Match(tokens: Array(tokens.prefix(4)), canExtend: !initials.isEmpty || chinese.contains("p:" + key))
         if matchOrder.count < Self.cacheLimit { matchOrder.append(key) }
         else {
