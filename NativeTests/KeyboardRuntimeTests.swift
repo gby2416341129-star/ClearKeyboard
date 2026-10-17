@@ -361,6 +361,54 @@ import UIKit
         XCTAssertLessThan(backdrop.backgroundColor?.cgColor.alpha ?? 0, 0.1)
         XCTAssertFalse(backdrop.isOpaque)
     }
+    func testKeyboardObeysHostWidthInsideALargerWindow() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), host = UIViewController()
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let controller = KeyboardViewController(nibName: nil, bundle: nil)
+        host.addChild(controller); controller.loadViewIfNeeded()
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        host.view.addSubview(controller.view); controller.didMove(toParent: host)
+        let width = controller.view.widthAnchor.constraint(equalToConstant: 320)
+        width.identifier = "test.host-width"
+        NSLayoutConstraint.activate([width,
+            controller.view.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+            controller.view.topAnchor.constraint(equalTo: host.view.topAnchor)])
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("q") })
+        for hostWidth: CGFloat in [320, 360, 320] {
+            width.constant = hostWidth
+            settleLayout(host.view); settleLayout(controller.view)
+            XCTAssertEqual(controller.view.bounds.width, hostWidth, accuracy: 0.5)
+            XCTAssertEqual(surface.bounds.width, hostWidth, accuracy: 0.5)
+            XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
+            let fallback = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "clear.keyboard.system-width" })
+            XCTAssertLessThan(fallback.priority.rawValue, width.priority.rawValue)
+            XCTAssertEqual(fallback.constant, hostWidth, accuracy: 0.5)
+            XCTAssertEqual(controller.view.constraints.filter { $0.identifier == "clear.keyboard.content-height" }.count, 1)
+        }
+    }
+    func testTypingAndHandChangesDoNotRenegotiateHeight() throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        var heights: [CGFloat] = []
+        surface.onHeightChange = { heights.append($0) }
+        for hand in HandMode.allCases {
+            controller.model.settings.hand = hand
+            controller.model.handle(.text("n")); controller.model.handle(.delete)
+            surface.render()
+        }
+        XCTAssertTrue(heights.isEmpty)
+        controller.model.settings.keyHeight = 58
+        XCTAssertEqual(heights, [308])
+        surface.render(); surface.render()
+        XCTAssertEqual(heights, [308])
+        controller.model.settings.keyHeight = 50
+        XCTAssertEqual(heights, [308, 276])
+    }
     func testBrowserSafeAreaDoesNotAlterRequestedKeyboardContentHeight() throws {
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
         let input = try XCTUnwrap(controller.inputView)

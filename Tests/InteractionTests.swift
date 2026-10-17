@@ -3,6 +3,49 @@ import CoreGraphics
 @testable import ClearCore
 
 final class InteractionTests: XCTestCase {
+    func testSystemLayoutKeepsOneMainAreaAcrossHostFramesAndHandModes() {
+        let metrics = KeyboardGeometry.Metrics()
+        for height: CGFloat in [216, 276, 351, 472, 701, 912] {
+            for hand in HandMode.allCases {
+                let layout = KeyboardGeometry.layout(size: CGSize(width: 420, height: height), metrics: metrics, hand: hand)
+                XCTAssertEqual(layout.rowPitch, 56)
+                XCTAssertEqual(layout.keys.minY, 44)
+                XCTAssertEqual(layout.keys.maxY, 276)
+                XCTAssertEqual(metrics.contentHeight, 276)
+                XCTAssertEqual(layout.panel.maxY, 264)
+                XCTAssertEqual(layout.header.minX - layout.keys.minX, 12, accuracy: 0.01)
+                if hand != .full {
+                    XCTAssertGreaterThan(layout.sideRail.width, 0)
+                    XCTAssertFalse(layout.sideRail.intersects(layout.keys))
+                }
+            }
+        }
+    }
+    func testHorizontalInsetsAndHandednessDoNotScaleRowHeight() {
+        let metrics = KeyboardGeometry.Metrics(keyHeight: 58)
+        let full = KeyboardGeometry.layout(size: CGSize(width: 844, height: 380), metrics: metrics,
+            leadingInset: 59, trailingInset: 59)
+        let left = KeyboardGeometry.layout(size: CGSize(width: 844, height: 380), metrics: metrics,
+            hand: .left, leadingInset: 59, trailingInset: 59)
+        let right = KeyboardGeometry.layout(size: CGSize(width: 844, height: 380), metrics: metrics,
+            hand: .right, leadingInset: 59, trailingInset: 59)
+        XCTAssertEqual(full.keys.minX, 63)
+        XCTAssertEqual(full.keys.maxX, 781)
+        XCTAssertEqual(left.keys.minX, full.keys.minX)
+        XCTAssertEqual(right.keys.maxX, full.keys.maxX)
+        XCTAssertEqual(left.keys.width, right.keys.width)
+        XCTAssertEqual(left.rowPitch, full.rowPitch)
+        XCTAssertEqual(right.rowPitch, 64)
+        let embedded = KeyboardGeometry.layout(size: CGSize(width: 320, height: 180), metrics: metrics, fitHeight: true)
+        XCTAssertEqual(embedded.keys.minY + embedded.rowPitch * 4 + metrics.bottomInset, 180, accuracy: 0.01)
+    }
+    func testKeyboardWidthUsesHostViewportBeforeRemoteWindow() {
+        XCTAssertEqual(KeyboardGeometry.fittingWidth(primary: 320, container: 420, window: 1024), 320)
+        XCTAssertEqual(KeyboardGeometry.fittingWidth(primary: 0, container: 420, window: 1024), 420)
+        XCTAssertEqual(KeyboardGeometry.fittingWidth(primary: .nan, container: 0, window: 420), 420)
+        XCTAssertEqual(KeyboardGeometry.fittingWidth(primary: 0, container: .infinity, window: 0), 0)
+        XCTAssertEqual(KeyboardGeometry.Metrics(keyHeight: .nan).contentHeight, 276)
+    }
     func testAirKeyProportionsMatchTheReferenceInsteadOfOnlyFitting() {
         let height = KeyboardGeometry.preferredHeight()
         let pitch = KeyboardGeometry.rowHeight(availableHeight: height, header: KeyboardGeometry.headerHeight)

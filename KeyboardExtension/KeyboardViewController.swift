@@ -48,6 +48,10 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if let surface { updateHeight(surface.desiredHeight) }
         super.updateViewConstraints()
     }
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        surface?.setNeedsLayout()
+    }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if let surface { updateHeight(surface.desiredHeight) }
@@ -69,21 +73,23 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     private func updateHeight(_ height: CGFloat) {
         if abs((surfaceHeightConstraint?.constant ?? 0) - height) > 0.5 { surfaceHeightConstraint?.constant = height }
-        let hostWidth = view.window?.bounds.width ?? view.bounds.width
-        guard hostWidth.isFinite, hostWidth > 0 else { return }
-        // Resolve both axes before enabling UIKit's native self-sizing. A zero-width
-        // fitting result cannot be hosted; a mask-derived height preserves a stale frame.
-        // The surface uses constraints too, so its temporary frame never becomes a sizing input.
         view.translatesAutoresizingMaskIntoConstraints = false
-        if widthConstraint == nil {
-            let constraint = view.widthAnchor.constraint(equalToConstant: hostWidth)
-            constraint.identifier = "clear.keyboard.system-width"; constraint.isActive = true; widthConstraint = constraint
-        } else if abs((widthConstraint?.constant ?? 0) - hostWidth) > 0.5 { widthConstraint?.constant = hostWidth }
         if heightConstraint == nil {
             let constraint = view.heightAnchor.constraint(equalToConstant: height)
             constraint.identifier = "clear.keyboard.content-height"
             constraint.priority = .required; constraint.isActive = true; heightConstraint = constraint
         } else if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
+        let hostWidth = KeyboardGeometry.fittingWidth(primary: view.bounds.width,
+            container: view.superview?.bounds.width ?? 0, window: view.window?.bounds.width ?? 0)
+        guard hostWidth.isFinite, hostWidth > 0 else { return }
+        // UIKit owns the available width. A lower-priority fallback gives its native
+        // fitting pass a nonzero width without fighting required host constraints.
+        // Never treat a remote window's full width or height as the keyboard's size.
+        if widthConstraint == nil {
+            let constraint = view.widthAnchor.constraint(equalToConstant: hostWidth)
+            constraint.identifier = "clear.keyboard.system-width"; constraint.priority = .defaultHigh
+            constraint.isActive = true; widthConstraint = constraint
+        } else if abs((widthConstraint?.constant ?? 0) - hostWidth) > 0.5 { widthConstraint?.constant = hostWidth }
         if inputView?.allowsSelfSizing != true { inputView?.allowsSelfSizing = true }
     }
     override func viewWillDisappear(_ animated: Bool) {

@@ -32,9 +32,11 @@ import ImageIO
     private var initialized = false
     private var rendering = false
     private var renderQueued = false
+    private var reportedHeight: CGFloat?
     private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
     private var headerHeight: CGFloat { KeyboardGeometry.headerHeight }
-    var desiredHeight: CGFloat { KeyboardGeometry.preferredHeight(keyHeight: model.settings.keyHeight) }
+    private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
+    var desiredHeight: CGFloat { metrics.contentHeight }
 
     init(model: KeyboardModel, systemBacked: Bool = false) {
         self.model = model; self.systemBacked = systemBacked; super.init(frame: .zero)
@@ -77,30 +79,26 @@ import ImageIO
         guard initialized, bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { return }
         backdrop.frame = bounds
         let settings = model.settings
-        let left = safeAreaInsets.left, right = safeAreaInsets.right
-        let available = max(0, bounds.width - left - right)
-        let width = settings.hand == .full ? available : available * settings.oneHandFraction
-        let origin = settings.hand == .right ? bounds.width - right - width : left
-        toolbar.frame = CGRect(x: origin + 16, y: 0, width: max(0, width - 32), height: headerHeight)
-        candidateScroll.frame = CGRect(x: origin + 16, y: 0, width: max(0, width - 32), height: candidateHeight)
+        let layout = KeyboardGeometry.layout(size: bounds.size, metrics: metrics, hand: settings.hand,
+            oneHandFraction: settings.oneHandFraction, leadingInset: safeAreaInsets.left,
+            trailingInset: safeAreaInsets.right, fitHeight: !systemBacked)
+        toolbar.frame = layout.header
+        candidateScroll.frame = layout.header
+        candidateScroll.frame.size.height = candidateHeight
         let fitting = candidateStack.systemLayoutSizeFitting(CGSize(width: UIView.layoutFittingCompressedSize.width, height: 44),
             withHorizontalFittingPriority: .fittingSizeLevel, verticalFittingPriority: .required)
-        candidateStack.frame = CGRect(x: 2, y: 2, width: max(0, fitting.width), height: 44)
+        candidateStack.frame = CGRect(x: 2, y: 0, width: max(0, fitting.width), height: headerHeight)
         candidateStack.layoutIfNeeded()
-        candidateScroll.contentSize = CGSize(width: candidateStack.frame.width + 12, height: 48)
+        candidateScroll.contentSize = CGSize(width: candidateStack.frame.width + 12, height: headerHeight)
         hint.frame = candidateScroll.frame
-        let gridInset = min(KeyboardGeometry.horizontalInset, width / 2)
-        let gridWidth = max(0, width - gridInset * 2)
-        keyGlassGroup.frame = CGRect(x: origin + gridInset, y: headerHeight, width: gridWidth, height: max(0, bounds.height - headerHeight))
-        let unit = gridWidth / 10
-        let rowHeight = systemBacked ? CGFloat(settings.keyHeight + 6) : KeyboardGeometry.rowHeight(availableHeight: bounds.height, header: headerHeight, preferred: CGFloat(settings.keyHeight + 6))
+        keyGlassGroup.frame = layout.keys
         for (button, row, start, units) in keys {
-            button.frame = CGRect(x: CGFloat(start) * unit, y: CGFloat(row) * rowHeight, width: CGFloat(units) * unit, height: rowHeight)
+            button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
+                                  width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
         }
         sideRail.isHidden = settings.hand == .full
-        sideRail.frame = CGRect(x: settings.hand == .right ? left + 4 : origin + width + 4, y: headerHeight + 8,
-            width: max(0, available - width - 8), height: max(0, rowHeight * 4 - 16))
-        panel?.frame = CGRect(x: origin + 12, y: headerHeight, width: max(0, width - 24), height: max(0, bounds.height - headerHeight - 12))
+        sideRail.frame = layout.sideRail
+        panel?.frame = layout.panel
     }
     func render() {
         guard initialized else { return }
@@ -192,7 +190,10 @@ import ImageIO
         candidateScroll.isHidden = movingCursor || candidateHeight == 0
         hint.isHidden = !movingCursor
         hint.text = movingCursor ? "滑动键盘，移动光标" : nil
-        onHeightChange?(desiredHeight); setNeedsLayout()
+        // Candidates and language changes share one header. Only a real height-setting
+        // change should renegotiate the remote input view's size.
+        if reportedHeight != desiredHeight { reportedHeight = desiredHeight; onHeightChange?(desiredHeight) }
+        setNeedsLayout()
     }
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)
