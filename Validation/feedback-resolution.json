@@ -1,0 +1,69 @@
+{
+  "version": "0.1.4 (5)",
+  "authorization": "用户明确要求现在开始修复，解除此前只记录不修复的约束。",
+  "sourceCommit": "29a076377b62303fe032c2f3519b44141c6633a7",
+  "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39014902378",
+  "status": "implemented_automated_checks_passed_device_acceptance_pending",
+  "items": [
+    {
+      "id": "clipboard-automatic-capture-without-repeated-paste-prompts",
+      "status": "implemented",
+      "change": "文字、链接、图片和小附件事件驱动自动收录，系统粘贴按钮及一次设置允许的引导，保留 7 天 / 永久等期限。",
+      "verificationAndLimits": "系统权限与真机复制需复测；暂停时无法记录每次复制；附件和条数有容量限制。"
+    },
+    {
+      "id": "keyboard-proportions-match-ios-reference",
+      "status": "implemented",
+      "change": "根输入视图报告自适应高度，内容区域避免重复扣除安全区；四排布局和左右手比例统一。",
+      "verificationAndLimits": "模拟器覆盖 180–280 pt 内容区；真实微信宿主高度需复测。"
+    },
+    {
+      "id": "colorful-functional-icons-windows-settings-reference",
+      "status": "implemented",
+      "change": "整套原生彩色对象图标及品牌、工具面板和 App UI 更新，去掉彩色底圈。",
+      "verificationAndLimits": "已检查浅深色、左右手和设计预览截图。"
+    },
+    {
+      "id": "continuous-long-pinyin-and-abbreviation-candidates-disappear",
+      "status": "implemented",
+      "change": "长串简拼与全拼混合逐段组合、增量缓存；组合上限提高到 256 字母。",
+      "verificationAndLimits": "核心覆盖 80 键简拼 / 75 键全拼，原生覆盖 40 键简拼；长句语义与跨进程宿主需继续验收。"
+    },
+    {
+      "id": "space-hold-trackpad-cursor-lag",
+      "status": "implemented",
+      "change": "4.5 pt 小数距离累积，按帧合并代理调用，拖动期间不刷新候选或重绘键盘。",
+      "verificationAndLimits": "模型行为和调用次数已测；真实手指跟手感、跨行、远程代理 Emoji 位移待测。"
+    },
+    {
+      "id": "delete-key-swipe-clear-and-undo",
+      "status": "implemented",
+      "change": "删除键上滑清空、下滑撤回，提示、取消及跨文档保护；保留点按与长按。",
+      "verificationAndLimits": "模型与 HTML 指针手势通过；真机手势待测。系统扩展仅清理公开上下文，上限 4,096 字；不撤回已发送消息。"
+    },
+    {
+      "id": "chinese-keyboard-uppercase-letter-legends",
+      "status": "implemented",
+      "change": "中文 QWERTY 键帽统一大写，拼音仍使用规范字母，英文大小写独立。",
+      "verificationAndLimits": "原生模型与截图通过，标准及左右手模式一致。"
+    },
+    {
+      "id": "automatic-inline-arithmetic-candidates",
+      "status": "implemented",
+      "change": "99x88 自动提供 8712 / 99x88=8712；有界四则运算、括号、小数，本地计算。",
+      "verificationAndLimits": "核心、原生跨页输入及 HTML 交互通过。"
+    },
+    {
+      "id": "remove-double-keyboard-background-and-rounding",
+      "status": "implemented",
+      "change": "扩展内部不再绘制第二层外轮廓和圆角底板，系统管理外层曲线；App 体验区只有一层材质。",
+      "verificationAndLimits": "结构与截图通过；真实 iPhone 系统边框需复测。"
+    },
+    {
+      "id": "transparent-glass-shows-content-behind",
+      "status": "implemented",
+      "change": "去掉不透明背景、装饰渐变假底板；透明内容结合系统键盘材质及 Liquid Glass 按键。",
+      "verificationAndLimits": "同进程 UIKit 背景透视截图已检查；微信 / Safari 跨进程透视程度由系统合成，尚未在物理设备验证。"
+    }
+  ]
+}

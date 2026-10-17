@@ -7,3 +7,4 @@ xcuserdata/
 .dictionary-cache/
 __pycache__/
 dist/
+pending-feedback.json

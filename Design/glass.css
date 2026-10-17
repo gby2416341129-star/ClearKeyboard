@@ -72,3 +72,12 @@
 .color-icon svg{width:20px;height:20px}.toolbox-grid button{min-height:72px;background:#57695e0c;border-radius:16px}
 .key[data-action=language] .key-face{font-size:14px;color:var(--ink-accent)}
 .setting-row select{border:0;color:var(--ink-accent);background:transparent;font-size:12px}
+
+/* v0.1.4: one glass sheet, correct proportions and colored objects. */
+.typing{background:linear-gradient(125deg,#f6dfc9,#d9ece5 45%,#dae2f4);border:0}
+.typed{background:#ffffffb5}.keyboard{padding-top:44px;background:#ffffff0a;backdrop-filter:blur(5px) saturate(1.12);border-radius:28px;box-shadow:inset 0 1px 0 #ffffff70}
+.keyboard:before,.keyboard:after{display:none!important}.toolbar,.toolbar-tools{height:44px}.candidates.visible{height:44px}
+.tool,.tool[data-tool],.color-icon,[data-color] .color-icon{background:none!important;color:#568ac4!important;border-radius:0;padding:2px}
+.tool svg,.tool.brand-tool svg{width:27px;height:27px}.color-icon{width:34px;height:34px}.color-icon svg{width:32px;height:32px}
+.drop{background:none;color:inherit}.drop svg{width:38px;height:38px}.panel{background:#ffffff08;padding:10px;border-radius:0}.panel-header{font-size:13px}.toolbox-grid button{min-height:76px;background:#73808b13;border-radius:14px}.key-area:has(.panel.open) .key-grid{visibility:hidden}
+.delete-hint{position:absolute;z-index:12;border-radius:10px;min-width:138px;height:32px;padding:7px 10px;text-align:center;color:white;font-size:12px;pointer-events:none}

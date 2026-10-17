@@ -1,6 +1,6 @@
 # 生成 iPhone IPA
 
-**已生成 0.1.3（4）未签名 IPA。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39010537002) 使用 Xcode 26.6，已通过 36 项核心测试、主 App 和键盘扩展的 Release arm64 iPhone 目标编译、IPA 包检查与 11 项原生运行测试。具体交付版本的记录见 `Validation/native-build.json`；安装前仍需签名。
+**已生成 0.1.4（5）未签名 IPA。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39014902378) 使用 Xcode 26.6，已通过 47 项核心测试、主 App 和键盘扩展的 Release arm64 iPhone 目标编译、IPA 包检查与 18 项原生运行测试。具体交付版本的记录见 `Validation/native-build.json`；安装前仍需签名。
 
 ## GitHub 云构建
 
@@ -33,6 +33,6 @@ bash Scripts/build-ipa.sh
 
 使用 Apple Developer 的开发或设备测试分发时，在 Xcode 配置 `Config/Project.xcconfig` 的基础 Bundle ID 和 Team，为两个目标配置相同 App Group，然后 Archive 并导出匹配设备的 IPA。证书和配置文件应在你自己的钥匙串或云构建 Secrets 中管理。
 
-安装后在「设置 → 通用 → 键盘」添加“澈”。原生 Liquid Glass 需要 iOS 26+；最低系统为 iOS 18。云构建通过不代表已完成真机流畅度、能耗或宿主兼容测试。
+安装后在「设置 → 通用 → 键盘」添加“澈”。自动剪贴板需要键盘完全访问，并在系统设置中将“澈 → 从其他 App 粘贴”设为“允许”；App 内的“输入”页提供设置入口。若该项暂未出现，先在澈中使用一次系统粘贴按钮，再查看系统设置。原生 Liquid Glass 需要 iOS 26+；最低系统为 iOS 18。云构建通过不代表已完成真机流畅度、能耗或宿主兼容测试。
 
 参考：[GitHub macOS runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)、[Apple 设备分发与 IPA 导出](https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices)。

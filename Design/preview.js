@@ -6,7 +6,7 @@ const panel = document.getElementById('panel');
 let page = 'letters', language = 'zh', shift = false, caps = false, lastShift = 0;
 let composition = '', hand = 'full', currentCandidates = [], panelType = '', clips = [];
 let pinnedTools = ['clipboard','emoji','appearance'];
-let handWidth = .78, toolbarHold = null, compositionStart = -1;
+let handWidth = .78, toolbarHold = null, compositionStart = -1, calculation = null;
 
 const paths = {
   shift: '<path d="M12 3 3 12h5v8h8v-8h5L12 3Z"/>',
@@ -30,6 +30,7 @@ paths.right = '<path d="m10 5 7 7-7 7M3 12h14"/>';
 paths.resize = '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 6v12m-3-9 3-3 3 3m-6 6 3 3 3-3"/>';
 paths.expand = '<path d="M4 9V4h5m11 11v5h-5M4 4l6 6m10 10-6-6"/>';
 function icon(name) {
+  const colorful = fluentIcon(name); if (colorful) return colorful;
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths[name] + '</svg>';
 }
 const sample = {ni:['你','呢','泥'],nihao:['你好','你好吗'],hao:['好','号','浩'],xie:['谢','些','写'],xiexie:['谢谢','谢谢你'],wo:['我','握','窝'],women:['我们'],woaini:['我爱你'],shi:['是','时','事','十'],zhong:['中','种','重'],zhongguo:['中国'],zhongwen:['中文'],yingwen:['英文'],jin:['今','金','近'],jintian:['今天'],mingtian:['明天'],shurufa:['输入法'],liuchang:['流畅'],yetaiboli:['液态玻璃'],wei:['为','位','未'],weixin:['微信'],jian:['见','间','件'],jiantieban:['剪贴板'],nh:['你好'],wm:['我们'],srf:['输入法'],h:['好','和','会'],n:['你','能','那']};
@@ -56,8 +57,11 @@ function replacePinyin(text) {
   insert(text); composition = ''; compositionStart = -1;
 }
 function getCandidates() {
+  calculation = !composition ? previewCalculation(editor.value.slice(0, editor.selectionStart)) : null;
+  if (calculation) return calculation.candidates;
   if (language === 'zh') {
     if (!composition) return [];
+    if (/^(hd){2,}$/.test(composition)) return ['好的'.repeat(composition.length / 2)];
     if (sample[composition]) return sample[composition];
     return Object.entries(sample).filter(([key]) => key.startsWith(composition)).flatMap(([,value]) => value).filter((value,i,all) => all.indexOf(value) === i).slice(0,8);
   }
@@ -80,7 +84,8 @@ function renderCandidates() {
   });
 }
 function choose(text) {
-  if (language === 'zh') { replacePinyin(text); }
+  if (calculation && calculation.candidates.includes(text)) { editor.setSelectionRange(editor.selectionStart - calculation.expression.length, editor.selectionStart); insert(text); calculation = null; }
+  else if (language === 'zh') { replacePinyin(text); }
   else {
     const word = editor.value.slice(0,editor.selectionStart).match(/[a-zA-Z]+$/)?.[0] || '';
     editor.setSelectionRange(editor.selectionStart - word.length, editor.selectionStart);
@@ -93,7 +98,7 @@ function key(label, action = label, units = 1, utility = false) { return {label,
 function rows() {
   let result;
   if (page === 'letters') {
-    const letters = value => Array.from(value).map(char => key(shift ? char.toUpperCase() : char, char));
+    const letters = value => Array.from(value).map(char => key(language === 'zh' || shift ? char.toUpperCase() : char, char));
     result = [letters('qwertyuiop'),letters('asdfghjkl'),[key('Shift','shift',1.5,true),...letters('zxcvbnm'),key('删除','delete',1.5,true)]];
   } else {
     result = [(page === 'numbers' ? Array.from('1234567890') : ['[',']','{','}','#','%','^','*','+','=']).map(char => key(char)),
@@ -134,7 +139,7 @@ function alignKeyLegends() {
   });
 }
 function renderKeys() {
-  if (spaceGesture.active) return;
+  if (spaceGesture.active || window.deleteSwipeActive) return;
   grid.replaceChildren();
   rows().forEach((items,index) => {
     const row = document.createElement('div'); row.className = 'key-row' + (page === 'letters' && index === 1 ? ' inset' : '');
@@ -159,6 +164,7 @@ function renderKeys() {
         button.style.setProperty('--press-y',((event.clientY - bounds.top)/bounds.height*100) + '%');
       });
       button.addEventListener('click', () => {
+        if (item.action === 'delete' && window.suppressDeleteClick) { window.suppressDeleteClick = false; return; }
         if (item.action === 'space' && spaceGesture.suppressClick) { spaceGesture.suppressClick = false; return; }
         if (!spaceGesture.active) press(item.action);
       });
@@ -174,6 +180,8 @@ function renderKeys() {
   alignKeyLegends();
 }
 function press(action) {
+  if (action !== 'delete') window.clearDeletionUndo?.();
+  if (action === 'shift' && language === 'zh') { switchLanguage(); return; }
   if (action === 'shift') { const now = Date.now(); caps = now - lastShift < 300; shift = caps ? true : !shift; lastShift = now; }
   else if (['letters','numbers','symbols'].includes(action)) page = action;
   else if (action === 'delete') {
@@ -187,7 +195,8 @@ function press(action) {
   } else if (action === 'language') switchLanguage();
   else if (action === 'globe') toast('原生版本：切换系统键盘');
   else if (action === 'space' || action === 'enter') { if (composition) commit(); else insert(action === 'space' ? ' ' : '\n'); }
-  else if (language === 'zh' && page === 'letters' && !shift && /^[a-z]$/.test(action)) markPinyin(composition + action);
+  else if (!composition && /^[xX+*/×÷().-]$/.test(action) && /[0-9)]$/.test(editor.value.slice(0,editor.selectionStart))) insert(action);
+  else if (language === 'zh' && page === 'letters' && /^[a-z]$/.test(action)) markPinyin(composition + action);
   else {
     commit(); const punctuation = {',':'，','.':'。','?':'？','!':'！'};
     insert(shift && page === 'letters' ? action.toUpperCase() : language === 'zh' ? (punctuation[action] || action) : action);
@@ -235,8 +244,8 @@ grid.addEventListener('pointermove', event => {
     if (Math.hypot(event.clientX - spaceGesture.startX,event.clientY - spaceGesture.startY) > 14) { clearTimeout(spaceGesture.timer); spaceGesture.suppressClick = true; }
     return;
   }
-  const delta = Math.trunc((event.clientX - spaceGesture.lastX)/9);
-  if (delta) { moveCaret(delta); spaceGesture.lastX += delta*9; }
+  const delta = Math.trunc((event.clientX - spaceGesture.lastX)/4.5);
+  if (delta) { moveCaret(delta); spaceGesture.lastX += delta*4.5; }
 });
 grid.addEventListener('pointerup', event => { if (event.pointerId === spaceGesture.pointerId) finishSpaceTrackpad(); });
 grid.addEventListener('pointercancel', event => { if (event.pointerId === spaceGesture.pointerId) finishSpaceTrackpad(true); });
@@ -307,7 +316,7 @@ function openPanel(type, refresh = false) {
     names.forEach(name => {
       const button = document.createElement('button');
       button.dataset.color = name;
-      button.innerHTML = '<i class="color-icon">' + icon(name === 'onehand' || name === 'language' ? 'keyboard' : name === 'toolbar' ? 'appearance' : name) + '</i>';
+      button.innerHTML = '<i class="color-icon">' + icon(name === 'onehand' ? 'keyboard' : name) + '</i>';
       const label = document.createElement('span'); label.textContent = (type === 'toolbar' ? (pinnedTools.includes(name) ? '− ' : '+ ') : '') + toolLabels[name]; button.append(label);
       button.onclick = () => {
         if (type === 'toolbar') {
@@ -404,7 +413,7 @@ document.getElementById('opacity').oninput = event => {
 document.getElementById('enable').onclick = () => { document.getElementById('setup').classList.add('open'); document.getElementById('dim').style.display = 'block'; };
 function closeSetup() { document.getElementById('setup').classList.remove('open'); document.getElementById('dim').style.display = 'none'; }
 document.getElementById('setup-done').onclick = closeSetup; document.getElementById('dim').onclick = closeSetup;
-editor.addEventListener('input',() => { composition = ''; compositionStart = -1; renderCandidates(); });
+editor.addEventListener('input',() => { window.clearDeletionUndo?.(); composition = ''; compositionStart = -1; renderCandidates(); });
 window.addEventListener('resize',() => requestAnimationFrame(alignKeyLegends));
 document.fonts.ready.then(alignKeyLegends);
 installRefraction(); editor.setSelectionRange(editor.value.length,editor.value.length); renderToolbar(); renderKeys(); renderCandidates();

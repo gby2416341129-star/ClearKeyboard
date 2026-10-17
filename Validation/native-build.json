@@ -13,29 +13,29 @@
       "platform": "iOS device"
     }
   ],
-  "sha256": "692a31ee8f61957bb957e5b0f1bddc0bb59c3f7e87fa5258a9396ed74b4746a2",
+  "sha256": "dee2ba4b6b452a86e2ac82d47326052cf9185ac50160ad7cb2cc3384af81ddf3",
   "signing": "unsigned build; no signing verification performed",
   "installableAsDelivered": false,
   "deviceTesting": "not performed",
-  "version": "0.1.3 (4)",
+  "version": "0.1.4 (5)",
   "configuration": "Release",
   "xcode": "26.6 (17F113)",
   "sdk": "iPhoneOS 26.5",
   "minimumOS": "iOS 18.0",
-  "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39010537002",
-  "sourceCommit": "8d83a8912d739ce9e76dfca15659c5cfe02d8473",
+  "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39014902378",
+  "sourceCommit": "29a076377b62303fe032c2f3519b44141c6633a7",
   "coreTests": {
-    "executed": 36,
+    "executed": 47,
     "failures": 0
   },
   "nativeRuntimeTests": {
     "status": "passed",
-    "executed": 11,
+    "executed": 18,
     "failures": 0,
     "skipped": 0,
-    "sourceCommit": "8d83a8912d739ce9e76dfca15659c5cfe02d8473",
-    "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39010537002",
-    "jobId": 117331948934,
+    "sourceCommit": "29a076377b62303fe032c2f3519b44141c6633a7",
+    "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/39014902378",
+    "jobId": 117344894501,
     "device": {
       "deviceName": "iPhone 17 Pro",
       "architecture": "arm64",
@@ -48,27 +48,35 @@
       "KeyboardRuntimeTests.testAllRowsFitHostResizeAndLargeParentCorners",
       "KeyboardRuntimeTests.testAutomaticClipboardCaptureAndPermissionGating",
       "KeyboardRuntimeTests.testAZeroAndNarrowKeyLayout",
+      "KeyboardRuntimeTests.testClearAndUndoRestoresCompositionAndProtectsOtherDocument",
+      "KeyboardRuntimeTests.testGlassShowsContentBehindKeyboard",
+      "KeyboardRuntimeTests.testInlineArithmeticThroughKeyboardPages",
+      "KeyboardRuntimeTests.testInputViewFitsOwnContentAndTransparentSurfaceHasOneOutline",
       "KeyboardRuntimeTests.testKeyboardControllerLifecycle",
+      "KeyboardRuntimeTests.testLongAbbreviationAndUppercaseChineseLegends",
       "KeyboardRuntimeTests.testMarkedTextReplacementDeletionAndSelection",
       "KeyboardRuntimeTests.testSelectionNotificationsAndExternalSettingsPreserveComposition",
+      "KeyboardRuntimeTests.testSystemPasteControlSavesProvidedTextWithoutReadingClipboard",
       "KeyboardRuntimeTests.testTextViewInputRoutesThroughChineseEngine",
       "KeyboardRuntimeTests.testToolbarAndSideRailWorkInBothHandModes",
+      "KeyboardRuntimeTests.testTrackpadDoesNotRefreshCandidatesPerStep",
       "KeyboardRuntimeTests.testTypingLabChineseAndEnglishCandidates",
       "KeyboardRuntimeTests.testTypingLabFitsAllFourRowsWhileComposing"
     ],
     "screenshots": [
       "NativeScreenshots/compressed-host.png",
+      "NativeScreenshots/glass-transparency.png",
       "NativeScreenshots/home-dark.png",
       "NativeScreenshots/home-light.png",
       "NativeScreenshots/pinyin-candidates.png",
       "NativeScreenshots/single-hand-left.png",
       "NativeScreenshots/single-hand-right.png"
     ],
-    "coverage": "UIKit marked pinyin in the input field, selection replacement, deletion, candidate commit, direct language key, automatic clipboard events and permission/disable gating with an injected clipboard, all four rows at 180–280 pt in both hand modes, a parent with a large radius, toolbar mutations, home safe areas and pre-connection controller startup.",
-    "notCovered": "Physical iPhone signing/installation, WeChat or Search remote input connections, real system paste permission dialogs, native finger drag gestures, memory peaks, latency or energy measurements.",
-    "artifactSha256": "e5e66ec491f86076480aa9f32018e4983a8c6d77845e106c3cfeb4dbfc0efb5b"
+    "coverage": "UIKit marked pinyin, 40-key continuous abbreviation, uppercase Chinese legends, direct language key, arithmetic across pages, clear/undo including active composition and cross-document protection, cursor moves without per-step candidate refresh, system paste payload without a second clipboard read, own input-view fitting height, transparent extension surface with no second outline, actual UIKit glass over a colored text backdrop, compressed hand-mode layouts and pre-connection startup.",
+    "notCovered": "Physical iPhone installation or signing, WeChat/Search remote proxy connections, real system paste-permission dialogs, actual finger pan/long-press latency, inaccessible host text outside the public document context, GPU/memory/energy measurement. The glass screenshot uses an in-process test backdrop, not a third-party app.",
+    "artifactSha256": "35553de9d1f530699f790c24498637975b118420d8c185817f86ae7066609941"
   },
   "principalClass": "ClearKeyboardViewController",
-  "artifactSha256": "bf78682b028e2b06fc78fa3f8a6fc7992a6efdbe9b26e7a077e3168f9446206e",
-  "bytes": 9230713
+  "artifactSha256": "3764ea80ffe1cee6633014ccfbc6556caa95b5ab88a4ee17c88353c1323530f9",
+  "bytes": 9183316
 }
