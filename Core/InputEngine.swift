@@ -171,13 +171,17 @@ public final class InputEngine {
         let entries = correctionIndex.matches(key, lexicon: chinese, cancelled: cancelled)
         if cancelled() { return [] }
         var seen = Set<String>()
-        let result = Array(entries.map { pair -> Token in
-            let (entry, penalty) = pair
+        var ranked: [Token] = []
+        for (entry, penalty) in entries {
             let exact = token(entry, for: entry.key)
-            return Token(text: exact.text, reading: exact.reading, score: exact.score - penalty,
-                         abbreviated: false, completed: false, edits: 1)
-        }.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
-            .filter { seen.insert($0.text).inserted }.prefix(8))
+            ranked.append(Token(text: exact.text, reading: exact.reading, score: exact.score - penalty,
+                                abbreviated: false, completed: false, edits: 1))
+        }
+        ranked.sort { left, right in left.score == right.score ? left.text < right.text : left.score > right.score }
+        var result: [Token] = []
+        for candidate in ranked where seen.insert(candidate.text).inserted {
+            result.append(candidate); if result.count == 8 { break }
+        }
         if correctedOrder.count < 1_024 { correctedOrder.append(key) }
         else {
             correctedMatches.removeValue(forKey: correctedOrder[nextCorrectedEviction]); correctedOrder[nextCorrectedEviction] = key
