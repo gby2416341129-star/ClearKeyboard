@@ -153,10 +153,12 @@ public final class InputEngine {
     private func abbreviation(_ reading: String) -> String { reading.split(separator: " ").compactMap(\.first).map(String.init).joined() }
     private func token(_ entry: LexiconEntry, for key: String, completion: Bool = false) -> Token {
         let abbreviated = !completion && entry.key != key
-        let score = log((Double(entry.frequency) + 1) / 10_000_000) - 2.5
-            + (abbreviated ? 0 : 1.5) + (Self.conversational[key] == entry.text ? 5 : 0)
-            + Double(max(0, entry.text.count - 1)) * 1.5
-            - (abbreviated ? Double(entry.text.count) * 3.5 : 0) - (completion ? 3 : 0)
+        var score: Double = log((Double(entry.frequency) + 1) / 10_000_000) - 2.5
+        score += abbreviated ? 0 : 1.5
+        score += Self.conversational[key] == entry.text ? 5 : 0
+        score += Double(max(0, entry.text.count - 1)) * 1.5
+        score -= abbreviated ? Double(entry.text.count) * 3.5 : 0
+        score -= completion ? 3 : 0
         return Token(text: entry.text, reading: entry.reading, score: score, abbreviated: abbreviated, completed: completion)
     }
     private func match(_ key: String) -> Match {

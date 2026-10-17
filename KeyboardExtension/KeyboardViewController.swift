@@ -12,6 +12,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var trackpad: ProxyTrackpad?
     private var heightRefreshQueued = false
     private var heightRefreshSignatures = Set<String>()
+    private var hostKeyboardType: UIKeyboardType?
     private var isPresented = false
 
     override func loadView() {
@@ -100,6 +101,13 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewWillDisappear(_ animated: Bool) {
         isPresented = false
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
+    }
+    override func textWillChange(_ textInput: UITextInput?) {
+        super.textWillChange(textInput)
+        let type = textDocumentProxy.keyboardType
+        guard type != hostKeyboardType else { return }
+        hostKeyboardType = type; heightRefreshSignatures.removeAll()
+        if let surface { updateHeight(surface.desiredHeight); queueHeightRefresh(force: true) }
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
