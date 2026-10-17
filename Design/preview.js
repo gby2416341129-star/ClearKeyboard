@@ -5,13 +5,15 @@ const editor = document.getElementById('editor');
 const panel = document.getElementById('panel');
 let page = 'letters', language = 'zh', shift = false, caps = false, lastShift = 0;
 let composition = '', hand = 'full', currentCandidates = [], panelType = '', clips = [];
+let pinnedTools = ['clipboard','emoji','appearance'];
+let handWidth = .78, toolbarHold = null;
 
 const paths = {
   shift: '<path d="M12 3 3 12h5v8h8v-8h5L12 3Z"/>',
   capslock: '<path d="M12 2 3 11h5v6h8v-6h5L12 2Z"/><path d="M8 21h8"/>',
   delete: '<path d="M9 5h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-7-7 7-7Z"/><path d="m12 9 6 6m0-6-6 6"/>',
   globe: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="3.8" ry="9"/><path d="M3 12h18M5.2 6.5h13.6M5.2 17.5h13.6"/>',
-  clipboard: '<rect x="6" y="5" width="14" height="17" rx="2.5"/><rect x="9" y="2" width="8" height="6" rx="2"/><path d="M6 18H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2M10 12h6M10 16h6"/>',
+  clipboard: '<path d="M8 5H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="8" y="2" width="8" height="6" rx="2"/><path d="M8 12h8M8 16h8"/>',
   emoji: '<circle cx="12" cy="12" r="9"/><path d="M8 14.2c1.5 3 6.5 3 8 0"/><circle cx="8.5" cy="9" r=".7" fill="currentColor" stroke="none"/><circle cx="15.5" cy="9" r=".7" fill="currentColor" stroke="none"/>',
   keyboard: '<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/>',
   appearance: '<path d="M3 6h4m4 0h10M3 12h10m4 0h4M3 18h4m4 0h10"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/>',
@@ -21,6 +23,12 @@ const paths = {
   arrow: '<path d="M6 18 18 6M7 6h11v11"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>'
 };
+paths.brand = '<path d="M17.5 7a7.2 7.2 0 1 0 0 10" stroke-width="3.3"/><circle cx="18.7" cy="12" r="1.65" fill="currentColor" stroke="none"/>';
+paths.check = '<path d="m5 12 4.5 4.5L19 7"/>';
+paths.left = '<path d="m14 5-7 7 7 7M7 12h14"/>';
+paths.right = '<path d="m10 5 7 7-7 7M3 12h14"/>';
+paths.resize = '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 6v12m-3-9 3-3 3 3m-6 6 3 3 3-3"/>';
+paths.expand = '<path d="M4 9V4h5m11 11v5h-5M4 4l6 6m10 10-6-6"/>';
 function icon(name) {
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths[name] + '</svg>';
 }
@@ -50,9 +58,10 @@ function renderCandidates() {
   currentCandidates = getCandidates(); keyboard.classList.toggle('composing', !!composition);
   document.getElementById('spelling').textContent = composition;
   const container = document.getElementById('candidates'); container.replaceChildren();
+  container.classList.toggle('visible', spaceGesture.active || !!composition || currentCandidates.length > 0);
   if (spaceGesture.active || !currentCandidates.length) {
     const hint = document.createElement('span'); hint.className = 'candidate-hint';
-    hint.textContent = spaceGesture.active ? '左右滑动，移动光标' : composition ? '示例候选 · ' + composition : '离线就绪 · ' + (language === 'zh' ? '中文拼音' : 'English');
+    hint.textContent = spaceGesture.active ? '左右滑动，移动光标' : '';
     container.append(hint); return;
   }
   currentCandidates.forEach(text => {
@@ -149,6 +158,9 @@ function renderKeys() {
   });
   grid.className = 'key-grid ' + (hand === 'full' ? '' : hand);
   document.querySelector('.restore').className = 'restore ' + (hand === 'full' ? '' : hand);
+  keyboard.dataset.hand = hand;
+  root.style.setProperty('--hand-width', (handWidth * 100) + '%');
+  renderRail();
   alignKeyLegends();
 }
 function press(action) {
@@ -222,17 +234,82 @@ window.addEventListener('blur',() => finishSpaceTrackpad(true));
 document.addEventListener('visibilitychange',() => { if (document.hidden) finishSpaceTrackpad(true); });
 editor.inputMode = 'none';
 
-function switchLanguage() { commit(); language = language === 'zh' ? 'en' : 'zh'; page = 'letters'; shift = false; document.querySelector('.tool.lang').textContent = language === 'zh' ? '中 / EN' : 'EN / 中'; }
+function switchLanguage() { commit(); language = language === 'zh' ? 'en' : 'zh'; page = 'letters'; shift = false; renderCandidates(); renderKeys(); }
 function setHand(value) { finishSpaceTrackpad(true); hand = value; document.querySelectorAll('[data-hand]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.hand === value))); renderKeys(); }
-function closePanel() { panel.classList.remove('open'); panelType = ''; }
-function openPanel(type) {
-  if (panelType === type) { closePanel(); return; }
+function closePanel() { panel.classList.remove('open'); panelType = ''; renderToolbar(); }
+const toolLabels = {language:'中 / EN',clipboard:'剪贴板',emoji:'表情',onehand:'单手模式',appearance:'外观',toolbar:'定制工具栏'};
+function renderToolbar() {
+  const tools = document.getElementById('toolbar-tools'); tools.replaceChildren();
+  const brand = document.createElement('button'); brand.className = 'tool brand-tool'; brand.dataset.tool = 'tools';
+  brand.innerHTML = icon(panelType === 'toolbar' ? 'check' : panelType === 'tools' ? 'chevron' : 'brand');
+  brand.setAttribute('aria-label',panelType === 'toolbar' ? '完成工具栏编辑' : '键盘工具');
+  brand.onclick = () => { if (panelType === 'toolbar') closePanel(); else openPanel('tools'); };
+  tools.append(brand);
+  const spacer = document.createElement('div'); spacer.className = 'tool-spacer'; tools.append(spacer);
+  pinnedTools.forEach(tool => {
+    const button = document.createElement('button'); button.className = 'tool'; button.dataset.tool = tool;
+    button.innerHTML = icon(tool === 'onehand' ? 'keyboard' : tool);
+    button.setAttribute('aria-label',(panelType === 'toolbar' ? '移除' : '') + toolLabels[tool]);
+    if (panelType === 'toolbar') {
+      const badge = document.createElement('span'); badge.className = 'remove-badge'; badge.textContent = '−'; button.append(badge);
+      button.draggable = true;
+      button.ondragstart = event => event.dataTransfer.setData('text/plain',tool);
+      button.ondragover = event => event.preventDefault();
+      button.ondrop = event => {
+        event.preventDefault(); const source = event.dataTransfer.getData('text/plain');
+        if (source !== tool && pinnedTools.includes(source)) {
+          pinnedTools = pinnedTools.filter(value => value !== source);
+          pinnedTools.splice(pinnedTools.indexOf(tool),0,source); openPanel('toolbar',true);
+        }
+      };
+    } else {
+      button.onpointerdown = () => { toolbarHold = setTimeout(() => { toolbarHold = null; openPanel('toolbar',true); },600); };
+      button.onpointerup = button.onpointercancel = button.onpointerleave = () => { clearTimeout(toolbarHold); toolbarHold = null; };
+      button.oncontextmenu = event => { event.preventDefault(); openPanel('toolbar',true); };
+    }
+    button.onclick = () => {
+      if (panelType === 'toolbar') { pinnedTools = pinnedTools.filter(value => value !== tool); openPanel('toolbar',true); }
+      else openPanel(tool);
+    };
+    tools.append(button);
+  });
+}
+function renderRail() {
+  const rail = document.querySelector('.restore'); rail.replaceChildren();
+  if (hand === 'full') return;
+  const opposite = hand === 'right' ? 'left' : 'right';
+  [[opposite === 'left' ? '左手模式' : '右手模式',opposite,() => setHand(opposite)],['键盘调整','resize',() => openPanel('onehand')],['全尺寸','expand',() => { setHand('full'); closePanel(); }]].forEach(([label,symbol,action]) => {
+    const button = document.createElement('button'); button.innerHTML = icon(symbol) + '<span>' + label + '</span>';
+    button.setAttribute('aria-label',label); button.onclick = action; rail.append(button);
+  });
+}
+function openPanel(type, refresh = false) {
+  if (panelType === type && !refresh) { closePanel(); return; }
   panelType = type; panel.replaceChildren(); panel.classList.add('open');
   const header = document.createElement('div'); header.className = 'panel-header';
-  const title = document.createElement('strong'); title.textContent = ({clipboard:'剪贴板',emoji:'表情',onehand:'单手模式',appearance:'外观'})[type];
+  const title = document.createElement('strong'); title.textContent = type === 'tools' ? '键盘工具' : toolLabels[type];
   const done = document.createElement('button'); done.textContent = '完成'; done.onclick = closePanel; header.append(title,done); panel.append(header);
   const note = document.createElement('p');
-  if (type === 'emoji') {
+  if (type === 'tools' || type === 'toolbar') {
+    const items = document.createElement('div'); items.className = 'toolbox-grid';
+    const names = type === 'tools' ? ['language','clipboard','emoji','onehand','appearance','toolbar'] : ['clipboard','emoji','onehand','appearance'];
+    names.forEach(name => {
+      const button = document.createElement('button');
+      button.innerHTML = icon(name === 'onehand' || name === 'language' ? 'keyboard' : name === 'toolbar' ? 'appearance' : name);
+      const label = document.createElement('span'); label.textContent = (type === 'toolbar' ? (pinnedTools.includes(name) ? '− ' : '+ ') : '') + toolLabels[name]; button.append(label);
+      button.onclick = () => {
+        if (type === 'toolbar') {
+          if (pinnedTools.includes(name)) pinnedTools = pinnedTools.filter(value => value !== name);
+          else if (pinnedTools.length < 3) pinnedTools.push(name);
+          else { toast('先移除一个工具，再添加'); return; }
+          openPanel('toolbar',true);
+        } else if (name === 'language') { closePanel(); switchLanguage(); }
+        else openPanel(name);
+      };
+      items.append(button);
+    });
+    panel.append(items); note.textContent = type === 'toolbar' ? '点按添加或移除 · 按住上方图标拖动排序' : '';
+  } else if (type === 'emoji') {
     [['😀','🥹','🥰','😎','🥳','😭','🤔','🫶'],['👍','🙏','❤️','✨','🎉','🌙','☕️','🌸']].forEach(group => {
       const row = document.createElement('div'); row.className = 'emoji-row';
       group.forEach(text => { const button = document.createElement('button'); button.textContent = text; button.onclick = () => { commit(); insert(text); renderCandidates(); }; row.append(button); }); panel.append(row);
@@ -246,13 +323,17 @@ function openPanel(type) {
   } else if (type === 'onehand') {
     const segment = document.createElement('div'); segment.className = 'segments';
     [['full','标准'],['left','左手'],['right','右手']].forEach(([value,label]) => { const button = document.createElement('button'); button.textContent = label; button.setAttribute('aria-pressed',String(value === hand)); button.onclick = () => { setHand(value); closePanel(); }; segment.append(button); }); panel.append(segment);
-    note.textContent = '缩窄整体宽度。按住空格，再左右滑动可移动光标。';
+    const label = document.createElement('label'); label.className = 'label'; label.textContent = '键盘宽度';
+    const slider = document.createElement('input'); slider.type = 'range'; slider.min = '68'; slider.max = '88'; slider.value = String(handWidth * 100); slider.setAttribute('aria-label','单手键盘宽度');
+    slider.oninput = () => { handWidth = slider.value / 100; renderKeys(); }; panel.append(label,slider);
+    note.textContent = '工具栏与按键一起靠边；侧栏可随时换手或恢复全尺寸。';
   } else {
     const segment = document.createElement('div'); segment.className = 'segments';
     [['clear','清透'],['mist','柔雾'],['solid','纯净']].forEach(([value,label]) => { const button = document.createElement('button'); button.textContent = label; button.onclick = () => setGlass(value); segment.append(button); }); panel.append(segment);
     note.textContent = '左侧提供任意颜色、HEX 色值和浓度调节。原生 iOS 26 使用系统 Liquid Glass。';
   }
   panel.append(note);
+  renderToolbar();
 }
 function setGlass(value) {
   keyboard.classList.remove('mist','solid'); if (value !== 'clear') keyboard.classList.add(value);
@@ -291,16 +372,11 @@ function installRefraction() {
   svg.innerHTML = '<defs><filter id="key-refraction" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB"><feImage href="'+canvas.toDataURL()+'" x="0" y="0" width="100%" height="100%" preserveAspectRatio="none" result="displacement"/><feDisplacementMap in="SourceGraphic" in2="displacement" scale="10" xChannelSelector="R" yChannelSelector="G"/></filter></defs>';
   document.body.append(svg);
 }
-document.querySelectorAll('[data-tool]').forEach(button => {
-  if (button.dataset.tool !== 'language') button.innerHTML = icon(button.dataset.tool === 'onehand' ? 'keyboard' : button.dataset.tool);
-  button.onclick = () => { if (button.dataset.tool === 'language') { closePanel(); switchLanguage(); renderCandidates(); renderKeys(); } else openPanel(button.dataset.tool); };
-});
-document.querySelector('.drop').innerHTML = icon('drop');
-document.querySelector('.restore').innerHTML = icon('restore'); document.querySelector('.restore').onclick = () => setHand('full');
+document.querySelector('.drop').innerHTML = icon('brand');
 document.querySelector('.clear-spelling').innerHTML = icon('close'); document.querySelector('.clear-spelling').onclick = () => { composition = ''; renderCandidates(); renderKeys(); };
 document.querySelector('.enable span').innerHTML = icon('arrow');
 document.querySelectorAll('[data-tab]').forEach(button => {
-  button.querySelector('b').innerHTML = icon(({home:'drop',custom:'appearance',input:'keyboard'})[button.dataset.tab]);
+  button.querySelector('b').innerHTML = icon(({home:'brand',custom:'appearance',input:'keyboard'})[button.dataset.tab]);
   button.onclick = () => { const name = button.dataset.tab; document.querySelectorAll('[data-tab]').forEach(value => value.setAttribute('aria-selected',String(value === button))); document.querySelectorAll('.app-page').forEach(value => value.classList.remove('visible')); if (name !== 'home') document.getElementById(name+'-page').classList.add('visible'); };
 });
 document.querySelectorAll('[data-glass]').forEach(button => button.onclick = () => setGlass(button.dataset.glass));
@@ -319,4 +395,4 @@ document.getElementById('setup-done').onclick = closeSetup; document.getElementB
 editor.addEventListener('input',() => { composition = ''; renderCandidates(); });
 window.addEventListener('resize',() => requestAnimationFrame(alignKeyLegends));
 document.fonts.ready.then(alignKeyLegends);
-installRefraction(); editor.setSelectionRange(editor.value.length,editor.value.length); renderKeys(); renderCandidates();
+installRefraction(); editor.setSelectionRange(editor.value.length,editor.value.length); renderToolbar(); renderKeys(); renderCandidates();

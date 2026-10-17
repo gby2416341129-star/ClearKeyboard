@@ -242,8 +242,10 @@ import UIKit
     }
     func reorderToolbarTool(_ tool: ToolbarTool, before target: ToolbarTool) {
         var tools = model.settings.toolbar
-        guard tool != .language, target != .language, tool != target, let from = tools.firstIndex(of: tool), let to = tools.firstIndex(of: target) else { return }
-        tools.remove(at: from); tools.insert(tool, at: to)
+        guard tool != .language, target != .language, tool != target, let from = tools.firstIndex(of: tool), tools.contains(target) else { return }
+        tools.remove(at: from)
+        guard let to = tools.firstIndex(of: target) else { return }
+        tools.insert(tool, at: to)
         model.settings.toolbar = tools
     }
     func dragInteraction(_ interaction: UIDragInteraction, itemsForBeginning session: UIDragSession) -> [UIDragItem] {

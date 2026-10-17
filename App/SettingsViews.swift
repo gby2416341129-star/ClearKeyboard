@@ -21,7 +21,7 @@ struct CustomizationView: View {
         Form {
             Section {
                 HStack(spacing: 10) {
-                    Image(systemName: "drop.halffull").font(.system(size: 30)).foregroundStyle(.tint)
+                    Image(uiImage: ClearBrand.image(30)).renderingMode(.template).foregroundStyle(.tint)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("你的清透，自有分寸。").font(.headline)
                         Text("外观改变，熟悉的按键位置不变。").font(.caption).foregroundStyle(.secondary)
@@ -83,7 +83,7 @@ struct CustomizationView: View {
             } header: { Text("工具栏 · 拖动排序") } footer: { Text("最多放三个快捷工具；也可在键盘内长按工具栏调整。中 / EN 始终可在工具面板中切换。") }
         }
         .navigationTitle("定制").toolbar { EditButton() }
-        .onAppear { hexInput = preferences.settings.accentRGB.hex }
+        .onAppear { preferences.reload(); hexInput = preferences.settings.accentRGB.hex }
     }
 }
 
@@ -127,7 +127,7 @@ struct InputSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 NavigationLink("开源许可") { LicenseView() }
             }
-        }.navigationTitle("输入")
+        }.navigationTitle("输入").onAppear { preferences.reload() }
     }
 }
 

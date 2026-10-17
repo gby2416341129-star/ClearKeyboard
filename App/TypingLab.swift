@@ -50,7 +50,7 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface, view.bounds.width > 0, view.bounds.height > 0 else { return }
-        let height = min(surface.desiredHeight, max(0, view.bounds.height - 88))
+        let height = min(surface.desiredHeight, max(0, view.bounds.height - 64))
         textView.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: view.bounds.height - height)
         placeholder.frame = CGRect(x: 16, y: 17, width: max(0, view.bounds.width - 32), height: 22)
         surface.frame = CGRect(x: 0, y: view.bounds.height - height, width: view.bounds.width, height: height)

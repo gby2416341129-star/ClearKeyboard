@@ -34,7 +34,8 @@ import UIKit
     }
     func testTypingLabChineseAndEnglishCandidates() async throws {
         let controller = TypingLabController(settings: KeyboardSettings())
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
         window.rootViewController = controller; window.makeKeyAndVisible()
         controller.loadViewIfNeeded(); controller.view.frame = window.bounds
         controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
@@ -84,15 +85,31 @@ import UIKit
         XCTAssertEqual(controller.textView.text, "")
         controller.model.suspend()
     }
+    func testTypingLabFitsAllFourRowsWhileComposing() async throws {
+        let controller = TypingLabController(settings: KeyboardSettings()); controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 380)
+        controller.model.handle(.text("n"))
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        surface.layoutIfNeeded()
+        let enter = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .enter })
+        XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxY, controller.view.bounds.maxY, "The candidate row must not clip the bottom key row")
+        controller.model.suspend()
+    }
     func testToolbarAndSideRailWorkInBothHandModes() async throws {
         let controller = TypingLabController(settings: KeyboardSettings()); controller.loadViewIfNeeded()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 500)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene); window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.isHidden = true; controller.model.suspend() }
+        controller.view.frame = window.bounds
         let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         for mode in [HandMode.left, .right] {
             controller.model.settings.hand = mode
             surface.setToolPinned(.emoji, pinned: false); surface.setToolPinned(.oneHand, pinned: true)
             surface.reorderToolbarTool(.oneHand, before: .clipboard)
             XCTAssertEqual(controller.model.settings.toolbar[1], .oneHand)
+            surface.reorderToolbarTool(.oneHand, before: .appearance)
+            XCTAssertEqual(controller.model.settings.toolbar, [.language, .clipboard, .oneHand, .appearance])
             controller.view.setNeedsLayout(); controller.view.layoutIfNeeded(); surface.layoutIfNeeded()
             for identifier in ["onehand.switch", "onehand.resize", "onehand.full"] {
                 XCTAssertNotNil(descendants(surface).first { $0.accessibilityIdentifier == identifier })
@@ -101,7 +118,6 @@ import UIKit
             let full = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "onehand.full" })
             full.sendActions(for: .touchUpInside); XCTAssertEqual(controller.model.settings.hand, .full)
         }
-        controller.model.suspend()
     }
     private func snapshot(_ view: UIView, name: String) {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }

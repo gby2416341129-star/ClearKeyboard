@@ -5,11 +5,12 @@
     "sample pinyin composition and candidate commit",
     "system-style number and symbol pages",
     "sample English completion",
-    "one-hand resize and restore",
+    "one-hand switch and restore with toolbar aligned to keys",
     "glass preset, opacity and accent controls",
     "emoji insertion and sample clipboard panel",
     "customization and input tabs",
     "setup guidance sheet",
+    "toolbar add, remove and drag sorting in one-hand mode; no offline status row",
     "400px responsive layout has no horizontal overflow",
     "no browser runtime errors"
   ],

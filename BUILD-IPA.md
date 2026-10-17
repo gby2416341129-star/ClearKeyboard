@@ -1,6 +1,6 @@
 # 生成 iPhone IPA
 
-**已生成 0.1.1（2）未签名 IPA。** [成功的云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38994072222) 使用 Xcode 26.6，通过 31 项核心测试、主 App 和键盘扩展的 Release arm64 iPhone 目标编译、IPA 包检查。可从该次运行的 Artifacts 下载；安装前仍需签名。
+**当前版本为 0.1.2（3）。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/workflows/ipa.yml) 使用 Xcode 26.6，运行 33 项核心测试、主 App 和键盘扩展的 Release arm64 iPhone 目标编译、IPA 包检查与独立的原生界面测试。具体交付版本的记录见 `Validation/native-build.json`；安装前仍需签名。
 
 ## GitHub 云构建
 
@@ -9,6 +9,8 @@
 3. 工作流在 `macos-26` 的 Xcode 环境执行词库检查、Swift 核心测试、Release 真机编译。
 4. 成功后，从该次运行的 **Artifacts → ClearKeyboard-unsigned-IPA** 下载 ZIP 并解压，取得 `ClearKeyboard-unsigned.ipa`、SHA-256 和检查报告。
 5. 构建失败时只会得到错误日志，不会把源码或模拟器程序当成 IPA。
+
+`ClearKeyboard-native-diagnostics` 保存原生界面测试日志、截图和 XCTest 结果。原生测试在模拟器内运行，与 IPA 的真机目标编译分别记录。
 
 该工作流在 `main` 分支推送或手动触发时运行，不含签名密码、证书、Apple ID，也不上传 App Store。使用标准 GitHub macOS runner；私有仓库会使用你账号的 Actions 分钟额度。
 
@@ -26,6 +28,8 @@ bash Scripts/build-ipa.sh
 ## 安装与签名
 
 **未签名 IPA 不能直接在 iPhone 安装。** 签名须覆盖主 App 和内嵌的键盘扩展，使用匹配的 Bundle ID、描述文件与 App Group 权限。修改 Bundle ID 时需同时更新 App Group。
+
+使用爱思签名时，检查签名后仍包含 `PlugIns/ClearKeyboardExtension.appex`，并给这个扩展完成签名。只给主 App 签名不能证明系统键盘扩展能启动。若安装新版后仍闪退，请保留 iPhone「设置 → 隐私与安全性 → 分析与改进 → 分析数据」中的 `ClearKeyboardExtension` 崩溃记录，以定位真实设备上的原因。
 
 使用 Apple Developer 的开发或设备测试分发时，在 Xcode 配置 `Config/Project.xcconfig` 的基础 Bundle ID 和 Team，为两个目标配置相同 App Group，然后 Archive 并导出匹配设备的 IPA。证书和配置文件应在你自己的钥匙串或云构建 Secrets 中管理。
 

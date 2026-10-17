@@ -15,6 +15,10 @@ import UIKit
         let activeStore = SettingsStore(defaults: SharedStorage.defaults(allowShared: true))
         store = activeStore; settings = activeStore.load()
     }
+    func reload() {
+        let saved = store.load()
+        if saved != settings { settings = saved }
+    }
     func clearLearning() {
         store.defaults.set(UUID().uuidString, forKey: "clear.learned.epoch")
         store.defaults.removeObject(forKey: "clear.learned.v1")
@@ -23,12 +27,14 @@ import UIKit
 }
 
 struct RootView: View {
+    @EnvironmentObject private var preferences: Preferences
     var body: some View {
         TabView {
             NavigationStack { HomeView() }.tabItem { Label { Text("澈") } icon: { Image(uiImage: ClearBrand.image()).renderingMode(.template) } }
             NavigationStack { CustomizationView() }.tabItem { Label("定制", systemImage: "slider.horizontal.3") }
             NavigationStack { InputSettingsView() }.tabItem { Label("输入", systemImage: "keyboard") }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload() }
     }
 }
 
@@ -81,6 +87,7 @@ struct HomeView: View {
         .background(Color(uiColor: .systemBackground))
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSetup) { SetupView() }
+        .onAppear { preferences.reload() }
     }
     private func quickLink(_ title: String, symbol: String) -> some View {
         HStack(spacing: 7) { Image(systemName: symbol); Text(title).font(.system(size: 12, weight: .medium)) }
