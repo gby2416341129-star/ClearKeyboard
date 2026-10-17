@@ -1,0 +1,33 @@
+{
+  "status": "passed",
+  "checks": "ZIP integrity, bundle metadata, extension registration, executable permissions, arm64 iOS load commands, offline dictionaries, privacy manifests",
+  "bundles": [
+    {
+      "bundleIdentifier": "com.example.clearkeyboard",
+      "architecture": "arm64",
+      "platform": "iOS device"
+    },
+    {
+      "bundleIdentifier": "com.example.clearkeyboard.Keyboard",
+      "architecture": "arm64",
+      "platform": "iOS device"
+    }
+  ],
+  "sha256": "7bf24b894b76114cbbdc4aa66d387275102ebe45a00138bd689e414f02f028a5",
+  "signing": "unsigned build; no signing verification performed",
+  "installableAsDelivered": false,
+  "deviceTesting": "not performed",
+  "version": "0.1.1 (2)",
+  "configuration": "Release",
+  "xcode": "26.6 (17F113)",
+  "sdk": "iPhoneOS 26.5",
+  "minimumOS": "iOS 18.0",
+  "workflowRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38994072222",
+  "sourceCommit": "93a3e7eb9d603c43efd80e1e5ee87849a51c9be0",
+  "coreTests": {
+    "executed": 31,
+    "failures": 0
+  },
+  "artifactSha256": "e75fd9219f1f3a93d45d4952ef807a973c379c113f78e3f9054f80416c467459",
+  "bytes": 8959646
+}

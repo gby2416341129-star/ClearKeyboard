@@ -1,6 +1,6 @@
 # 生成 iPhone IPA
 
-当前源码已提供打包入口，**尚未运行云构建，当前没有已生成的 IPA**。
+**已生成 0.1.1（2）未签名 IPA。** [成功的云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38994072222) 使用 Xcode 26.6，通过 31 项核心测试、主 App 和键盘扩展的 Release arm64 iPhone 目标编译、IPA 包检查。可从该次运行的 Artifacts 下载；安装前仍需签名。
 
 ## GitHub 云构建
 

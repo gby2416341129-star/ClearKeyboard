@@ -2,7 +2,7 @@
 
 面向中文和英文的原生 iPhone 输入法，当前版本 **0.1.1 开发预览**。包含 SwiftUI 设置 App、UIKit 系统键盘扩展、离线词库和交互设计预览。
 
-**交付的是源码工程，尚未生成签名 IPA。** 开发环境为 Windows，无 Xcode / Apple SDK，因此没有声称通过 iOS 编译、真机性能或耗电测试。
+**已生成未签名 IPA。** [GitHub 云构建](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/38994072222) 使用 Xcode 26.6 / iPhoneOS 26.5，主 App 和键盘扩展均通过 Release arm64 真机目标编译，31 个 Swift 核心测试全部通过。安装前仍需签名；尚未完成 iPhone 运行、性能或耗电测试。详细记录见 `Validation/native-build.json`。
 
 IPA 打包入口已提供：参见 [BUILD-IPA.md](BUILD-IPA.md)。可推送至 GitHub 的 `main` 分支自动构建、手动运行工作流，或在 Mac 执行 `bash Scripts/build-ipa.sh`；只有真机编译通过后才会生成包含键盘扩展的未签名 IPA，安装前仍需签名。
 
@@ -21,7 +21,7 @@ IPA 打包入口已提供：参见 [BUILD-IPA.md](BUILD-IPA.md)。可推送至 G
 
 按键字符改为按可见字形轮廓居中；预览通过 116 个字形的截图像素检查，四种状态覆盖小写、大写、数字和符号。工具栏、地球、Shift、删除和底部导航均采用统一线条图标，原生使用 SF Symbols。
 
-预览的玻璃使用 SVG 位移图对背景采样折射，并保留边缘反射和按压高光；这不是 iOS 原生材质的截图。原生代码同步采用独立玻璃按键和共享玻璃容器，仍待 Xcode 与真机检查。
+预览的玻璃使用 SVG 位移图对背景采样折射，并保留边缘反射和按压高光；这不是 iOS 原生材质的截图。原生代码采用独立玻璃按键和共享玻璃容器，已通过 Xcode 编译，仍待真机视觉与交互检查。
 
 按住空格约 350 ms 后进入光标移动模式，隐藏按键字符并显示手势提示；横向移动按字素推进光标，松手或中断不追加空格。预览已验证鼠标、触屏、越出空格范围、文本边界和组合 Emoji。
 
@@ -65,7 +65,7 @@ IPA 打包入口已提供：参见 [BUILD-IPA.md](BUILD-IPA.md)。可推送至 G
 bash Scripts/verify-macos.sh
 ```
 
-这会运行数据验证、Swift 核心 XCTest、模拟器目标构建。`.github/workflows/ios.yml` 提供相同的 macOS CI 入口；文件已提供，尚未在 GitHub 运行。
+这会运行数据验证、Swift 核心 XCTest、模拟器目标构建。`.github/workflows/ios.yml` 提供相同的模拟器 CI 入口，尚未运行；`.github/workflows/ipa.yml` 的核心测试、iPhone 目标编译和 IPA 打包已经在 GitHub 通过。
 
 ## 流畅与能耗的实现选择
 
@@ -126,4 +126,4 @@ Licenses/             第三方词库许可与修改声明
 
 ## 接下来的开发顺序
 
-先在 Xcode 编译并解决 Apple SDK 类型或签名问题，再完成 iPhone 兼容性与性能测量。随后针对真实语料强化拼音切分、模糊音组合、错拼纠正、英文纠错和上下文排序；最后补充可导入词库与贴纸包、iPad 适配和上架准备。当前不是已验证可上架的完成版。
+先完成签名与 iPhone 安装，再检查宿主兼容性并测量性能和能耗。随后针对真实语料强化拼音切分、模糊音组合、错拼纠正、英文纠错和上下文排序；最后补充可导入词库与贴纸包、iPad 适配和上架准备。当前不是已验证可上架的完成版。

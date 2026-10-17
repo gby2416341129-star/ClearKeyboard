@@ -9,7 +9,7 @@
     "missing offline dictionary rejected",
     "source-only ZIP rejected"
   ],
-  "nativeCompilation": "not run; ready for GitHub upload",
+  "nativeCompilation": "passed on GitHub macOS; see native-build.json",
   "packageFixture": "synthetic scratch ZIP; no IPA produced",
-  "shellExecution": "not run; Windows environment has no Bash or Xcode"
+  "shellExecution": "passed on GitHub macOS with Xcode 26.6"
 }
