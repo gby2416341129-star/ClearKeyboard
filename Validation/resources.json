@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "checks": [
+    "pinyin: all 65137 records / 176540 index keys validated",
+    "pinyin: representative exact/prefix/continuation lookups passed",
+    "english: all 50000 records / 131156 index keys validated",
+    "english: representative exact/prefix/continuation lookups passed",
+    "all property lists, entitlements and privacy manifests parsed",
+    "Xcode object references, source/resource paths and shared scheme checked",
+    "keyboard extension registration and optional open-access request checked"
+  ],
+  "nativeCompilation": "not run: Windows host has no Xcode",
+  "swiftTests": "provided; requires a Swift toolchain",
+  "devicePerformance": "not measured"
+}

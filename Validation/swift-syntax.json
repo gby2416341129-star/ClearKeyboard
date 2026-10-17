@@ -1,0 +1,7 @@
+{
+  "parser": "tree-sitter Swift grammar (syntax only)",
+  "files": 21,
+  "status": "passed",
+  "errors": [],
+  "nativeCompilation": "not run; no Apple SDK on this Windows host"
+}

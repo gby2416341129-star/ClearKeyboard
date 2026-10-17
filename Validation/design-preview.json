@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "checks": [
+    "QWERTY base layout",
+    "sample pinyin composition and candidate commit",
+    "system-style number and symbol pages",
+    "sample English completion",
+    "one-hand resize and restore",
+    "glass preset, opacity and accent controls",
+    "emoji insertion and sample clipboard panel",
+    "customization and input tabs",
+    "setup guidance sheet",
+    "400px responsive layout has no horizontal overflow",
+    "no browser runtime errors"
+  ],
+  "scope": "HTML design preview only; not a native iOS run"
+}

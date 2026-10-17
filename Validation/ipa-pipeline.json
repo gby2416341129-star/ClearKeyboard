@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "checks": [
+    "main-push/manual workflow and read-only repository permission parsed",
+    "synthetic device bundles accepted with explicit unsigned status",
+    "simulator executable rejected",
+    "missing keyboard extension rejected",
+    "missing executable permission rejected",
+    "missing offline dictionary rejected",
+    "source-only ZIP rejected"
+  ],
+  "nativeCompilation": "not run; ready for GitHub upload",
+  "packageFixture": "synthetic scratch ZIP; no IPA produced",
+  "shellExecution": "not run; Windows environment has no Bash or Xcode"
+}

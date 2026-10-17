@@ -1,0 +1,20 @@
+ClearKeyboard / 澈输入法 — Third-party notices
+
+Chinese vocabulary: rime/rime-pinyin-simp
+https://github.com/rime/rime-pinyin-simp
+Revision: 0c6861ef7420ee780270ca6d993d18d4101049d0
+License: Apache License 2.0 (see Apache-2.0.txt).
+Derived from the Android Open Source Project PinyinIME dictionary.
+Modifications: supplementary original phrases; deduplication; compact indexed CLRX0001 binary.
+
+English vocabulary: Carnegie Mellon University Pronouncing Dictionary (CMUdict)
+https://github.com/cmusphinx/cmudict
+Revision: 74790861f652b15e4ac49015a90074ad62a27690
+Copyright (C) 1993-2015 Carnegie Mellon University. All rights reserved.
+License: BSD-style, reproduced in CMUdict.txt.
+Modifications: pronunciation data removed; alphabetic vocabulary filtered; 50,000 entries selected
+using original common-word priorities and a length heuristic; compact indexed CLRX0001 binary.
+The English priorities are heuristic ranks, not measured corpus frequencies.
+
+All original application sources, supplemental vocabulary and design assets were created for this project.
+No upstream input engine, network service, analytics SDK, or external font is embedded in the app.

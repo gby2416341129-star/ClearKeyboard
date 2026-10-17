@@ -1,0 +1,44 @@
+name: Build unsigned iPhone IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dictionaries and project resources
+        run: python3 Scripts/validate_resources.py
+      - name: Run offline engine regression tests
+        run: swift test
+      - name: Compile app and keyboard for iPhone, then package IPA
+        run: bash Scripts/build-ipa.sh dist
+      - name: Upload unsigned IPA and validation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-unsigned-IPA
+          path: |
+            dist/ClearKeyboard-unsigned.ipa
+            dist/ClearKeyboard-unsigned.ipa.sha256
+            dist/ipa-validation.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Describe installation requirement
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'NOTE'
+          Device build and structural package checks passed. The artifact contains the app and keyboard extension.
+
+          **This IPA is unsigned. Sign the app and embedded keyboard, with matching App Group entitlements, before installing on an iPhone.** No device testing has been performed by this workflow.
+          NOTE

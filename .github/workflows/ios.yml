@@ -1,0 +1,13 @@
+name: iOS build and offline core tests
+on: [pull_request, workflow_dispatch]
+jobs:
+  native:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: xcodebuild -version
+      - name: Core regression tests
+        run: swift test
+      - name: Build app and keyboard extension
+        run: xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboard -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
