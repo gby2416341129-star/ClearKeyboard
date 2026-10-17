@@ -339,13 +339,13 @@ import UIKit
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 276)
         controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
-        let input = try XCTUnwrap(controller.view as? KeyboardInputView)
+        controller.viewDidAppear(false)
+        defer { controller.viewWillDisappear(false) }
+        let input = try XCTUnwrap(controller.inputView)
         let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
-        XCTAssertTrue(input.allowsSelfSizing)
-        XCTAssertTrue(input.translatesAutoresizingMaskIntoConstraints)
-        XCTAssertTrue(input.autoresizingMask.contains(.flexibleWidth))
-        XCTAssertFalse(input.autoresizingMask.contains(.flexibleHeight))
-        XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 393, height: 0)).height, surface.desiredHeight, accuracy: 1)
+        XCTAssertFalse(input.allowsSelfSizing)
+        XCTAssertEqual(input.constraints.filter { $0.identifier == "clear.keyboard.content-height" }.count, 1)
+        XCTAssertEqual(controller.preferredContentSize, .zero)
         XCTAssertTrue(surface.systemBacked); XCTAssertFalse(surface.isOpaque)
         XCTAssertEqual(surface.layer.cornerRadius, 0)
         let backdrop = try XCTUnwrap(surface.subviews.compactMap { $0 as? GlassBackdrop }.first)
@@ -354,24 +354,29 @@ import UIKit
     }
     func testBrowserSafeAreaDoesNotAlterRequestedKeyboardContentHeight() throws {
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
-        let input = try XCTUnwrap(controller.view as? KeyboardInputView)
+        controller.viewDidAppear(false)
+        defer { controller.viewWillDisappear(false) }
+        let input = try XCTUnwrap(controller.inputView)
         let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
         for inset: CGFloat in [0, 34, 75, 108] {
             controller.additionalSafeAreaInsets.bottom = inset
             controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: surface.desiredHeight)
             controller.view.setNeedsUpdateConstraints(); controller.view.updateConstraintsIfNeeded()
             controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
-            XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 420, height: 0)).height, surface.desiredHeight, accuracy: 0.5)
-            XCTAssertEqual(controller.preferredContentSize.height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertFalse(input.allowsSelfSizing)
+            XCTAssertEqual(controller.preferredContentSize, .zero)
             XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
             let constraint = try XCTUnwrap(input.constraints.first { $0.identifier == "clear.keyboard.content-height" })
             XCTAssertEqual(constraint.priority, .required)
+            XCTAssertEqual(constraint.constant, surface.desiredHeight, accuracy: 0.5)
             for key in descendants(surface).compactMap({ $0 as? KeyButton }) { XCTAssertGreaterThanOrEqual(key.bounds.height, 50) }
         }
     }
     func testCachedSafariFramesNeverCompressTheExtensionKeys() throws {
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
-        let input = try XCTUnwrap(controller.view as? KeyboardInputView)
+        controller.viewDidAppear(false)
+        defer { controller.viewWillDisappear(false) }
+        let input = try XCTUnwrap(controller.inputView)
         let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.q" })
         let a = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.a" })
@@ -380,9 +385,8 @@ import UIKit
             controller.view.setNeedsLayout(); controller.view.layoutIfNeeded(); surface.layoutIfNeeded()
             XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
             XCTAssertEqual(surface.frame.minY, max(0, controller.view.bounds.height - surface.desiredHeight), accuracy: 0.5)
-            XCTAssertEqual(input.sizeThatFits(CGSize(width: 420, height: height)).height, surface.desiredHeight, accuracy: 0.5)
-            XCTAssertEqual(input.systemLayoutSizeFitting(CGSize(width: 420, height: height)).height, surface.desiredHeight, accuracy: 0.5)
-            XCTAssertEqual(input.intrinsicContentSize.height, surface.desiredHeight, accuracy: 0.5)
+            XCTAssertEqual(input.constraints.filter { $0.identifier == "clear.keyboard.content-height" }.count, 1)
+            XCTAssertEqual(controller.preferredContentSize, .zero)
             XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
             XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
             XCTAssertEqual(KeyboardGeometry.keyPlate(in: q.bounds).height, 45, accuracy: 0.5)

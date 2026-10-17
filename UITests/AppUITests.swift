@@ -79,6 +79,9 @@ import XCTest
         let a = app.descendants(matching: .any).matching(identifier: "key.text.a").firstMatch
         let z = app.descendants(matching: .any).matching(identifier: "key.text.z").firstMatch
         let language = app.descendants(matching: .any).matching(identifier: "key.language").firstMatch
+        let root = app.descendants(matching: .any).matching(identifier: "clear.keyboard.root").firstMatch
+        XCTAssertTrue(root.exists, context + " keyboard root is missing")
+        XCTAssertEqual(root.frame.height, 276, accuracy: 0.5, context + " expanded the remote keyboard root")
         // Measure screen-space hit rectangles, including any host view transform.
         XCTAssertEqual(q.frame.height, 56, accuracy: 0.5, context + ": " + String(describing: q.frame))
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5, context)
@@ -135,7 +138,11 @@ import XCTest
         XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
         assertFullRows(in: safari, context: "Safari multiline input")
         let w = safari.descendants(matching: .any).matching(identifier: "key.text.w").firstMatch
-        w.tap(); XCTAssertTrue((multiline.value as? String)?.lowercased().contains("w") == true, "Typing must reach the newly focused textarea")
+        w.tap()
+        // Commit the marked spelling before asking WebKit's accessibility value for text.
+        language.tap()
+        let typed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS[c] %@", "w"), object: multiline)
+        XCTAssertEqual(XCTWaiter.wait(for: [typed], timeout: 5), .completed, "Typing must reach the newly focused textarea\n" + safari.debugDescription)
         attachment(safari, name: "safari-multiline-keyboard")
         // Safari compresses its address capsule while editing a web form. Dismiss that
         // input with the observed accessory control, then select the actual address field.

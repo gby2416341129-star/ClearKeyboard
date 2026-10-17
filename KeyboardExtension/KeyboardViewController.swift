@@ -10,22 +10,15 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var expectedContext: String?
     private var recentOwnContexts: [String] = []
     private var trackpad: ProxyTrackpad?
-    private var heightRefreshQueued = false
-    private var heightRefreshSignatures = Set<String>()
-    private var hostKeyboardType: UIKeyboardType?
     private var lastLayoutLog = ""
     private var layoutLogCount = 0
     private var isPresented = false
 
-    override func loadView() {
-        let keyboard = KeyboardInputView()
-        inputView = keyboard; view = keyboard
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
-        inputView?.allowsSelfSizing = true
+        view.backgroundColor = .clear; view.isOpaque = false
+        view.accessibilityIdentifier = "clear.keyboard.root"
+        inputView?.allowsSelfSizing = false
         model = KeyboardModel(document: self)
         surface = KeyboardSurface(model: model, systemBacked: true)
         surface.configureGlobe = { [weak self] button in
@@ -39,7 +32,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         previousContext = contextBefore
     }
     override func viewWillAppear(_ animated: Bool) {
-        isPresented = false; heightRefreshSignatures.removeAll()
+        isPresented = false
         super.viewWillAppear(animated); model?.reloadSettings()
         if let surface { updateHeight(surface.desiredHeight) }
     }
@@ -50,9 +43,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         isPresented = true
-        // A remote host can cache its default height before our input view is attached.
-        // Negotiate once after attachment even when the desired height has not changed.
-        queueHeightRefresh()
+        if let surface { updateHeight(surface.desiredHeight) }
         model?.startClipboardCapture()
     }
     override func viewDidLayoutSubviews() {
@@ -69,53 +60,21 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
             NSLog("CLEAR_KEYBOARD_LAYOUT %@", layout)
         }
         updateHeight(surface.desiredHeight)
-        if abs(view.bounds.height - surface.desiredHeight) > 0.5 { queueHeightRefresh() }
-    }
-    override func viewSafeAreaInsetsDidChange() {
-        super.viewSafeAreaInsetsDidChange()
-        if let surface { updateHeight(surface.desiredHeight); queueHeightRefresh() }
-    }
-    private func queueHeightRefresh() {
-        guard isPresented, !heightRefreshQueued, let surface, view.window != nil,
-              abs(view.bounds.height - surface.desiredHeight) > 0.5 else { return }
-        // Re-negotiate each distinct host geometry once, instead of exhausting two retries
-        // before a later Safari address-bar / web-input transition. No timer or layout polling.
-        let signature = "\(view.bounds.width.rounded())/\(view.bounds.height.rounded())/\(view.safeAreaInsets.bottom.rounded())/\(surface.desiredHeight)"
-        guard heightRefreshSignatures.insert(signature).inserted else { return }
-        heightRefreshQueued = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.heightRefreshQueued = false
-            guard self.isPresented, self.view.window != nil, let surface = self.surface,
-                  abs(self.view.bounds.height - surface.desiredHeight) > 0.5 else { return }
-            UIView.performWithoutAnimation {
-                self.heightConstraint?.isActive = false; self.heightConstraint = nil
-                self.updateHeight(surface.desiredHeight)
-                self.view.invalidateIntrinsicContentSize()
-                self.view.setNeedsUpdateConstraints(); self.view.setNeedsLayout()
-                self.view.superview?.setNeedsLayout()
-            }
-        }
     }
     private func updateHeight(_ height: CGFloat) {
-        (view as? KeyboardInputView)?.contentHeight = height
+        // UIKit manages the input view and its width. One height constraint is the only
+        // sizing authority; self-sizing, preferredContentSize and repeated invalidations
+        // previously fed a growing height back into Safari's remote keyboard host.
+        guard isPresented else { return }
         if heightConstraint == nil {
             let constraint = view.heightAnchor.constraint(equalToConstant: height)
             constraint.identifier = "clear.keyboard.content-height"
             constraint.priority = .required; constraint.isActive = true; heightConstraint = constraint
         } else if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
-        if abs(preferredContentSize.height - height) > 0.5 { preferredContentSize = CGSize(width: 0, height: height) }
     }
     override func viewWillDisappear(_ animated: Bool) {
         isPresented = false
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
-    }
-    override func textWillChange(_ textInput: UITextInput?) {
-        super.textWillChange(textInput)
-        let type = textDocumentProxy.keyboardType
-        guard type != hostKeyboardType else { return }
-        hostKeyboardType = type; heightRefreshSignatures.removeAll()
-        if let surface { updateHeight(surface.desiredHeight); queueHeightRefresh() }
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
@@ -124,9 +83,6 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // reconcile the context once when the trackpad session ends.
         if model.isMovingCursor { return }
         let identifier = connectedDocumentIdentifier(), context = contextBefore
-        if identifier != documentID {
-            heightRefreshSignatures.removeAll(); updateHeight(surface.desiredHeight); queueHeightRefresh()
-        }
         if identifier != documentID || (context != previousContext && context != expectedContext && !recentOwnContexts.contains(context)) {
             recentOwnContexts.removeAll()
             surface.closePanel(); model.cursorChanged()
@@ -226,32 +182,5 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         guard let context else { return }
         recentOwnContexts.append(context)
         if recentOwnContexts.count > 32 { recentOwnContexts.removeFirst(recentOwnContexts.count - 32) }
-    }
-}
-
-/// UIKit explicitly asks this view for its fitting height when allowsSelfSizing is enabled.
-final class KeyboardInputView: UIInputView {
-    var contentHeight: CGFloat = KeyboardGeometry.preferredHeight() {
-        didSet { if abs(contentHeight - oldValue) > 0.5 { invalidateIntrinsicContentSize() } }
-    }
-    init() {
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: KeyboardGeometry.preferredHeight()), inputViewStyle: .keyboard)
-        // UIKit owns the remote view's width. Preserve our content height when its parent resizes.
-        autoresizingMask = [.flexibleWidth]
-        allowsSelfSizing = true; isOpaque = false; backgroundColor = .clear
-        setContentCompressionResistancePriority(.required, for: .vertical)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: contentHeight) }
-    override func sizeThatFits(_ size: CGSize) -> CGSize {
-        // Some host transitions still ask UIView's fitting API. Its default returns the
-        // previous bounds, which can disagree with the self-sizing height requested above.
-        systemLayoutSizeFitting(size)
-    }
-    override func systemLayoutSizeFitting(_ targetSize: CGSize) -> CGSize {
-        CGSize(width: targetSize.width, height: contentHeight)
-    }
-    override func systemLayoutSizeFitting(_ targetSize: CGSize, withHorizontalFittingPriority: UILayoutPriority, verticalFittingPriority: UILayoutPriority) -> CGSize {
-        systemLayoutSizeFitting(targetSize)
     }
 }
