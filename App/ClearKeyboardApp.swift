@@ -4,9 +4,7 @@ import UIKit
 @main struct ClearKeyboardApp: App {
     @StateObject private var preferences = Preferences()
     var body: some Scene {
-        WindowGroup {
-            RootView().environmentObject(preferences).tint(Color(preferences.settings.accentInkColor))
-        }
+        WindowGroup { RootView().environmentObject(preferences).tint(Color(preferences.settings.accentInkColor)) }
     }
 }
 
@@ -27,7 +25,7 @@ import UIKit
 struct RootView: View {
     var body: some View {
         TabView {
-            NavigationStack { HomeView() }.tabItem { Label("澈", systemImage: "drop") }
+            NavigationStack { HomeView() }.tabItem { Label { Text("澈") } icon: { Image(uiImage: ClearBrand.image()).renderingMode(.template) } }
             NavigationStack { CustomizationView() }.tabItem { Label("定制", systemImage: "slider.horizontal.3") }
             NavigationStack { InputSettingsView() }.tabItem { Label("输入", systemImage: "keyboard") }
         }
@@ -39,55 +37,55 @@ struct HomeView: View {
     @State private var showSetup = false
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: "drop.fill").font(.system(size: 22)).foregroundStyle(Color(preferences.settings.accentInkColor))
-                        Text("澈").font(.system(size: 25, weight: .semibold))
-                        Text("CLEAR").font(.system(size: 11, weight: .medium, design: .rounded)).tracking(3).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text("离线 · 自在").font(.system(size: 11, weight: .medium)).padding(.horizontal, 12).padding(.vertical, 7).background(.thinMaterial, in: Capsule())
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("把灵感，\n轻轻打出来。").font(.system(size: 35, weight: .semibold)).tracking(-1)
-                    Text("熟悉的布局，清透的新手感。")
-                        .font(.system(size: 15)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("熟悉的布局，新的手感。").font(.system(size: 24, weight: .semibold)).tracking(-0.5)
+                    Text("试试拼音，或切换到 English。").font(.system(size: 14)).foregroundStyle(.secondary)
                 }.padding(.top, 8)
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack { Text("试着输入").font(.system(size: 13, weight: .medium)); Spacer(); Text("真实离线引擎").font(.system(size: 11)).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("输入体验").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+                        Spacer()
+                        Text("长按空格移动光标").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
                     TypingLab(settings: preferences.settings)
-                        .frame(height: 416 + CGFloat(preferences.settings.keyHeight - 50) * 4)
-                        .clipShape(RoundedRectangle(cornerRadius: 22))
-                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(.primary.opacity(0.06), lineWidth: 0.5))
+                        .frame(height: 380 + CGFloat(preferences.settings.keyHeight - 50) * 4)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(.primary.opacity(0.07), lineWidth: 0.5))
                 }
                 Button { showSetup = true } label: {
-                    HStack { Text("启用澈输入法").fontWeight(.medium); Spacer(); Image(systemName: "arrow.up.right") }
-                        .padding(18).foregroundStyle(Color(preferences.settings.onAccentColor)).background(Color(preferences.settings.accentColor), in: RoundedRectangle(cornerRadius: 18))
+                    HStack { Text("启用澈输入法").font(.system(size: 16, weight: .medium)); Spacer(); Image(systemName: "arrow.up.right").font(.system(size: 15, weight: .medium)) }
+                        .padding(.horizontal, 19).frame(height: 54)
+                        .foregroundStyle(Color(preferences.settings.onAccentColor))
+                        .background(Color(preferences.settings.accentColor), in: RoundedRectangle(cornerRadius: 16))
+                }.buttonStyle(.plain)
+                HStack(spacing: 12) {
+                    NavigationLink { CustomizationView() } label: { quickLink("外观与工具栏", symbol: "slider.horizontal.3") }
+                    NavigationLink { InputSettingsView() } label: { quickLink("输入偏好", symbol: "keyboard") }
                 }
-                HStack(alignment: .top, spacing: 16) {
-                    FeatureNote(symbol: "wifi.slash", title: "离线输入", subtitle: "内置中英文词库")
-                    FeatureNote(symbol: "hand.draw", title: "顺手如常", subtitle: "沿用系统按键位置")
-                    FeatureNote(symbol: "leaf", title: "克制运行", subtitle: "按需计算 · 无轮询")
-                }
-                Text("内置词库不联网。完全访问只用于设置同步、手动剪贴板和图片贴纸。")
-                    .font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(4)
-            }.padding(22)
+            }.padding(.horizontal, 22).padding(.bottom, 28)
         }
-        .background(LinearGradient(colors: [Color(preferences.settings.accentColor).opacity(0.08), Color(uiColor: .systemBackground)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack(spacing: 12) {
+                Image(uiImage: ClearBrand.image(34)).renderingMode(.template).foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(LinearGradient(colors: [Color(preferences.settings.accentColor), Color(preferences.settings.accentColor).opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("澈").font(.system(size: 21, weight: .semibold))
+                    Text("CLEAR").font(.system(size: 9, weight: .medium, design: .rounded)).tracking(2.5).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }.padding(.horizontal, 22).padding(.vertical, 12)
+                .background(Color(uiColor: .systemBackground).opacity(0.97).ignoresSafeArea(edges: .top))
+        }
+        .background(Color(uiColor: .systemBackground))
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSetup) { SetupView() }
     }
-}
-
-private struct FeatureNote: View {
-    var symbol: String; var title: String; var subtitle: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Image(systemName: symbol).font(.system(size: 19)).foregroundStyle(.tint)
-            Text(title).font(.system(size: 13, weight: .medium))
-            Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    private func quickLink(_ title: String, symbol: String) -> some View {
+        HStack(spacing: 7) { Image(systemName: symbol); Text(title).font(.system(size: 12, weight: .medium)) }
+            .frame(maxWidth: .infinity).padding(.vertical, 15)
+            .foregroundStyle(.primary).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
     }
 }
 

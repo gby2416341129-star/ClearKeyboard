@@ -85,9 +85,9 @@ final class KeyButton: UIButton {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
-        super.layoutSubviews(); plate.frame = bounds.insetBy(dx: 3, dy: 4)
+        super.layoutSubviews(); plate.frame = KeyboardGeometry.keyPlate(in: bounds)
         caption.frame = plate.bounds; icon.frame = plate.bounds
-        plate.layer.shadowPath = UIBezierPath(roundedRect: plate.bounds, cornerRadius: 7).cgPath
+        plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 7).cgPath
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; haptics = settings.haptics

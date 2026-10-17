@@ -22,18 +22,6 @@ jobs:
         run: python3 Scripts/validate_resources.py
       - name: Run offline engine regression tests
         run: swift test
-      - name: Run native keyboard startup and candidate tests
-        run: bash Scripts/test-native.sh
-      - name: Upload native runtime diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClearKeyboard-native-diagnostics
-          path: |
-            .build/native-tests.log
-            .build/NativeDiagnostics
-            .build/NativeResults.xcresult
-          retention-days: 7
       - name: Compile app and keyboard for iPhone, then package IPA
         run: bash Scripts/build-ipa.sh dist
       - name: Upload unsigned IPA and validation report
@@ -54,3 +42,22 @@ jobs:
 
           **This IPA is unsigned. Sign the app and embedded keyboard, with matching App Group entitlements, before installing on an iPhone.** No device testing has been performed by this workflow.
           NOTE
+  native-runtime:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run native keyboard startup and candidate tests
+        timeout-minutes: 9
+        run: bash Scripts/test-native.sh
+      - name: Upload native runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-native-diagnostics
+          path: |
+            .build/native-tests.log
+            .build/NativeDiagnostics
+            .build/NativeResults.xcresult
+            .build/native-devices.json
+          retention-days: 7

@@ -57,6 +57,12 @@ struct CustomizationView: View {
                     Slider(value: $preferences.settings.keyHeight, in: 44...58, step: 1)
                 }
                 Picker("键盘宽度", selection: $preferences.settings.hand) { ForEach(HandMode.allCases) { Text($0.title).tag($0) } }
+                if preferences.settings.hand != .full {
+                    VStack(alignment: .leading) {
+                        Text("单手宽度").font(.subheadline)
+                        Slider(value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), in: 0.68...0.88)
+                    }
+                }
                 Toggle("轻触反馈", isOn: $preferences.settings.haptics)
                 Text("字母、数字、符号页均沿用 iOS 的位置关系。长按空格可拖动光标；长按删除连续删除；双击 Shift 锁定大写。")
                     .font(.caption).foregroundStyle(.secondary)
@@ -73,7 +79,7 @@ struct CustomizationView: View {
                 ForEach(ToolbarTool.allCases.filter { !preferences.settings.toolbar.contains($0) }) { item in
                     Button { preferences.settings.toolbar.append(item) } label: { Label("添加" + item.title, systemImage: "plus.circle") }
                 }
-            } header: { Text("工具栏 · 拖动排序") } footer: { Text("中 / EN 始终保留；地球键始终遵循系统要求。") }
+            } header: { Text("工具栏 · 拖动排序") } footer: { Text("最多放三个快捷工具；也可在键盘内长按工具栏调整。中 / EN 始终可在工具面板中切换。") }
         }
         .navigationTitle("定制").toolbar { EditButton() }
         .onAppear { hexInput = preferences.settings.accentRGB.hex }

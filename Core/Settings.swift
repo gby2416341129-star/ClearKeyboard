@@ -36,7 +36,9 @@ public struct KeyboardSettings: Codable, Equatable {
     public var glassOpacity: Double = 0.52
     public var keyHeight: Double = 50
     public var hand: HandMode = .full
-    public var toolbar: [ToolbarTool] = ToolbarTool.allCases
+    public var toolbar: [ToolbarTool] = [.language, .clipboard, .emoji, .appearance]
+    public var oneHandWidth: Double? = nil
+    public var oneHandFraction: Double { min(0.88, max(0.68, oneHandWidth ?? 0.78)) }
     public var fuzzyPairs: Set<String> = []
     public var predictions = true
     public var learnChoices = false
@@ -50,10 +52,12 @@ public struct KeyboardSettings: Codable, Equatable {
         glassOpacity = min(1, max(0.15, glassOpacity.isFinite ? glassOpacity : 0.52))
         keyHeight = min(58, max(44, keyHeight.isFinite ? keyHeight : 50))
         clipboardLifetimeHours = min(24, max(0.25, clipboardLifetimeHours.isFinite ? clipboardLifetimeHours : 1))
+        oneHandWidth = oneHandWidth.flatMap { $0.isFinite ? min(0.88, max(0.68, $0)) : nil }
         var seen = Set<ToolbarTool>()
         toolbar = toolbar.filter { seen.insert($0).inserted }
         // The keyboard always retains a way to change the input language.
         if !toolbar.contains(.language) { toolbar.insert(.language, at: 0) }
+        toolbar = [.language] + toolbar.filter { $0 != .language }.prefix(3)
         fuzzyPairs.formIntersection(Set(FuzzyPinyin.availablePairs))
     }
 }

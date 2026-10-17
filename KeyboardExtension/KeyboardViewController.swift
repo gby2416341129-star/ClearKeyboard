@@ -1,5 +1,6 @@
 import UIKit
 
+@objc(ClearKeyboardViewController)
 final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var model: KeyboardModel!
     private var surface: KeyboardSurface!
@@ -10,7 +11,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .secondarySystemBackground
+        view.backgroundColor = .clear
         model = KeyboardModel(document: self)
         surface = KeyboardSurface(model: model)
         surface.configureGlobe = { [weak self] button in
@@ -30,7 +31,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface else { return }
-        surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: view.bounds.height - view.safeAreaInsets.bottom)
+        surface.frame = CGRect(x: 0, y: 0, width: max(0, view.bounds.width), height: max(0, view.bounds.height - view.safeAreaInsets.bottom))
         updateHeight(surface.desiredHeight)
     }
     private func updateHeight(_ height: CGFloat) {
@@ -42,7 +43,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
-        guard model != nil else { return }
+        guard let model, let surface else { return }
         let identifier = textDocumentProxy.documentIdentifier, context = contextBefore
         if identifier != documentID || (context != previousContext && context != expectedContext) {
             surface.closePanel(); model.cursorChanged()

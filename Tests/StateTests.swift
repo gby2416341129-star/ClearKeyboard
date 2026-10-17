@@ -2,6 +2,21 @@ import XCTest
 @testable import ClearCore
 
 final class StateTests: XCTestCase {
+    func testZeroSizeKeyGeometryIsFinite() {
+        for size in [CGSize.zero, CGSize(width: 1, height: 1), CGSize(width: 5, height: 7), CGSize(width: 39, height: 56)] {
+            let result = KeyboardGeometry.keyPlate(in: CGRect(origin: .zero, size: size))
+            XCTAssertFalse(result.isNull); XCTAssertTrue(result.origin.x.isFinite && result.origin.y.isFinite)
+            XCTAssertGreaterThanOrEqual(result.width, 0); XCTAssertGreaterThanOrEqual(result.height, 0)
+        }
+    }
+    func testOldSettingsRemainReadableAndOneHandWidthIsBounded() throws {
+        let encoded = try JSONEncoder().encode(KeyboardSettings())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "oneHandWidth")
+        let decoded = try JSONDecoder().decode(KeyboardSettings.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(decoded.oneHandFraction, 0.78)
+        var settings = decoded; settings.oneHandWidth = 10; settings.sanitize(); XCTAssertEqual(settings.oneHandFraction, 0.88)
+    }
     func testSystemLetterRows() {
         let rows = KeyboardLayout.rows(page: .letters)
         XCTAssertEqual(rows[0].keys.map(\.label).joined(), "qwertyuiop")

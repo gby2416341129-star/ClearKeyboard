@@ -12,7 +12,7 @@
 <key>ClearAppGroup</key><string>$(CLEAR_APP_GROUP)</string>
 <key>NSExtension</key><dict>
   <key>NSExtensionPointIdentifier</key><string>com.apple.keyboard-service</string>
-  <key>NSExtensionPrincipalClass</key><string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
+  <key>NSExtensionPrincipalClass</key><string>ClearKeyboardViewController</string>
   <key>NSExtensionAttributes</key><dict>
     <key>IsASCIICapable</key><true/>
     <key>PrefersRightToLeft</key><false/>
