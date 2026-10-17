@@ -78,7 +78,8 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.heightRefreshQueued = false
-            guard self.isPresented, self.view.window != nil, let surface = self.surface else { return }
+            guard self.isPresented, self.view.window != nil, let surface = self.surface,
+                  abs(self.view.bounds.height - surface.desiredHeight) > 0.5 else { return }
             UIView.performWithoutAnimation {
                 self.heightConstraint?.isActive = false; self.heightConstraint = nil
                 self.updateHeight(surface.desiredHeight)
