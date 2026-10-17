@@ -4,6 +4,14 @@ import UIKit
 @MainActor final class KeyboardRuntimeTests: XCTestCase {
     private func testSettings() -> KeyboardSettings { var settings = KeyboardSettings(); settings.automaticClipboard = false; return settings }
     private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    private func settleLayout(_ view: UIView) {
+        // The first pass installs fitting constraints; a normal run loop then lays them out.
+        // These detached fixtures explicitly perform both passes before inspecting frames.
+        for _ in 0..<2 {
+            view.setNeedsUpdateConstraints(); view.updateConstraintsIfNeeded()
+            view.setNeedsLayout(); view.layoutIfNeeded()
+        }
+    }
     private func waitFor(_ predicate: () -> Bool) async throws {
         for _ in 0..<160 {
             if predicate() { return }
@@ -338,9 +346,7 @@ import UIKit
     func testInputViewFitsOwnContentAndTransparentSurfaceHasOneOutline() throws {
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 276)
-        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
-        controller.viewDidAppear(false)
-        defer { controller.viewWillDisappear(false) }
+        settleLayout(controller.view)
         let input = try XCTUnwrap(controller.inputView)
         let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
         XCTAssertTrue(input.allowsSelfSizing)
@@ -357,15 +363,12 @@ import UIKit
     }
     func testBrowserSafeAreaDoesNotAlterRequestedKeyboardContentHeight() throws {
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
-        controller.viewDidAppear(false)
-        defer { controller.viewWillDisappear(false) }
         let input = try XCTUnwrap(controller.inputView)
         let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
         for inset: CGFloat in [0, 34, 75, 108] {
             controller.additionalSafeAreaInsets.bottom = inset
             controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: surface.desiredHeight)
-            controller.view.setNeedsUpdateConstraints(); controller.view.updateConstraintsIfNeeded()
-            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+            settleLayout(controller.view)
             XCTAssertTrue(input.allowsSelfSizing)
             XCTAssertEqual(controller.preferredContentSize, .zero)
             XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
@@ -377,15 +380,15 @@ import UIKit
     }
     func testCachedSafariFramesNeverCompressTheExtensionKeys() throws {
         let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
-        controller.viewDidAppear(false)
-        defer { controller.viewWillDisappear(false) }
         let input = try XCTUnwrap(controller.inputView)
         let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.q" })
         let a = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.accessibilityIdentifier == "key.text.a" })
+        controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: surface.desiredHeight)
+        settleLayout(controller.view)
         for height: CGFloat in [216, 245, 276, 330, 701, 245, 276] {
             controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: height)
-            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded(); surface.layoutIfNeeded()
+            settleLayout(controller.view); surface.layoutIfNeeded()
             XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
             XCTAssertEqual(surface.frame.minY, controller.view.bounds.height - surface.desiredHeight, accuracy: 0.5)
             XCTAssertEqual(input.constraints.filter { $0.identifier == "clear.keyboard.content-height" }.count, 1)
