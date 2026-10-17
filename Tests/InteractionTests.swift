@@ -3,6 +3,38 @@ import CoreGraphics
 @testable import ClearCore
 
 final class InteractionTests: XCTestCase {
+    func testAirKeyProportionsMatchTheReferenceInsteadOfOnlyFitting() {
+        let height = KeyboardGeometry.preferredHeight()
+        let pitch = KeyboardGeometry.rowHeight(availableHeight: height, header: KeyboardGeometry.headerHeight)
+        XCTAssertEqual(pitch, 56)
+        let unit = (420 - KeyboardGeometry.horizontalInset * 2) / 10
+        let face = KeyboardGeometry.keyPlate(in: CGRect(x: 0, y: 0, width: unit, height: pitch))
+        XCTAssertEqual(face.height, 45)
+        XCTAssertEqual(pitch - face.height, 11)
+        XCTAssertEqual(face.width, 35.2, accuracy: 0.01)
+        XCTAssertEqual(KeyboardGeometry.horizontalInset + face.minX, 7)
+    }
+    func testShiftAndDeleteFacesUseNativeGapsWithoutReducingTouchTargets() {
+        let unit: CGFloat = 41.2
+        let hit = CGRect(x: 0, y: 0, width: unit * 1.5, height: 56)
+        let shift = KeyboardGeometry.keyPlate(in: hit, action: .shift, units: 1.5)
+        let delete = KeyboardGeometry.keyPlate(in: hit, action: .delete, units: 1.5)
+        XCTAssertEqual(shift.width, 47.56, accuracy: 0.01)
+        XCTAssertEqual(delete.width, shift.width, accuracy: 0.01)
+        XCTAssertEqual(shift.minX, 3)
+        XCTAssertEqual(delete.maxX, hit.maxX - 3, accuracy: 0.01)
+        XCTAssertGreaterThan(hit.height, shift.height)
+    }
+    func testHeightCustomizationKeepsTheSameSpacingAndStandardReset() {
+        for value: Double in [44, 50, 58] {
+            let height = KeyboardGeometry.preferredHeight(keyHeight: value)
+            let pitch = KeyboardGeometry.rowHeight(availableHeight: height, header: KeyboardGeometry.headerHeight, preferred: CGFloat(value + 6))
+            XCTAssertEqual(pitch, CGFloat(value + 6))
+            let face = KeyboardGeometry.keyPlate(in: CGRect(x: 0, y: 0, width: 42, height: pitch))
+            XCTAssertEqual(pitch - face.height, 11)
+        }
+        XCTAssertEqual(KeyboardGeometry.preferredHeight(keyHeight: 50), 276)
+    }
     func testArithmeticOffersResultAndExpression() {
         XCTAssertEqual(InlineArithmetic.result(in: "99x88")?.candidates, ["8712", "99x88=8712"])
         XCTAssertEqual(InlineArithmetic.result(in: "99×88")?.value, "8712")

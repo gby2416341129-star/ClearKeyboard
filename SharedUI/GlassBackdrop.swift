@@ -95,7 +95,7 @@ final class KeyButton: UIButton {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
-        super.layoutSubviews(); plate.frame = KeyboardGeometry.keyPlate(in: bounds)
+        super.layoutSubviews(); plate.frame = KeyboardGeometry.keyPlate(in: bounds, action: key.action, units: key.units)
         let base: CGFloat = key.action == .language ? 15 : key.label.count == 1 ? 23 : 16
         let fontSize = min(base, max(10, min(plate.bounds.width * 0.88, plate.bounds.height * 0.65)))
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }

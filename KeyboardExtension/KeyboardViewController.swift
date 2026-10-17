@@ -10,6 +10,9 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var expectedContext: String?
     private var recentOwnContexts: [String] = []
     private var trackpad: ProxyTrackpad?
+    private var heightRefreshQueued = false
+    private var heightRefreshAttempts = 0
+    private var isPresented = false
 
     override func loadView() {
         let keyboard = KeyboardInputView()
@@ -33,6 +36,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         previousContext = contextBefore
     }
     override func viewWillAppear(_ animated: Bool) {
+        isPresented = false; heightRefreshAttempts = 0
         super.viewWillAppear(animated); model?.reloadSettings()
         if let surface { updateHeight(surface.desiredHeight) }
     }
@@ -40,13 +44,38 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if let surface { updateHeight(surface.desiredHeight) }
         super.updateViewConstraints()
     }
-    override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); model?.startClipboardCapture() }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isPresented = true
+        // A remote host can cache its default height before our input view is attached.
+        // Negotiate once after attachment even when the desired height has not changed.
+        queueHeightRefresh()
+        model?.startClipboardCapture()
+    }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface else { return }
         let height = KeyboardGeometry.contentHeight(total: view.bounds.height, preferred: surface.desiredHeight)
-        surface.frame = CGRect(x: 0, y: 0, width: max(0, view.bounds.width), height: height)
+        surface.frame = CGRect(x: view.bounds.minX, y: view.bounds.minY, width: max(0, view.bounds.width), height: height)
         updateHeight(surface.desiredHeight)
+        if view.bounds.height + 0.5 < surface.desiredHeight { queueHeightRefresh() }
+    }
+    private func queueHeightRefresh() {
+        guard isPresented, !heightRefreshQueued, heightRefreshAttempts < 2, view.window != nil else { return }
+        heightRefreshQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.heightRefreshQueued = false
+            guard self.isPresented, self.view.window != nil, let surface = self.surface else { return }
+            self.heightRefreshAttempts += 1
+            UIView.performWithoutAnimation {
+                self.heightConstraint?.isActive = false; self.heightConstraint = nil
+                self.updateHeight(surface.desiredHeight)
+                self.view.invalidateIntrinsicContentSize()
+                self.view.setNeedsUpdateConstraints(); self.view.setNeedsLayout()
+                self.view.superview?.setNeedsLayout()
+            }
+        }
     }
     private func updateHeight(_ height: CGFloat) {
         (view as? KeyboardInputView)?.contentHeight = height
@@ -58,6 +87,7 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if abs(preferredContentSize.height - height) > 0.5 { preferredContentSize = CGSize(width: 0, height: height) }
     }
     override func viewWillDisappear(_ animated: Bool) {
+        isPresented = false
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
     }
     override func textDidChange(_ textInput: UITextInput?) {
@@ -171,12 +201,13 @@ final class KeyboardViewController: UIInputViewController, KeyboardDocument {
 
 /// UIKit explicitly asks this view for its fitting height when allowsSelfSizing is enabled.
 final class KeyboardInputView: UIInputView {
-    var contentHeight: CGFloat = 284 {
+    var contentHeight: CGFloat = KeyboardGeometry.preferredHeight() {
         didSet { if abs(contentHeight - oldValue) > 0.5 { invalidateIntrinsicContentSize() } }
     }
     init() {
-        super.init(frame: .zero, inputViewStyle: .keyboard)
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: KeyboardGeometry.preferredHeight()), inputViewStyle: .keyboard)
         allowsSelfSizing = true; isOpaque = false; backgroundColor = .clear
+        setContentCompressionResistancePriority(.required, for: .vertical)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: contentHeight) }

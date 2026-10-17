@@ -62,9 +62,12 @@ jobs:
             .build/native-tests.log
             .build/native-build.log
             .build/native-boot.log
-            .build/NativeDiagnostics
+            .build/NativeDiagnostics/result-summary.json
+            .build/NativeDiagnostics/result-tests.json
+            .build/NativeDiagnostics/runtime.log
             .build/native-devices.json
             .build/observer-reproduction.log
             .build/ui-tests.log
-            .build/UITestDiagnostics
+            .build/UITestDiagnostics/result-summary.json
+            .build/UITestDiagnostics/runtime.log
           retention-days: 7

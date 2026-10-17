@@ -54,8 +54,12 @@ struct CustomizationView: View {
             }
             Section("按键与单手") {
                 VStack(alignment: .leading) {
-                    HStack { Text("按键高度"); Spacer(); Text("\(Int(preferences.settings.keyHeight)) pt").foregroundStyle(.secondary) }
+                    HStack {
+                        Text("按键高度"); Spacer()
+                        Text(preferences.settings.keyHeight == 50 ? "标准" : String(format: "%+.0f", preferences.settings.keyHeight - 50)).foregroundStyle(.secondary)
+                    }
                     Slider(value: $preferences.settings.keyHeight, in: 44...58, step: 1).accessibilityIdentifier("custom.keyHeight")
+                    Button("恢复标准高度") { preferences.settings.keyHeight = 50 }.accessibilityIdentifier("custom.resetHeight")
                 }
                 Picker("键盘宽度", selection: $preferences.settings.hand) { ForEach(HandMode.allCases) { Text($0.title).tag($0) } }.pickerStyle(.menu).accessibilityIdentifier("custom.hand")
                 if preferences.settings.hand != .full {

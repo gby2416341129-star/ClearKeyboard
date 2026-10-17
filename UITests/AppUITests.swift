@@ -21,7 +21,7 @@ import XCTest
         hex.typeText("#3399FF"); clear.buttons["custom.applyHex"].tap()
         if clear.keyboards.buttons["Done"].exists { clear.keyboards.buttons["Done"].tap() }
         let height = clear.sliders["custom.keyHeight"]; reveal(height, in: clear)
-        height.adjust(toNormalizedSliderPosition: 0.7); height.adjust(toNormalizedSliderPosition: 6.0 / 14)
+        height.adjust(toNormalizedSliderPosition: 0.7); clear.buttons["custom.resetHeight"].tap()
         let hand = clear.buttons["custom.hand"]; reveal(hand, in: clear)
         for title in ["左手", "右手", "标准"] { hand.tap(); clear.buttons.matching(identifier: title).firstMatch.tap() }
         let haptics = clear.switches["custom.haptics"]; reveal(haptics, in: clear); haptics.tap(); haptics.tap()
@@ -38,7 +38,9 @@ import XCTest
         XCTAssertTrue(settings.wait(for: .runningForeground, timeout: 10))
         tapSettingsText("General", in: settings)
         tapSettingsText("Keyboard", in: settings)
-        tapSettingsText("Keyboards", in: settings)
+        // The navigation title is also “Keyboards”; select the actual settings row.
+        let keyboardsRow = settings.cells.matching(identifier: "KEYBOARDS").firstMatch
+        XCTAssertTrue(keyboardsRow.waitForExistence(timeout: 5)); keyboardsRow.tap()
         if !settings.staticTexts["澈"].exists {
             let add = settings.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Add New Keyboard")).firstMatch
             if !add.waitForExistence(timeout: 20) {
@@ -77,7 +79,9 @@ import XCTest
         let q = safari.descendants(matching: .any).matching(identifier: "key.text.q").firstMatch
         let z = safari.descendants(matching: .any).matching(identifier: "key.text.z").firstMatch
         let language = safari.descendants(matching: .any).matching(identifier: "key.language").firstMatch
-        XCTAssertGreaterThanOrEqual(q.frame.height, 50, "Safari compressed the letter row: " + String(describing: q.frame))
+        XCTAssertEqual(q.frame.height, 56, accuracy: 0.5, "Safari compressed the letter row: " + String(describing: q.frame))
+        let a = safari.descendants(matching: .any).matching(identifier: "key.text.a").firstMatch
+        XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
         XCTAssertGreaterThan(z.frame.minY, q.frame.maxY)
         XCTAssertGreaterThanOrEqual(language.frame.minY, z.frame.maxY)
         let searchHeight = q.frame.height
@@ -85,7 +89,8 @@ import XCTest
         let multiline = safari.webViews.textViews.matching(identifier: "Safari multiline size check").firstMatch
         XCTAssertTrue(multiline.exists); multiline.tap(); chooseKeyboard(in: safari)
         XCTAssertEqual(q.frame.height, searchHeight, accuracy: 1)
-        XCTAssertGreaterThanOrEqual(q.frame.height, 50)
+        XCTAssertEqual(q.frame.height, 56, accuracy: 0.5)
+        XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
         attachment(safari, name: "safari-multiline-keyboard")
     }
 }

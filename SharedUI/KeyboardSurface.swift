@@ -15,8 +15,6 @@ import ImageIO
     private var keysContainer: UIView { keyGlassGroup.contentView }
     private var movingCursor = false
     private let sideRail = UIStackView()
-    private let status = UILabel()
-    private var statusWork: DispatchWorkItem?
     private var keys: [(KeyButton, Int, Double, Double)] = []
     private var layoutSignature = ""
     private var appearanceSignature = ""
@@ -35,8 +33,8 @@ import ImageIO
     private var rendering = false
     private var renderQueued = false
     private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
-    private var headerHeight: CGFloat { 44 }
-    var desiredHeight: CGFloat { headerHeight + CGFloat(model.settings.keyHeight + 6) * 4 + 8 }
+    private var headerHeight: CGFloat { KeyboardGeometry.headerHeight }
+    var desiredHeight: CGFloat { KeyboardGeometry.preferredHeight(keyHeight: model.settings.keyHeight) }
 
     init(model: KeyboardModel, systemBacked: Bool = false) {
         self.model = model; self.systemBacked = systemBacked; super.init(frame: .zero)
@@ -53,9 +51,6 @@ import ImageIO
         hint.textAlignment = .center; hint.isUserInteractionEnabled = false
         addSubview(keyGlassGroup); addSubview(sideRail)
         sideRail.axis = .vertical; sideRail.distribution = .fillEqually; sideRail.spacing = 6
-        addSubview(status); status.isHidden = true; status.textAlignment = .center
-        status.font = .systemFont(ofSize: 12); status.backgroundColor = .secondarySystemBackground
-        status.layer.cornerRadius = 10; status.clipsToBounds = true
         addSubview(deleteHint); deleteHint.isHidden = true; deleteHint.isUserInteractionEnabled = false
         deleteHint.font = .systemFont(ofSize: 13, weight: .semibold); deleteHint.textAlignment = .center
         deleteHint.textColor = .white; deleteHint.layer.cornerRadius = 10; deleteHint.clipsToBounds = true
@@ -94,9 +89,10 @@ import ImageIO
         candidateStack.layoutIfNeeded()
         candidateScroll.contentSize = CGSize(width: candidateStack.frame.width + 12, height: 48)
         hint.frame = candidateScroll.frame
-        status.frame = CGRect(x: origin + 12, y: 2, width: max(0, width - 24), height: 40)
-        keyGlassGroup.frame = CGRect(x: origin, y: headerHeight, width: width, height: max(0, bounds.height - headerHeight))
-        let unit = width / 10, rowHeight = KeyboardGeometry.rowHeight(availableHeight: bounds.height, header: headerHeight, preferred: CGFloat(settings.keyHeight + 6))
+        let gridInset = min(KeyboardGeometry.horizontalInset, width / 2)
+        let gridWidth = max(0, width - gridInset * 2)
+        keyGlassGroup.frame = CGRect(x: origin + gridInset, y: headerHeight, width: gridWidth, height: max(0, bounds.height - headerHeight))
+        let unit = gridWidth / 10, rowHeight = KeyboardGeometry.rowHeight(availableHeight: bounds.height, header: headerHeight, preferred: CGFloat(settings.keyHeight + 6))
         for (button, row, start, units) in keys {
             button.frame = CGRect(x: CGFloat(start) * unit, y: CGFloat(row) * rowHeight, width: CGFloat(units) * unit, height: rowHeight)
         }
@@ -133,8 +129,8 @@ import ImageIO
                     button.onDeleteHint = { [weak self, weak button] direction in self?.showDeleteHint(direction, near: button) }
                     button.onDeleteSwipe = { [weak self] clear in
                         guard let self else { return }
-                        if clear { self.model.clearInput(); self.showStatus(self.model.canUndoClearInput ? "已清空，下滑删除键可撤回" : "没有可清空的输入") }
-                        else { self.showStatus(self.model.undoClearInput() ? "已恢复删除的内容" : "没有可撤回的删除") }
+                        if clear { self.model.clearInput() }
+                        else { _ = self.model.undoClearInput() }
                     }
                     keysContainer.addSubview(button); keys.append((button, rowIndex, start, key.units)); start += key.units
                 }
@@ -253,7 +249,7 @@ import ImageIO
         var tools = model.settings.toolbar
         if pinned {
             guard !tools.contains(tool) else { return }
-            guard tools.filter({ $0 != .language }).count < 3 else { showStatus("先移除一个工具，再添加"); return }
+            guard tools.filter({ $0 != .language }).count < 3 else { announce("先移除一个工具，再添加"); return }
             tools.append(tool)
         } else { tools.removeAll { $0 == tool } }
         model.settings.toolbar = tools
@@ -319,13 +315,10 @@ import ImageIO
         } else if tool == .language { closePanel(); model.toggleLanguage() }
         else { showPanel(tool) }
     }
-    func stopInteractions() { keys.forEach { $0.0.stopTracking() }; setCursorMode(false); statusWork?.cancel(); status.isHidden = true; closePanel() }
-    private func showStatus(_ text: String) {
-        statusWork?.cancel(); status.text = text; status.textColor = model.settings.accentInkColor
-        status.isHidden = false; bringSubviewToFront(status)
+    func stopInteractions() { keys.forEach { $0.0.stopTracking() }; setCursorMode(false); closePanel() }
+    private func announce(_ text: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)
-        let hide = DispatchWorkItem { [weak self] in self?.status.isHidden = true }
-        statusWork = hide; DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: hide)
     }
     private func panelStack(title: String) -> UIStackView {
         let container = UIView(); container.backgroundColor = .clear
@@ -462,7 +455,7 @@ import ImageIO
                 guard let self else { return }
                 if let attachment = clip.attachment, let data = store.attachmentData(for: clip) {
                     UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
-                    self.closePanel(); self.showStatus("已复制，请在输入框粘贴")
+                    self.closePanel(); self.announce("已复制，请在输入框粘贴")
                 } else { self.model.insertLiteral(clip.text); self.closePanel() }
             }
             if clip.attachment?.typeIdentifier.hasPrefix("public.") == true, let data = store.attachmentData(for: clip),
@@ -500,7 +493,7 @@ import ImageIO
     }
     private func copySticker(_ title: String, emoji: String) {
         guard model.document?.fullAccess == true else {
-            showStatus("图片贴纸需要完全访问；文字表情可直接输入。")
+            announce("图片贴纸需要完全访问；文字表情可直接输入。")
             return
         }
         let color = model.settings.accentColor
@@ -513,6 +506,6 @@ import ImageIO
             _ = context
         }
         if let data = image.pngData() { UIPasteboard.general.setItems([["public.png": data]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)]) }
-        showStatus("贴纸已复制，请在消息框粘贴")
+        announce("贴纸已复制，请在消息框粘贴")
     }
 }

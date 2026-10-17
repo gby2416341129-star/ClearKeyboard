@@ -137,6 +137,46 @@ import UIKit
         let full = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "onehand.full" })
         full.sendActions(for: .touchUpInside); XCTAssertEqual(controller.model.settings.hand, .full)
     }
+    func testClearAndRestoreNeverCoverNewCandidatesWithAStatusBanner() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: 600)
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        let delete = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyButton }.first { $0.key.action == .delete })
+        for letter in "nihao" { controller.model.handle(.text(String(letter))) }
+        delete.onDeleteSwipe?(true)
+        delete.onDeleteSwipe?(false)
+        XCTAssertEqual(controller.model.composition.raw, "nihao")
+        delete.onDeleteSwipe?(true)
+        for letter in "nihao" { controller.model.handle(.text(String(letter))) }
+        try await waitFor { controller.model.candidatesAreCurrent }
+        controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        surface.layoutIfNeeded()
+        let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你好" })
+        XCTAssertTrue(candidate.isEnabled)
+        let point = candidate.convert(CGPoint(x: candidate.bounds.midX, y: candidate.bounds.midY), to: surface)
+        XCTAssertTrue(surface.hitTest(point, with: nil) === candidate, "New candidates must remain touchable immediately after clearing")
+        XCTAssertFalse(descendants(surface).compactMap { $0 as? UILabel }.contains { ($0.text ?? "").hasPrefix("已清空") || ($0.text ?? "").hasPrefix("已恢复删除") })
+    }
+    func testDefaultKeyFacesAndSpacingMatchTheAirReferenceInEveryHandMode() throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        for hand in HandMode.allCases {
+            controller.model.settings.hand = hand
+            surface.frame = CGRect(x: 0, y: 0, width: 420, height: surface.desiredHeight)
+            surface.setNeedsLayout(); surface.layoutIfNeeded()
+            let keys = descendants(surface).compactMap { $0 as? KeyButton }
+            let q = try XCTUnwrap(keys.first { $0.key.action == .text("q") })
+            let a = try XCTUnwrap(keys.first { $0.key.action == .text("a") })
+            q.setNeedsLayout(); q.layoutIfNeeded()
+            let face = try XCTUnwrap(q.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+            XCTAssertEqual(q.bounds.height, 56, accuracy: 0.1)
+            XCTAssertEqual(face.bounds.height, 45, accuracy: 0.1)
+            XCTAssertEqual(a.convert(a.bounds, to: surface).minY - q.convert(q.bounds, to: surface).minY, 56, accuracy: 0.1)
+        }
+    }
     private func snapshot(_ view: UIView, name: String) {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
         let image = UIGraphicsImageRenderer(bounds: view.bounds).image { _ in view.drawHierarchy(in: view.bounds, afterScreenUpdates: true) }
