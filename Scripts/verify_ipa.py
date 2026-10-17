@@ -69,11 +69,18 @@ def verify(path):
             for resource in ("pinyin.clx", "english.clx"):
                 with archive.open(prefix + resource) as stream:
                     require(stream.read(8) == b"CLRX0001", "Missing or incorrect offline dictionary")
+            corrections = archive.read(prefix + 'pinyin-corrections.clx')
+            require(len(corrections) >= 48 and corrections[:8] == b'CLRC0001', 'Missing spelling-correction index')
+            words, records = struct.unpack_from('<2I', corrections, 8)
+            require(len(corrections) == 48 + records * 12, 'Truncated spelling-correction index')
+            dictionary = archive.read(prefix + 'pinyin.clx')
+            require(words == struct.unpack_from('<I', dictionary, 8)[0], 'Spelling index uses a different vocabulary')
+            require(corrections[16:48] == hashlib.sha256(dictionary).digest(), 'Spelling index source checksum mismatch')
             require(prefix + "PrivacyInfo.xcprivacy" in names, "Privacy manifest missing")
             bundles.append({"bundleIdentifier": identifier, **binary})
     return {
         "status": "passed",
-        "checks": "ZIP integrity, bundle metadata, extension registration, executable permissions, arm64 iOS load commands, offline dictionaries, privacy manifests",
+        "checks": "ZIP integrity, bundle metadata, extension registration, executable permissions, arm64 iOS load commands, offline dictionaries, spelling-correction index and source checksum, privacy manifests",
         "bundles": bundles,
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "signing": "unsigned build; no signing verification performed",

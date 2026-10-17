@@ -40,6 +40,47 @@ final class EngineTests: XCTestCase {
             XCTAssertFalse(values.contains { $0.text.contains("妇女啊") })
         }
     }
+    func testLegalPinyinTypoUsesSentenceRanking() {
+        for spelling in ["nichifankema", "nichifamlema", "nichfanlema", "nichifnlema", "nichifnalema"] {
+            let values = engine.candidates(spelling)
+            XCTAssertEqual(values.first?.text, "你吃饭了吗", spelling)
+            XCTAssertEqual(values.first?.reading, "ni chi fan le ma", spelling)
+            XCTAssertEqual(values.first?.consumed, spelling.count, spelling)
+        }
+    }
+    func testTwoIndependentTyposAreCorrectedWithoutASentenceSpecificEntry() {
+        XCTAssertEqual(engine.candidates("nichjfankema").first?.text, "你吃饭了吗")
+        XCTAssertEqual(engine.candidates("shangahi").first?.text, "上海")
+        XCTAssertEqual(engine.candidates("shanghaai").first?.text, "上海")
+        XCTAssertTrue(engine.chinese.lookup("e:nichifanlema").isEmpty, "The sentence must be decoded from words, not patched into the lexicon")
+    }
+    func testTypoCandidatesKeepTheLiteralReadingAvailable() {
+        let spelling = "nichifankema", values = engine.candidates(spelling)
+        XCTAssertTrue(values.contains { $0.reading.replacingOccurrences(of: " ", with: "") == spelling })
+        XCTAssertTrue(values.allSatisfy { $0.consumed == spelling.count })
+    }
+    func testCorrectSentencesAndNamesRemainStableWithCorrectionEnabled() {
+        for (input, expected) in ["woyaoshangke": "我要上课", "nizainalishangke": "你在哪里上课",
+                                  "woshilaoshi": "我是老师", "nishilaoshima": "你是老师吗",
+                                  "woxiangqubeijing": "我想去北京", "woxihuanhecha": "我喜欢喝茶",
+                                  "nikeyibangwoma": "你可以帮我吗", "womenmingtianjian": "我们明天见",
+                                  "beijingdaxue": "北京大学", "nihaohd": "你好好的"] {
+            XCTAssertEqual(engine.candidates(input).first?.text, expected, input)
+        }
+    }
+    func testCancelledTypoSearchDoesNotCacheAnIncompleteResult() {
+        var checks = 0
+        XCTAssertTrue(engine.candidates("nichjfankema", cancelled: { checks += 1; return checks > 180 }).isEmpty)
+        XCTAssertEqual(engine.candidates("nichjfankema").first?.text, "你吃饭了吗")
+    }
+    func testTypoTypingAndBackspaceMatchFreshQueries() {
+        let spelling = "nichifankema"
+        let prefixes = (1...spelling.count).map { String(spelling.prefix($0)) }
+        for input in prefixes + Array(prefixes.reversed()) + ["nichifanlema", "nichifankema"] {
+            let fresh = InputEngine(chinese: engine.chinese, english: engine.english)
+            XCTAssertEqual(engine.candidates(input), fresh.candidates(input), input)
+        }
+    }
     func testIncompleteFinalSyllableKeepsSentenceCandidates() {
         for (spelling, expected) in ["chif": "吃饭", "laop": "老婆", "nichifanlemeilaop": "你吃饭了没老婆"] {
             XCTAssertEqual(engine.candidates(spelling).first?.text, expected, spelling)

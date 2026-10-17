@@ -461,6 +461,28 @@ import UIKit
         XCTAssertEqual(controller.textView.text, "你吃饭了没老婆")
         XCTAssertNil(controller.textView.markedTextRange)
     }
+    func testLegalPinyinTypoCommitsCorrectChineseWithoutChangingLayout() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        defer { controller.model.suspend() }
+        controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: 700)
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        let spelling = "nichifankema"
+        for letter in spelling { controller.model.handle(.text(String(letter))) }
+        try await waitFor { controller.model.candidatesAreCurrent }
+        settleLayout(controller.view)
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        surface.layoutIfNeeded()
+        let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("q") })
+        XCTAssertEqual(surface.desiredHeight, 276)
+        XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
+        XCTAssertEqual(controller.textView.text, spelling)
+        XCTAssertNotNil(controller.textView.markedTextRange)
+        XCTAssertEqual(controller.model.candidates.first?.text, "你吃饭了吗")
+        let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你吃饭了吗" })
+        XCTAssertTrue(candidate.isEnabled); candidate.sendActions(for: .touchUpInside)
+        XCTAssertEqual(controller.textView.text, "你吃饭了吗")
+        XCTAssertNil(controller.textView.markedTextRange)
+    }
     func testSystemPasteControlSavesProvidedTextWithoutReadingClipboard() async throws {
         let suite = "clear.paste.tests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

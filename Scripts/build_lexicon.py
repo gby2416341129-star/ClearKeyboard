@@ -124,6 +124,8 @@ def main():
                 "pinyin": compile_dictionary(chinese, resources / "pinyin.clx", True),
                 "english": compile_dictionary(english, resources / "english.clx", False)}
     (ROOT / "Data" / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    from build_spelling_index import compile_index
+    manifest["pinyinCorrections"] = compile_index()
     print(json.dumps(manifest, indent=2))
 
 if __name__ == "__main__":

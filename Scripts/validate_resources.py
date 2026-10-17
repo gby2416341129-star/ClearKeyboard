@@ -62,6 +62,23 @@ def main():
             assert any(entry[1] == "hello" for entry in dictionary.lookup("p:hell"))
             assert any(entry[1] == "keyboard" for entry in dictionary.lookup("p:keyb"))
         checks.append(f"{name}: representative exact/prefix/continuation lookups passed")
+    correction_path = ROOT / 'Core/Resources/pinyin-corrections.clx'
+    correction = correction_path.read_bytes()
+    expected = manifest['pinyinCorrections']
+    assert hashlib.sha256(correction).hexdigest() == expected['sha256']
+    assert correction[:8] == b'CLRC0001'
+    word_count, record_count = struct.unpack_from('<2I', correction, 8)
+    assert word_count == manifest['pinyin']['entries'] and record_count == expected['records']
+    assert len(correction) == 48 + record_count * 12 == expected['bytes']
+    assert correction[16:48].hex() == manifest['pinyin']['sha256'] == expected['lexiconSHA256']
+    previous, bucket_count = None, 0
+    for fingerprint, identifier in struct.iter_unpack('<QI', correction[48:]):
+        assert identifier < word_count
+        assert previous is None or fingerprint >= previous
+        bucket_count = bucket_count + 1 if fingerprint == previous else 1
+        assert bucket_count <= 24
+        previous = fingerprint
+    checks.append(f'pinyin corrections: all {record_count} mapped records, bounded buckets and source checksum validated')
     for path in list((ROOT / "Config").glob("*.plist")) + list((ROOT / "Config").glob("*.entitlements")) + list((ROOT / "Config").glob("*.xcprivacy")):
         with path.open("rb") as stream: plistlib.load(stream)
     checks.append("all property lists, entitlements and privacy manifests parsed")

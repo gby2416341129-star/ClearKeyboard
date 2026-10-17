@@ -13,11 +13,32 @@ final class CandidateLatencyTests: XCTestCase {
     }
     func testSpellingRepairIsBoundedAndCancellable() throws {
         let engine = try InputEngine.bundled()
-        XCTAssertTrue(PinyinSpelling.repairs("nichifnalemeilaopo", near: 5).contains { $0.0 == "nichifanlemeilaopo" })
-        XCTAssertLessThanOrEqual(PinyinSpelling.repairs("llllllllp", near: 0).count, 24)
+        XCTAssertEqual(PinyinSpelling.editPenalty("chifna", "chifan"), 1.5)
+        XCTAssertEqual(PinyinSpelling.editPenalty("chifn", "chifan"), 3.5)
+        XCTAssertLessThan(try XCTUnwrap(PinyinSpelling.editPenalty("ke", "le")), try XCTUnwrap(PinyinSpelling.editPenalty("ke", "de")))
+        XCTAssertNil(PinyinSpelling.editPenalty("zzzz", "chifan"))
+        let index = try PinyinCorrectionIndex.bundled(lexiconCount: engine.chinese.count)
+        XCTAssertTrue(index.matches("kema", lexicon: engine.chinese).contains { $0.0.text == "了吗" })
+        XCTAssertTrue(index.matches(String(repeating: "z", count: 14), lexicon: engine.chinese).isEmpty)
         var checks = 0
         XCTAssertTrue(engine.candidates("nichifnalemeilaopo", cancelled: { checks += 1; return checks > 35 }).isEmpty)
         XCTAssertEqual(engine.candidates("nichifnalemeilaopo").first?.text, "你吃饭了没老婆")
+    }
+    func testTypoCorrectionLatencyDuringIncrementalTyping() throws {
+        let engine = try InputEngine.bundled()
+        let strings = ["nichifankema", "nichjfankema", "womenjintianquchifan", "nichifnalemeilaopo"]
+        var timings: [Double] = []
+        for input in strings {
+            for length in 1...input.count {
+                let start = ProcessInfo.processInfo.systemUptime
+                _ = engine.candidates(String(input.prefix(length)))
+                timings.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+            }
+        }
+        timings.sort()
+        let p95 = timings[Int(Double(timings.count - 1) * 0.95)]
+        print("TYPO_CANDIDATE_LATENCY queries=\(timings.count) p95Ms=\(p95) maxMs=\(timings.last!)")
+        XCTAssertLessThan(p95, 200, "Bounded typo matching must remain interactive in a debug simulator build")
     }
     func testCancelledSentenceLeavesReusableCorrectPrefix() throws {
         let engine = try InputEngine.bundled()

@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 public enum FuzzyPinyin {
     public static let availablePairs = ["z/zh", "c/ch", "s/sh", "n/l", "f/h", "an/ang", "en/eng", "in/ing"]
@@ -45,46 +46,94 @@ enum PinyinSpelling {
         }
         return furthest
     }
-    static func repairs(_ input: String, near stalled: Int) -> [(String, Double)] {
-        let chars = Array(input), count = chars.count
-        guard count > 1 else { return [] }
-        let lower = max(0, stalled - 2), upper = min(count - 1, stalled + 5)
-        var seen: Set<String> = [input], output: [(String, Double)] = []
-        func add(_ value: [Character], penalty: Double) {
-            let word = String(value)
-            guard seen.insert(word).inserted, reachablePrefix(word) == value.count else { return }
-            output.append((word, penalty))
-        }
-        // Adjacent transpositions are common fast-typing errors, and preserve every typed letter.
-        for index in lower...upper where index + 1 < count && chars[index] != chars[index + 1] {
-            var value = chars; value.swapAt(index, index + 1); add(value, penalty: 1.5)
-        }
-        for index in lower...upper {
-            var value = chars; value.remove(at: index)
-            add(value, penalty: index > 0 && chars[index] == chars[index - 1] ? 2.5 : 5)
-        }
-        // Missing letters are searched only around the first invalid syllable, never over the whole sentence.
-        for index in lower...min(count, upper + 1) {
-            for letter in "aeiouvnghrbcdfjklmpqstwxyz" {
-                var value = chars; value.insert(letter, at: index); add(value, penalty: 3.5)
+    private static let keyPositions: [UInt8: CGPoint] = {
+        var positions: [UInt8: CGPoint] = [:]
+        for (row, value) in ["qwertyuiop", "asdfghjkl", "zxcvbnm"].enumerated() {
+            for (column, byte) in value.utf8.enumerated() {
+                positions[byte] = CGPoint(x: Double(column) + [0.0, 0.25, 0.75][row], y: Double(row))
             }
         }
-        let rows = [Array("qwertyuiop"), Array("asdfghjkl"), Array("zxcvbnm")]
-        for index in lower...upper {
-            for (row, letters) in rows.enumerated() {
-                guard let column = letters.firstIndex(of: chars[index]) else { continue }
-                for otherRow in max(0, row - 1)...min(2, row + 1) {
-                    let first = max(0, column - 1), last = min(rows[otherRow].count - 1, column + 1)
-                    guard first <= last else { continue }
-                    for otherColumn in first...last {
-                        let letter = rows[otherRow][otherColumn]
-                        if letter != chars[index] {
-                            var value = chars; value[index] = letter; add(value, penalty: 4)
-                        }
-                    }
-                }
+        return positions
+    }()
+    /// One typo per lexical word; the sentence decoder controls the total edit budget.
+    static func editPenalty(_ raw: String, _ expected: String) -> Double? {
+        let a = Array(raw.utf8), b = Array(expected.utf8)
+        guard a != b, abs(a.count - b.count) <= 1 else { return nil }
+        if a.count == b.count {
+            let differences = a.indices.filter { a[$0] != b[$0] }
+            if differences.count == 2 {
+                let i = differences[0], j = differences[1]
+                return j == i + 1 && a[i] == b[j] && a[j] == b[i] ? 1.5 : nil
             }
+            guard differences.count == 1, let p = keyPositions[a[differences[0]]], let q = keyPositions[b[differences[0]]] else { return nil }
+            let distance = (p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y)
+            return distance <= 2.3 ? 2.4 : 4.5
         }
-        return Array(output.sorted { $0.1 == $1.1 ? $0.0 < $1.0 : $0.1 < $1.1 }.prefix(24))
+        let short = a.count < b.count ? a : b, long = a.count < b.count ? b : a
+        for index in long.indices where Array(long[..<index]) + Array(long[(index + 1)...]) == short {
+            if a.count < b.count { return 3.5 }
+            return index > 0 && long[index] == long[index - 1] ? 1.8 : 4
+        }
+        return nil
+    }
+}
+
+/// CLRC0001: header(48), sorted fingerprint/lexicon-ID records(12 each).
+/// The precompiled index remains mapped; no word trie or expanded signature dictionary is built at startup.
+final class PinyinCorrectionIndex {
+    private let data: Data
+    private let count: Int
+    init(url: URL, lexiconCount: Int) throws {
+        let bytes = try Data(contentsOf: url, options: .mappedIfSafe)
+        guard bytes.count >= 48, bytes.prefix(8) == Data("CLRC0001".utf8) else { throw LexiconError.invalidFormat }
+        let words = bytes.withUnsafeBytes { Int(UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: 8, as: UInt32.self))) }
+        let records = bytes.withUnsafeBytes { Int(UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: 12, as: UInt32.self))) }
+        guard words == lexiconCount, records <= (bytes.count - 48) / 12, 48 + records * 12 == bytes.count else { throw LexiconError.truncated }
+        data = bytes; count = records
+    }
+    static func bundled(lexiconCount: Int) throws -> PinyinCorrectionIndex {
+        #if SWIFT_PACKAGE
+        let bundle = Bundle.module
+        #else
+        let bundle = Bundle.main
+        #endif
+        guard let url = bundle.url(forResource: "pinyin-corrections", withExtension: "clx") else { throw LexiconError.invalidFormat }
+        return try PinyinCorrectionIndex(url: url, lexiconCount: lexiconCount)
+    }
+    private static func signature(_ bytes: [UInt8], skipping: Int? = nil) -> UInt64 {
+        var result: UInt64 = 0xCBF29CE484222325
+        for index in bytes.indices where index != skipping { result = (result ^ UInt64(bytes[index])) &* 0x100000001B3 }
+        return result
+    }
+    private func ids(for fingerprint: UInt64) -> [Int] {
+        data.withUnsafeBytes { raw in
+            func hash(_ index: Int) -> UInt64 { UInt64(littleEndian: raw.loadUnaligned(fromByteOffset: 48 + index * 12, as: UInt64.self)) }
+            var low = 0, high = count
+            while low < high { let mid = (low + high) / 2; if hash(mid) < fingerprint { low = mid + 1 } else { high = mid } }
+            var result: [Int] = []
+            while low < count, result.count < 24, hash(low) == fingerprint {
+                result.append(Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: 56 + low * 12, as: UInt32.self)))); low += 1
+            }
+            return result
+        }
+    }
+    func matches(_ input: String, lexicon: Lexicon, cancelled: () -> Bool = { false }) -> [(LexiconEntry, Double)] {
+        let bytes = Array(input.utf8)
+        guard (2...13).contains(bytes.count) else { return [] }
+        var identifiers = Set(ids(for: Self.signature(bytes))), additional: [LexiconEntry] = []
+        for index in bytes.indices {
+            if cancelled() { return [] }
+            identifiers.formUnion(ids(for: Self.signature(bytes, skipping: index)))
+            let shorter = String(decoding: Array(bytes[..<index]) + Array(bytes[(index + 1)...]), as: UTF8.self)
+            additional += lexicon.lookup("e:" + shorter, limit: 3)
+        }
+        var seen = Set<String>(), result: [(LexiconEntry, Double)] = []
+        for entry in identifiers.sorted().compactMap({ lexicon.entry($0) }) + additional {
+            if cancelled() { return [] }
+            guard seen.insert(entry.key + ":" + entry.text).inserted,
+                  let penalty = PinyinSpelling.editPenalty(input, entry.key) else { continue }
+            result.append((entry, penalty))
+        }
+        return result
     }
 }
