@@ -126,7 +126,7 @@ import UIKit
                 let group = UIGlassContainerEffect(); group.spacing = 0; keyGlassGroup.effect = group
                 let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
                 glass.tintColor = settings.accentColor.withAlphaComponent(0.06)
-                toolbarGlass.cornerConfiguration = .fixed(19); toolbarGlass.effect = glass
+                toolbarGlass.cornerConfiguration = .corners(radius: .fixed(19)); toolbarGlass.effect = glass
             } else {
                 keyGlassGroup.effect = nil
                 toolbarGlass.effect = reduced ? nil : UIBlurEffect(style: .systemThinMaterial)

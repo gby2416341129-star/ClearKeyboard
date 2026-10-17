@@ -104,7 +104,7 @@ final class KeyButton: UIButton {
             let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
             glass.tintColor = settings.accentColor.withAlphaComponent(key.action == .enter ? 0.24 : 0.035)
             glass.isInteractive = !UIAccessibility.isReduceMotionEnabled
-            plate.cornerConfiguration = .fixed(8)
+            plate.cornerConfiguration = .corners(radius: .fixed(8))
             plate.effect = glass; plate.backgroundColor = .clear
             plate.layer.borderWidth = 0; plate.layer.shadowOpacity = 0
         } else {
