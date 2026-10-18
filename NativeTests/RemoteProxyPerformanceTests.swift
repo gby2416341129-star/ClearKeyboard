@@ -155,6 +155,20 @@ import UIKit
         model.chooseDisplayed(candidate, context: context)
         XCTAssertEqual(proxy.before, "另一位置nihao")
     }
+    func testVisibleCompletionConsumesLaterLettersWithinItsReading() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "nih" { model.handle(.text(String(character))) }
+        let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你好" }), context = model.candidateContext
+        for character in "aoma" { model.handle(.text(String(character))) }
+        model.chooseDisplayed(candidate, context: context)
+        XCTAssertEqual(proxy.before, "你好ma", "Completed hao belongs to 你好; only the following word stays marked")
+        XCTAssertEqual(model.composition.raw, "ma")
+    }
     func testCandidateCollectionPinsResultsThroughMomentumAndReversals() async throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)

@@ -395,6 +395,8 @@ import SwiftUI
     func testInlineArithmeticThroughKeyboardPages() async throws {
         let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
         defer { controller.model.suspend() }
+        controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: 600)
+        settleLayout(controller.view)
         controller.model.handle(.page(.numbers))
         controller.model.handle(.text("9")); controller.model.handle(.text("9"))
         controller.model.handle(.page(.letters)); controller.model.handle(.text("x"))
@@ -402,7 +404,10 @@ import SwiftUI
         controller.model.handle(.text("8")); controller.model.handle(.text("8"))
         XCTAssertEqual(controller.textView.text, "99x88")
         XCTAssertEqual(controller.model.arithmetic?.candidates, ["8712", "99x88=8712"])
+        settleLayout(controller.view)
         let result = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.8712" })
+        let point = result.convert(CGPoint(x: result.bounds.midX, y: result.bounds.midY), to: controller.view)
+        XCTAssertTrue(controller.view.hitTest(point, with: nil)?.isDescendant(of: result) == true)
         XCTAssertTrue(result.isEnabled); result.sendActions(for: .touchUpInside)
         XCTAssertEqual(controller.textView.text, "8712")
     }

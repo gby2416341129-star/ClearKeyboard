@@ -263,6 +263,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?) {
         guard !awaitingCommit, let context, let current = activeCandidateContext(), let document,
               document.selectedText.isEmpty else { return }
+        var selected = candidate
+        var learningRaw = context.raw
         if context != current {
             // A finger can reach a visible prefix word before sentence decoding
             // catches up with the next letters. Commit only that prefix and keep
@@ -274,9 +276,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
                   context.document == current.document, context.after == current.after,
                   context.before.hasSuffix(context.raw), current.before.hasSuffix(current.raw),
                   context.before.dropLast(context.raw.count) == current.before.dropLast(current.raw.count) else { return }
+            // A completed word may have been shown for an unfinished final
+            // syllable (nih -> 你好). Consume letters subsequently typed inside
+            // that same reading too, while retaining any following word.
+            let old = FuzzyPinyin.normalize(context.raw), typed = composition.normalized
+            let reading = FuzzyPinyin.normalize(candidate.reading)
+            if candidate.consumed == old.count, reading.hasPrefix(old) {
+                let consumed = reading.hasPrefix(typed) ? typed.count : (typed.hasPrefix(reading) ? reading.count : candidate.consumed)
+                selected = Candidate(text: candidate.text, reading: candidate.reading, consumed: consumed, score: candidate.score)
+            }
+            var remainder = composition; remainder.consume(selected.consumed)
+            learningRaw = String(composition.raw.dropLast(remainder.raw.count))
         }
         guard document.validateCandidate(before: current.before, after: current.after, identity: current.document) else { return }
-        commitChoice(candidate, document: document, learningRaw: context.raw)
+        commitChoice(selected, document: document, learningRaw: learningRaw)
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument, learningRaw: String? = nil) {
         if settings.language == .chinese {
