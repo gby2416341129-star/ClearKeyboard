@@ -12,6 +12,7 @@ import UIKit
         controller.proxy = proxy; controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: 276); controller.view.layoutIfNeeded()
         let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
         proxy.reads = 0; proxy.readDelay = 0.008
@@ -33,6 +34,7 @@ import UIKit
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
         let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
         for character in "nihao" { model.handle(.text(String(character))) }
@@ -49,6 +51,7 @@ import UIKit
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
         let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
         proxy.reads = 0; proxy.contextReads = 0; proxy.readDelay = 0.008
@@ -94,3 +97,4 @@ import UIKit
         before = String(text.prefix(index)); after = String(text.dropFirst(index)); markedLength = 0
     }
 }
+
