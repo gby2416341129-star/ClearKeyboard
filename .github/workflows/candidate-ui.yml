@@ -1,0 +1,40 @@
+name: Verify candidate gestures
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'UITests/**'
+      - 'Scripts/test-candidates-ui.sh'
+      - 'Scripts/test-candidate-gestures.sh'
+      - '.github/workflows/candidate-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate-gestures:
+    runs-on: macos-26
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare verified offline language resources
+        run: python3 Scripts/prepare_rime.py
+      - name: Build simulator app and run candidate gestures
+        run: bash Scripts/test-candidate-gestures.sh
+      - name: Upload focused test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-candidate-gestures
+          path: |
+            .build/candidate-ui-build.log
+            .build/candidate-ui-tests.log
+            .build/native-boot.log
+            .build/UITestDiagnostics/candidate-summary.json
+          retention-days: 7

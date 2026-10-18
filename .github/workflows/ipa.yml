@@ -3,6 +3,11 @@ name: Build unsigned iPhone IPA
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'UITests/**'
+      - 'Scripts/test-candidates-ui.sh'
+      - 'Scripts/test-candidate-gestures.sh'
+      - '.github/workflows/candidate-ui.yml'
   workflow_dispatch:
     inputs:
       safari_ui:
