@@ -37,6 +37,7 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
         textView.inputView = UIView(frame: .zero)
         textView.autocorrectionType = .no; textView.spellCheckingType = .no
         textView.delegate = self; textView.accessibilityLabel = "输入体验区"
+        textView.accessibilityIdentifier = "practice.input"
         rememberSelection()
         view.addSubview(textView)
         placeholder.text = "试试输入 nihao 或 hello"; placeholder.font = .systemFont(ofSize: 14)

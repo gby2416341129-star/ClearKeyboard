@@ -59,6 +59,9 @@ jobs:
       - name: Run native keyboard startup and candidate tests
         timeout-minutes: 18
         run: bash Scripts/test-native.sh
+      - name: Verify candidate flick and tap gestures
+        timeout-minutes: 5
+        run: bash Scripts/test-candidates-ui.sh
       - name: Exercise Safari keyboard position and input switching
         if: github.event_name == 'workflow_dispatch' && inputs.safari_ui
         timeout-minutes: 15
@@ -70,6 +73,7 @@ jobs:
           name: ClearKeyboard-native-diagnostics
           path: |
             .build/native-tests.log
+            .build/candidate-ui-tests.log
             .build/native-build.log
             .build/native-boot.log
             .build/NativeDiagnostics/result-summary.json
@@ -79,5 +83,6 @@ jobs:
             .build/observer-reproduction.log
             .build/ui-tests.log
             .build/UITestDiagnostics/result-summary.json
+            .build/UITestDiagnostics/candidate-summary.json
             .build/UITestDiagnostics/runtime.log
           retention-days: 7

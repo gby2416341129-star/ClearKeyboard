@@ -22,6 +22,13 @@ import os
     func unmarkText()
     func clearInput() -> DeletedInput?
     func restoreInput(_ value: DeletedInput) -> Bool
+    func validateCandidate(before: String, after: String, identity: String) -> Bool
+}
+
+extension KeyboardDocument {
+    func validateCandidate(before: String, after: String, identity: String) -> Bool {
+        selectedText.isEmpty && documentIdentity == identity && contextBefore == before && contextAfter == after
+    }
 }
 
 struct DeletedInput { let text: String; let selection: NSRange }
@@ -50,6 +57,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     var candidatesAreCurrent: Bool { candidateGeneration == generation }
     private(set) var engineState = "离线词库加载中…"
     var onChange: (() -> Void)?
+    var onCandidatesChange: (() -> Void)?
+    private func notifyCandidates() { if let onCandidatesChange { onCandidatesChange() } else { onChange?() } }
     let clipboardCapture = ClipboardCapture()
     private var clipboardActive = false
     private var store: SettingsStore
@@ -250,7 +259,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
         context != nil && context == requestedContext
     }
     func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?) {
-        guard !awaitingCommit, acceptsCandidateContext(context), let document else { return }
+        guard !awaitingCommit, acceptsCandidateContext(context), let context, let document,
+              document.validateCandidate(before: context.before, after: context.after, identity: context.document) else { return }
         commitChoice(candidate, document: document)
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument) {
@@ -318,14 +328,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let raw = composition.raw, settings = self.settings, learned = self.learned
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
         if !preferred.isEmpty {
-            candidates = preferred; candidateGeneration = requestedGeneration; candidateContext = queryContext; onChange?()
+            candidates = preferred; candidateGeneration = requestedGeneration; candidateContext = queryContext; notifyCandidates()
         }
         englishSnapshot = context
         let job = DispatchWorkItem { [weak self] in
             guard !token.isCancelled else { return }
             let result: [Candidate]
             if settings.language == .chinese {
-                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, limit: 6, cancelled: { token.isCancelled })
+                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, cancelled: { token.isCancelled })
             } else {
                 let word = EnglishContext.word(in: context)
                 result = word.isEmpty ? (settings.predictions ? engine.englishPredictions(after: context) : []) : engine.englishCandidates(prefix: word)
@@ -334,24 +344,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
             DispatchQueue.main.async {
                 guard let self, self.generation == requestedGeneration else { return }
                 self.candidates = result; self.candidateGeneration = requestedGeneration
-                self.candidateContext = queryContext; self.onChange?()
+                self.candidateContext = queryContext; self.notifyCandidates()
                 if self.awaitingCommit {
                     self.awaitingCommit = false
                     if self.deferredContext == queryContext { self.resumeDeferredActions() }
                     else { self.deferredActions = []; self.deferredContext = nil }
-                }
-            }
-            // The first visible row never waits for offscreen alternatives.
-            // Expand only after a short idle interval; another key cancels it.
-            if settings.language == .chinese, !raw.isEmpty {
-                self?.queue.asyncAfter(deadline: .now() + 0.10) { [weak self] in
-                    guard !token.isCancelled else { return }
-                    let expanded = engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, cancelled: { token.isCancelled })
-                    guard !token.isCancelled else { return }
-                    DispatchQueue.main.async {
-                        guard let self, self.generation == requestedGeneration else { return }
-                        self.candidates = expanded; self.onChange?()
-                    }
                 }
             }
         }

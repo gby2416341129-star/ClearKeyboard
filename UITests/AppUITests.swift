@@ -8,6 +8,33 @@ import XCTest
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<7 { if element.exists && element.isHittable { return }; app.swipeUp() }
     }
+    func testCandidateRibbonFlicksAndTapCommit() throws {
+        continueAfterFailure = false; clear.launch()
+        let practice = clear.buttons["home.practice"]; reveal(practice, in: clear); practice.tap()
+        let language = clear.buttons["key.language"]; XCTAssertTrue(language.waitForExistence(timeout: 5))
+        if language.label.hasPrefix("英文") { language.tap() }
+        let ribbon = clear.scrollViews["clear.candidates"]
+        for letter in "shi" { let key = clear.buttons["key.text." + String(letter)]; XCTAssertTrue(key.waitForExistence(timeout: 5)); key.tap() }
+        XCTAssertTrue(ribbon.waitForExistence(timeout: 5))
+        func offset() -> Int {
+            let value = ribbon.value as? String ?? ""
+            return Int(value.split(separator: ";").first?.split(separator: ":").last.map(String.init) ?? "") ?? -1
+        }
+        for _ in 0..<2 {
+            ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).press(forDuration: 0.02,
+                thenDragTo: ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)))
+            XCTAssertGreaterThan(offset(), 40, "A quick horizontal flick must scroll the candidates")
+            ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).press(forDuration: 0.02,
+                thenDragTo: ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)))
+        }
+        for _ in 0..<3 { clear.buttons["key.⌫"].tap() }
+        for letter in "nihao" { clear.buttons["key.text." + String(letter)].tap() }
+        let candidate = clear.descendants(matching: .any).matching(identifier: "candidate.你好").firstMatch
+        XCTAssertTrue(candidate.waitForExistence(timeout: 5))
+        candidate.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertEqual(clear.textViews["practice.input"].value as? String, "你好")
+        print("CANDIDATE_REAL_GESTURES forwardReverseFlicks=4 tapCommit=passed")
+    }
     func testACustomizationControlsCanBeChangedWithoutCrashing() throws {
         continueAfterFailure = false; clear.launch()
         clear.buttons["tab.custom"].tap()

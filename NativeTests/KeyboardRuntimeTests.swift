@@ -165,7 +165,7 @@ import SwiftUI
         let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你好" })
         XCTAssertTrue(candidate.isEnabled)
         let point = candidate.convert(CGPoint(x: candidate.bounds.midX, y: candidate.bounds.midY), to: surface)
-        XCTAssertTrue(surface.hitTest(point, with: nil) === candidate, "New candidates must remain touchable immediately after clearing")
+        XCTAssertTrue(surface.hitTest(point, with: nil) is CandidateScrollView, "The ribbon owns taps and pans immediately after clearing")
         XCTAssertFalse(descendants(surface).compactMap { $0 as? UILabel }.contains { ($0.text ?? "").hasPrefix("已清空") || ($0.text ?? "").hasPrefix("已恢复删除") })
     }
     func testDefaultKeyFacesAndSpacingMatchTheAirReferenceInEveryHandMode() throws {
@@ -640,7 +640,7 @@ import SwiftUI
         try await waitFor { controller.model.candidatesAreCurrent }
         settleLayout(controller.view)
         let button = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier?.hasPrefix("candidate.") == true })
-        let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIScrollView }.first { $0.subviews.contains { $0 is UIStackView } })
+        let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? CandidateScrollView }.first)
         XCTAssertFalse(scroll.delaysContentTouches); XCTAssertTrue(scroll.touchesShouldCancel(in: button))
         scroll.delegate?.scrollViewWillBeginDragging?(scroll)
         scroll.contentOffset = CGPoint(x: 32, y: 0)
