@@ -15,8 +15,8 @@ import UIKit
     private var ink: UIColor = .systemTeal
     private var contentWidth: CGFloat = 0
     private var contact = false
-    private var dragging = false
-    var holdsCandidateUpdates: Bool { contact || dragging || isTracking || isDragging }
+    private var candidatePanActive = false
+    var holdsCandidateUpdates: Bool { contact || candidatePanActive || isTracking || isDragging }
     var onSettled: (() -> Void)?
     var onInteractionChanged: ((Bool) -> Void)?
     var onSelect: ((Candidate, KeyboardModel.CandidateContext?, Bool) -> Void)?
@@ -101,14 +101,14 @@ import UIKit
         super.touchesCancelled(touches, with: event)
         setContact(false)
     }
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { dragging = true; onInteractionChanged?(true) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { candidatePanActive = true; onInteractionChanged?(true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        contact = false; dragging = false; settled()
+        contact = false; candidatePanActive = false; settled()
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { settled() }
     @objc private func panChanged(_ gesture: UIPanGestureRecognizer) {
         if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
-            contact = false; dragging = false; settled()
+            contact = false; candidatePanActive = false; settled()
         }
     }
 }
