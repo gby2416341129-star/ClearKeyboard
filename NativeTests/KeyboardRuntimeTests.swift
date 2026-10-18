@@ -165,7 +165,7 @@ import SwiftUI
         let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你好" })
         XCTAssertTrue(candidate.isEnabled)
         let point = candidate.convert(CGPoint(x: candidate.bounds.midX, y: candidate.bounds.midY), to: surface)
-        XCTAssertTrue(surface.hitTest(point, with: nil) is CandidateScrollView, "The ribbon owns taps and pans immediately after clearing")
+        XCTAssertTrue(surface.hitTest(point, with: nil)?.isDescendant(of: candidate) == true, "A visible native candidate button must receive the finger tap")
         XCTAssertFalse(descendants(surface).compactMap { $0 as? UILabel }.contains { ($0.text ?? "").hasPrefix("已清空") || ($0.text ?? "").hasPrefix("已恢复删除") })
     }
     func testDefaultKeyFacesAndSpacingMatchTheAirReferenceInEveryHandMode() throws {

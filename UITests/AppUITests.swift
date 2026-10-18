@@ -11,10 +11,17 @@ import XCTest
     func testCandidateRibbonFlicksAndTapCommit() throws {
         continueAfterFailure = false; clear.launch()
         let practice = clear.buttons["home.practice"]; reveal(practice, in: clear); practice.tap()
-        let language = clear.buttons["key.language"]; XCTAssertTrue(language.waitForExistence(timeout: 5))
+        let input = clear.textViews["practice.input"]; XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        func key(_ identifier: String) -> XCUIElement { clear.descendants(matching: .any).matching(identifier: identifier).firstMatch }
+        let language = key("key.language"); XCTAssertTrue(language.waitForExistence(timeout: 5), clear.debugDescription)
         if language.label.hasPrefix("英文") { language.tap() }
         let ribbon = clear.scrollViews["clear.candidates"]
-        for letter in "shi" { let key = clear.buttons["key.text." + String(letter)]; XCTAssertTrue(key.waitForExistence(timeout: 5)); key.tap() }
+        for letter in "shaod" { key("key.text." + String(letter)).tap() }
+        let wait = clear.buttons["candidate.稍等"]; XCTAssertTrue(wait.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1.2)
+        wait.tap(); XCTAssertEqual(input.value as? String, "稍等", "A candidate must commit by finger tap before any space key")
+        for _ in 0..<2 { key("key.⌫").tap() }
+        for letter in "shi" { let item = key("key.text." + String(letter)); XCTAssertTrue(item.waitForExistence(timeout: 5)); item.tap() }
         XCTAssertTrue(ribbon.waitForExistence(timeout: 5))
         func offset() -> Int {
             let value = ribbon.value as? String ?? ""
@@ -27,13 +34,13 @@ import XCTest
             ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).press(forDuration: 0.02,
                 thenDragTo: ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)))
         }
-        for _ in 0..<3 { clear.buttons["key.⌫"].tap() }
-        for letter in "nihao" { clear.buttons["key.text." + String(letter)].tap() }
+        for _ in 0..<3 { key("key.⌫").tap() }
+        for letter in "nihao" { key("key.text." + String(letter)).tap() }
         let candidate = clear.descendants(matching: .any).matching(identifier: "candidate.你好").firstMatch
         XCTAssertTrue(candidate.waitForExistence(timeout: 5))
         candidate.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertEqual(clear.textViews["practice.input"].value as? String, "你好")
-        print("CANDIDATE_REAL_GESTURES forwardReverseFlicks=4 tapCommit=passed")
+        print("CANDIDATE_REAL_GESTURES tapBeforeSpace=passed shaod=稍等 forwardReverseFlicks=4 tapAfterFlick=passed")
     }
     func testACustomizationControlsCanBeChangedWithoutCrashing() throws {
         continueAfterFailure = false; clear.launch()

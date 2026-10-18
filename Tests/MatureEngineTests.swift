@@ -31,6 +31,17 @@ final class MatureEngineTests: XCTestCase {
         XCTAssertEqual(explicit.first?.text, "西安")
         XCTAssertEqual(explicit.first?.consumed, 4)
     }
+    func testLiteralWordPrefixAndFinalInitialBeatUnrelatedInitials() {
+        for (input, expected) in ["shaod": "稍等", "chif": "吃饭", "laop": "老婆", "shangh": "上海", "gongz": "工作"] {
+            let values = engine.candidates(input)
+            XCTAssertEqual(values.first?.text, expected, input)
+            XCTAssertEqual(values.first?.consumed, input.count, input)
+            XCTAssertTrue(values.contains { $0.text == input }, "Literal input remains selectable")
+        }
+        XCTAssertEqual(engine.candidates("shaodeng").first?.text, "稍等")
+        XCTAssertEqual(engine.candidates("iphone").first?.text, "iphone")
+        XCTAssertEqual(engine.candidates("nichifankm").first?.text, "你吃饭了吗")
+    }
     func testChineseModePreservesRecognizedEnglishAndMixedTokens() {
         for word in ["iphone", "iPhone", "hello", "keyboard", "app"] { XCTAssertEqual(engine.candidates(word).first?.text, word, word) }
         XCTAssertEqual(engine.candidates("hello", compose: false).first?.text, "hello")

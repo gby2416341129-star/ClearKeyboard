@@ -103,6 +103,7 @@ public final class InputEngine {
                     output += matureDecoder.candidates(variant, limit: limit, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }
                 }
             }
+            if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }
             output.insert(contentsOf: preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }, at: 0)
             if !output.contains(where: { $0.text == raw }) { output.append(literal) }
             var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(24))
@@ -381,6 +382,21 @@ public final class InputEngine {
             }
         }
         return paths[count].filter { $0.edits > 0 || (mixed && $0.abbreviated > 0) }
+    }
+    // A fully typed word prefix plus the final syllable's initial is intentional
+    // partial spelling, not a reason to split that prefix into unrelated initials.
+    // Use the existing common-word frequencies; complete only the final syllable.
+    private func initialCompletions(_ input: String) -> [Candidate] {
+        guard (3...32).contains(input.count), !chinese.contains("e:" + input) else { return [] }
+        return Array(chinese.lookup("p:" + input, limit: 24).filter { entry in
+            let syllables = entry.reading.split(separator: " ")
+            guard syllables.count >= 2, let final = syllables.last, entry.frequency >= 200 else { return false }
+            let prefix = syllables.dropLast().joined()
+            guard input.hasPrefix(prefix), input.count > prefix.count else { return false }
+            let tail = String(input.dropFirst(prefix.count))
+            return tail.count < final.count && final.hasPrefix(tail) &&
+                (tail.count == 1 || ["zh", "ch", "sh"].contains(tail)) && tail.allSatisfy(Self.initials.contains)
+        }.prefix(3).map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count, score: 110) })
     }
     private func abbreviation(_ reading: String) -> String { reading.split(separator: " ").compactMap(\.first).map(String.init).joined() }
     private func token(_ entry: LexiconEntry, for key: String, completion: Bool = false) -> Token {

@@ -1,7 +1,7 @@
 import UIKit
 
-/// One scroll gesture owns the entire ribbon. Candidate children do not compete
-/// with it for touches, and no controls are disabled or replaced under a finger.
+/// Native buttons handle taps and UIScrollView cancels them when a pan begins.
+/// The visible presentation stays fixed until the current finger lifts.
 @MainActor final class CandidateScrollView: UIScrollView, UIScrollViewDelegate {
     private struct Presentation: Equatable {
         let items: [Candidate]
@@ -14,8 +14,11 @@ import UIKit
     private var pending: (Presentation, UIColor)?
     private var ink: UIColor = .systemTeal
     private var contentWidth: CGFloat = 0
-    private(set) var holdsCandidateUpdates = false
+    private var contact = false
+    private var dragging = false
+    var holdsCandidateUpdates: Bool { contact || dragging || isTracking || isDragging }
     var onSettled: (() -> Void)?
+    var onInteractionChanged: ((Bool) -> Void)?
     var onSelect: ((Candidate, KeyboardModel.CandidateContext?, Bool) -> Void)?
     override var accessibilityValue: String? {
         get { "offset:\(Int(contentOffset.x));count:\(presentation?.items.count ?? 0)" }
@@ -23,14 +26,13 @@ import UIKit
     }
     override init(frame: CGRect) {
         super.init(frame: frame)
-        delegate = self; addSubview(content); content.isUserInteractionEnabled = false
+        delegate = self; addSubview(content)
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         delaysContentTouches = false; canCancelContentTouches = true
         alwaysBounceHorizontal = true; isDirectionalLockEnabled = true
+        decelerationRate = .fast
         accessibilityIdentifier = "clear.candidates"
-        let tap = UITapGestureRecognizer(target: self, action: #selector(tapCandidate(_:)))
-        tap.cancelsTouchesInView = false; tap.delaysTouchesBegan = false; tap.delaysTouchesEnded = false
-        tap.require(toFail: panGestureRecognizer); addGestureRecognizer(tap)
+        panGestureRecognizer.addTarget(self, action: #selector(panChanged(_:)))
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
@@ -54,6 +56,7 @@ import UIKit
             if index < buttons.count { button = buttons[index] }
             else {
                 button = CandidateItemButton(frame: .zero)
+                button.onContact = { [weak self] active in self?.setContact(active) }
                 content.addSubview(button); buttons.append(button)
             }
             let font = UIFont.systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
@@ -74,45 +77,54 @@ import UIKit
     }
     private func settled() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.holdsCandidateUpdates, !self.isTracking, !self.isDragging else { return }
+            guard let self, !self.holdsCandidateUpdates else { return }
+            self.onInteractionChanged?(false)
             if let (next, color) = self.pending { self.pending = nil; self.apply(next, accent: color) }
             self.onSettled?()
         }
     }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
+    private func setContact(_ active: Bool) {
+        contact = active
+        if active {
+            if isDecelerating { setContentOffset(contentOffset, animated: false) }
+            onInteractionChanged?(true)
+        } else { settled() }
+    }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        holdsCandidateUpdates = true; super.touchesBegan(touches, with: event)
+        setContact(true); super.touchesBegan(touches, with: event)
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesEnded(touches, with: event); holdsCandidateUpdates = false; settled()
+        super.touchesEnded(touches, with: event); setContact(false)
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
-        if !isDragging { holdsCandidateUpdates = false; settled() }
+        setContact(false)
     }
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { holdsCandidateUpdates = true }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { dragging = true; onInteractionChanged?(true) }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        holdsCandidateUpdates = false; settled()
+        contact = false; dragging = false; settled()
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { settled() }
-    @objc private func tapCandidate(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended else { return }
-        let point = gesture.location(in: content)
-        if let button = buttons.first(where: { $0.frame.insetBy(dx: -8, dy: 0).contains(point) }) { button.activate() }
-        holdsCandidateUpdates = false; settled()
+    @objc private func panChanged(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            contact = false; dragging = false; settled()
+        }
     }
 }
 
 @MainActor private final class CandidateItemButton: UIButton {
     var onActivation: (() -> Void)?
+    var onContact: ((Bool) -> Void)?
     override init(frame: CGRect) {
         super.init(frame: frame)
-        // The scroll view classifies a pan or a tap. Children remain available to
-        // accessibility and programmatic actions without consuming finger events.
-        isUserInteractionEnabled = false; isAccessibilityElement = true; accessibilityTraits = .button
+        isAccessibilityElement = true; accessibilityTraits = .button
         addTarget(self, action: #selector(activate), for: .touchUpInside)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { onContact?(true); super.touchesBegan(touches, with: event) }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { super.touchesEnded(touches, with: event); onContact?(false) }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { super.touchesCancelled(touches, with: event); onContact?(false) }
     @objc func activate() { onActivation?() }
     override func accessibilityActivate() -> Bool { activate(); return true }
 }

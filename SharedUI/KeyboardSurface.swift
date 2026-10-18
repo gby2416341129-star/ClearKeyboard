@@ -46,6 +46,7 @@ import ImageIO
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateScroll.delaysContentTouches = false; candidateScroll.canCancelContentTouches = true
         candidateScroll.onSettled = { [weak self] in self?.renderCandidates() }
+        candidateScroll.onInteractionChanged = { [weak model] active in model?.document?.candidateInteractionChanged(active) }
         candidateScroll.onSelect = { [weak model] candidate, context, arithmetic in
             if arithmetic { model?.chooseArithmetic(candidate.text) }
             else { model?.chooseDisplayed(candidate, context: context) }

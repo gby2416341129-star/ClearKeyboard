@@ -12,8 +12,10 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostCapitalization = UITextAutocapitalizationType.none
     private var hostPrefersEnglish = false
     private var hostNeedsGlobe = true
-    private var hostRefresh: DispatchWorkItem?
+    private var hostRefresh: Timer?
     private var hostRefreshGeneration = 0
+    private var candidateTouchActive = false
+    private var needsHostRefresh = false
     private var trackpad: ProxyTrackpad?
     private var lastLayoutLog = ""
     private var layoutLogCount = 0
@@ -96,26 +98,39 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if inputView?.allowsSelfSizing != true { inputView?.allowsSelfSizing = true }
     }
     override func viewWillDisappear(_ animated: Bool) {
-        hostRefreshGeneration += 1; hostRefresh?.cancel(); hostRefresh = nil
+        hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         if model?.isMovingCursor == true { return }
-        // Own marked-text notifications can arrive in a burst after rapid keys.
-        // Read the identity immediately; reconcile their context once after the
-        // burst instead of blocking every key with another set of remote reads.
+        // Keep identity changes immediate. Own text acknowledgements are reconciled
+        // only when idle; a main-queue work item could otherwise stall a scroll.
         let identity = connectedDocumentIdentifier()?.uuidString ?? "disconnected"
-        if identity != hostState.snapshot.document || !hostState.hasPendingEdits() {
-            hostRefreshGeneration += 1; hostRefresh?.cancel(); refreshHostState(); return
+        if identity != hostState.snapshot.document {
+            hostRefreshGeneration += 1; hostRefresh?.invalidate(); refreshHostState(); return
         }
+        needsHostRefresh = true
+        if !hostState.hasPendingEdits(), !hostState.hasMarkedText, !candidateTouchActive { refreshHostState(); return }
+        scheduleHostRefresh()
+    }
+    func candidateInteractionChanged(_ active: Bool) {
+        candidateTouchActive = active
+        if active { hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil }
+        else if needsHostRefresh { scheduleHostRefresh() }
+    }
+    private func scheduleHostRefresh() {
+        hostRefresh?.invalidate(); hostRefresh = nil
+        guard !candidateTouchActive else { return }
         hostRefreshGeneration += 1; let request = hostRefreshGeneration
-        hostRefresh?.cancel()
-        let job = DispatchWorkItem { [weak self] in
-            guard let self, self.hostRefreshGeneration == request else { return }
-            self.hostRefresh = nil; self.refreshHostState()
+        let timer = Timer(timeInterval: 0.35, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.hostRefreshGeneration == request, !self.candidateTouchActive else { return }
+                self.hostRefresh = nil; self.refreshHostState()
+            }
         }
-        hostRefresh = job; DispatchQueue.main.asyncAfter(deadline: .now() + 0.035, execute: job)
+        hostRefresh = timer
+        RunLoop.main.add(timer, forMode: .default)
     }
     private func readHostSnapshot() -> HostTextSnapshot {
         let before = textDocumentProxy.documentContextBeforeInput
@@ -124,6 +139,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             document: connectedDocumentIdentifier()?.uuidString ?? "disconnected", available: before != nil || after != nil)
     }
     private func refreshHostState() {
+        needsHostRefresh = false
         let outcome = hostState.reconcile(readHostSnapshot())
         hostNeedsGlobe = needsInputModeSwitchKey
         hostCapitalization = textDocumentProxy.autocapitalizationType ?? .sentences
@@ -143,11 +159,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if case .externalEdit = outcome { surface?.closePanel(); model?.cursorChanged() }
     }
     func validateCandidate(before: String, after: String, identity: String) -> Bool {
-        let expected = HostTextSnapshot(before: before, after: after, document: identity)
-        let actual = readHostSnapshot()
-        let valid = hostState.accepts(expected, actual: actual)
-        if !valid { refreshHostState() }
-        return valid
+        // The candidate's generation and local edit snapshot have already been
+        // checked. Reading whole remote contexts on touch-up both blocks UIKit
+        // and rejects hosts that omit the active marked range from their context.
+        guard hostState.snapshot.selected.isEmpty, before == contextBefore, after == contextAfter,
+              identity == documentIdentity else { return false }
+        guard connectedDocumentIdentifier()?.uuidString == identity else { refreshHostState(); return false }
+        return true
     }
     private func connectedDocumentIdentifier() -> UUID? {
         // UIKit can return nil before connecting the host, despite its nonoptional Swift UUID declaration.

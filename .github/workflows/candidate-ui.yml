@@ -18,7 +18,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      ui_only: ${{ steps.scope.outputs.ui_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          paths = subprocess.check_output(['git', 'diff', '--name-only', 'HEAD^', 'HEAD'], text=True).splitlines()
+          allowed = ('UITests/', 'Scripts/test-candidates-ui.sh', 'Scripts/test-candidate-gestures.sh', '.github/workflows/candidate-ui.yml')
+          ui_only = os.environ['EVENT_NAME'] == 'workflow_dispatch' or bool(paths) and all(p.startswith(allowed) for p in paths)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('ui_only=' + str(ui_only).lower() + '\n')
+          PY
   candidate-gestures:
+    needs: scope
+    if: needs.scope.outputs.ui_only == 'true'
     runs-on: macos-26
     timeout-minutes: 18
     steps:

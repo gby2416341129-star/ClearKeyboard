@@ -37,7 +37,7 @@ int cr_initialize(const char *shared, const char *user) {
   traits.shared_data_dir = shared_path.c_str(); traits.user_data_dir = user_path.c_str();
   traits.prebuilt_data_dir = prebuilt_path.c_str(); traits.app_name = "rime.clear";
   traits.distribution_name = "ClearKeyboard"; traits.distribution_code_name = "clear";
-  traits.distribution_version = "0.1.13"; traits.min_log_level = 3; traits.log_dir = "";
+  traits.distribution_version = "0.1.14"; traits.min_log_level = 3; traits.log_dir = "";
   static const char *modules[] = {"default", "lua", "octagram", nullptr}; traits.modules = modules;
   api = rime_get_api(); api->setup(&traits); api->initialize(&traits);
   return 1;

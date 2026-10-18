@@ -42,6 +42,8 @@ final class HostTextStateTests: XCTestCase {
         var state = HostTextState(remote("")); state.setMarked("nihao", now: 10)
         let expected = state.snapshot
         XCTAssertTrue(state.accepts(expected, actual: remote(""), now: 10.02))
+        XCTAssertTrue(state.accepts(expected, actual: remote(""), now: 12), "An active marked range does not expire while the user reads candidates")
+        state.unmark()
         XCTAssertFalse(state.accepts(expected, actual: remote(""), now: 12))
         XCTAssertFalse(state.accepts(expected, actual: remote("different"), now: 10.03))
         XCTAssertFalse(state.accepts(expected, actual: remote("nihao", document: "B"), now: 10.03))
@@ -51,5 +53,13 @@ final class HostTextStateTests: XCTestCase {
         state.moveCursor(-2); XCTAssertEqual(state.snapshot.before, "A"); XCTAssertEqual(state.snapshot.after, "👨‍👩‍👧‍👦BC")
         state.moveCursor(1); state.deleteBackward()
         XCTAssertEqual(state.snapshot.before, "A"); XCTAssertEqual(state.snapshot.after, "BC")
+    }
+    func testHostMayExcludeTheActiveMarkedRangeFromItsContext() {
+        var state = HostTextState(remote("前文", after: "后文")); state.setMarked("nihao", now: 10)
+        XCTAssertEqual(state.reconcile(remote("前文", after: "后文"), now: 20), .ownEdit)
+        XCTAssertEqual(state.snapshot.before, "前文nihao")
+        XCTAssertTrue(state.hasMarkedText)
+        XCTAssertFalse(state.accepts(state.snapshot, actual: remote("前文", after: "other"), now: 21))
+        XCTAssertEqual(state.reconcile(remote("前", after: "文后文"), now: 22), .externalEdit)
     }
 }

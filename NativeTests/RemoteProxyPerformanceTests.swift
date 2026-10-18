@@ -15,7 +15,7 @@ import UIKit
         model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
-        proxy.reads = 0; proxy.readDelay = 0.008
+        proxy.reads = 0; proxy.contextReads = 0; proxy.readDelay = 0.008
         let start = ProcessInfo.processInfo.systemUptime
         for character in "nichifankm" { model.handle(.text(String(character))) }
         let keyMs = (ProcessInfo.processInfo.systemUptime - start) * 1_000
@@ -27,7 +27,8 @@ import UIKit
         XCTAssertLessThan(keyMs, 150); XCTAssertLessThan(candidateMs, 400)
         let candidate = try XCTUnwrap(model.candidates.first)
         model.chooseDisplayed(candidate, context: model.candidateContext)
-        XCTAssertGreaterThanOrEqual(proxy.reads, 4, "A real choice still validates the live host before committing")
+        XCTAssertEqual(proxy.reads, 1, "A tap validates document identity without blocking on remote text fields")
+        XCTAssertEqual(proxy.contextReads, 0)
         XCTAssertEqual(proxy.before, "你吃饭了吗")
     }
     func testDelayedOwnHostNotificationsDoNotDiscardCandidates() async throws {
@@ -64,6 +65,68 @@ import UIKit
         XCTAssertEqual(model.composition.raw, "nichifankm")
         print("REMOTE_HOST_NOTIFICATIONS keys=10 synchronousContextReads=0 deferredContextReads=\(proxy.contextReads)")
     }
+    func testCandidateButtonCommitsWithoutSpaceWhenHostOmitsMarkedText() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        proxy.omitsMarkedText = true; controller.proxy = proxy; controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 420, height: 276); controller.view.layoutIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "shaod" { model.handle(.text(String(character))) }
+        controller.textDidChange(nil)
+        try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "稍等" }
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        XCTAssertEqual(model.composition.raw, "shaod", "Reading candidates must not expire an uncommitted spelling")
+        let button = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.稍等" })
+        XCTAssertTrue(button.isUserInteractionEnabled)
+        proxy.contextReads = 0; proxy.contextReadDelay = 0.15
+        let start = ProcessInfo.processInfo.systemUptime
+        button.sendActions(for: .touchUpInside)
+        XCTAssertEqual(proxy.before, "稍等"); XCTAssertTrue(model.composition.isEmpty)
+        XCTAssertEqual(proxy.contextReads, 0, "A finger choice must not read slow marked-text context")
+        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - start) * 1_000, 150)
+        print("CANDIDATE_NO_SPACE hostOmitsMarked=true pauseMs=1200 contextReadsOnTap=0 committed=passed")
+    }
+    func testReversingCandidateInteractionNeverRunsPendingHostReads() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        let model = surface.model
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "shi" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
+        let ribbon = try XCTUnwrap(descendants(surface).compactMap { $0 as? CandidateScrollView }.first)
+        proxy.contextReads = 0; controller.textDidChange(nil)
+        for _ in 0..<4 {
+            ribbon.scrollViewWillBeginDragging(ribbon)
+            try await Task.sleep(nanoseconds: 110_000_000)
+            ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: true)
+        }
+        ribbon.scrollViewWillBeginDragging(ribbon)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(proxy.contextReads, 0, "Host reads must stay deferred across direction reversals")
+        ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: false)
+        try await waitFor { proxy.contextReads > 0 }
+        XCTAssertEqual(proxy.contextReads, 3)
+        print("CANDIDATE_REVERSALS turns=4 contextReadsDuringContact=0 idleReconciliation=passed")
+    }
+    func testCandidateCannotCommitToANewDocument() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
+        let candidate = try XCTUnwrap(model.candidates.first), context = model.candidateContext
+        proxy.identity = UUID(); proxy.before = "另一输入框"; proxy.markedLength = 0
+        model.chooseDisplayed(candidate, context: context)
+        XCTAssertEqual(proxy.before, "另一输入框")
+    }
 }
 
 @MainActor private final class ProxyKeyboardController: KeyboardViewController {
@@ -78,9 +141,15 @@ import UIKit
     var reads = 0
     var contextReads = 0
     var readDelay: TimeInterval = 0
-    private let identity = UUID()
-    private func read(context: Bool = true) { reads += 1; if context { contextReads += 1 }; if readDelay > 0 { Thread.sleep(forTimeInterval: readDelay) } }
-    var documentContextBeforeInput: String? { read(); return visibleBefore ?? before }
+    var contextReadDelay: TimeInterval?
+    var omitsMarkedText = false
+    var identity = UUID()
+    private func read(context: Bool = true) {
+        reads += 1; if context { contextReads += 1 }
+        let delay = context ? (contextReadDelay ?? readDelay) : readDelay
+        if delay > 0 { Thread.sleep(forTimeInterval: delay) }
+    }
+    var documentContextBeforeInput: String? { read(); return visibleBefore ?? (omitsMarkedText ? String(before.dropLast(min(markedLength, before.count))) : before) }
     var documentContextAfterInput: String? { read(); return after }
     var selectedText: String? { read(); return selected.isEmpty ? nil : selected }
     var documentIdentifier: UUID { read(context: false); return identity }

@@ -23,9 +23,11 @@ import os
     func clearInput() -> DeletedInput?
     func restoreInput(_ value: DeletedInput) -> Bool
     func validateCandidate(before: String, after: String, identity: String) -> Bool
+    func candidateInteractionChanged(_ active: Bool)
 }
 
 extension KeyboardDocument {
+    func candidateInteractionChanged(_ active: Bool) {}
     func validateCandidate(before: String, after: String, identity: String) -> Bool {
         selectedText.isEmpty && documentIdentity == identity && contextBefore == before && contextAfter == after
     }

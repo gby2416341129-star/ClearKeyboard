@@ -23,6 +23,12 @@ public struct HostTextState {
     public func hasPendingEdits(now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
         pending.contains { now - $0.1 <= 1 }
     }
+    public var hasMarkedText: Bool { !marked.isEmpty }
+    private func isMarkedBoundary(_ actual: HostTextSnapshot) -> Bool {
+        guard !marked.isEmpty, snapshot.before.hasSuffix(marked), actual.selected.isEmpty else { return false }
+        var boundary = snapshot; boundary.before.removeLast(marked.count)
+        return Self.equivalent(boundary, actual)
+    }
     private static func equivalent(_ expected: HostTextSnapshot, _ actual: HostTextSnapshot) -> Bool {
         guard expected.document == actual.document, expected.selected == actual.selected else { return false }
         // Hosts may return a bounded context window. Short prefixes must still
@@ -64,6 +70,9 @@ public struct HostTextState {
         if Self.equivalent(snapshot, actual) {
             acknowledged = actual; pending.removeAll(); return .ownEdit
         }
+        // A host can expose context around the marked range rather than including
+        // its uncommitted spelling. This boundary remains valid after a reading pause.
+        if isMarkedBoundary(actual) { acknowledged = actual; pending.removeAll(); return .ownEdit }
         if actual.document == snapshot.document {
             if let index = pending.lastIndex(where: { Self.equivalent($0.0, actual) }) {
                 acknowledged = actual; pending.removeFirst(index + 1); return .ownEdit
@@ -77,6 +86,7 @@ public struct HostTextState {
         guard actual.available, actual.selected.isEmpty, expected.document == actual.document,
               Self.equivalent(snapshot, expected) else { return false }
         if Self.equivalent(expected, actual) { return true }
+        if isMarkedBoundary(actual) { return true }
         let recent = pending.filter { now - $0.1 <= 1 }
         return !recent.isEmpty && (Self.equivalent(acknowledged, actual) || recent.contains { Self.equivalent($0.0, actual) })
     }
