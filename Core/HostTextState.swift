@@ -20,6 +20,9 @@ public struct HostTextState {
     private var pending: [(HostTextSnapshot, Double)] = []
     private var marked = ""
     public init(_ snapshot: HostTextSnapshot = HostTextSnapshot()) { self.snapshot = snapshot; acknowledged = snapshot }
+    public func hasPendingEdits(now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
+        pending.contains { now - $0.1 <= 1 }
+    }
     private static func equivalent(_ expected: HostTextSnapshot, _ actual: HostTextSnapshot) -> Bool {
         guard expected.document == actual.document, expected.selected == actual.selected else { return false }
         // Hosts may return a bounded context window. Short prefixes must still

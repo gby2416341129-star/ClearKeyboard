@@ -42,8 +42,24 @@ import UIKit
         try await waitFor { model.candidatesAreCurrent }
         XCTAssertEqual(model.candidates.first?.text, "你好")
         proxy.before = "另一个输入框"; proxy.markedLength = 0; controller.textDidChange(nil)
-        XCTAssertTrue(model.composition.isEmpty)
+        try await waitFor { model.composition.isEmpty }
         XCTAssertEqual(controller.contextBefore, "另一个输入框")
+    }
+    func testOwnNotificationBurstPerformsOneDeferredContextRead() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        proxy.reads = 0; proxy.contextReads = 0; proxy.readDelay = 0.008
+        let start = ProcessInfo.processInfo.systemUptime
+        for character in "nichifankm" { model.handle(.text(String(character))); controller.textDidChange(nil) }
+        XCTAssertEqual(proxy.contextReads, 0, "Own notifications must not synchronously poll text during rapid typing")
+        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - start) * 1_000, 250)
+        try await waitFor { model.candidatesAreCurrent && proxy.contextReads > 0 }
+        XCTAssertEqual(proxy.contextReads, 3, "A burst needs only one before/after/selection reconciliation")
+        XCTAssertEqual(model.composition.raw, "nichifankm")
+        print("REMOTE_HOST_NOTIFICATIONS keys=10 synchronousContextReads=0 deferredContextReads=\(proxy.contextReads)")
     }
 }
 
@@ -57,13 +73,14 @@ import UIKit
     var visibleBefore: String?
     var markedLength = 0
     var reads = 0
+    var contextReads = 0
     var readDelay: TimeInterval = 0
     private let identity = UUID()
-    private func read() { reads += 1; if readDelay > 0 { Thread.sleep(forTimeInterval: readDelay) } }
+    private func read(context: Bool = true) { reads += 1; if context { contextReads += 1 }; if readDelay > 0 { Thread.sleep(forTimeInterval: readDelay) } }
     var documentContextBeforeInput: String? { read(); return visibleBefore ?? before }
     var documentContextAfterInput: String? { read(); return after }
     var selectedText: String? { read(); return selected.isEmpty ? nil : selected }
-    var documentIdentifier: UUID { read(); return identity }
+    var documentIdentifier: UUID { read(context: false); return identity }
     var documentInputMode: UITextInputMode? { nil }
     var hasText: Bool { !before.isEmpty || !after.isEmpty }
     func insertText(_ text: String) { before += text; selected = ""; markedLength = 0 }

@@ -12,6 +12,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostCapitalization = UITextAutocapitalizationType.none
     private var hostPrefersEnglish = false
     private var hostNeedsGlobe = true
+    private var hostRefresh: DispatchWorkItem?
+    private var hostRefreshGeneration = 0
     private var trackpad: ProxyTrackpad?
     private var lastLayoutLog = ""
     private var layoutLogCount = 0
@@ -94,12 +96,26 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if inputView?.allowsSelfSizing != true { inputView?.allowsSelfSizing = true }
     }
     override func viewWillDisappear(_ animated: Bool) {
+        hostRefreshGeneration += 1; hostRefresh?.cancel(); hostRefresh = nil
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         if model?.isMovingCursor == true { return }
-        refreshHostState()
+        // Own marked-text notifications can arrive in a burst after rapid keys.
+        // Read the identity immediately; reconcile their context once after the
+        // burst instead of blocking every key with another set of remote reads.
+        let identity = connectedDocumentIdentifier()?.uuidString ?? "disconnected"
+        if identity != hostState.snapshot.document || !hostState.hasPendingEdits() {
+            hostRefreshGeneration += 1; hostRefresh?.cancel(); refreshHostState(); return
+        }
+        hostRefreshGeneration += 1; let request = hostRefreshGeneration
+        hostRefresh?.cancel()
+        let job = DispatchWorkItem { [weak self] in
+            guard let self, self.hostRefreshGeneration == request else { return }
+            self.hostRefresh = nil; self.refreshHostState()
+        }
+        hostRefresh = job; DispatchQueue.main.asyncAfter(deadline: .now() + 0.035, execute: job)
     }
     private func readHostSnapshot() -> HostTextSnapshot {
         let before = textDocumentProxy.documentContextBeforeInput
