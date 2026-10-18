@@ -48,6 +48,40 @@ void collect(uintptr_t id, const std::string &input, int limit, std::vector<Item
   }
   api->candidate_list_end(&it);
 }
+std::vector<Item> strict_candidates(const std::string &input, const std::vector<Item> &conversation,
+                                    const std::vector<Item> &literal, int limit) {
+  const auto spelling = letters(input);
+  const auto length = static_cast<int>(spelling.size());
+  const auto capacity = static_cast<size_t>(std::clamp(limit, 1, 24));
+  std::vector<Item> result;
+  auto append = [&result, capacity](const Item &item) {
+    if (result.size() < capacity && std::none_of(result.begin(), result.end(),
+        [&item](const Item &old) { return old.text == item.text; })) result.push_back(item);
+  };
+  // Complete spellings are alternatives to the whole composition. A prefix
+  // returned by a different dictionary is not another whole-sentence choice.
+  for (const auto &item : conversation) if (item.consumed == length) append(item);
+  for (const auto &item : literal) if (item.consumed == length) append(item);
+  if (result.empty()) return result;
+
+  // Preserve deliberate word-by-word selection at a fully typed syllable
+  // boundary, but only for the longest phrase prefix supported by a complete
+  // candidate. Do not fill a mixed-initial sentence's tail with shorter,
+  // unrelated homophones (or with abbreviated fragments of the sentence).
+  auto useful_prefix = [&result, &spelling, length](const Item &item) {
+    if (item.consumed <= 0 || item.consumed >= length || item.reading.find(' ') == std::string::npos) return false;
+    const auto reading = letters(item.reading);
+    return static_cast<int>(reading.size()) == item.consumed &&
+           spelling.compare(0, item.consumed, reading) == 0 &&
+           std::any_of(result.begin(), result.end(), [&item](const Item &full) {
+             return full.text.compare(0, item.text.size(), item.text) == 0;
+           });
+  };
+  int longest = 0;
+  for (const auto &item : literal) if (useful_prefix(item)) longest = std::max(longest, item.consumed);
+  for (const auto &item : literal) if (item.consumed == longest && useful_prefix(item)) append(item);
+  return result;
+}
 }
 int cr_initialize(const char *shared, const char *user) {
   std::lock_guard<std::recursive_mutex> lock(gate);
@@ -94,21 +128,12 @@ int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled,
   std::lock_guard<std::recursive_mutex> lock(gate);
   if (!api || !queries.count(id) || (cancelled && cancelled(context))) return 0;
   auto &query = queries[id]; query.items.clear();
-  auto length = static_cast<int>(letters(input).size());
-  auto complete = [&query, length] {
-    return std::any_of(query.items.begin(), query.items.end(),
-                       [length](const Item &item) { return item.consumed == length; });
-  };
   if (query.conversation_input != input) {
     api->set_input(query.conversation, input); query.conversation_input = input;
   }
   collect(query.conversation, input, limit, query.items, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
-  std::vector<Item> conversational;
-  if (complete()) {
-    for (const auto &item : query.items) if (item.consumed == length) conversational.push_back(item);
-  }
-  query.items.clear();
+  auto conversational = std::move(query.items); query.items.clear();
   // A valid mixed full/initial spelling is a dictionary lookup, not a typo.
   // Share the large table with a correction-free prism and no grammar model.
   // Only a complete dictionary phrase can bypass sentence correction; partial
@@ -116,18 +141,8 @@ int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled,
   if (query.exact_input != input) { api->set_input(query.exact, input); query.exact_input = input; }
   collect(query.exact, input, limit, query.items, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
-  if (!conversational.empty()) {
-    // Keep other literal dictionary choices available for ambiguous initials.
-    // Prioritizing a conversational phrase must not remove the normal word list.
-    auto literal = std::move(query.items); query.items = std::move(conversational);
-    for (const auto &item : literal) {
-      if (query.items.size() >= static_cast<size_t>(std::clamp(limit, 1, 24))) break;
-      if (std::none_of(query.items.begin(), query.items.end(),
-                       [&item](const Item &old) { return old.text == item.text; })) query.items.push_back(item);
-    }
-    return static_cast<int>(query.items.size());
-  }
-  if (complete()) return static_cast<int>(query.items.size());
+  query.items = strict_candidates(input, conversational, query.items, limit);
+  if (!query.items.empty()) return static_cast<int>(query.items.size());
   query.items.clear();
   // set_input updates the existing composition. Clearing it first discards the
   // decoder's reusable prefix on every keystroke, even for the very same query.

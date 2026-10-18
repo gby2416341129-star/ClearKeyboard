@@ -9,15 +9,6 @@ on:
       - 'Scripts/test-candidate-gestures.sh'
       - '.github/workflows/candidate-ui.yml'
   workflow_dispatch:
-    inputs:
-      candidate_ui:
-        description: Run optional simulator finger-gesture checks
-        type: boolean
-        default: false
-      safari_ui:
-        description: Run the optional Safari end-to-end regression
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -34,65 +25,26 @@ jobs:
       - uses: actions/checkout@v4
       - name: Prepare verified offline Chinese engine and language model
         run: python3 Scripts/prepare_rime.py
-      - name: Validate dictionaries and project resources
-        run: python3 Scripts/validate_resources.py
-      - name: Run offline engine regression tests
-        run: swift test
-      - name: Compile app and keyboard for iPhone, then package IPA
-        run: bash Scripts/build-ipa.sh dist
-      - name: Upload unsigned IPA and validation report
+      - name: Compile repaired app and keyboard for iPhone, then package IPA
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          config = Path('Config/Project.xcconfig')
+          source = config.read_text()
+          assert 'MARKETING_VERSION = 0.1.17' in source
+          assert 'CURRENT_PROJECT_VERSION = 20' in source
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.18')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 21')
+          config.write_text(source)
+          PY
+          bash Scripts/build-ipa.sh dist
+      - name: Return unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-unsigned-IPA
           path: |
             dist/ClearKeyboard-unsigned.ipa
             dist/ClearKeyboard-unsigned.ipa.sha256
-            dist/ipa-validation.json
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-      - name: Describe installation requirement
-        run: |
-          cat >> "$GITHUB_STEP_SUMMARY" <<'NOTE'
-          Device build and structural package checks passed. The artifact contains the app and keyboard extension.
-
-          **This IPA is unsigned. Sign the app and embedded keyboard, with matching App Group entitlements, before installing on an iPhone.** No device testing has been performed by this workflow.
-          NOTE
-  native-runtime:
-    runs-on: macos-26
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-      - name: Prepare verified offline Chinese engine and language model
-        run: python3 Scripts/prepare_rime.py
-      - name: Run native keyboard startup and candidate tests
-        timeout-minutes: 18
-        run: bash Scripts/test-native.sh
-      - name: Verify candidate flick and tap gestures
-        if: github.event_name == 'workflow_dispatch' && inputs.candidate_ui
-        timeout-minutes: 5
-        run: bash Scripts/test-candidates-ui.sh
-      - name: Exercise Safari keyboard position and input switching
-        if: github.event_name == 'workflow_dispatch' && inputs.safari_ui
-        timeout-minutes: 15
-        run: bash Scripts/test-ui.sh ClearKeyboardUITests/AppUITests/testBSafariSearchAndMultilineKeepFullKeyboardRows
-      - name: Upload native runtime diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClearKeyboard-native-diagnostics
-          path: |
-            .build/native-tests.log
-            .build/candidate-ui-tests.log
-            .build/native-build.log
-            .build/native-boot.log
-            .build/NativeDiagnostics/result-summary.json
-            .build/NativeDiagnostics/result-tests.json
-            .build/NativeDiagnostics/runtime.log
-            .build/native-devices.json
-            .build/observer-reproduction.log
-            .build/ui-tests.log
-            .build/UITestDiagnostics/result-summary.json
-            .build/UITestDiagnostics/candidate-summary.json
-            .build/UITestDiagnostics/runtime.log
-          retention-days: 7

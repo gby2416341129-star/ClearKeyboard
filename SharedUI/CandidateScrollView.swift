@@ -29,7 +29,7 @@ import UIKit
     init() {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
-        layout.minimumLineSpacing = 22; layout.minimumInteritemSpacing = 0
+        layout.minimumLineSpacing = 12; layout.minimumInteritemSpacing = 0
         layout.sectionInset = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: 12)
         super.init(frame: .zero, collectionViewLayout: layout)
         dataSource = self; delegate = self
@@ -64,7 +64,7 @@ import UIKit
             // Size each item once per result, never on a scrolling frame.
             widths = next.items.enumerated().map { index, candidate in
                 let font = UIFont.systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
-                return max(22, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + (index == 0 ? 20 : 0))
+                return max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
             }
             reloadData()
         }
@@ -167,6 +167,8 @@ import UIKit
     override init(frame: CGRect) {
         super.init(frame: frame)
         isAccessibilityElement = true; accessibilityTraits = .button
+        contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+        titleLabel?.lineBreakMode = .byClipping; clipsToBounds = true
         addTarget(self, action: #selector(activate), for: .touchUpInside)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
