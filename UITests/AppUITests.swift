@@ -15,11 +15,16 @@ import XCTest
         func key(_ identifier: String) -> XCUIElement { clear.descendants(matching: .any).matching(identifier: identifier).firstMatch }
         let language = key("key.language"); XCTAssertTrue(language.waitForExistence(timeout: 5), clear.debugDescription)
         if language.label.hasPrefix("英文") { language.tap() }
+        XCTAssertTrue(language.label.hasPrefix("中文"), clear.debugDescription)
         let ribbon = clear.scrollViews["clear.candidates"]
-        for letter in "shaod" { key("key.text." + String(letter)).tap() }
-        let wait = clear.buttons["candidate.稍等"]; XCTAssertTrue(wait.waitForExistence(timeout: 5))
+        for letter in "shaod" {
+            key("key.text." + String(letter)).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            print("CANDIDATE_TYPING letter=\(letter) visibleInput=\(input.value ?? "nil")")
+        }
+        let wait = key("candidate.稍等"); XCTAssertTrue(wait.waitForExistence(timeout: 5), clear.debugDescription)
         Thread.sleep(forTimeInterval: 1.2)
-        wait.tap(); XCTAssertEqual(input.value as? String, "稍等", "A candidate must commit by finger tap before any space key")
+        wait.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertEqual(input.value as? String, "稍等", "A candidate must commit by finger tap before any space key")
         for _ in 0..<2 { key("key.⌫").tap() }
         for letter in "shi" { let item = key("key.text." + String(letter)); XCTAssertTrue(item.waitForExistence(timeout: 5)); item.tap() }
         XCTAssertTrue(ribbon.waitForExistence(timeout: 5))
