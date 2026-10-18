@@ -21,7 +21,7 @@ final class HostTextStateTests: XCTestCase {
         XCTAssertEqual(state.reconcile(remote("前文n"), now: 10.03), .ownEdit)
         XCTAssertEqual(state.snapshot.before, "前文ni")
         XCTAssertEqual(state.reconcile(remote("前文ni"), now: 10.04), .ownEdit)
-        XCTAssertEqual(state.reconcile(remote("前文"), now: 10.05), .externalEdit)
+        XCTAssertEqual(state.reconcile(remote("前", after: "文ni"), now: 10.05), .externalEdit)
     }
     func testHostContextTruncationKeepsTheActiveComposition() {
         let before = String(repeating: "历史内容", count: 30)

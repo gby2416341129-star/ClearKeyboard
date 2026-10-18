@@ -72,7 +72,7 @@ public struct HostTextState {
         }
         // A host can expose context around the marked range rather than including
         // its uncommitted spelling. This boundary remains valid after a reading pause.
-        if isMarkedBoundary(actual) { acknowledged = actual; pending.removeAll(); return .ownEdit }
+        if isMarkedBoundary(actual) { acknowledged = actual; return .ownEdit }
         if actual.document == snapshot.document {
             if let index = pending.lastIndex(where: { Self.equivalent($0.0, actual) }) {
                 acknowledged = actual; pending.removeFirst(index + 1); return .ownEdit
