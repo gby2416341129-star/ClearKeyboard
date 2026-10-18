@@ -8,7 +8,8 @@ extern "C" {
 int cr_initialize(const char *shared_directory, const char *user_directory);
 uintptr_t cr_session(void);
 void cr_destroy(uintptr_t session);
-int cr_query(uintptr_t session, const char *input);
+typedef int (*cr_cancelled)(void *context);
+int cr_query(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
 int cr_candidate(uintptr_t session, int index, char *text, size_t capacity,
                  char *reading, size_t reading_capacity);
 const char *cr_version(void);

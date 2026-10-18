@@ -1,0 +1,52 @@
+import XCTest
+@testable import ClearCore
+
+final class PersonalLexiconTests: XCTestCase {
+    func testSingleExplicitChoiceBecomesFirstForTheSameAbbreviatedSpelling() throws {
+        let engine = try InputEngine.bundled()
+        let before = engine.candidates("ganghuam")
+        let film = try XCTUnwrap(before.first { $0.text == "钢化膜" })
+        var memory = PersonalLexicon(); memory.record(film, for: "ganghuam")
+        let restored = try JSONDecoder().decode(PersonalLexicon.self, from: JSONEncoder().encode(memory))
+        let result = engine.candidates("ganghuam", preferred: restored.candidates(for: "ganghuam"))
+        XCTAssertEqual(result.first?.text, "钢化膜")
+        XCTAssertEqual(result.filter { $0.text == "钢化膜" }.count, 1)
+        XCTAssertTrue(restored.candidates(for: "ganghua").isEmpty)
+        XCTAssertEqual(engine.candidates("ganghua", preferred: restored.candidates(for: "ganghua")), engine.candidates("ganghua"))
+    }
+    func testLatestExplicitSelectionWinsAndKeepsActualConsumption() throws {
+        var memory = PersonalLexicon()
+        let first = Candidate(text: "钢化膜", reading: "gang hua mo", consumed: 8)
+        let second = Candidate(text: "尴尬画面", consumed: 8)
+        memory.record(first, for: "ganghuam"); memory.record(second, for: "ganghuam")
+        XCTAssertEqual(memory.candidates(for: "GANGHUAM").first?.text, second.text)
+        memory.record(first, for: "ganghuam")
+        XCTAssertEqual(memory.candidates(for: "ganghuam").first, Candidate(text: first.text, reading: first.reading, consumed: 8, score: 200))
+        XCTAssertTrue(memory.candidates(for: "ganghuamo").isEmpty)
+        memory.record(Candidate(text: "你吃饭了", consumed: 9), for: "nichifanlema")
+        XCTAssertEqual(memory.candidates(for: "nichifanlema").first?.consumed, 9)
+    }
+    func testLearningUpgradeRunsOnceAndCanBeDisabled() {
+        var settings = KeyboardSettings(); settings.learnChoices = false
+        settings.sanitize(); XCTAssertTrue(settings.learnChoices)
+        settings.learnChoices = false; settings.sanitize(); XCTAssertFalse(settings.learnChoices)
+    }
+    func testPreviewAndExpandedQueriesHaveTheSameFirstCandidate() throws {
+        let engine = try InputEngine.bundled()
+        for input in ["nichifankm", "nichifnalemeilaopo", "wodeiphone", "ganghuam"] {
+            let preview = engine.candidates(input, limit: 6)
+            let expanded = engine.candidates(input)
+            XCTAssertEqual(preview.first?.text, expanded.first?.text, input)
+            XCTAssertEqual(preview.first?.consumed, expanded.first?.consumed, input)
+        }
+    }
+    func testSelectionPreservesSpacesNumbersAndEmojiGraphemes() {
+        let text = "朱鸿毅 编程 16 次课 👨‍👩‍👧‍👦 2800"
+        let tokens = ClipboardSelection.tokens(text)
+        XCTAssertEqual(tokens.map(\.text), ["朱", "鸿", "毅", "编", "程", "16", "次", "课", "👨‍👩‍👧‍👦", "2800"])
+        XCTAssertEqual(ClipboardSelection.text(text, tokens: tokens, from: 5, through: 9), "16 次课 👨‍👩‍👧‍👦 2800")
+        XCTAssertEqual(ClipboardSelection.text(text, tokens: tokens, from: 9, through: 5), "16 次课 👨‍👩‍👧‍👦 2800")
+        XCTAssertEqual(ClipboardSelection.text(text, tokens: tokens, from: -1, through: 3), "")
+        XCTAssertEqual(ClipboardSelection.tokens("100.106.124.45").map(\.text), ["100.106.124.45"])
+    }
+}

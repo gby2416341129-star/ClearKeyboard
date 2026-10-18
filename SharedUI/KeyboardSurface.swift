@@ -25,7 +25,6 @@ import ImageIO
     private var displayedCandidateContext: KeyboardModel.CandidateContext?
     private let deleteHint = UILabel()
     private var panel: UIView?
-    private var clipboard: ClipboardStore?
     private var observerTokens: [NSObjectProtocol] = []
     private var panelKind: ToolbarTool?
     private var toolboxVisible = false
@@ -71,7 +70,7 @@ import ImageIO
         initialized = true; render()
         model.clipboardCapture.onCapture = { [weak self] in
             guard let self, self.panelKind == .clipboard else { return }
-            self.panelKind = nil; self.showPanel(.clipboard)
+            (self.panel as? ClipboardPanel)?.reloadFromDisk()
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -101,7 +100,9 @@ import ImageIO
         }
         sideRail.isHidden = settings.hand == .full
         sideRail.frame = layout.sideRail
-        panel?.frame = layout.panel
+        if panelKind == .clipboard {
+            panel?.frame = CGRect(x: layout.panel.minX, y: 0, width: layout.panel.width, height: layout.panel.maxY)
+        } else { panel?.frame = layout.panel }
     }
     func render() {
         guard initialized else { return }
@@ -161,8 +162,12 @@ import ImageIO
                 button.accessibilityIdentifier = "key.language"
             }
         }
-        toolbar.isHidden = candidateHeight > 0
-        let candidateInteraction = candidateScroll.holdsCandidateUpdates || candidateScroll.isTracking || candidateScroll.isDragging || candidateScroll.isDecelerating || candidateStack.arrangedSubviews.contains { ($0 as? UIControl)?.isTracking == true }
+        toolbar.isHidden = panelKind == .clipboard || candidateHeight > 0
+        let queryChanged = displayedCandidateContext != model.candidateContext
+        if queryChanged && !candidateScroll.isTracking && !candidateScroll.isDragging {
+            candidateScroll.finishPreviousQueryScroll()
+        }
+        let candidateInteraction = candidateScroll.holdsCandidateUpdates || candidateScroll.isTracking || candidateScroll.isDragging || candidateStack.arrangedSubviews.contains { ($0 as? UIControl)?.isTracking == true }
         if !candidateInteraction && (candidateSnapshot != model.candidates || arithmeticSnapshot != model.arithmetic || displayedCandidateContext != model.candidateContext) {
             let resetOffset = displayedCandidateContext != model.candidateContext
             candidateSnapshot = model.candidates; arithmeticSnapshot = model.arithmetic
@@ -199,13 +204,13 @@ import ImageIO
             }
             if resetOffset { candidateScroll.setContentOffset(.zero, animated: false) }
         }
-        let acceptsDisplayedCandidates = model.acceptsCandidateContext(displayedCandidateContext)
+        let acceptsDisplayedCandidates = model.displaysCurrentCandidates(displayedCandidateContext)
         for (index, view) in candidateStack.arrangedSubviews.enumerated() {
             guard let button = view as? UIButton else { continue }
             if !button.isTracking { button.isEnabled = acceptsDisplayedCandidates }
             if appearanceChanged { button.setTitleColor(index == 0 ? settings.accentInkColor : .label, for: .normal) }
         }
-        candidateScroll.isHidden = movingCursor || candidateHeight == 0
+        candidateScroll.isHidden = panelKind == .clipboard || movingCursor || candidateHeight == 0
         hint.isHidden = !movingCursor
         hint.text = movingCursor ? "滑动键盘，移动光标" : nil
         // Candidates and language changes share one header. Only a real height-setting
@@ -391,9 +396,14 @@ import ImageIO
     private func showPanel(_ kind: ToolbarTool) {
         if panelKind == kind { closePanel(); return }
         closePanel(); panelKind = kind
+        if kind == .clipboard {
+            let content = ClipboardPanel(model: model)
+            content.onClose = { [weak self] in self?.closePanel() }
+            addSubview(content); panel = content; keyGlassGroup.isHidden = true; render(); return
+        }
         let stack = panelStack(title: kind.title)
         switch kind {
-        case .clipboard: buildClipboard(stack)
+        case .clipboard: break
         case .emoji: buildEmoji(stack)
         case .language: model.toggleLanguage(); closePanel()
         case .oneHand:
@@ -451,48 +461,6 @@ import ImageIO
         let label = UILabel(); label.text = text; label.numberOfLines = 0
         label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabel; return label
     }
-    private func buildClipboard(_ stack: UIStackView) {
-        guard model.document?.fullAccess == true else {
-            stack.addArrangedSubview(note("开启「允许完全访问」后可自动保存复制的文字。首次读取请允许系统的粘贴请求。")); return
-        }
-        let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)); clipboard = store
-        store.prune(lifetime: model.settings.clipboardLifetimeHours * 3600)
-        let commands = UIStackView(); commands.axis = .horizontal; commands.distribution = .fillEqually
-        commands.addArrangedSubview(ClipboardPasteButton(capture: model.clipboardCapture))
-        commands.addArrangedSubview(actionButton("清空") { [weak self] in store.clear(); self?.panelKind = nil; self?.showPanel(.clipboard) })
-        stack.addArrangedSubview(commands)
-        let lifetime = model.settings.clipboardLifetimeHours
-        stack.addArrangedSubview(note((model.settings.capturesClipboard ? "自动收录已开启" : "自动收录已关闭") + " · " + (lifetime == 0 ? "永久保留" : lifetime >= 24 ? "保留 \(Int(lifetime / 24)) 天" : "保留 \(Int(lifetime * 60)) 分钟")))
-        if store.clips.isEmpty { stack.addArrangedSubview(note("复制后会自动收录。请在系统设置的「澈 → 从其他 App 粘贴」选「允许」，并开启键盘完全访问；也可点系统粘贴按钮直接保存。支持文字、链接、图片与 8 MB 内的附件。")); return }
-        let scroll = UIScrollView(); scroll.heightAnchor.constraint(equalToConstant: 126).isActive = true
-        let list = UIStackView(); list.axis = .vertical; list.spacing = 4; list.translatesAutoresizingMaskIntoConstraints = false
-        scroll.addSubview(list); stack.addArrangedSubview(scroll)
-        NSLayoutConstraint.activate([list.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor), list.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor), list.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor), list.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor), list.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor)])
-        for clip in store.clips {
-            let row = UIStackView(); row.axis = .horizontal; row.spacing = 6
-            let title = clip.attachment.map { clip.text + " · " + ByteCountFormatter.string(fromByteCount: Int64($0.byteCount), countStyle: .file) } ?? String(clip.text.prefix(40))
-            let paste = actionButton(title) { [weak self] in
-                guard let self else { return }
-                if let attachment = clip.attachment, let data = store.attachmentData(for: clip) {
-                    UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
-                    self.closePanel(); self.announce("已复制，请在输入框粘贴")
-                } else { self.model.insertLiteral(clip.text); self.closePanel() }
-            }
-            if clip.attachment?.typeIdentifier.hasPrefix("public.") == true, let data = store.attachmentData(for: clip),
-               let source = CGImageSourceCreateWithData(data as CFData, nil),
-               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 72, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) {
-                paste.setImage(UIImage(cgImage: image), for: .normal); paste.imageView?.contentMode = .scaleAspectFit
-                paste.imageView?.widthAnchor.constraint(equalToConstant: 36).isActive = true
-            }
-            paste.contentHorizontalAlignment = .leading; paste.titleLabel?.lineBreakMode = .byTruncatingTail
-            row.addArrangedSubview(paste)
-            let pin = actionButton(clip.pinned ? "已固定" : "固定") { [weak self] in store.togglePin(clip.id); self?.panelKind = nil; self?.showPanel(.clipboard) }
-            pin.widthAnchor.constraint(equalToConstant: 48).isActive = true; row.addArrangedSubview(pin)
-            let delete = actionButton("", symbol: "trash") { [weak self] in store.delete(clip.id); self?.panelKind = nil; self?.showPanel(.clipboard) }
-            delete.accessibilityLabel = "删除剪贴板项目"; delete.widthAnchor.constraint(equalToConstant: 34).isActive = true
-            row.addArrangedSubview(delete); list.addArrangedSubview(row)
-        }
-    }
     private func buildEmoji(_ stack: UIStackView) {
         let groups = [["😀", "🥹", "🥰", "😎", "🥳", "😭", "🤔", "🫶"], ["👍", "🙏", "❤️", "✨", "🎉", "🌙", "☕️", "🌸"], ["(๑•̀ㅂ•́)و✧", "٩(ˊᗜˋ*)و", "(｡･ω･｡)", "晚安 🌙"]]
         for group in groups {
@@ -530,9 +498,13 @@ import ImageIO
     }
 }
 
-@MainActor private final class CandidateScrollView: UIScrollView, UIScrollViewDelegate {
+@MainActor final class CandidateScrollView: UIScrollView, UIScrollViewDelegate {
     var onSettled: (() -> Void)?
     private(set) var holdsCandidateUpdates = false
+    func finishPreviousQueryScroll() {
+        setContentOffset(contentOffset, animated: false)
+        holdsCandidateUpdates = false
+    }
     override init(frame: CGRect) { super.init(frame: frame); delegate = self }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }

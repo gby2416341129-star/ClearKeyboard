@@ -30,16 +30,19 @@ public final class Lexicon {
               resultsOffset == indexOffset + indexCount * 16,
               stringsOffset >= resultsOffset, stringsOffset <= bytes.count else { throw LexiconError.truncated }
         // Validate all bounds once on the background load queue, never on a keypress.
-        for i in 0..<entryCount {
-            let offset = 32 + i * 28
-            for field in [0, 8, 16] {
-                guard u32(offset + field) + u32(offset + field + 4) <= bytes.count - stringsOffset else { throw LexiconError.truncated }
+        try bytes.withUnsafeBytes { raw in
+            func number(_ offset: Int) -> Int { Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: UInt32.self))) }
+            for i in 0..<entryCount {
+                let offset = 32 + i * 28
+                for field in stride(from: 0, through: 16, by: 8) {
+                    guard number(offset + field) + number(offset + field + 4) <= bytes.count - stringsOffset else { throw LexiconError.truncated }
+                }
             }
-        }
-        for i in 0..<indexCount {
-            let offset = indexOffset + i * 16
-            guard u32(offset) + u32(offset + 4) <= bytes.count - stringsOffset,
-                  (u32(offset + 8) + u32(offset + 12)) * 4 <= stringsOffset - resultsOffset else { throw LexiconError.truncated }
+            for i in 0..<indexCount {
+                let offset = indexOffset + i * 16
+                guard number(offset) + number(offset + 4) <= bytes.count - stringsOffset,
+                      (number(offset + 8) + number(offset + 12)) * 4 <= stringsOffset - resultsOffset else { throw LexiconError.truncated }
+            }
         }
     }
     private func u32(_ offset: Int) -> UInt32 {
@@ -79,13 +82,17 @@ public final class Lexicon {
         let start = Int(u32(base + 8)), count = min(max(0, limit), Int(u32(base + 12)))
         return (0..<count).compactMap { entry(Int(u32(resultsOffset + (start + $0) * 4))) }
     }
+    private static let bundleLock = NSLock()
+    private static var bundledLexicons: [String: Lexicon] = [:]
     public static func bundled(_ name: String) throws -> Lexicon {
+        bundleLock.lock(); defer { bundleLock.unlock() }
+        if let value = bundledLexicons[name] { return value }
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
         #else
         let bundle = Bundle.main
         #endif
         guard let url = bundle.url(forResource: name, withExtension: "clx") else { throw LexiconError.invalidFormat }
-        return try Lexicon(url: url)
+        let value = try Lexicon(url: url); bundledLexicons[name] = value; return value
     }
 }

@@ -32,6 +32,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let document: String; let language: InputLanguage
     }
     private(set) var candidateContext: CandidateContext?
+    private var requestedContext: CandidateContext?
     private var awaitingCommit = false
     private var deferredActions: [KeyAction] = []
     weak var document: KeyboardDocument?
@@ -58,6 +59,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var candidateGeneration = -1
     private var englishSnapshot = ""
     private var learned: [String: Int] = [:]
+    private var personal = PersonalLexicon()
     private var learningEpoch: String?
     private var saveWork: DispatchWorkItem?
     private var lastShift = Date.distantPast
@@ -71,6 +73,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         store = SettingsStore(defaults: defaults)
         self.settings = settings ?? store.load()
         learned = defaults.dictionary(forKey: "clear.learned.v1") as? [String: Int] ?? [:]
+        personal = defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
         learningEpoch = defaults.string(forKey: "clear.learned.epoch")
         if document.prefersEnglish { self.settings.language = .english }
         queue.async { [weak self] in
@@ -92,6 +95,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         settings = store.load()
         if document.prefersEnglish { settings.language = .english }
         learned = store.defaults.dictionary(forKey: "clear.learned.v1") as? [String: Int] ?? [:]
+        personal = store.defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
         learningEpoch = store.defaults.string(forKey: "clear.learned.epoch")
         refreshCandidates()
     }
@@ -214,10 +218,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let current = candidateGeneration == generation ? candidates.first : nil
         let fallback = current ?? engine?.candidates(composition.raw, fuzzy: settings.fuzzyPairs, learned: learned, compose: false).first
         if let candidate = fallback {
+            let spelling = composition.raw
             document?.setMarkedText(candidate.text); document?.unmarkText(); composition.consume(candidate.consumed)
             // Preserve any spelling not covered by a partial candidate.
             if flushRemainder && !composition.isEmpty { document?.insert(composition.normalized) }
-            learn(candidate.text)
+            learn(candidate, raw: spelling)
         } else { document?.setMarkedText(composition.normalized); document?.unmarkText() }
         if flushRemainder || fallback == nil { composition.clear() }
         else if !composition.raw.isEmpty { syncMarkedText() }
@@ -235,19 +240,25 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard let context, document?.selectedText.isEmpty == true else { return false }
         return context == activeCandidateContext()
     }
+    // Rendering uses the already captured snapshot. Remote proxy getters can
+    // synchronously cross a process boundary; only a real tap revalidates them.
+    func displaysCurrentCandidates(_ context: CandidateContext?) -> Bool {
+        context != nil && context == requestedContext
+    }
     func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?) {
         guard !awaitingCommit, acceptsCandidateContext(context), let document else { return }
         commitChoice(candidate, document: document)
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument) {
         if settings.language == .chinese {
+            let spelling = composition.raw
             if composition.raw.isEmpty { document.insert(candidate.text) }
             else {
                 document.setMarkedText(candidate.text); document.unmarkText()
                 composition.consume(candidate.consumed)
                 if !composition.raw.isEmpty { syncMarkedText() }
             }
-            learn(candidate.text)
+            learn(candidate, raw: spelling)
         } else {
             guard document.selectedText.isEmpty, document.contextBefore == englishSnapshot else { refreshCandidates(); return }
             let word = EnglishContext.word(in: englishSnapshot)
@@ -265,21 +276,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         return true
     }
     private func deferUntilCandidates(_ action: KeyAction) {
-        guard let engine, let context = activeCandidateContext() else { return }
         awaitingCommit = true; deferredActions.append(action)
-        cancellation.cancel(); work?.cancel()
-        let raw = composition.raw, fuzzy = settings.fuzzyPairs, choices = settings.learnChoices ? learned : [:]
-        queue.async { [weak self] in
-            let result = engine.candidates(raw, fuzzy: fuzzy, learned: choices)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                guard self.activeCandidateContext() == context else {
-                    self.awaitingCommit = false; self.deferredActions = []; self.refreshCandidates(); return
-                }
-                self.candidates = result; self.candidateGeneration = self.generation; self.candidateContext = context
-                self.awaitingCommit = false; self.resumeDeferredActions()
-            }
-        }
+        // Reuse the in-flight current query. Cancelling it and enqueuing the
+        // identical sentence again used to stall space and every following key.
     }
     private func resumeDeferredActions() {
         guard !awaitingCommit else { return }
@@ -305,18 +304,23 @@ struct DeletedInput { let text: String; let selection: NSRange }
             default: shifted = false
             }
         }
-        let queryContext = activeCandidateContext()
+        let queryContext = selectionIsEmpty ? activeCandidateContext() : nil
+        requestedContext = queryContext
         if arithmetic != nil { candidateGeneration = requestedGeneration; candidateContext = queryContext }
         onChange?()
         if arithmetic != nil { candidateGeneration = requestedGeneration; return }
         guard let engine, document != nil, selectionIsEmpty else { return }
         let raw = composition.raw, settings = self.settings, learned = self.learned
+        let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
+        if !preferred.isEmpty {
+            candidates = preferred; candidateGeneration = requestedGeneration; candidateContext = queryContext; onChange?()
+        }
         englishSnapshot = context
         let job = DispatchWorkItem { [weak self] in
             guard !token.isCancelled else { return }
             let result: [Candidate]
             if settings.language == .chinese {
-                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], cancelled: { token.isCancelled })
+                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, limit: 6, cancelled: { token.isCancelled })
             } else {
                 let word = EnglishContext.word(in: context)
                 result = word.isEmpty ? (settings.predictions ? engine.englishPredictions(after: context) : []) : engine.englishCandidates(prefix: word)
@@ -326,12 +330,28 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 guard let self, self.generation == requestedGeneration else { return }
                 self.candidates = result; self.candidateGeneration = requestedGeneration
                 self.candidateContext = queryContext; self.onChange?()
+                if self.awaitingCommit { self.awaitingCommit = false; self.resumeDeferredActions() }
+            }
+            // The first visible row never waits for offscreen alternatives.
+            // Expand only after a short idle interval; another key cancels it.
+            if settings.language == .chinese, !raw.isEmpty {
+                self?.queue.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+                    guard !token.isCancelled else { return }
+                    let expanded = engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, cancelled: { token.isCancelled })
+                    guard !token.isCancelled else { return }
+                    DispatchQueue.main.async {
+                        guard let self, self.generation == requestedGeneration else { return }
+                        self.candidates = expanded; self.onChange?()
+                    }
+                }
             }
         }
         work = job; queue.async(execute: job)
     }
-    private func learn(_ text: String) {
+    private func learn(_ candidate: Candidate, raw: String) {
         guard settings.learnChoices else { return }
+        let text = candidate.text
+        personal.record(candidate, for: raw)
         learned[text] = min(10_000, (learned[text] ?? 0) + 1)
         if learned.count > 512, let least = learned.min(by: { $0.value < $1.value })?.key { learned.removeValue(forKey: least) }
         saveWork?.cancel()
@@ -341,10 +361,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func flushLearning() {
         saveWork?.cancel()
         let epoch = store.defaults.string(forKey: "clear.learned.epoch")
-        guard epoch == learningEpoch else { learned = [:]; learningEpoch = epoch; return }
+        guard epoch == learningEpoch else { learned = [:]; personal = PersonalLexicon(); learningEpoch = epoch; return }
         store.defaults.set(learned, forKey: "clear.learned.v1")
+        if let data = try? JSONEncoder().encode(personal) { store.defaults.set(data, forKey: "clear.choices.v2") }
     }
-    func suspend() { stopClipboardCapture(); work?.cancel(); cancellation.cancel(); generation += 1; flushLearning() }
+    func suspend() { stopClipboardCapture(); work?.cancel(); cancellation.cancel(); generation += 1; awaitingCommit = false; deferredActions = []; flushLearning() }
 }
 
 private final class QueryCancellation: @unchecked Sendable {

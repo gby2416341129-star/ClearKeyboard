@@ -6,8 +6,12 @@ import CRime
 /// The production Chinese decoder. The C bridge serializes librime across models.
 final class RimeDecoder {
     private let session: UInt
-    private var previous = ""
-    private var cached: [Candidate] = []
+    private var cache: [String: (limit: Int, candidates: [Candidate])] = [:]
+    private var cacheOrder: [String] = []
+    private final class CancellationBox {
+        let check: () -> Bool
+        init(_ check: @escaping () -> Bool) { self.check = check }
+    }
     static func bundled() throws -> RimeDecoder {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
@@ -33,10 +37,18 @@ final class RimeDecoder {
         guard session != 0 else { throw LexiconError.invalidFormat }
     }
     deinit { cr_destroy(session) }
-    func candidates(_ raw: String, cancelled: () -> Bool) -> [Candidate] {
-        if raw == previous { return cached }
+    func candidates(_ raw: String, limit: Int = 16, cancelled: () -> Bool) -> [Candidate] {
+        if let value = cache[raw], value.limit >= limit { return Array(value.candidates.prefix(limit)) }
         guard !cancelled() else { return [] }
-        let count = Int(cr_query(session, raw))
+        let count = withoutActuallyEscaping(cancelled) { check in
+            let box = CancellationBox(check)
+            return withExtendedLifetime(box) {
+                Int(cr_query(session, raw, Int32(limit), { context in
+                    guard let context else { return 0 }
+                    return Unmanaged<CancellationBox>.fromOpaque(context).takeUnretainedValue().check() ? 1 : 0
+                }, Unmanaged.passUnretained(box).toOpaque()))
+            }
+        }
         var result: [Candidate] = [], seen = Set<String>()
         for index in 0..<count {
             if cancelled() { return [] }
@@ -48,7 +60,11 @@ final class RimeDecoder {
                 result.append(Candidate(text: value, reading: String(cString: reading), consumed: Int(consumed), score: 100 - Double(index)))
             }
         }
-        if !cancelled() { previous = raw; cached = result }
+        if !cancelled() {
+            if cache[raw] == nil { cacheOrder.append(raw) }
+            cache[raw] = (limit, result)
+            if cacheOrder.count > 32 { cache.removeValue(forKey: cacheOrder.removeFirst()) }
+        }
         return result
     }
 }

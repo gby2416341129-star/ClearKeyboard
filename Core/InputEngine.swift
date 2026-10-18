@@ -54,7 +54,7 @@ public final class InputEngine {
         return engine
     }
 
-    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], compose: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
+    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], limit: Int = 16, compose: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
         if !compose, matureDecoder != nil, input.count >= 3,
@@ -69,7 +69,7 @@ public final class InputEngine {
             if input.count >= 2, input.count % 2 == 0, input == String(repeating: "hd", count: input.count / 2) {
                 return [Candidate(text: String(repeating: "好的", count: input.count / 2), reading: String(repeating: "hao de ", count: input.count / 2).trimmingCharacters(in: .whitespaces), consumed: raw.count, score: 120)]
             }
-            let result = matureDecoder.candidates(raw.lowercased(), cancelled: cancelled)
+            let result = matureDecoder.candidates(raw.lowercased(), limit: limit, cancelled: cancelled)
             if cancelled() { return [] }
             var output = result.sorted {
                 $0.score + min(2, log(Double(learned[$0.text] ?? 0) + 1)) >
@@ -98,10 +98,12 @@ public final class InputEngine {
                 }
             }
             if !fuzzy.isEmpty {
-                for variant in FuzzyPinyin.variants(input, enabled: fuzzy).dropFirst() {
-                    output += matureDecoder.candidates(variant, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }
+                for variant in FuzzyPinyin.variants(input, enabled: fuzzy, limit: limit <= 6 ? 3 : 12).dropFirst() {
+                    if cancelled() { return [] }
+                    output += matureDecoder.candidates(variant, limit: limit, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }
                 }
             }
+            output.insert(contentsOf: preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }, at: 0)
             if !output.contains(where: { $0.text == raw }) { output.append(literal) }
             var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(24))
         }

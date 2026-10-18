@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import SwiftUI
 
 @MainActor final class KeyboardRuntimeTests: XCTestCase {
     private func testSettings() -> KeyboardSettings { var settings = KeyboardSettings(); settings.automaticClipboard = false; return settings }
@@ -679,6 +680,69 @@ import UIKit
         let widths = bounds.map(\.width), heights = bounds.map(\.height)
         XCTAssertLessThan(widths.max()! / widths.min()!, 1.12)
         XCTAssertLessThan(heights.max()! / heights.min()!, 1.12)
+    }
+
+    func testSelectedAbbreviationIsRememberedBeforeTheNextDecoderQuery() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        for character in "ganghuam" { controller.model.handle(.text(String(character))) }
+        try await waitFor { controller.model.candidates.contains { $0.text == "钢化膜" } && controller.model.candidatesAreCurrent }
+        let film = try XCTUnwrap(controller.model.candidates.first { $0.text == "钢化膜" })
+        controller.model.choose(film)
+        XCTAssertEqual(controller.textView.text, "钢化膜")
+        for character in "ganghuam" { controller.model.handle(.text(String(character))) }
+        XCTAssertEqual(controller.model.candidates.first?.text, "钢化膜", "A remembered choice must appear without waiting for the background decoder")
+        controller.model.choose(controller.model.candidates[0])
+        XCTAssertEqual(controller.textView.text, "钢化膜钢化膜")
+    }
+    func testNewSpellingInterruptsOldCandidateDeceleration() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        for character in "shi" { controller.model.handle(.text(String(character))) }
+        try await waitFor { controller.model.candidatesAreCurrent }; settleLayout(controller.view)
+        let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? CandidateScrollView }.first)
+        scroll.delegate?.scrollViewWillBeginDragging?(scroll)
+        scroll.delegate?.scrollViewDidEndDragging?(scroll, willDecelerate: true)
+        controller.model.clearComposition()
+        let start = ProcessInfo.processInfo.systemUptime
+        for character in "nichifankm" { controller.model.handle(.text(String(character))) }
+        try await waitFor { controller.model.candidatesAreCurrent && controller.model.candidates.first?.text == "你吃饭了吗" }
+        settleLayout(controller.view)
+        let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
+        print("VISIBLE_CANDIDATE_LATENCY rapidKeys=10 firstCurrentMs=\(elapsed)")
+        XCTAssertFalse(scroll.holdsCandidateUpdates)
+        let first = descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你吃饭了吗" }
+        XCTAssertNotNil(first); XCTAssertTrue(first?.isEnabled == true)
+        XCTAssertLessThan(elapsed, 500, "The current row must not wait for a 1–2 second inertial scroll")
+    }
+    func testClipboardIsContentFirstAndSupportsSelection() throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        let panel = ClipboardPanel(model: controller.model)
+        panel.frame = CGRect(x: 0, y: 0, width: 370, height: 264); settleLayout(panel)
+        let labels = descendants(panel).compactMap { ($0 as? UILabel)?.text }.joined(separator: " ")
+        XCTAssertFalse(labels.contains("自动收录已开启")); XCTAssertFalse(labels.contains("从其他 App 粘贴"))
+        XCTAssertEqual(descendants(panel).compactMap { $0 as? UISegmentedControl }.first?.numberOfSegments, 2)
+        panel.selectText("朱鸿毅 编程 16 次课 2800"); settleLayout(panel)
+        let collection = try XCTUnwrap(descendants(panel).compactMap { $0 as? UICollectionView }.first)
+        XCTAssertEqual(collection.numberOfItems(inSection: 0), 9)
+    }
+    func testThreeAppPagesRenderWithoutEmbeddingAKeyboardOnHome() throws {
+        let suite = "clear.pages." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+        let prefs = Preferences(store: SettingsStore(defaults: defaults))
+        let pages = [AnyView(HomeView(selectedTab: .constant(.home)).environmentObject(prefs)),
+                     AnyView(CustomizationView().environmentObject(prefs)), AnyView(InputSettingsView().environmentObject(prefs))]
+        for (index, page) in pages.enumerated() {
+            let host = UIHostingController(rootView: page)
+            host.loadViewIfNeeded(); host.view.frame = CGRect(x: 0, y: 0, width: 420, height: 912); settleLayout(host.view)
+            XCTAssertFalse(descendants(host.view).contains { $0 is KeyboardSurface }, "App page \(index) must not build an embedded keyboard")
+            XCTAssertTrue(host.view.bounds.width > 0)
+        }
+        for glass in GlassPreset.allCases { prefs.settings.glass = glass }
+        for value in [0.15, 0.5, 1.0] { prefs.settings.glassOpacity = value }
+        prefs.settings.learnChoices = false; XCTAssertFalse(prefs.settings.learnChoices)
+        prefs.clearLearning()
+        XCTAssertNil(defaults.data(forKey: "clear.choices.v2"))
     }
 
 }

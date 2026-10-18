@@ -5,6 +5,7 @@ struct CustomizationView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var hexInput = ""
     @State private var invalidHex = false
+    @State private var showToolbarEditor = false
     private var customColor: Binding<Color> {
         Binding(get: { Color(preferences.settings.accentColor) }, set: { value in
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
@@ -18,127 +19,232 @@ struct CustomizationView: View {
         preferences.settings.customAccentHex = color.hex; hexInput = color.hex; invalidHex = false
     }
     var body: some View {
-        Form {
-            Section {
-                HStack(spacing: 10) {
-                    Image(uiImage: ClearBrand.image(32)).renderingMode(.original)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("你的清透，自有分寸。").font(.headline)
-                        Text("外观改变，熟悉的按键位置不变。").font(.caption).foregroundStyle(.secondary)
-                    }
-                }.padding(.vertical, 8)
-            }
-            Section("玻璃材质") {
-                Picker("材质", selection: $preferences.settings.glass) { ForEach(GlassPreset.allCases) { Text($0.title).tag($0) } }.pickerStyle(.segmented).accessibilityIdentifier("custom.glass")
-                VStack(alignment: .leading) {
-                    HStack { Text("遮罩浓度"); Spacer(); Text(preferences.settings.glassOpacity, format: .percent.precision(.fractionLength(0))).foregroundStyle(.secondary) }
-                    Slider(value: $preferences.settings.glassOpacity, in: 0.15...1).accessibilityIdentifier("custom.opacity")
-                }
-                ColorPicker("自定义任意颜色", selection: customColor, supportsOpacity: false).accessibilityIdentifier("custom.color")
+        AppPage(title: "你的风格。", eyebrow: "PERSONALIZE / 定制", subtitle: "从一抹颜色，到指尖的每次触碰。") {
+            MaterialStudy(settings: preferences.settings)
+            AppCard {
+                AppSectionTitle(title: "材质", caption: "MATERIAL")
+                Picker("材质", selection: $preferences.settings.glass) {
+                    ForEach(GlassPreset.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).accessibilityIdentifier("custom.glass")
                 HStack {
-                    Text("HEX")
-                    TextField("#RRGGBB", text: $hexInput).accessibilityIdentifier("custom.hex").textInputAutocapitalization(.characters).autocorrectionDisabled()
-                        .font(.system(.body, design: .monospaced)).multilineTextAlignment(.trailing).submitLabel(.done).onSubmit(applyHex)
-                    Button("应用", action: applyHex).accessibilityIdentifier("custom.applyHex")
+                    Text("遮罩浓度").font(.system(size: 13))
+                    Spacer()
+                    Text(preferences.settings.glassOpacity, format: .percent.precision(.fractionLength(0)))
+                        .font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
+                }
+                Slider(value: $preferences.settings.glassOpacity, in: 0.15...1).accessibilityIdentifier("custom.opacity")
+            }
+            AppCard {
+                AppSectionTitle(title: "点缀色", caption: "COLOR")
+                HStack(spacing: 12) {
+                    ForEach(Accent.allCases) { accent in
+                        accentSwatch(accent)
+                    }
+                }
+                Divider()
+                ColorPicker("自由选色", selection: customColor, supportsOpacity: false)
+                    .font(.system(size: 14)).accessibilityIdentifier("custom.color")
+                HStack(spacing: 10) {
+                    Text("HEX").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                    TextField("#RRGGBB", text: $hexInput).accessibilityIdentifier("custom.hex")
+                        .textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        .font(.system(size: 13, design: .monospaced)).multilineTextAlignment(.trailing)
+                        .submitLabel(.done).onSubmit(applyHex)
+                    Button("应用", action: applyHex).font(.system(size: 13, weight: .semibold)).accessibilityIdentifier("custom.applyHex")
                 }
                 if invalidHex { Text("请输入 #RRGGBB 或 #RGB 色值").font(.caption).foregroundStyle(.red) }
+            }
+            AppCard {
+                AppSectionTitle(title: "按键与手感", caption: "TOUCH")
                 HStack {
-                    ForEach(Accent.allCases) { color in
-                        Button(color.title) { preferences.settings.accent = color; preferences.settings.customAccentHex = nil; hexInput = preferences.settings.accentRGB.hex; invalidHex = false }
-                            .accessibilityIdentifier("custom.accent." + color.rawValue)
-                            .frame(maxWidth: .infinity)
-                    }
-                }.buttonStyle(.borderless)
-                Text("iOS 26 使用原生 Liquid Glass；iOS 18–25 使用系统材质。减少透明度和低电量模式会自动降低渲染开销。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("按键与单手") {
-                VStack(alignment: .leading) {
-                    HStack {
-                        Text("按键高度"); Spacer()
-                        Text(preferences.settings.keyHeight == 50 ? "标准" : String(format: "%+.0f", preferences.settings.keyHeight - 50)).foregroundStyle(.secondary)
-                    }
-                    Slider(value: $preferences.settings.keyHeight, in: 44...58, step: 1).accessibilityIdentifier("custom.keyHeight")
-                    Button("恢复标准高度") { preferences.settings.keyHeight = 50 }.accessibilityIdentifier("custom.resetHeight")
+                    Text("按键高度").font(.system(size: 14))
+                    Spacer()
+                    Text(preferences.settings.keyHeight == 50 ? "标准" : String(format: "%+.0f", preferences.settings.keyHeight - 50))
+                        .font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
+                    Button("还原") { preferences.settings.keyHeight = 50 }.font(.system(size: 12)).accessibilityIdentifier("custom.resetHeight")
                 }
-                Picker("键盘宽度", selection: $preferences.settings.hand) { ForEach(HandMode.allCases) { Text($0.title).tag($0) } }.pickerStyle(.menu).accessibilityIdentifier("custom.hand")
+                Slider(value: $preferences.settings.keyHeight, in: 44...58, step: 1).accessibilityIdentifier("custom.keyHeight")
+                Divider()
+                Picker("键盘宽度", selection: $preferences.settings.hand) {
+                    ForEach(HandMode.allCases) { Text($0.title).tag($0) }
+                }.font(.system(size: 14)).accessibilityIdentifier("custom.hand")
                 if preferences.settings.hand != .full {
-                    VStack(alignment: .leading) {
-                        Text("单手宽度").font(.subheadline)
-                        Slider(value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), in: 0.68...0.88)
+                    Slider(value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), in: 0.68...0.88)
+                        .accessibilityLabel("单手宽度")
+                }
+                Divider()
+                PreferenceToggle(title: "轻触反馈", subtitle: "每次按下，轻轻回应。", isOn: $preferences.settings.haptics).accessibilityIdentifier("custom.haptics")
+            }
+            AppCard {
+                AppSectionTitle(title: "工具栏", caption: "SHORTCUTS")
+                HStack {
+                    ForEach(preferences.settings.toolbar) { tool in
+                        VStack(spacing: 8) {
+                            Image(uiImage: ToolArtwork.image(symbol: tool.symbol, size: 28)).renderingMode(.original).frame(width: 32, height: 32)
+                            Text(tool.title).font(.system(size: 10)).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity)
+                    }
+                }.padding(.vertical, 6)
+                Divider()
+                Button { showToolbarEditor = true } label: { AppRow(title: "排列快捷工具", detail: "把常用的放在顺手的位置", symbol: "rectangle.3.group") }.buttonStyle(.plain)
+            }
+        }.accessibilityIdentifier("custom.page")
+            .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView() }
+            .onAppear { preferences.reload(); hexInput = preferences.settings.accentRGB.hex }
+    }
+    private func accentSwatch(_ accent: Accent) -> some View {
+        var sample = KeyboardSettings(); sample.accent = accent
+        let selected = preferences.settings.customAccentHex == nil && preferences.settings.accent == accent
+        return Button {
+            preferences.settings.accent = accent; preferences.settings.customAccentHex = nil
+            hexInput = preferences.settings.accentRGB.hex; invalidHex = false
+        } label: {
+            VStack(spacing: 8) {
+                Circle().fill(Color(sample.accentColor)).frame(width: 32, height: 32)
+                    .overlay { if selected { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(.white) } }
+                    .padding(4).overlay(Circle().stroke(selected ? Color(sample.accentColor).opacity(0.5) : .clear, lineWidth: 1))
+                Text(accent.title).font(.system(size: 11)).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity)
+        }.buttonStyle(.plain).accessibilityIdentifier("custom.accent." + accent.rawValue).accessibilityLabel(accent.title)
+    }
+}
+
+private struct ToolbarEditorView: View {
+    @EnvironmentObject private var preferences: Preferences
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("按住右侧拖动排序") {
+                    ForEach(preferences.settings.toolbar) { item in
+                        Label { Text(item.title) } icon: { Image(uiImage: ToolArtwork.image(symbol: item.symbol, size: 26)).renderingMode(.original) }
+                            .deleteDisabled(item == .language)
+                    }.onMove { preferences.settings.toolbar.move(fromOffsets: $0, toOffset: $1) }
+                        .onDelete { offsets in
+                            preferences.settings.toolbar.remove(atOffsets: IndexSet(offsets.filter { preferences.settings.toolbar[$0] != .language }))
+                        }
+                }
+                Section("添加工具") {
+                    ForEach(ToolbarTool.allCases.filter { !preferences.settings.toolbar.contains($0) }) { item in
+                        Button { preferences.settings.toolbar.append(item) } label: { Label(item.title, systemImage: "plus.circle") }
+                            .disabled(preferences.settings.toolbar.count >= 4)
                     }
                 }
-                Toggle("轻触反馈", isOn: $preferences.settings.haptics).accessibilityIdentifier("custom.haptics")
-                Text("字母、数字、符号页均沿用 iOS 的位置关系。长按空格可拖动光标；长按删除连续删除；双击 Shift 锁定大写。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                ForEach(preferences.settings.toolbar) { item in
-                    HStack { Image(uiImage: ToolArtwork.image(symbol: item.symbol, size: 28)); Text(item.title); Spacer(); Image(systemName: "line.3.horizontal").foregroundStyle(.tertiary) }
-                }
-                .onMove { source, destination in preferences.settings.toolbar.move(fromOffsets: source, toOffset: destination) }
-                .onDelete { offsets in
-                    let deletable = offsets.filter { preferences.settings.toolbar[$0] != .language }
-                    preferences.settings.toolbar.remove(atOffsets: IndexSet(deletable))
-                }
-                ForEach(ToolbarTool.allCases.filter { !preferences.settings.toolbar.contains($0) }) { item in
-                    Button { preferences.settings.toolbar.append(item) } label: { Label("添加" + item.title, systemImage: "plus.circle") }
-                        .disabled(preferences.settings.toolbar.filter { $0 != .language }.count >= 3)
-                }
-            } header: { Text("工具栏 · 拖动排序") } footer: { Text("最多放三个快捷工具；也可在键盘内长按工具栏调整。空格旁的中 / EN 键可一键切换语言。") }
+            }.environment(\.editMode, .constant(.active)).navigationTitle("快捷工具").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
-        .navigationTitle("定制").toolbar { EditButton() }
-        .onAppear { preferences.reload(); hexInput = preferences.settings.accentRGB.hex }
     }
 }
 
 struct InputSettingsView: View {
     @EnvironmentObject private var preferences: Preferences
+    @State private var confirmClear = false
     var body: some View {
-        Form {
-            Section("离线输入") {
-                Picker("默认语言", selection: $preferences.settings.language) { Text("中文拼音").tag(InputLanguage.chinese); Text("English").tag(InputLanguage.english) }
-                Toggle("续词预测", isOn: $preferences.settings.predictions)
-                Toggle("英文自动大写", isOn: $preferences.settings.autoCapitalization)
-                Toggle("学习我的选词", isOn: $preferences.settings.learnChoices)
-                Text("内置约 6.5 万中文词条、5 万英文词条。中文支持全拼、简拼及基础词句组合；英文支持前缀补全。选词学习仅在本机保存，最多 512 个词条。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("清除选词学习", role: .destructive) { preferences.clearLearning() }
+        AppPage(title: "越用，越顺手。", eyebrow: "PREFERENCES / 输入", subtitle: "让输入方式贴近你的表达习惯。") {
+            AppCard {
+                HStack(spacing: 12) {
+                    Image(systemName: "text.bubble").font(.system(size: 23)).foregroundStyle(.tint)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("中文与 English").font(.system(size: 17, weight: .semibold))
+                        Text("离线词库 · 拼音纠错 · 混合输入").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+                Divider()
+                Picker("默认语言", selection: $preferences.settings.language) {
+                    Text("中文拼音").tag(InputLanguage.chinese); Text("English").tag(InputLanguage.english)
+                }.font(.system(size: 14))
             }
-            Section("模糊拼音") {
+            AppCard {
+                AppSectionTitle(title: "候选与记忆", caption: "SUGGESTIONS")
+                PreferenceToggle(title: "记住我的选词", subtitle: "同样的拼音，优先显示你选过的词。", isOn: $preferences.settings.learnChoices)
+                    .accessibilityIdentifier("input.learning")
+                Divider()
+                PreferenceToggle(title: "续词预测", subtitle: "接着上一句话，给出下一词建议。", isOn: $preferences.settings.predictions)
+                Divider()
+                PreferenceToggle(title: "英文自动大写", isOn: $preferences.settings.autoCapitalization)
+            }
+            AppCard {
+                NavigationLink { FuzzySettingsView() } label: { AppRow(title: "模糊拼音", detail: preferences.settings.fuzzyPairs.isEmpty ? "按你的发音习惯设置" : "已开启 \(preferences.settings.fuzzyPairs.count) 组", symbol: "waveform") }
+                Divider()
+                NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "自动收录与保留时间", symbol: "doc.on.clipboard") }
+                Divider()
+                NavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "本机存储 · 离线词库 · 开源许可", symbol: "lock.shield") }
+            }.buttonStyle(.plain)
+            Button { confirmClear = true } label: {
+                HStack { Text("重置选词记忆"); Spacer(); Image(systemName: "arrow.counterclockwise") }.font(.system(size: 13)).foregroundStyle(.secondary)
+            }.padding(.horizontal, 4)
+        }.accessibilityIdentifier("input.page")
+            .confirmationDialog("清除已记住的选词？", isPresented: $confirmClear, titleVisibility: .visible) {
+                Button("清除选词记忆", role: .destructive) { preferences.clearLearning() }
+            }
+            .onAppear { preferences.reload() }
+    }
+}
+
+private struct FuzzySettingsView: View {
+    @EnvironmentObject private var preferences: Preferences
+    var body: some View {
+        List {
+            Section {
                 ForEach(FuzzyPinyin.availablePairs, id: \.self) { pair in
                     Toggle(pair.replacingOccurrences(of: "/", with: " ↔ "), isOn: Binding(
                         get: { preferences.settings.fuzzyPairs.contains(pair) },
                         set: { if $0 { preferences.settings.fuzzyPairs.insert(pair) } else { preferences.settings.fuzzyPairs.remove(pair) } }))
                 }
-            }
-            Section("剪贴板") {
+            } footer: { Text("只开启你需要的发音组合。普通拼音错按与漏按无需开启模糊拼音。") }
+        }.navigationTitle("模糊拼音").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+    }
+}
+
+private struct ClipboardSettingsView: View {
+    @EnvironmentObject private var preferences: Preferences
+    @State private var confirmClear = false
+    var body: some View {
+        List {
+            Section {
                 Toggle("自动收录复制内容", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 }))
-                Text("一次设置：系统设置 → 澈 → 从其他 App 粘贴 → 允许；键盘设置中开启完全访问。之后无需每次确认。若此项尚未出现，先复制内容并打开澈的剪贴板一次。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("设置粘贴权限") { preferences.openClipboardSettings() }
-                ClipboardSaveControl(capture: preferences.clipboardCapture).frame(height: 38)
-                Picker("未固定内容保留", selection: $preferences.settings.clipboardLifetimeHours) {
+                Picker("内容保留", selection: $preferences.settings.clipboardLifetimeHours) {
                     Text("15 分钟").tag(0.25); Text("1 小时").tag(1.0); Text("1 天").tag(24.0)
                     Text("7 天").tag(168.0); Text("30 天").tag(720.0); Text("永久").tag(0.0)
                 }
-                Text("支持文字、链接、图片及 8 MB 内的附件。App 或澈键盘打开时收录当前内容；全部关闭期间无法收集每一次复制。最多 200 条、文字每条 2,000 字、附件共 32 MB；固定上限 10 条。永久不会按时间过期，仍受容量限制。图片和附件点按后复制到系统剪贴板，再在输入框粘贴。")
+            } footer: { Text("App 或澈键盘打开时自动收录。常用语不会随保留时间过期。") }
+            Section("粘贴权限") {
+                Button("打开系统设置") { preferences.openClipboardSettings() }
+                ClipboardSaveControl(capture: preferences.clipboardCapture).frame(height: 38)
+                Text("在系统设置的「澈 → 从其他 App 粘贴」选择「允许」，并开启键盘完全访问。")
                     .font(.caption).foregroundStyle(.secondary)
-                Button("清空剪贴板记录", role: .destructive) { preferences.clearClipboard() }
             }
-            Section("回车与表情") {
-                Label("回车跟随当前 App", systemImage: "return")
-                Text("优先显示宿主声明的「发送」「搜索」「前往」或「换行」。有拼音时先确认候选；再次回车才向 App 发送回车字符。第三方键盘无法保证所有 App 都将它作为发送指令。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Label("Emoji · 颜文字 · 文字贴纸", systemImage: "face.smiling")
+            Section {
+                Button("清空剪贴板记录", role: .destructive) { confirmClear = true }
+            } footer: { Text("支持文字、链接、图片和 8 MB 内附件。最多保留 200 条，附件总计 32 MB。图片与附件需复制后在输入框粘贴。") }
+        }.navigationTitle("剪贴板").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            .confirmationDialog("清空复制记录？", isPresented: $confirmClear) {
+                Button("清空", role: .destructive) { preferences.clearClipboard() }
             }
-            Section("隐私") {
-                Label("没有账号、广告或网络请求", systemImage: "lock.shield")
-                Text("不记录原始按键或整段输入。可选的选词学习只记录已选词的次数。剪贴板仅在本机保存，可关闭自动收录、设置保留时间或随时清空；文件使用设备数据保护。")
-                    .font(.caption).foregroundStyle(.secondary)
+    }
+}
+
+private struct InputAboutView: View {
+    var body: some View {
+        List {
+            Section("留在本机") {
+                Label("无需账号，也无需联网输入", systemImage: "lock.shield")
+                Text("选词记忆保存你主动确认的词和对应拼音，可在输入设置中关闭或清除。剪贴板可单独关闭和清空。")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            Section("离线引擎") {
+                Text("Rime · 万象拼音")
+                Text("中文词库与上下文语言模型支持整句、简拼和拼写纠错；中文模式中也可输入 English。")
+                    .font(.subheadline).foregroundStyle(.secondary)
                 NavigationLink("开源许可") { LicenseView() }
             }
-        }.navigationTitle("输入").onAppear { preferences.reload() }
+            Section("使用手势") {
+                Label("长按空格，滑动定位光标", systemImage: "cursorarrow.motionlines")
+                Label("删除键上滑清空，下滑撤回", systemImage: "delete.left")
+                Text("回车跟随当前 App 的发送、搜索或换行设置。有拼音时先确认候选。")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+        }.navigationTitle("隐私与关于").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
     }
 }
 
@@ -150,8 +256,12 @@ private struct ClipboardSaveControl: UIViewRepresentable {
 
 private struct LicenseView: View {
     private var license: String {
-        let names = ["THIRD_PARTY_NOTICES", "Apache-2.0", "CMUdict"]
-        return names.compactMap { name in Bundle.main.url(forResource: name, withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) } }.joined(separator: "\n\n")
+        ["THIRD_PARTY_NOTICES", "Rime-and-dependencies", "RimeXCFramework-license", "CC-BY-4.0", "Apache-2.0", "CMUdict"].compactMap { name in
+            Bundle.main.url(forResource: name, withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        }.joined(separator: "\n\n")
     }
-    var body: some View { ScrollView { Text(license).font(.system(size: 12, design: .monospaced)).padding() }.navigationTitle("开源许可") }
+    var body: some View {
+        ScrollView { Text(license).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(22) }
+            .navigationTitle("开源许可").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+    }
 }

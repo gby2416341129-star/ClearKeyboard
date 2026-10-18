@@ -10,12 +10,12 @@ import XCTest
     }
     func testACustomizationControlsCanBeChangedWithoutCrashing() throws {
         continueAfterFailure = false; clear.launch()
-        clear.tabBars.buttons["定制"].tap()
+        clear.buttons["tab.custom"].tap()
         let segmented = clear.segmentedControls["custom.glass"]
         XCTAssertTrue(segmented.waitForExistence(timeout: 8))
         for title in ["柔雾", "纯净", "清透"] { segmented.buttons[title].tap() }
         clear.sliders["custom.opacity"].adjust(toNormalizedSliderPosition: 0.35)
-        for color in ["ocean", "rose", "jade"] { clear.buttons["custom.accent." + color].tap() }
+        for color in ["ocean", "rose", "jade"] { let swatch = clear.buttons["custom.accent." + color]; reveal(swatch, in: clear); swatch.tap() }
         let hex = clear.textFields["custom.hex"]; hex.tap()
         if let value = hex.value as? String { hex.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)) }
         hex.typeText("#3399FF"); clear.buttons["custom.applyHex"].tap()

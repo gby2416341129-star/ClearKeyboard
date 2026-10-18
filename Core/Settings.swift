@@ -41,7 +41,8 @@ public struct KeyboardSettings: Codable, Equatable {
     public var oneHandFraction: Double { min(0.88, max(0.68, oneHandWidth ?? 0.78)) }
     public var fuzzyPairs: Set<String> = []
     public var predictions = true
-    public var learnChoices = false
+    public var learnChoices = true
+    public var selectionLearningVersion: Int? = nil
     public var haptics = false
     public var autoCapitalization = true
     /// Zero means no time-based expiry. Optional flag keeps pre-0.1.3 settings readable.
@@ -51,6 +52,9 @@ public struct KeyboardSettings: Codable, Equatable {
     public init() {}
 
     public mutating func sanitize() {
+        // Upgrade the old opt-in counter to spelling-specific choice memory once.
+        // Subsequent changes to the switch, including disabling it, are preserved.
+        if selectionLearningVersion == nil { learnChoices = true; selectionLearningVersion = 1 }
         customAccentHex = customAccentHex.flatMap { RGBColor(hex: $0)?.hex }
         glassOpacity = min(1, max(0.15, glassOpacity.isFinite ? glassOpacity : 0.52))
         keyHeight = min(58, max(44, keyHeight.isFinite ? keyHeight : 50))
