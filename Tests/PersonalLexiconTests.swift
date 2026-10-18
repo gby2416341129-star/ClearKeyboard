@@ -27,9 +27,10 @@ final class PersonalLexiconTests: XCTestCase {
         XCTAssertEqual(memory.candidates(for: "nichifanlema").first?.consumed, 9)
     }
     func testLearningUpgradeRunsOnceAndCanBeDisabled() {
-        var settings = KeyboardSettings(); settings.learnChoices = false
+        var settings = KeyboardSettings(); settings.learnChoices = false; settings.selectionLearningVersion = nil
         settings.sanitize(); XCTAssertTrue(settings.learnChoices)
         settings.learnChoices = false; settings.sanitize(); XCTAssertFalse(settings.learnChoices)
+        var fresh = KeyboardSettings(); fresh.learnChoices = false; fresh.sanitize(); XCTAssertFalse(fresh.learnChoices)
     }
     func testPreviewAndExpandedQueriesHaveTheSameFirstCandidate() throws {
         let engine = try InputEngine.bundled()

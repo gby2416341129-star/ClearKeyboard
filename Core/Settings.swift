@@ -42,7 +42,7 @@ public struct KeyboardSettings: Codable, Equatable {
     public var fuzzyPairs: Set<String> = []
     public var predictions = true
     public var learnChoices = true
-    public var selectionLearningVersion: Int? = nil
+    public var selectionLearningVersion: Int? = 1
     public var haptics = false
     public var autoCapitalization = true
     /// Zero means no time-based expiry. Optional flag keeps pre-0.1.3 settings readable.
