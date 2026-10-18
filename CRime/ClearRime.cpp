@@ -5,6 +5,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // Referencing the merged plugin also retains its registration in static links.
@@ -103,7 +104,10 @@ int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled,
   }
   collect(query.conversation, input, limit, query.items, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
-  if (complete()) return static_cast<int>(query.items.size());
+  std::vector<Item> conversational;
+  if (complete()) {
+    for (const auto &item : query.items) if (item.consumed == length) conversational.push_back(item);
+  }
   query.items.clear();
   // A valid mixed full/initial spelling is a dictionary lookup, not a typo.
   // Share the large table with a correction-free prism and no grammar model.
@@ -112,6 +116,17 @@ int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled,
   if (query.exact_input != input) { api->set_input(query.exact, input); query.exact_input = input; }
   collect(query.exact, input, limit, query.items, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
+  if (!conversational.empty()) {
+    // Keep other literal dictionary choices available for ambiguous initials.
+    // Prioritizing a conversational phrase must not remove the normal word list.
+    auto literal = std::move(query.items); query.items = std::move(conversational);
+    for (const auto &item : literal) {
+      if (query.items.size() >= static_cast<size_t>(std::clamp(limit, 1, 24))) break;
+      if (std::none_of(query.items.begin(), query.items.end(),
+                       [&item](const Item &old) { return old.text == item.text; })) query.items.push_back(item);
+    }
+    return static_cast<int>(query.items.size());
+  }
   if (complete()) return static_cast<int>(query.items.size());
   query.items.clear();
   // set_input updates the existing composition. Clearing it first discards the

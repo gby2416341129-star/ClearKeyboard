@@ -41,6 +41,8 @@ final class MatureEngineTests: XCTestCase {
         }
     }
     func testStrictPartialWordsDoNotHideFullSentenceCorrections() {
+        XCTAssertTrue(engine.candidates("znl").contains { $0.text == "正能量" }, "Conversational priority must retain other literal choices")
+        XCTAssertTrue(engine.candidates("zgm").contains { $0.text == "总规模" })
         for _ in 0..<2 {
             for (input, expected) in ["laopcfm": "老婆吃饭没", "nichifankm": "你吃饭了吗",
                                       "ganghuam": "钢化膜", "nichifankema": "你吃饭了吗",
