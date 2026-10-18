@@ -29,6 +29,26 @@ final class MatureEngineTests: XCTestCase {
             XCTAssertEqual(result.first?.consumed, input.count, input)
         }
     }
+    func testStrictMixedInitialWordsPrecedeCorrectionSentences() {
+        for (input, expected) in ["laopcfm": "老婆吃饭没", "lpcfm": "老婆吃饭没",
+                                  "laogcfm": "老公吃饭没", "baobeidjm": "宝贝到家没",
+                                  "babaxbm": "爸爸下班没", "laopchifanma": "老婆吃饭吗"] {
+            let values = engine.candidates(input)
+            XCTAssertEqual(values.first?.text, expected, input)
+            XCTAssertEqual(values.first?.consumed, input.count, input)
+            XCTAssertFalse(values.prefix(3).contains { $0.text.contains("出轨") }, input)
+            XCTAssertTrue(values.contains { $0.text == input })
+        }
+    }
+    func testStrictPartialWordsDoNotHideFullSentenceCorrections() {
+        for _ in 0..<2 {
+            for (input, expected) in ["laopcfm": "老婆吃饭没", "nichifankm": "你吃饭了吗",
+                                      "ganghuam": "钢化膜", "nichifankema": "你吃饭了吗",
+                                      "nichifnalemeilaopo": "你吃饭了没老婆"] {
+                XCTAssertEqual(engine.candidates(input).first?.text, expected, input)
+            }
+        }
+    }
     func testCorrectionsAndMixedInitials() {
         for input in ["nichifankema", "nichifankm", "nichjfankema"] {
             XCTAssertEqual(engine.candidates(input).first?.text, "你吃饭了吗", input)

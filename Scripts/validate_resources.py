@@ -82,7 +82,7 @@ def main():
     association = Dictionary(ROOT / "Core/Resources/associations.clx")
     assert association.count >= 300_000
     rime = ROOT / "Core/Resources/Rime"
-    for name in ("clear_pinyin.schema.yaml", "clear_pinyin.table.bin", "clear_pinyin.prism.bin"):
+    for name in ("clear_pinyin.schema.yaml", "clear_pinyin.table.bin", "clear_pinyin.prism.bin", "clear_exact.schema.yaml", "clear_exact.prism.bin", "clear_conversation.schema.yaml", "clear_conversation.prism.bin", "clear_conversation.table.bin"):
         assert (rime / "build" / name).is_file(), name
     model = rime / "wanxiang-lts-zh-hans.gram"
     with model.open("rb") as stream:

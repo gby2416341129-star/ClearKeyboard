@@ -51,6 +51,7 @@ import SwiftUI
         XCTAssertNotNil(controller.textView.markedTextRange)
         try await waitFor { controller.model.candidatesAreCurrent }
         XCTAssertTrue(controller.model.candidates.contains { $0.text == "你好" }, "Pinyin did not produce a Chinese candidate")
+        try await waitFor { self.descendants(controller.view).compactMap { $0 as? UIButton }.contains { $0.accessibilityIdentifier == "candidate.你好" } }
         XCTAssertTrue(descendants(controller.view).compactMap { $0 as? UIButton }.contains { $0.title(for: .normal) == "你好" }, "Chinese candidates did not render")
         controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
         let chineseButton = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你好" })

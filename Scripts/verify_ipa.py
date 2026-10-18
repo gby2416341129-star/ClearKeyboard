@@ -72,7 +72,7 @@ def verify(path):
             with archive.open(prefix + "associations.clx") as stream:
                 require(stream.read(8) == b"CLRX0001", "Missing association and mixed-English dictionary")
             rime = app + "Rime/"
-            for resource in ("build/clear_pinyin.schema.yaml", "build/clear_pinyin.table.bin", "build/clear_pinyin.prism.bin", "lua/clear_span.lua"):
+            for resource in ("build/clear_pinyin.schema.yaml", "build/clear_pinyin.table.bin", "build/clear_pinyin.prism.bin", "build/clear_exact.schema.yaml", "build/clear_exact.prism.bin", "build/clear_conversation.schema.yaml", "build/clear_conversation.prism.bin", "build/clear_conversation.table.bin", "lua/clear_exact_words.lua", "lua/clear_span.lua"):
                 require(rime + resource in names, "Missing precompiled Rime resource: " + resource)
             require(rime + "wanxiang-lts-zh-hans.gram" in names, "Missing context language model")
             corrections = archive.read(prefix + 'pinyin-corrections.clx')

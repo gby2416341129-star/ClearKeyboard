@@ -11,6 +11,8 @@ int main(int argc, char **argv) {
   traits.modules = modules;
   auto api = rime_get_api(); api->setup(&traits); api->deployer_initialize(&traits);
   bool ok = api->deploy_schema((path + "/clear_pinyin.schema.yaml").c_str());
+  if (ok) ok = api->deploy_schema((path + "/clear_exact.schema.yaml").c_str());
+  if (ok) ok = api->deploy_schema((path + "/clear_conversation.schema.yaml").c_str());
   api->finalize();
   std::cout << (ok ? "Rime dictionary deployed\n" : "Rime dictionary deployment FAILED\n");
   return ok ? 0 : 1;

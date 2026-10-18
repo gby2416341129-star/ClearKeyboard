@@ -1,0 +1,231 @@
+# First-party conversational vocabulary; text, canonical pinyin, relative frequency.
+下班了吗	xia ban le ma	4200
+下班了没	xia ban le mei	4100
+下班没	xia ban mei	4400
+什么时候回来	shen me shi hou hui lai	4200
+你下班了吗	ni xia ban le ma	4200
+你下班了没	ni xia ban le mei	4100
+你下班没	ni xia ban mei	4400
+你什么时候回来	ni shen me shi hou hui lai	4200
+你们下班了吗	ni men xia ban le ma	4200
+你们下班了没	ni men xia ban le mei	4100
+你们下班没	ni men xia ban mei	4400
+你们什么时候回来	ni men shen me shi hou hui lai	4200
+你们到家了吗	ni men dao jia le ma	4300
+你们到家了没	ni men dao jia le mei	4200
+你们到家没	ni men dao jia mei	4500
+你们吃过饭了吗	ni men chi guo fan le ma	3900
+你们吃过饭没	ni men chi guo fan mei	4000
+你们吃饭了吗	ni men chi fan le ma	4600
+你们吃饭了没	ni men chi fan le mei	4400
+你们吃饭吗	ni men chi fan ma	3600
+你们吃饭没	ni men chi fan mei	5000
+你们在哪里	ni men zai na li	4400
+你们在干嘛	ni men zai gan ma	5000
+你们忙完了吗	ni men mang wan le ma	4000
+你们忙完没	ni men mang wan mei	4100
+你们睡觉了吗	ni men shui jiao le ma	3900
+你们睡觉没	ni men shui jiao mei	4000
+你们睡醒了吗	ni men shui xing le ma	3900
+你们睡醒没	ni men shui xing mei	4100
+你们起床了吗	ni men qi chuang le ma	4000
+你们起床没	ni men qi chuang mei	4200
+你到家了吗	ni dao jia le ma	4300
+你到家了没	ni dao jia le mei	4200
+你到家没	ni dao jia mei	4500
+你吃过饭了吗	ni chi guo fan le ma	3900
+你吃过饭没	ni chi guo fan mei	4000
+你吃饭了吗	ni chi fan le ma	4600
+你吃饭了没	ni chi fan le mei	4400
+你吃饭吗	ni chi fan ma	3600
+你吃饭没	ni chi fan mei	5000
+你在哪里	ni zai na li	4400
+你在干嘛	ni zai gan ma	5000
+你忙完了吗	ni mang wan le ma	4000
+你忙完没	ni mang wan mei	4100
+你睡觉了吗	ni shui jiao le ma	3900
+你睡觉没	ni shui jiao mei	4000
+你睡醒了吗	ni shui xing le ma	3900
+你睡醒没	ni shui xing mei	4100
+你起床了吗	ni qi chuang le ma	4000
+你起床没	ni qi chuang mei	4200
+到家了吗	dao jia le ma	4300
+到家了没	dao jia le mei	4200
+到家没	dao jia mei	4500
+吃过饭了吗	chi guo fan le ma	3900
+吃过饭没	chi guo fan mei	4000
+吃饭了吗	chi fan le ma	4600
+吃饭了没	chi fan le mei	4400
+吃饭吗	chi fan ma	3600
+吃饭没	chi fan mei	5000
+在哪里	zai na li	4400
+在干嘛	zai gan ma	5000
+大家下班了吗	da jia xia ban le ma	4200
+大家下班了没	da jia xia ban le mei	4100
+大家下班没	da jia xia ban mei	4400
+大家什么时候回来	da jia shen me shi hou hui lai	4200
+大家到家了吗	da jia dao jia le ma	4300
+大家到家了没	da jia dao jia le mei	4200
+大家到家没	da jia dao jia mei	4500
+大家吃过饭了吗	da jia chi guo fan le ma	3900
+大家吃过饭没	da jia chi guo fan mei	4000
+大家吃饭了吗	da jia chi fan le ma	4600
+大家吃饭了没	da jia chi fan le mei	4400
+大家吃饭吗	da jia chi fan ma	3600
+大家吃饭没	da jia chi fan mei	5000
+大家在哪里	da jia zai na li	4400
+大家在干嘛	da jia zai gan ma	5000
+大家忙完了吗	da jia mang wan le ma	4000
+大家忙完没	da jia mang wan mei	4100
+大家睡觉了吗	da jia shui jiao le ma	3900
+大家睡觉没	da jia shui jiao mei	4000
+大家睡醒了吗	da jia shui xing le ma	3900
+大家睡醒没	da jia shui xing mei	4100
+大家起床了吗	da jia qi chuang le ma	4000
+大家起床没	da jia qi chuang mei	4200
+妈妈下班了吗	ma ma xia ban le ma	4200
+妈妈下班了没	ma ma xia ban le mei	4100
+妈妈下班没	ma ma xia ban mei	4400
+妈妈什么时候回来	ma ma shen me shi hou hui lai	4200
+妈妈到家了吗	ma ma dao jia le ma	4300
+妈妈到家了没	ma ma dao jia le mei	4200
+妈妈到家没	ma ma dao jia mei	4500
+妈妈吃过饭了吗	ma ma chi guo fan le ma	3900
+妈妈吃过饭没	ma ma chi guo fan mei	4000
+妈妈吃饭了吗	ma ma chi fan le ma	4600
+妈妈吃饭了没	ma ma chi fan le mei	4400
+妈妈吃饭吗	ma ma chi fan ma	3600
+妈妈吃饭没	ma ma chi fan mei	5000
+妈妈在哪里	ma ma zai na li	4400
+妈妈在干嘛	ma ma zai gan ma	5000
+妈妈忙完了吗	ma ma mang wan le ma	4000
+妈妈忙完没	ma ma mang wan mei	4100
+妈妈睡觉了吗	ma ma shui jiao le ma	3900
+妈妈睡觉没	ma ma shui jiao mei	4000
+妈妈睡醒了吗	ma ma shui xing le ma	3900
+妈妈睡醒没	ma ma shui xing mei	4100
+妈妈起床了吗	ma ma qi chuang le ma	4000
+妈妈起床没	ma ma qi chuang mei	4200
+宝宝下班了吗	bao bao xia ban le ma	4200
+宝宝下班了没	bao bao xia ban le mei	4100
+宝宝下班没	bao bao xia ban mei	4400
+宝宝什么时候回来	bao bao shen me shi hou hui lai	4200
+宝宝到家了吗	bao bao dao jia le ma	4300
+宝宝到家了没	bao bao dao jia le mei	4200
+宝宝到家没	bao bao dao jia mei	4500
+宝宝吃过饭了吗	bao bao chi guo fan le ma	3900
+宝宝吃过饭没	bao bao chi guo fan mei	4000
+宝宝吃饭了吗	bao bao chi fan le ma	4600
+宝宝吃饭了没	bao bao chi fan le mei	4400
+宝宝吃饭吗	bao bao chi fan ma	3600
+宝宝吃饭没	bao bao chi fan mei	5000
+宝宝在哪里	bao bao zai na li	4400
+宝宝在干嘛	bao bao zai gan ma	5000
+宝宝忙完了吗	bao bao mang wan le ma	4000
+宝宝忙完没	bao bao mang wan mei	4100
+宝宝睡觉了吗	bao bao shui jiao le ma	3900
+宝宝睡觉没	bao bao shui jiao mei	4000
+宝宝睡醒了吗	bao bao shui xing le ma	3900
+宝宝睡醒没	bao bao shui xing mei	4100
+宝宝起床了吗	bao bao qi chuang le ma	4000
+宝宝起床没	bao bao qi chuang mei	4200
+宝贝下班了吗	bao bei xia ban le ma	4200
+宝贝下班了没	bao bei xia ban le mei	4100
+宝贝下班没	bao bei xia ban mei	4400
+宝贝什么时候回来	bao bei shen me shi hou hui lai	4200
+宝贝到家了吗	bao bei dao jia le ma	4300
+宝贝到家了没	bao bei dao jia le mei	4200
+宝贝到家没	bao bei dao jia mei	4500
+宝贝吃过饭了吗	bao bei chi guo fan le ma	3900
+宝贝吃过饭没	bao bei chi guo fan mei	4000
+宝贝吃饭了吗	bao bei chi fan le ma	4600
+宝贝吃饭了没	bao bei chi fan le mei	4400
+宝贝吃饭吗	bao bei chi fan ma	3600
+宝贝吃饭没	bao bei chi fan mei	5000
+宝贝在哪里	bao bei zai na li	4400
+宝贝在干嘛	bao bei zai gan ma	5000
+宝贝忙完了吗	bao bei mang wan le ma	4000
+宝贝忙完没	bao bei mang wan mei	4100
+宝贝睡觉了吗	bao bei shui jiao le ma	3900
+宝贝睡觉没	bao bei shui jiao mei	4000
+宝贝睡醒了吗	bao bei shui xing le ma	3900
+宝贝睡醒没	bao bei shui xing mei	4100
+宝贝起床了吗	bao bei qi chuang le ma	4000
+宝贝起床没	bao bei qi chuang mei	4200
+忙完了吗	mang wan le ma	4000
+忙完没	mang wan mei	4100
+爸爸下班了吗	ba ba xia ban le ma	4200
+爸爸下班了没	ba ba xia ban le mei	4100
+爸爸下班没	ba ba xia ban mei	4400
+爸爸什么时候回来	ba ba shen me shi hou hui lai	4200
+爸爸到家了吗	ba ba dao jia le ma	4300
+爸爸到家了没	ba ba dao jia le mei	4200
+爸爸到家没	ba ba dao jia mei	4500
+爸爸吃过饭了吗	ba ba chi guo fan le ma	3900
+爸爸吃过饭没	ba ba chi guo fan mei	4000
+爸爸吃饭了吗	ba ba chi fan le ma	4600
+爸爸吃饭了没	ba ba chi fan le mei	4400
+爸爸吃饭吗	ba ba chi fan ma	3600
+爸爸吃饭没	ba ba chi fan mei	5000
+爸爸在哪里	ba ba zai na li	4400
+爸爸在干嘛	ba ba zai gan ma	5000
+爸爸忙完了吗	ba ba mang wan le ma	4000
+爸爸忙完没	ba ba mang wan mei	4100
+爸爸睡觉了吗	ba ba shui jiao le ma	3900
+爸爸睡觉没	ba ba shui jiao mei	4000
+爸爸睡醒了吗	ba ba shui xing le ma	3900
+爸爸睡醒没	ba ba shui xing mei	4100
+爸爸起床了吗	ba ba qi chuang le ma	4000
+爸爸起床没	ba ba qi chuang mei	4200
+睡觉了吗	shui jiao le ma	3900
+睡觉没	shui jiao mei	4000
+睡醒了吗	shui xing le ma	3900
+睡醒没	shui xing mei	4100
+老公下班了吗	lao gong xia ban le ma	4200
+老公下班了没	lao gong xia ban le mei	4100
+老公下班没	lao gong xia ban mei	4400
+老公什么时候回来	lao gong shen me shi hou hui lai	4200
+老公到家了吗	lao gong dao jia le ma	4300
+老公到家了没	lao gong dao jia le mei	4200
+老公到家没	lao gong dao jia mei	4500
+老公吃过饭了吗	lao gong chi guo fan le ma	3900
+老公吃过饭没	lao gong chi guo fan mei	4000
+老公吃饭了吗	lao gong chi fan le ma	4600
+老公吃饭了没	lao gong chi fan le mei	4400
+老公吃饭吗	lao gong chi fan ma	3600
+老公吃饭没	lao gong chi fan mei	5000
+老公在哪里	lao gong zai na li	4400
+老公在干嘛	lao gong zai gan ma	5000
+老公忙完了吗	lao gong mang wan le ma	4000
+老公忙完没	lao gong mang wan mei	4100
+老公睡觉了吗	lao gong shui jiao le ma	3900
+老公睡觉没	lao gong shui jiao mei	4000
+老公睡醒了吗	lao gong shui xing le ma	3900
+老公睡醒没	lao gong shui xing mei	4100
+老公起床了吗	lao gong qi chuang le ma	4000
+老公起床没	lao gong qi chuang mei	4200
+老婆下班了吗	lao po xia ban le ma	4200
+老婆下班了没	lao po xia ban le mei	4100
+老婆下班没	lao po xia ban mei	4400
+老婆什么时候回来	lao po shen me shi hou hui lai	4200
+老婆到家了吗	lao po dao jia le ma	4300
+老婆到家了没	lao po dao jia le mei	4200
+老婆到家没	lao po dao jia mei	4500
+老婆吃过饭了吗	lao po chi guo fan le ma	3900
+老婆吃过饭没	lao po chi guo fan mei	4000
+老婆吃饭了吗	lao po chi fan le ma	4600
+老婆吃饭了没	lao po chi fan le mei	4400
+老婆吃饭吗	lao po chi fan ma	3600
+老婆吃饭没	lao po chi fan mei	5000
+老婆在哪里	lao po zai na li	4400
+老婆在干嘛	lao po zai gan ma	5000
+老婆忙完了吗	lao po mang wan le ma	4000
+老婆忙完没	lao po mang wan mei	4100
+老婆睡觉了吗	lao po shui jiao le ma	3900
+老婆睡觉没	lao po shui jiao mei	4000
+老婆睡醒了吗	lao po shui xing le ma	3900
+老婆睡醒没	lao po shui xing mei	4100
+老婆起床了吗	lao po qi chuang le ma	4000
+老婆起床没	lao po qi chuang mei	4200
+起床了吗	qi chuang le ma	4000
+起床没	qi chuang mei	4200

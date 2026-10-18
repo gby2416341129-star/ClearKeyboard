@@ -2,7 +2,7 @@
 schema:
   schema_id: clear_pinyin
   name: 澈拼音
-  version: '0.1.16'
+  version: '0.1.17'
 switches:
   - name: ascii_mode
     reset: 0
@@ -27,7 +27,7 @@ speller:
     - derive/^(.*)n(.*)$/$1b$2/correction
     - derive/^(.*)i(.*)$/$1o$2/correction
     - derive/^(.*)o(.*)$/$1i$2/correction
-    - derive/^(.*)g(.*)$/$1f$2/correction
+    - derive/^(?=.{2,}$)(.*)g(.*)$/$1f$2/correction
     - derive/^(.*)ng$/$1gn/correction
     - derive/^(.*)n$/$1/correction
     - derive/^(.*)g$/$1/correction

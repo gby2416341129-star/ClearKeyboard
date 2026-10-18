@@ -210,9 +210,11 @@ import UIKit
         let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         let model = surface.model
         model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
-        let frames = KeyboardFrameProbe(); frames.start()
+        let frames = KeyboardFrameProbe()
         defer { frames.stop(); window.isHidden = true; model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        frames.start()
         let buttons = descendants(surface).compactMap { $0 as? KeyButton }
         for view in descendants(surface) { view.layoutIfNeeded() }
         let originalFrames = buttons.map(\.frame), originalHeight = surface.desiredHeight
@@ -288,6 +290,8 @@ import UIKit
     private(set) var gaps: [Double] = []
     func start() {
         let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+        let rate = Float(UIScreen.main.maximumFramesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
         link.add(to: .main, forMode: .common); self.link = link
     }
     @objc private func frame(_ link: CADisplayLink) {

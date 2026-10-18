@@ -74,11 +74,27 @@ def main():
             if not text or not all('\u3400'<=c<='\u9fff' for c in text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading):continue
             if len(text)!=len(reading.split()):continue
             key=(text,reading);words[key]=max(words.get(key,0),int(fields[2]))
+    conversation=ROOT/'Data/Rime/conversation.tsv'
+    conversational=[]
+    for line in conversation.read_text(encoding='utf-8').splitlines():
+        if not line or line.startswith('#'):continue
+        fields=line.split('\t')
+        if len(fields)!=3 or not fields[2].isdigit():raise RuntimeError('Invalid conversational vocabulary row')
+        text,reading,frequency=fields
+        if len(text)!=len(reading.split()) or not all('\u3400'<=c<='\u9fff' for c in text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading):
+            raise RuntimeError('Invalid conversational reading: '+text)
+        conversational.append((text,reading,int(frequency)))
+    conversation_version=hashlib.sha256(conversation.read_bytes()).hexdigest()[:12]
     rows=[(t,p,f) for (t,p),f in sorted(words.items())]
     if len(rows)<500_000:raise RuntimeError(f'Incomplete Wanxiang dictionary: {len(rows)}')
     (source/'clear_pinyin.dict.yaml').write_text('# Derived from Wanxiang; CC BY 4.0, AMZ and contributors.\n---\nname: clear_pinyin\nversion: "'+REV+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in rows),encoding='utf-8')
+    # Keep conversational phrase frequencies out of the grammar decoder. They
+    # participate only in literal full-pinyin/initial matching.
+    (source/'clear_conversation.dict.yaml').write_text('# ClearKeyboard first-party conversational vocabulary.\n---\nname: clear_conversation\nversion: "'+conversation_version+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in sorted(conversational)),encoding='utf-8')
     output=ROOT/'Core/Resources/Rime';output.mkdir(exist_ok=True)
     shutil.copyfile(ROOT/'Data/Rime/clear_pinyin.schema.yaml',source/'clear_pinyin.schema.yaml')
+    shutil.copyfile(ROOT/'Data/Rime/clear_exact.schema.yaml',source/'clear_exact.schema.yaml')
+    shutil.copyfile(ROOT/'Data/Rime/clear_conversation.schema.yaml',source/'clear_conversation.schema.yaml')
     shutil.copyfile(ROOT/'Data/Rime/default.yaml',source/'default.yaml')
     shutil.copytree(ROOT/'Data/Rime/lua',source/'lua',dirs_exist_ok=True)
     shutil.copytree(ROOT/'Data/Rime/lua',output/'lua',dirs_exist_ok=True)
@@ -102,7 +118,7 @@ def main():
     subprocess.run(['clang++','-std=c++17',str(ROOT/'Scripts/compile_rime.cpp'),'-F',str(bundle.parent),'-framework','RimeDynamic','-Wl,-rpath,'+str(bundle.parent),'-o',str(compiler)],check=True)
     subprocess.run([str(compiler),str(source)],check=True)
     build=output/'build';build.mkdir(exist_ok=True)
-    for name in ['clear_pinyin.schema.yaml','clear_pinyin.table.bin','clear_pinyin.prism.bin']:
+    for name in ['clear_pinyin.schema.yaml','clear_pinyin.table.bin','clear_pinyin.prism.bin','clear_exact.schema.yaml','clear_exact.prism.bin','clear_conversation.schema.yaml','clear_conversation.prism.bin','clear_conversation.table.bin']:
         shutil.copyfile(source/'build'/name,build/name)
     for path in output.rglob('*'):
         if path.is_file(): print(path.relative_to(ROOT),path.stat().st_size)
