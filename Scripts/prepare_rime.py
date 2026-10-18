@@ -54,6 +54,17 @@ def associations(words, english, output):
     output.write_bytes(b'CLRX0001'+struct.pack('<6I',len(words),len(buckets),io,ro,so,so+len(strings))+records+index+rb+strings)
     return len(words),len(buckets)
 
+def fluent_schema(compiled):
+    # Reuse the already compiled strict prism and the same grammar/table. This
+    # adds a small session configuration, not a second dictionary or model.
+    replacements = [('schema_id: clear_pinyin', 'schema_id: clear_fluent'),
+                    ('prism: clear_pinyin', 'prism: clear_exact'),
+                    ('enable_correction: true', 'enable_correction: false')]
+    for old, new in replacements:
+        if old not in compiled: raise RuntimeError('Unexpected compiled schema: '+old)
+        compiled = compiled.replace(old, new, 1)
+    return compiled
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--download-only',action='store_true');args=parser.parse_args()
     CACHE.mkdir(exist_ok=True)
@@ -120,6 +131,7 @@ def main():
     build=output/'build';build.mkdir(exist_ok=True)
     for name in ['clear_pinyin.schema.yaml','clear_pinyin.table.bin','clear_pinyin.prism.bin','clear_exact.schema.yaml','clear_exact.prism.bin','clear_conversation.schema.yaml','clear_conversation.prism.bin','clear_conversation.table.bin']:
         shutil.copyfile(source/'build'/name,build/name)
+    (build/'clear_fluent.schema.yaml').write_text(fluent_schema((build/'clear_pinyin.schema.yaml').read_text(encoding='utf-8')),encoding='utf-8')
     for path in output.rglob('*'):
         if path.is_file(): print(path.relative_to(ROOT),path.stat().st_size)
 

@@ -6,8 +6,9 @@ import CRime
 /// The production Chinese decoder. The C bridge serializes librime across models.
 final class RimeDecoder {
     private let session: UInt
-    private var cache: [String: (limit: Int, candidates: [Candidate])] = [:]
-    private var cacheOrder: [String] = []
+    private struct CacheKey: Hashable { let raw: String; let correction: Bool }
+    private var cache: [CacheKey: (limit: Int, candidates: [Candidate])] = [:]
+    private var cacheOrder: [CacheKey] = []
     private final class CancellationBox {
         let check: () -> Bool
         init(_ check: @escaping () -> Bool) { self.check = check }
@@ -37,13 +38,18 @@ final class RimeDecoder {
         guard session != 0 else { throw LexiconError.invalidFormat }
     }
     deinit { cr_destroy(session) }
-    func candidates(_ raw: String, limit: Int = 16, cancelled: () -> Bool) -> [Candidate] {
-        if let value = cache[raw], value.limit >= limit { return Array(value.candidates.prefix(limit)) }
+    func candidates(_ raw: String, limit: Int = 16, correction: Bool = true, cancelled: () -> Bool) -> [Candidate] {
+        let key = CacheKey(raw: raw, correction: correction)
+        // A previous full result is also a safe fast answer, never vice versa.
+        if let value = cache[CacheKey(raw: raw, correction: true)] ?? cache[key], value.limit >= limit {
+            return Array(value.candidates.prefix(limit))
+        }
         guard !cancelled() else { return [] }
         let count = withoutActuallyEscaping(cancelled) { check in
             let box = CancellationBox(check)
             return withExtendedLifetime(box) {
-                Int(cr_query(session, raw, Int32(limit), { context in
+                let query = correction ? cr_query : cr_query_fast
+                return Int(query(session, raw, Int32(limit), { context in
                     guard let context else { return 0 }
                     return Unmanaged<CancellationBox>.fromOpaque(context).takeUnretainedValue().check() ? 1 : 0
                 }, Unmanaged.passUnretained(box).toOpaque()))
@@ -61,8 +67,8 @@ final class RimeDecoder {
             }
         }
         if !cancelled() {
-            if cache[raw] == nil { cacheOrder.append(raw) }
-            cache[raw] = (limit, result)
+            if cache[key] == nil { cacheOrder.append(key) }
+            cache[key] = (limit, result)
             if cacheOrder.count > 32 { cache.removeValue(forKey: cacheOrder.removeFirst()) }
         }
         return result

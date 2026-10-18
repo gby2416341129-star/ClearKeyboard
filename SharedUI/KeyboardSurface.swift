@@ -39,6 +39,8 @@ import ImageIO
     }
     private var geometryPresentation: GeometryPresentation?
     private var keyFramesNeedLayout = true
+    private var presentedHeaderHeight: CGFloat = -1
+    var isInteractingWithCandidates: Bool { candidateScroll.holdsCandidateUpdates }
     private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
     private var headerHeight: CGFloat { KeyboardGeometry.headerHeight }
     private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
@@ -55,8 +57,7 @@ import ImageIO
         addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateScroll.delaysContentTouches = false; candidateScroll.canCancelContentTouches = true
-        candidateScroll.onSettled = { [weak self] in self?.setNeedsLayout() }
-        candidateScroll.onInteractionChanged = { [weak model] active in model?.document?.candidateInteractionChanged(active) }
+        candidateScroll.onInteractionChanged = { [weak model] active in model?.candidateInteractionChanged(active) }
         candidateScroll.onSelect = { [weak model] candidate, context, arithmetic in
             if arithmetic { model?.chooseArithmetic(candidate.text) }
             else { model?.chooseDisplayed(candidate, context: context) }
@@ -69,9 +70,9 @@ import ImageIO
         deleteHint.font = .systemFont(ofSize: 13, weight: .semibold); deleteHint.textAlignment = .center
         deleteHint.textColor = .white; deleteHint.layer.cornerRadius = 10; deleteHint.clipsToBounds = true
         model.onChange = { [weak self] in self?.render() }
-        // UIKit coalesces these invalidations into its next layout pass. A word
-        // lookup and sentence result arriving in one frame draw only the latest.
-        model.onCandidatesChange = { [weak self] in self?.setNeedsLayout() }
+        // A result belongs to the collection, not to the whole remote keyboard's
+        // layout. Native scrolling and key geometry need no layout invalidation.
+        model.onCandidatesChange = { [weak self] in self?.renderCandidates() }
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.appearanceSignature = ""; self?.render() }
@@ -185,12 +186,26 @@ import ImageIO
         // Candidates and language changes share one header. Only a real height-setting
         // change should renegotiate the remote input view's size.
         if reportedHeight != desiredHeight { reportedHeight = desiredHeight; onHeightChange?(desiredHeight) }
-        setNeedsLayout()
+        renderCandidates()
+        if keyFramesNeedLayout || geometryPresentation?.keyHeight != settings.keyHeight ||
+            geometryPresentation?.hand != settings.hand || geometryPresentation?.fraction != settings.oneHandFraction {
+            setNeedsLayout()
+        }
     }
     private func renderCandidates() {
         guard initialized else { return }
+        let height = candidateHeight
+        if presentedHeaderHeight != height {
+            presentedHeaderHeight = height
+            var frame = candidateScroll.frame; frame.size.height = height; candidateScroll.frame = frame
+            setNeedsLayout()
+        }
         let displayed = model.arithmetic?.candidates.map { Candidate(text: $0, consumed: 0) } ?? model.candidates
-        candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor)
+        // A result can arrive before the first host layout. Do not ask a zero-
+        // sized flow layout to lay out 44-point cells; layout will pull the latest.
+        if height > 0, candidateScroll.bounds.width > 0 {
+            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor)
+        }
         toolbar.isHidden = panelKind == .clipboard || candidateHeight > 0
         candidateScroll.isHidden = panelKind == .clipboard || movingCursor || candidateHeight == 0
         hint.isHidden = !movingCursor; hint.text = movingCursor ? "滑动键盘，移动光标" : nil

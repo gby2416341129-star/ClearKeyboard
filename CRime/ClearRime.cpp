@@ -16,7 +16,11 @@ std::recursive_mutex gate;
 RimeApi *api = nullptr;
 std::string shared_path, user_path, prebuilt_path;
 struct Item { std::string text, reading; int consumed; };
-struct Query { std::string input, exact_input, conversation_input; uintptr_t exact = 0, conversation = 0; std::vector<Item> items; };
+struct Query {
+  std::string input, exact_input, conversation_input, fluent_input;
+  uintptr_t exact = 0, conversation = 0, fluent = 0;
+  std::vector<Item> items;
+};
 std::unordered_map<uintptr_t, Query> queries;
 void copy(const std::string &value, char *buffer, size_t capacity) {
   if (!capacity) return;
@@ -113,7 +117,13 @@ uintptr_t cr_session() {
     if (conversation) api->destroy_session(conversation);
     api->destroy_session(exact); api->destroy_session(id); return 0;
   }
-  queries[id] = {}; queries[id].exact = exact; queries[id].conversation = conversation; return id;
+  auto fluent = api->create_session();
+  if (!fluent || !api->select_schema(fluent, "clear_fluent")) {
+    if (fluent) api->destroy_session(fluent);
+    api->destroy_session(conversation); api->destroy_session(exact); api->destroy_session(id); return 0;
+  }
+  queries[id] = {}; queries[id].exact = exact; queries[id].conversation = conversation;
+  queries[id].fluent = fluent; return id;
 }
 void cr_destroy(uintptr_t id) {
   std::lock_guard<std::recursive_mutex> lock(gate);
@@ -121,10 +131,11 @@ void cr_destroy(uintptr_t id) {
     auto query = queries.find(id);
     if (query != queries.end() && query->second.exact) api->destroy_session(query->second.exact);
     if (query != queries.end() && query->second.conversation) api->destroy_session(query->second.conversation);
+    if (query != queries.end() && query->second.fluent) api->destroy_session(query->second.fluent);
     api->destroy_session(id); queries.erase(id);
   }
 }
-int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context) {
+static int query_candidates(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context, bool correction) {
   std::lock_guard<std::recursive_mutex> lock(gate);
   if (!api || !queries.count(id) || (cancelled && cancelled(context))) return 0;
   auto &query = queries[id]; query.items.clear();
@@ -146,9 +157,21 @@ int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled,
   query.items.clear();
   // set_input updates the existing composition. Clearing it first discards the
   // decoder's reusable prefix on every keystroke, even for the very same query.
-  if (query.input != input) { api->set_input(id, input); query.input = input; }
-  collect(id, query.input, limit, query.items, cancelled, context);
+  // The first pass uses the same dictionary and language model, but without
+  // expanding every nearby-key correction through an unfinished long sentence.
+  // Full correction remains a separate, cancellable enrichment after typing.
+  auto channel = correction ? id : query.fluent;
+  auto &previous = correction ? query.input : query.fluent_input;
+  if (previous != input) { api->set_input(channel, input); previous = input; }
+  if (cancelled && cancelled(context)) return 0;
+  collect(channel, previous, limit, query.items, cancelled, context);
   return static_cast<int>(query.items.size());
+}
+int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context) {
+  return query_candidates(id, input, limit, cancelled, context, true);
+}
+int cr_query_fast(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context) {
+  return query_candidates(id, input, limit, cancelled, context, false);
 }
 int cr_candidate(uintptr_t id, int index, char *text, size_t capacity,
                  char *reading, size_t reading_capacity) {

@@ -14,7 +14,6 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostNeedsGlobe = true
     private var hostRefresh: Timer?
     private var hostRefreshGeneration = 0
-    private var candidateTouchActive = false
     private var activeKeys = 0
     private var hostActive = true
     private var needsHostRefresh = false
@@ -123,19 +122,22 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         else if activeKeys == 0, needsHostRefresh { scheduleHostRefresh() }
     }
     func candidateInteractionChanged(_ active: Bool) {
-        candidateTouchActive = active
         if active { hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil }
         else if needsHostRefresh { scheduleHostRefresh() }
     }
     private func scheduleHostRefresh() {
         hostRefresh?.invalidate(); hostRefresh = nil
-        guard hostActive, !candidateTouchActive, activeKeys == 0 else { return }
+        guard hostActive, activeKeys == 0 else { return }
         hostRefreshGeneration += 1; let request = hostRefreshGeneration
         let timer = Timer(timeInterval: 0.35, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.hostRefreshGeneration == request,
-                      self.hostActive, !self.candidateTouchActive, self.activeKeys == 0 else { return }
-                self.hostRefresh = nil; self.refreshHostState()
+                      self.hostActive, self.activeKeys == 0 else { return }
+                self.hostRefresh = nil
+                // Read UIKit's actual tracking state, not a latched gesture flag.
+                // In particular, the next touch may already own a coasting row.
+                if self.surface?.isInteractingWithCandidates == true { self.scheduleHostRefresh(); return }
+                self.refreshHostState()
             }
         }
         hostRefresh = timer

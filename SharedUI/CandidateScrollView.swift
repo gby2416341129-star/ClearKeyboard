@@ -1,8 +1,7 @@
 import UIKit
 
-/// Native collection-cell reuse and selection, informed by Hamster (MIT).
-/// Candidate snapshots stay fixed through tracking AND deceleration; a new
-/// spelling can interrupt old momentum without waiting for a scroll animation.
+/// UIKit owns the entire touch stream, selection and interruption of momentum.
+/// Once a row is being browsed, keep that query's visible choices stationary.
 @MainActor final class CandidateScrollView: UICollectionView, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private struct Presentation: Equatable {
         let items: [Candidate]
@@ -14,21 +13,10 @@ import UIKit
     private var ink: UIColor = .systemTeal
     private var widths: [CGFloat] = []
     private var interactionActive = false
-    private var settleTimer: Timer?
-    private lazy var contactObserver: CandidateContactObserver = {
-        let observer = CandidateContactObserver(target: nil, action: nil)
-        observer.cancelsTouchesInView = false; observer.delaysTouchesBegan = false; observer.delaysTouchesEnded = false
-        observer.changed = { [weak self] active in
-            guard let self else { return }
-            if active { self.cancelSettlement(); self.setInteraction(true) }
-            else { self.scheduleSettlement() }
-        }
-        return observer
-    }()
-    private var panActive: Bool { panGestureRecognizer.state == .began || panGestureRecognizer.state == .changed }
-    private var fingerActive: Bool { contactObserver.hasContacts || panActive || isTracking || isDragging }
-    var holdsCandidateUpdates: Bool { fingerActive || isDecelerating || settleTimer != nil }
-    var onSettled: (() -> Void)?
+    private var idleScheduled = false
+    private var browsed: Presentation?
+    private var fingerActive: Bool { isTracking || isDragging || panGestureRecognizer.state == .began || panGestureRecognizer.state == .changed }
+    var holdsCandidateUpdates: Bool { fingerActive || isDecelerating }
     var onInteractionChanged: ((Bool) -> Void)?
     var onSelect: ((Candidate, KeyboardModel.CandidateContext?, Bool) -> Void)?
     override var accessibilityValue: String? {
@@ -39,6 +27,7 @@ import UIKit
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
         layout.minimumLineSpacing = 12; layout.minimumInteritemSpacing = 0
+        layout.estimatedItemSize = .zero
         layout.sectionInset = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: 12)
         super.init(frame: .zero, collectionViewLayout: layout)
         dataSource = self; delegate = self
@@ -50,33 +39,40 @@ import UIKit
         // Vertical drift must not lock out the next horizontal reversal.
         isDirectionalLockEnabled = false; decelerationRate = .fast
         contentInsetAdjustmentBehavior = .never
+        isPrefetchingEnabled = false
         accessibilityIdentifier = "clear.candidates"
-        addGestureRecognizer(contactObserver)
-        panGestureRecognizer.addTarget(self, action: #selector(panChanged))
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
     func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool, accent: UIColor) {
         let next = Presentation(items: items, context: context, arithmetic: arithmetic)
         let resolved = accent.resolvedColor(with: traitCollection)
-        let newSpelling = presentation?.context?.raw != context?.raw ||
-            presentation?.context?.document != context?.document ||
-            presentation?.context?.language != context?.language || presentation?.arithmetic != arithmetic
+        let newSpelling = !sameQuery(presentation, next)
+        if !newSpelling, sameQuery(browsed, next) {
+            // A decoder finishing between two opposite flicks must not replace
+            // cells, move the selected target or reset the offset. This lock is
+            // released by the next spelling, not by a timer after finger-up.
+            return
+        }
         if newSpelling, !fingerActive {
-            // Typing another spelling may replace an old, coasting row. Finger
-            // contact itself never writes contentOffset or stops the native pan.
-            cancelSettlement()
             if isDecelerating { setContentOffset(contentOffset, animated: false) }
             setInteraction(false)
         }
         if holdsCandidateUpdates { pending = (next, resolved); return }
         pending = nil; apply(next, accent: resolved)
     }
+    private func sameQuery(_ lhs: Presentation?, _ rhs: Presentation) -> Bool {
+        guard let lhs else { return false }
+        guard lhs.arithmetic == rhs.arithmetic, lhs.context?.raw == rhs.context?.raw,
+              lhs.context?.document == rhs.context?.document,
+              lhs.context?.language == rhs.context?.language else { return false }
+        // Empty-spelling predictions belong to the surrounding text.
+        return rhs.context?.raw.isEmpty == false || lhs.context == rhs.context
+    }
     private func apply(_ next: Presentation, accent: UIColor) {
         guard next != presentation || !ink.isEqual(accent) else { return }
-        let changedQuery = presentation?.context?.raw != next.context?.raw ||
-            presentation?.context?.document != next.context?.document ||
-            presentation?.context?.language != next.context?.language || presentation?.arithmetic != next.arithmetic
+        let changedQuery = !sameQuery(presentation, next)
+        if changedQuery { browsed = nil }
         let changedItems = presentation?.items.map(\.text) != next.items.map(\.text) || !ink.isEqual(accent)
         presentation = next; ink = accent
         if changedItems {
@@ -102,6 +98,13 @@ import UIKit
     }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         activate(indexPath.item); deselectItem(at: indexPath, animated: false)
+        scheduleIdle()
+    }
+    func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
+        beginBrowsing(); return true
+    }
+    func collectionView(_ collectionView: UICollectionView, didUnhighlightItemAt indexPath: IndexPath) {
+        scheduleIdle()
     }
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         CGSize(width: widths.indices.contains(indexPath.item) ? widths[indexPath.item] : 22, height: 44)
@@ -114,107 +117,61 @@ import UIKit
         guard interactionActive != active else { return }
         interactionActive = active; onInteractionChanged?(active)
     }
-    private func cancelSettlement() { settleTimer?.invalidate(); settleTimer = nil }
-    private func scheduleSettlement() {
-        cancelSettlement()
-        // A button cancellation or a gap between reverse flicks is not a safe
-        // time to reload the row. Apply only after native scrolling has ended
-        // and a short idle interval; the default mode excludes tracking frames.
-        let timer = Timer(timeInterval: 0.08, repeats: false) { [weak self] _ in
+    private func beginBrowsing() {
+        browsed = presentation
+        if let next = pending?.0, sameQuery(browsed, next) { pending = nil }
+        setInteraction(true)
+    }
+    private func scheduleIdle() {
+        guard !idleScheduled else { return }; idleScheduled = true
+        // No recognizer, failure dependency, hold threshold or settlement timer.
+        // Native tracking wins even if another finger starts in this turn.
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.settleTimer = nil
-                guard !self.fingerActive, !self.isDecelerating else { return }
+                self.idleScheduled = false
+                guard !self.holdsCandidateUpdates else { return }
                 self.setInteraction(false)
                 if let (next, color) = self.pending { self.pending = nil; self.apply(next, accent: color) }
-                self.onSettled?()
             }
         }
-        settleTimer = timer; RunLoop.main.add(timer, forMode: .default)
-    }
-    @objc private func panChanged() {
-        if panActive { cancelSettlement(); setInteraction(true) }
-        else { scheduleSettlement() }
     }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        cancelSettlement(); setInteraction(true)
+        beginBrowsing()
     }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { scheduleSettlement() }
+        if !decelerate { scheduleIdle() }
     }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scheduleSettlement() }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scheduleIdle() }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window == nil { cancelSettlement(); pending = nil; setInteraction(false) }
+        if window == nil { pending = nil; browsed = nil; setInteraction(false) }
     }
-    deinit { settleTimer?.invalidate() }
 }
 
 @MainActor private final class CandidateCell: UICollectionViewCell {
     static let reuseID = "clear.candidate.cell"
-    let button = CandidateItemButton(frame: .zero)
-    var onActivation: (() -> Void)? { didSet { button.onActivation = onActivation } }
+    private let label = UILabel()
+    var onActivation: (() -> Void)?
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.addSubview(button); backgroundColor = .clear
-        // The collection owns physical taps and pans. Its visual control never
-        // consumes, cancels, or hands a touch back to the scrolling recognizer.
-        button.isUserInteractionEnabled = false; button.isAccessibilityElement = false
+        contentView.addSubview(label); backgroundColor = .clear
+        label.isUserInteractionEnabled = false; label.isAccessibilityElement = false
+        label.numberOfLines = 1; label.lineBreakMode = .byClipping
+        contentView.layer.cornerRadius = 8; contentView.clipsToBounds = true
         isAccessibilityElement = true; accessibilityTraits = .button
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() { super.layoutSubviews(); button.frame = contentView.bounds }
+    override func layoutSubviews() { super.layoutSubviews(); label.frame = contentView.bounds.insetBy(dx: 10, dy: 0) }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor) {
-        button.titleLabel?.font = .systemFont(ofSize: 19, weight: first ? .medium : .regular)
-        button.setTitle(candidate.text, for: .normal)
-        button.setTitleColor(first ? accent : .label, for: .normal)
-        button.backgroundColor = first ? .secondarySystemFill : .clear; button.layer.cornerRadius = 8
-        button.accessibilityLabel = "候选：" + candidate.text
-        button.accessibilityIdentifier = "candidate." + candidate.text
-        accessibilityLabel = button.accessibilityLabel; accessibilityIdentifier = button.accessibilityIdentifier
+        label.font = .systemFont(ofSize: 19, weight: first ? .medium : .regular)
+        label.text = candidate.text; label.textColor = first ? accent : .label
+        contentView.backgroundColor = first ? .secondarySystemFill : .clear
+        accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
     }
     override func accessibilityActivate() -> Bool { onActivation?(); return true }
     override func prepareForReuse() {
         super.prepareForReuse(); onActivation = nil
-    }
-}
-
-@MainActor private final class CandidateItemButton: UIButton {
-    var onActivation: (() -> Void)?
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isAccessibilityElement = true; accessibilityTraits = .button
-        contentEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-        titleLabel?.lineBreakMode = .byClipping; clipsToBounds = true
-        addTarget(self, action: #selector(activate), for: .touchUpInside)
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    @objc func activate() { onActivation?() }
-    override func accessibilityActivate() -> Bool { activate(); return true }
-}
-
-/// Observes contact lifetime without recognizing or preventing any gesture.
-/// Unlike child-button cancellations, these contacts survive native pan takeover.
-@MainActor private final class CandidateContactObserver: UIGestureRecognizer {
-    private var contacts = Set<UITouch>()
-    var changed: (Bool) -> Void = { _ in }
-    var hasContacts: Bool { !contacts.isEmpty }
-    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
-    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        let wasActive = hasContacts; contacts.formUnion(touches)
-        if !wasActive { changed(true) }
-    }
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {}
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { finish(touches) }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { finish(touches) }
-    private func finish(_ touches: Set<UITouch>) {
-        let wasActive = hasContacts; contacts.subtract(touches)
-        if wasActive && !hasContacts { changed(false); state = .failed }
-    }
-    override func reset() {
-        let wasActive = hasContacts; contacts.removeAll(); super.reset()
-        if wasActive { changed(false) }
     }
 }

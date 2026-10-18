@@ -79,7 +79,7 @@ public final class InputEngine {
         return Array(output.filter { seen.insert($0.text).inserted }.prefix(8))
     }
 
-    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], limit: Int = 16, compose: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
+    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], limit: Int = 16, compose: Bool = true, correction: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
         if !compose, matureDecoder != nil, input.count >= 3,
@@ -94,7 +94,7 @@ public final class InputEngine {
             if input.count >= 2, input.count % 2 == 0, input == String(repeating: "hd", count: input.count / 2) {
                 return [Candidate(text: String(repeating: "好的", count: input.count / 2), reading: String(repeating: "hao de ", count: input.count / 2).trimmingCharacters(in: .whitespaces), consumed: raw.count, score: 120)]
             }
-            let result = matureDecoder.candidates(raw.lowercased(), limit: limit, cancelled: cancelled)
+            let result = matureDecoder.candidates(raw.lowercased(), limit: limit, correction: correction, cancelled: cancelled)
             if cancelled() { return [] }
             var output = result.sorted {
                 $0.score + min(2, log(Double(learned[$0.text] ?? 0) + 1)) >
@@ -107,7 +107,7 @@ public final class InputEngine {
                 // default. Recognized English such as iphone/hello stays literal.
                 if chinese.lookup("e:" + input, limit: 1).isEmpty { output.insert(literal, at: 0) }
                 else { output.insert(literal, at: min(1, output.count)) }
-            } else if input.count >= 6, !raw.contains("'"), !result.contains(where: { $0.consumed == input.count && FuzzyPinyin.normalize($0.reading) == input }) {
+            } else if correction, input.count >= 6, !raw.contains("'"), !result.contains(where: { $0.consumed == input.count && FuzzyPinyin.normalize($0.reading) == input }) {
                 // Decode a genuine pinyin prefix and preserve a recognized English
                 // suffix as one token, instead of turning every Latin letter into Hanzi.
                 for length in stride(from: min(20, input.count - 2), through: 4, by: -1) {
@@ -122,7 +122,7 @@ public final class InputEngine {
                     output.insert(Candidate(text: first.text + suffix, consumed: raw.count, score: 110), at: 0); break
                 }
             }
-            if !fuzzy.isEmpty {
+            if correction, !fuzzy.isEmpty {
                 for variant in FuzzyPinyin.variants(input, enabled: fuzzy, limit: limit <= 6 ? 3 : 12).dropFirst() {
                     if cancelled() { return [] }
                     output += matureDecoder.candidates(variant, limit: limit, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }

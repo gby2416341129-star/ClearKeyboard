@@ -67,9 +67,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var clipboardActive = false
     private var store: SettingsStore
     private var engine: InputEngine?
-    // Immediate dictionary results retain user-initiated priority. Expensive
-    // grammar work yields CPU time to UIKit and those first-pass results.
-    private let queue = DispatchQueue(label: "clear.candidates", qos: .utility)
+    // One serial engine owner; full correction is only launched after a typing
+    // gap. Normal sentence candidates never wait for a debounce timer.
+    private let queue = DispatchQueue(label: "clear.candidates", qos: .userInitiated, autoreleaseFrequency: .workItem)
     // Read-only CLX lookups must not page mapped dictionaries in on the UI thread.
     // Keep them independent of the serial sentence decoder so a long sentence
     // never holds up the next common-word lookup.
@@ -77,6 +77,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private let wordLookup: (InputEngine, String, [Candidate]) -> [Candidate]
     private var work: DispatchWorkItem?
     private var wordWork: DispatchWorkItem?
+    private var refinementWork: DispatchWorkItem?
+    private var refinementCancellation = QueryCancellation()
     private var generation = 0
     private var candidateGeneration = -1
     private var resolvedGeneration = -1
@@ -89,6 +91,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var manualShift = false
     private var cancellation = QueryCancellation()
     private let signpost = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
+
+    func candidateInteractionChanged(_ active: Bool) {
+        document?.candidateInteractionChanged(active)
+        if active {
+            // Browsing a stable snapshot takes precedence over speculative work.
+            // Do not restart correction between two opposite flicks.
+            refinementCancellation.cancel(); refinementWork?.cancel()
+        }
+    }
 
     init(document: KeyboardDocument, settings: KeyboardSettings? = nil,
          wordLookup: @escaping (InputEngine, String, [Candidate]) -> [Candidate] = { $0.immediateCandidates($1, preferred: $2) }) {
@@ -153,7 +164,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func beginCursorMovement() {
         guard !isMovingCursor else { return }
         commitComposition(); isMovingCursor = true; deletionUndo = nil
-        cancellation.cancel(); work?.cancel(); generation += 1; candidates = []; arithmetic = nil
+        cancellation.cancel(); work?.cancel(); refinementCancellation.cancel(); refinementWork?.cancel()
+        generation += 1; candidates = []; arithmetic = nil
         document?.beginTrackpad()
     }
     func trackCursor(translation: CGPoint) { guard isMovingCursor else { return }; document?.trackCursor(translation: translation) }
@@ -345,6 +357,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard !isMovingCursor else { return }
         generation += 1; let requestedGeneration = generation
         cancellation.cancel(); let token = QueryCancellation(); cancellation = token
+        refinementCancellation.cancel(); refinementWork?.cancel()
+        let refinementToken = QueryCancellation(); refinementCancellation = refinementToken
         work?.cancel(); wordWork?.cancel(); candidateGeneration = -1
         let selectionIsEmpty = document?.selectedText.isEmpty == true
         let context = composition.isEmpty || settings.language == .english ? (document?.contextBefore ?? "") : ""
@@ -390,11 +404,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             wordWork = words; wordQueue.async(execute: words)
         }
-        let job = DispatchWorkItem(qos: .utility, flags: .enforceQoS) { [weak self] in
+        let job = DispatchWorkItem(qos: .userInitiated, flags: .enforceQoS) { [weak self] in
             guard !token.isCancelled else { return }
             let result: [Candidate]
             if settings.language == .chinese {
-                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, cancelled: { token.isCancelled })
+                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, learned: settings.learnChoices ? learned : [:], preferred: preferred, correction: false, cancelled: { token.isCancelled })
             } else {
                 let word = EnglishContext.word(in: context)
                 result = word.isEmpty ? (settings.predictions ? engine.englishPredictions(after: context) : []) : engine.englishCandidates(prefix: word)
@@ -408,9 +422,26 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 self.completeDeferredActions(for: queryContext)
             }
         }
-        // Cancellation is checked on the serial worker before entering Rime.
-        // An unconditional timer added a frame of latency even for ready words.
         work = job; queue.async(execute: job)
+        if settings.language == .chinese, !raw.isEmpty {
+            let refinement = DispatchWorkItem(qos: .utility, flags: .enforceQoS) { [weak self] in
+                let cancelled = { token.isCancelled || refinementToken.isCancelled }
+                guard !cancelled() else { return }
+                let result = engine.candidates(raw, fuzzy: settings.fuzzyPairs,
+                    learned: settings.learnChoices ? learned : [:], preferred: preferred, cancelled: cancelled)
+                guard !cancelled() else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.generation == requestedGeneration, !cancelled() else { return }
+                    self.candidates = result; self.candidateGeneration = requestedGeneration
+                    self.resolvedGeneration = requestedGeneration; self.candidateContext = queryContext
+                    self.notifyCandidates(); self.completeDeferredActions(for: queryContext)
+                }
+            }
+            refinementWork = refinement
+            // Replace superseded requests before entering the expensive spelling
+            // graph. The first-pass row above remains available throughout.
+            queue.asyncAfter(deadline: .now() + (raw.count > 16 ? 0.12 : 0.065), execute: refinement)
+        }
     }
     private func completeDeferredActions(for context: CandidateContext?) {
         guard awaitingCommit else { return }
@@ -435,7 +466,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         store.defaults.set(learned, forKey: "clear.learned.v1")
         if let data = try? JSONEncoder().encode(personal) { store.defaults.set(data, forKey: "clear.choices.v2") }
     }
-    func suspend() { stopClipboardCapture(); work?.cancel(); wordWork?.cancel(); cancellation.cancel(); generation += 1; awaitingCommit = false; deferredContext = nil; deferredActions = []; flushLearning() }
+    func suspend() { stopClipboardCapture(); work?.cancel(); wordWork?.cancel(); cancellation.cancel(); refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; awaitingCommit = false; deferredContext = nil; deferredActions = []; flushLearning() }
 }
 
 private final class QueryCancellation: @unchecked Sendable {
