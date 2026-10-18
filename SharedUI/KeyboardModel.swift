@@ -67,7 +67,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var clipboardActive = false
     private var store: SettingsStore
     private var engine: InputEngine?
-    private let queue = DispatchQueue(label: "clear.candidates", qos: .userInitiated)
+    // Immediate dictionary results retain user-initiated priority. Expensive
+    // grammar work yields CPU time to UIKit and those first-pass results.
+    private let queue = DispatchQueue(label: "clear.candidates", qos: .utility)
     // Read-only CLX lookups must not page mapped dictionaries in on the UI thread.
     // Keep them independent of the serial sentence decoder so a long sentence
     // never holds up the next common-word lookup.
@@ -388,7 +390,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             wordWork = words; wordQueue.async(execute: words)
         }
-        let job = DispatchWorkItem { [weak self] in
+        let job = DispatchWorkItem(qos: .utility, flags: .enforceQoS) { [weak self] in
             guard !token.isCancelled else { return }
             let result: [Candidate]
             if settings.language == .chinese {
@@ -406,9 +408,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 self.completeDeferredActions(for: queryContext)
             }
         }
-        // Coalesce events arriving in one very short burst. Obsolete work is
-        // cancelled before it enters the decoder, rather than filling its queue.
-        work = job; queue.asyncAfter(deadline: .now() + 0.008, execute: job)
+        // Cancellation is checked on the serial worker before entering Rime.
+        // An unconditional timer added a frame of latency even for ready words.
+        work = job; queue.async(execute: job)
     }
     private func completeDeferredActions(for context: CandidateContext?) {
         guard awaitingCommit else { return }

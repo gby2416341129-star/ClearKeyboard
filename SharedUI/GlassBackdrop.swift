@@ -23,7 +23,7 @@ final class GlassBackdrop: UIView {
 
 final class KeyButton: UIButton {
     let key: KeyboardKey
-    private let plate = UIVisualEffectView()
+    private let plate = UIView()
     private let pressWash = UIView()
     private let caption = CenteredKeyLabel()
     private let icon = UIImageView()
@@ -49,16 +49,17 @@ final class KeyButton: UIButton {
     private var feedback: UIImpactFeedbackGenerator?
     private var interactionActive = false
     private var shiftSymbol = ""
+    private var shadowSize = CGSize.zero
 
     init(key: KeyboardKey) {
         self.key = key; super.init(frame: .zero)
         addSubview(plate); plate.isUserInteractionEnabled = false; plate.layer.cornerRadius = 8
         plate.layer.cornerCurve = .continuous
         plate.layer.borderWidth = 0.5
-        plate.contentView.addSubview(pressWash); pressWash.isUserInteractionEnabled = false
+        plate.addSubview(pressWash); pressWash.isUserInteractionEnabled = false
         pressWash.layer.cornerRadius = 8; pressWash.layer.cornerCurve = .continuous
-        plate.contentView.addSubview(caption); caption.isUserInteractionEnabled = false; caption.contentMode = .redraw
-        plate.contentView.addSubview(icon); icon.isUserInteractionEnabled = false; icon.contentMode = .center
+        plate.addSubview(caption); caption.isUserInteractionEnabled = false; caption.contentMode = .redraw
+        plate.addSubview(icon); icon.isUserInteractionEnabled = false; icon.contentMode = .center
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 21, weight: .regular)
         caption.textAlignment = .center; caption.text = key.label
         caption.font = .systemFont(ofSize: key.label.count == 1 ? 23 : 16)
@@ -116,7 +117,10 @@ final class KeyButton: UIButton {
         let fontSize = min(base, max(10, min(plate.bounds.width * 0.88, plate.bounds.height * 0.65)))
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
         caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
-        plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 8).cgPath
+        if shadowSize != plate.bounds.size {
+            shadowSize = plate.bounds.size
+            plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 8).cgPath
+        }
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; haptics = settings.haptics
@@ -125,7 +129,6 @@ final class KeyButton: UIButton {
         let reduced = settings.glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
         // A continuous system glass sheet supplies the backdrop. Key faces transmit
         // that material instead of stacking 30 separate refracting lenses on top.
-        plate.effect = nil
         if reduced {
             plate.backgroundColor = UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
             plate.layer.borderWidth = 0
@@ -168,8 +171,11 @@ final class KeyButton: UIButton {
     }
     @objc private func up() {
         let shouldFire = !didRepeat && !suppressTap && !draggingCursor
-        cancelPress()
+        // Keep the contact active through the write and its synchronous host
+        // notifications. Releasing first scheduled idle reads that the very
+        // same key immediately cancelled and re-created.
         if shouldFire { onAction?(key.action) }
+        cancelPress()
     }
     @objc func cancelPress() {
         repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
