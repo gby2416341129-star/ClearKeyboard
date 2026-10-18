@@ -54,12 +54,15 @@ import UIKit
             // released by the next spelling, not by a timer after finger-up.
             return
         }
-        if newSpelling, !fingerActive {
-            if isDecelerating { setContentOffset(contentOffset, animated: false) }
-            setInteraction(false)
-        }
         if holdsCandidateUpdates { pending = (next, resolved); return }
         pending = nil; apply(next, accent: resolved)
+    }
+    func inputChanged() {
+        // Only an actual edit may interrupt a coasting row. A decoder result
+        // arriving after finger-up is never a reason to stop native momentum.
+        guard !fingerActive else { return }
+        if isDecelerating { setContentOffset(contentOffset, animated: false) }
+        setInteraction(false)
     }
     private func sameQuery(_ lhs: Presentation?, _ rhs: Presentation) -> Bool {
         guard let lhs else { return false }

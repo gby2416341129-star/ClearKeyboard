@@ -40,6 +40,7 @@ import ImageIO
     private var geometryPresentation: GeometryPresentation?
     private var keyFramesNeedLayout = true
     private var presentedHeaderHeight: CGFloat = -1
+    private var requestedSpelling = ""
     var isInteractingWithCandidates: Bool { candidateScroll.holdsCandidateUpdates }
     private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
     private var headerHeight: CGFloat { KeyboardGeometry.headerHeight }
@@ -69,7 +70,14 @@ import ImageIO
         addSubview(deleteHint); deleteHint.isHidden = true; deleteHint.isUserInteractionEnabled = false
         deleteHint.font = .systemFont(ofSize: 13, weight: .semibold); deleteHint.textAlignment = .center
         deleteHint.textColor = .white; deleteHint.layer.cornerRadius = 10; deleteHint.clipsToBounds = true
-        model.onChange = { [weak self] in self?.render() }
+        model.onChange = { [weak self] in
+            guard let self else { return }
+            let raw = self.model.composition.raw
+            if self.requestedSpelling != raw {
+                self.requestedSpelling = raw; self.candidateScroll.inputChanged()
+            }
+            self.render()
+        }
         // A result belongs to the collection, not to the whole remote keyboard's
         // layout. Native scrolling and key geometry need no layout invalidation.
         model.onCandidatesChange = { [weak self] in self?.renderCandidates() }
