@@ -5,6 +5,20 @@ final class MatureEngineTests: XCTestCase {
     private var engine: InputEngine!
     override func setUpWithError() throws { engine = try .bundled() }
     func testProductionUsesRimeAndWanxiang() { XCTAssertEqual(engine.chineseBackend, "rime-wanxiang") }
+    func testImmediateWordsUseCurrentSpellingWithoutSentenceDecoding() {
+        for (input, expected) in ["nihao": "你好", "shaod": "稍等", "chif": "吃饭", "laop": "老婆", "shangh": "上海", "iphone": "iphone"] {
+            let values = engine.immediateCandidates(input)
+            XCTAssertEqual(values.first?.text, expected, input)
+            XCTAssertEqual(values.first?.consumed, input.count, input)
+            XCTAssertLessThanOrEqual(values.count, 8)
+        }
+        let film = Candidate(text: "钢化膜", reading: "gang hua mo", consumed: 8)
+        XCTAssertEqual(engine.immediateCandidates("ganghuam", preferred: [film]).first?.text, "钢化膜")
+        // Unknown sentences stay with the mature decoder instead of inventing a
+        // quick word by concatenating unrelated initials on the UI thread.
+        XCTAssertTrue(engine.immediateCandidates("nichifankm").isEmpty)
+        XCTAssertEqual(engine.candidates("nichifankm").first?.text, "你吃饭了吗")
+    }
     func testSentencesUseTheLanguageModel() {
         for (input, expected) in ["nichifanlema": "你吃饭了吗", "womenshiyongshurufa": "我们使用输入法",
                                   "womenjintianquchifan": "我们今天去吃饭", "woyaoshangke": "我要上课",

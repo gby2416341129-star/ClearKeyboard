@@ -25,7 +25,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         view.backgroundColor = .clear; view.isOpaque = false
         view.accessibilityIdentifier = "clear.keyboard.root"
         inputView?.allowsSelfSizing = false
-        refreshHostState()
+        refreshHostState(refreshTraits: true)
         model = KeyboardModel(document: self)
         surface = KeyboardSurface(model: model, systemBacked: true)
         surface.configureGlobe = { [weak self] button in
@@ -46,7 +46,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
 
     }
     override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated); refreshHostState(); model?.reloadSettings()
+        super.viewWillAppear(animated); refreshHostState(refreshTraits: true); model?.reloadSettings()
         if let surface { updateHeight(surface.desiredHeight) }
     }
     override func updateViewConstraints() {
@@ -108,7 +108,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // only when idle; a main-queue work item could otherwise stall a scroll.
         let identity = connectedDocumentIdentifier()?.uuidString ?? "disconnected"
         if identity != hostState.snapshot.document {
-            hostRefreshGeneration += 1; hostRefresh?.invalidate(); refreshHostState(); return
+            hostRefreshGeneration += 1; hostRefresh?.invalidate(); refreshHostState(refreshTraits: true); return
         }
         needsHostRefresh = true
         if !hostState.hasPendingEdits(), !hostState.hasMarkedText, !candidateTouchActive { refreshHostState(); return }
@@ -138,23 +138,27 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         return HostTextSnapshot(before: before ?? "", after: after ?? "", selected: textDocumentProxy.selectedText ?? "",
             document: connectedDocumentIdentifier()?.uuidString ?? "disconnected", available: before != nil || after != nil)
     }
-    private func refreshHostState() {
+    private func refreshHostState(refreshTraits: Bool = false) {
         needsHostRefresh = false
         let outcome = hostState.reconcile(readHostSnapshot())
-        hostNeedsGlobe = needsInputModeSwitchKey
-        hostCapitalization = textDocumentProxy.autocapitalizationType ?? .sentences
-        switch textDocumentProxy.keyboardType ?? .default {
-        case .emailAddress, .URL, .asciiCapable, .asciiCapableNumberPad: hostPrefersEnglish = true
-        default: hostPrefersEnglish = false
-        }
-        switch textDocumentProxy.returnKeyType ?? .default {
-        case .send: hostEnterTitle = "发送"
-        case .search, .google, .yahoo: hostEnterTitle = "搜索"
-        case .go: hostEnterTitle = "前往"
-        case .done: hostEnterTitle = "完成"
-        case .next: hostEnterTitle = "下一项"
-        case .join: hostEnterTitle = "加入"
-        default: hostEnterTitle = "换行"
+        // Input traits belong to the field, not to every composing keystroke.
+        // Refresh on attachment/field changes and outside marked composition.
+        if refreshTraits || !hostState.hasMarkedText {
+            hostNeedsGlobe = needsInputModeSwitchKey
+            hostCapitalization = textDocumentProxy.autocapitalizationType ?? .sentences
+            switch textDocumentProxy.keyboardType ?? .default {
+            case .emailAddress, .URL, .asciiCapable, .asciiCapableNumberPad: hostPrefersEnglish = true
+            default: hostPrefersEnglish = false
+            }
+            switch textDocumentProxy.returnKeyType ?? .default {
+            case .send: hostEnterTitle = "发送"
+            case .search, .google, .yahoo: hostEnterTitle = "搜索"
+            case .go: hostEnterTitle = "前往"
+            case .done: hostEnterTitle = "完成"
+            case .next: hostEnterTitle = "下一项"
+            case .join: hostEnterTitle = "加入"
+            default: hostEnterTitle = "换行"
+            }
         }
         if case .externalEdit = outcome { surface?.closePanel(); model?.cursorChanged() }
     }

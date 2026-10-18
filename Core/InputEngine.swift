@@ -54,6 +54,31 @@ public final class InputEngine {
         return engine
     }
 
+    /// Bounded, read-only word lookup for the current spelling. This never enters
+    /// Rime or its lock; sentence decoding continues on the candidate worker.
+    /// A visible word can therefore be selected while that worker is busy.
+    public func immediateCandidates(_ raw: String, preferred: [Candidate] = []) -> [Candidate] {
+        let input = FuzzyPinyin.normalize(raw)
+        guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
+        var output = preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }
+        let exact = chinese.lookup("e:" + input, limit: 8)
+        let english = input.count >= 3 && associations?.contains("e:" + input) == true
+        if english && exact.isEmpty {
+            output.append(Candidate(text: raw, reading: raw, consumed: input.count))
+        } else {
+            output += initialCompletions(input)
+            let entries = exact + chinese.lookup("a:" + input, limit: 8)
+                .filter { abbreviation($0.reading) == input }
+            output += entries.sorted {
+                let left = Self.conversational[input] == $0.text, right = Self.conversational[input] == $1.text
+                if left != right { return left }
+                return $0.frequency == $1.frequency ? $0.text < $1.text : $0.frequency > $1.frequency
+            }.map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
+        }
+        var seen = Set<String>()
+        return Array(output.filter { seen.insert($0.text).inserted }.prefix(8))
+    }
+
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], limit: Int = 16, compose: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }

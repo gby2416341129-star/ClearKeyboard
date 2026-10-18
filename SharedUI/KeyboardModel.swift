@@ -261,13 +261,26 @@ struct DeletedInput { let text: String; let selection: NSRange }
         context != nil && context == requestedContext
     }
     func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?) {
-        guard !awaitingCommit, acceptsCandidateContext(context), let context, let document,
-              document.validateCandidate(before: context.before, after: context.after, identity: context.document) else { return }
-        commitChoice(candidate, document: document)
+        guard !awaitingCommit, let context, let current = activeCandidateContext(), let document,
+              document.selectedText.isEmpty else { return }
+        if context != current {
+            // A finger can reach a visible prefix word before sentence decoding
+            // catches up with the next letters. Commit only that prefix and keep
+            // the remaining spelling; never apply an old row to another field,
+            // another cursor position, or a prediction from an empty composition.
+            guard context.language == .chinese, current.language == .chinese,
+                  !context.raw.isEmpty, current.raw.hasPrefix(context.raw),
+                  candidate.consumed > 0, candidate.consumed <= FuzzyPinyin.normalize(context.raw).count,
+                  context.document == current.document, context.after == current.after,
+                  context.before.hasSuffix(context.raw), current.before.hasSuffix(current.raw),
+                  context.before.dropLast(context.raw.count) == current.before.dropLast(current.raw.count) else { return }
+        }
+        guard document.validateCandidate(before: current.before, after: current.after, identity: current.document) else { return }
+        commitChoice(candidate, document: document, learningRaw: context.raw)
     }
-    private func commitChoice(_ candidate: Candidate, document: KeyboardDocument) {
+    private func commitChoice(_ candidate: Candidate, document: KeyboardDocument, learningRaw: String? = nil) {
         if settings.language == .chinese {
-            let spelling = composition.raw
+            let spelling = learningRaw ?? composition.raw
             if composition.raw.isEmpty { document.insert(candidate.text) }
             else {
                 document.setMarkedText(candidate.text); document.unmarkText()
@@ -324,14 +337,17 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let queryContext = selectionIsEmpty ? activeCandidateContext() : nil
         requestedContext = queryContext
         if arithmetic != nil { candidateGeneration = requestedGeneration; candidateContext = queryContext }
+        let raw = composition.raw, settings = self.settings, learned = self.learned
+        let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
+        if arithmetic == nil, selectionIsEmpty, settings.language == .chinese, let engine {
+            let immediate = engine.immediateCandidates(raw, preferred: preferred)
+            if !immediate.isEmpty {
+                candidates = immediate; candidateGeneration = requestedGeneration; candidateContext = queryContext
+            }
+        }
         onChange?()
         if arithmetic != nil { candidateGeneration = requestedGeneration; return }
         guard let engine, document != nil, selectionIsEmpty else { return }
-        let raw = composition.raw, settings = self.settings, learned = self.learned
-        let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
-        if !preferred.isEmpty {
-            candidates = preferred; candidateGeneration = requestedGeneration; candidateContext = queryContext; notifyCandidates()
-        }
         englishSnapshot = context
         let job = DispatchWorkItem { [weak self] in
             guard !token.isCancelled else { return }
@@ -354,7 +370,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 }
             }
         }
-        work = job; queue.async(execute: job)
+        // Coalesce events arriving in one very short burst. Obsolete work is
+        // cancelled before it enters the decoder, rather than filling its queue.
+        work = job; queue.asyncAfter(deadline: .now() + 0.008, execute: job)
     }
     private func learn(_ candidate: Candidate, raw: String) {
         guard settings.learnChoices else { return }

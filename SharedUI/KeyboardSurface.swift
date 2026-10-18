@@ -174,6 +174,7 @@ import ImageIO
         hint.isHidden = !movingCursor; hint.text = movingCursor ? "滑动键盘，移动光标" : nil
         // Candidate updates only touch the header, never the keys or glass layers.
         candidateScroll.frame.size.height = candidateHeight
+        candidateScroll.layoutIfNeeded()
     }
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)

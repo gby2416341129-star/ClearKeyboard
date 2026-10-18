@@ -1,22 +1,24 @@
 import UIKit
 
-/// Native buttons handle taps and UIScrollView cancels them when a pan begins.
-/// The visible presentation stays fixed until the current finger lifts.
-@MainActor final class CandidateScrollView: UIScrollView, UIScrollViewDelegate {
+/// Native collection-cell reuse and selection, informed by Hamster (MIT).
+/// Candidate snapshots stay fixed through tracking AND deceleration; a new
+/// spelling can interrupt old momentum without waiting for a scroll animation.
+@MainActor final class CandidateScrollView: UICollectionView, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private struct Presentation: Equatable {
         let items: [Candidate]
         let context: KeyboardModel.CandidateContext?
         let arithmetic: Bool
     }
-    private let content = UIView()
-    private var buttons: [CandidateItemButton] = []
     private var presentation: Presentation?
     private var pending: (Presentation, UIColor)?
     private var ink: UIColor = .systemTeal
-    private var contentWidth: CGFloat = 0
+    private var widths: [CGFloat] = []
     private var contact = false
     private var candidatePanActive = false
-    var holdsCandidateUpdates: Bool { contact || candidatePanActive || isTracking || isDragging }
+    private var momentumActive = false
+    private var interactionActive = false
+    private var settleScheduled = false
+    var holdsCandidateUpdates: Bool { contact || candidatePanActive || momentumActive || isTracking || isDragging || isDecelerating }
     var onSettled: (() -> Void)?
     var onInteractionChanged: ((Bool) -> Void)?
     var onSelect: ((Candidate, KeyboardModel.CandidateContext?, Bool) -> Void)?
@@ -24,72 +26,98 @@ import UIKit
         get { "offset:\(Int(contentOffset.x));count:\(presentation?.items.count ?? 0)" }
         set {}
     }
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        delegate = self; addSubview(content)
+    init() {
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.minimumLineSpacing = 22; layout.minimumInteritemSpacing = 0
+        layout.sectionInset = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: 12)
+        super.init(frame: .zero, collectionViewLayout: layout)
+        dataSource = self; delegate = self
+        register(CandidateCell.self, forCellWithReuseIdentifier: CandidateCell.reuseID)
+        backgroundColor = .clear; isOpaque = false
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         delaysContentTouches = false; canCancelContentTouches = true
-        alwaysBounceHorizontal = true; isDirectionalLockEnabled = true
-        decelerationRate = .fast
+        alwaysBounceHorizontal = true; alwaysBounceVertical = false
+        isDirectionalLockEnabled = true; decelerationRate = .fast
+        contentInsetAdjustmentBehavior = .never
         accessibilityIdentifier = "clear.candidates"
-        panGestureRecognizer.addTarget(self, action: #selector(panChanged(_:)))
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        content.frame = CGRect(x: 0, y: 0, width: contentWidth, height: bounds.height)
-    }
+
     func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool, accent: UIColor) {
         let next = Presentation(items: items, context: context, arithmetic: arithmetic)
         let resolved = accent.resolvedColor(with: traitCollection)
-        if holdsCandidateUpdates || isTracking || isDragging { pending = (next, resolved); return }
+        let newSpelling = presentation?.context?.raw != context?.raw ||
+            presentation?.context?.document != context?.document || presentation?.arithmetic != arithmetic
+        if newSpelling, !contact, !candidatePanActive, !isTracking, !isDragging {
+            stopMomentum()
+        }
+        if holdsCandidateUpdates { pending = (next, resolved); return }
         pending = nil; apply(next, accent: resolved)
     }
     private func apply(_ next: Presentation, accent: UIColor) {
         guard next != presentation || !ink.isEqual(accent) else { return }
         let changedQuery = presentation?.context != next.context || presentation?.arithmetic != next.arithmetic
+        let changedItems = presentation?.items.map(\.text) != next.items.map(\.text) || !ink.isEqual(accent)
         presentation = next; ink = accent
-        while buttons.count > next.items.count { buttons.removeLast().removeFromSuperview() }
-        var x: CGFloat = 2
-        for (index, candidate) in next.items.enumerated() {
-            let button: CandidateItemButton
-            if index < buttons.count { button = buttons[index] }
-            else {
-                button = CandidateItemButton(frame: .zero)
-                button.onContact = { [weak self] active in self?.setContact(active) }
-                content.addSubview(button); buttons.append(button)
+        if changedItems {
+            // Size each item once per result, never on a scrolling frame.
+            widths = next.items.enumerated().map { index, candidate in
+                let font = UIFont.systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
+                return max(22, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + (index == 0 ? 20 : 0))
             }
-            let font = UIFont.systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
-            button.titleLabel?.font = font; button.setTitle(candidate.text, for: .normal)
-            button.setTitleColor(index == 0 ? accent : .label, for: .normal)
-            button.backgroundColor = index == 0 ? .secondarySystemFill : .clear; button.layer.cornerRadius = 8
-            button.accessibilityLabel = "候选：" + candidate.text; button.accessibilityIdentifier = "candidate." + candidate.text
-            let width = ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + (index == 0 ? 20 : 0)
-            button.frame = CGRect(x: x, y: 0, width: max(22, width), height: 44)
-            button.onActivation = { [weak self] in self?.onSelect?(candidate, next.context, next.arithmetic) }
-            x = button.frame.maxX + 22
+            reloadData()
         }
-        contentWidth = max(0, x - 10)
-        content.frame = CGRect(x: 0, y: 0, width: contentWidth, height: 44)
-        contentSize = CGSize(width: contentWidth, height: 44)
         if changedQuery { setContentOffset(.zero, animated: false) }
-        setNeedsLayout()
+    }
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        presentation?.items.count ?? 0
+    }
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = dequeueReusableCell(withReuseIdentifier: CandidateCell.reuseID, for: indexPath) as! CandidateCell
+        if let current = presentation, current.items.indices.contains(indexPath.item) {
+            cell.configure(current.items[indexPath.item], first: indexPath.item == 0, accent: ink)
+            cell.button.onContact = { [weak self] active in self?.setContact(active) }
+            cell.button.onActivation = { [weak self] in self?.activate(indexPath.item) }
+        }
+        return cell
+    }
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        activate(indexPath.item); deselectItem(at: indexPath, animated: false)
+    }
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        CGSize(width: widths.indices.contains(indexPath.item) ? widths[indexPath.item] : 22, height: 44)
+    }
+    private func activate(_ index: Int) {
+        guard let current = presentation, current.items.indices.contains(index) else { return }
+        onSelect?(current.items[index], current.context, current.arithmetic)
+    }
+    private func setInteraction(_ active: Bool) {
+        guard interactionActive != active else { return }
+        interactionActive = active; onInteractionChanged?(active)
     }
     private func settled() {
+        guard !settleScheduled else { return }
+        settleScheduled = true
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.holdsCandidateUpdates else { return }
-            self.onInteractionChanged?(false)
+            guard let self else { return }
+            self.settleScheduled = false
+            guard !self.holdsCandidateUpdates else { return }
+            self.setInteraction(false)
             if let (next, color) = self.pending { self.pending = nil; self.apply(next, accent: color) }
             self.onSettled?()
         }
     }
+    private func stopMomentum() {
+        momentumActive = false
+        if isDecelerating { setContentOffset(contentOffset, animated: false) }
+        if !contact, !candidatePanActive { settled() }
+    }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
     private func setContact(_ active: Bool) {
         contact = active
-        if active {
-            if isDecelerating { setContentOffset(contentOffset, animated: false) }
-            onInteractionChanged?(true)
-        } else { settled() }
+        if active { stopMomentum(); setInteraction(true) }
+        else { settled() }
     }
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         setContact(true); super.touchesBegan(touches, with: event)
@@ -98,18 +126,38 @@ import UIKit
         super.touchesEnded(touches, with: event); setContact(false)
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesCancelled(touches, with: event)
-        setContact(false)
+        super.touchesCancelled(touches, with: event); setContact(false)
     }
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { candidatePanActive = true; onInteractionChanged?(true) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        candidatePanActive = true; momentumActive = false; setInteraction(true)
+    }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        contact = false; candidatePanActive = false; settled()
+        contact = false; candidatePanActive = false; momentumActive = decelerate
+        if !decelerate { settled() }
     }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { settled() }
-    @objc private func panChanged(_ gesture: UIPanGestureRecognizer) {
-        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
-            contact = false; candidatePanActive = false; settled()
-        }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { momentumActive = false; settled() }
+}
+
+@MainActor private final class CandidateCell: UICollectionViewCell {
+    static let reuseID = "clear.candidate.cell"
+    let button = CandidateItemButton(frame: .zero)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.addSubview(button); backgroundColor = .clear
+        isAccessibilityElement = false
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func layoutSubviews() { super.layoutSubviews(); button.frame = contentView.bounds }
+    func configure(_ candidate: Candidate, first: Bool, accent: UIColor) {
+        button.titleLabel?.font = .systemFont(ofSize: 19, weight: first ? .medium : .regular)
+        button.setTitle(candidate.text, for: .normal)
+        button.setTitleColor(first ? accent : .label, for: .normal)
+        button.backgroundColor = first ? .secondarySystemFill : .clear; button.layer.cornerRadius = 8
+        button.accessibilityLabel = "候选：" + candidate.text
+        button.accessibilityIdentifier = "candidate." + candidate.text
+    }
+    override func prepareForReuse() {
+        super.prepareForReuse(); button.onActivation = nil; button.onContact = nil
     }
 }
 

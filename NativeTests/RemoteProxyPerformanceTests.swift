@@ -127,6 +127,55 @@ import UIKit
         model.chooseDisplayed(candidate, context: context)
         XCTAssertEqual(proxy.before, "另一输入框")
     }
+    func testVisiblePrefixCanBeTappedWhileMoreSpellingIsPending() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "ni" { model.handle(.text(String(character))) }
+        let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你" }), context = model.candidateContext
+        for character in "hao" { model.handle(.text(String(character))) }
+        model.chooseDisplayed(candidate, context: context)
+        XCTAssertEqual(proxy.before, "你hao")
+        XCTAssertEqual(model.composition.raw, "hao", "A visible prefix choice must retain the later spelling")
+    }
+    func testPrefixChoiceDoesNotCrossAnExternalCursorEdit() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "ni" { model.handle(.text(String(character))) }
+        let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你" }), context = model.candidateContext
+        model.clearComposition(); controller.insert("另一位置")
+        for character in "nihao" { model.handle(.text(String(character))) }
+        model.chooseDisplayed(candidate, context: context)
+        XCTAssertEqual(proxy.before, "另一位置nihao")
+    }
+    func testCandidateCollectionPinsResultsThroughMomentumAndReversals() async throws {
+        let ribbon = CandidateScrollView()
+        ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
+        let context = KeyboardModel.CandidateContext(raw: "shi", before: "shi", after: "", document: "field", language: .chinese)
+        let old = (0..<40).map { Candidate(text: "候选\($0)", consumed: 3) }
+        var transitions: [Bool] = []
+        ribbon.onInteractionChanged = { transitions.append($0) }
+        ribbon.update(old, context: context, arithmetic: false, accent: .systemTeal); ribbon.layoutIfNeeded()
+        XCTAssertLessThan(ribbon.visibleCells.count, old.count, "Only visible cells should be created")
+        ribbon.scrollViewWillBeginDragging(ribbon)
+        ribbon.contentOffset.x = 70
+        ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: true)
+        ribbon.update([Candidate(text: "新的结果", consumed: 3)], context: context, arithmetic: false, accent: .systemTeal)
+        await Task.yield()
+        XCTAssertTrue(ribbon.holdsCandidateUpdates)
+        XCTAssertEqual(ribbon.numberOfItems(inSection: 0), 40)
+        ribbon.scrollViewWillBeginDragging(ribbon)
+        ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: false)
+        try await waitFor { !ribbon.holdsCandidateUpdates && ribbon.numberOfItems(inSection: 0) == 1 }
+        XCTAssertEqual(transitions, [true, false], "One continuous interaction must not repeatedly start host refreshes")
+    }
 }
 
 @MainActor private final class ProxyKeyboardController: KeyboardViewController {

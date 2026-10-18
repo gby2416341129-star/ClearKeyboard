@@ -10,6 +10,10 @@ on:
       - '.github/workflows/candidate-ui.yml'
   workflow_dispatch:
     inputs:
+      candidate_ui:
+        description: Run optional simulator finger-gesture checks
+        type: boolean
+        default: false
       safari_ui:
         description: Run the optional Safari end-to-end regression
         type: boolean
@@ -65,6 +69,7 @@ jobs:
         timeout-minutes: 18
         run: bash Scripts/test-native.sh
       - name: Verify candidate flick and tap gestures
+        if: github.event_name == 'workflow_dispatch' && inputs.candidate_ui
         timeout-minutes: 5
         run: bash Scripts/test-candidates-ui.sh
       - name: Exercise Safari keyboard position and input switching
