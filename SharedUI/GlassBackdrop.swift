@@ -38,6 +38,7 @@ final class KeyButton: UIButton {
     private var cursorDisplayLink: CADisplayLink?
     private var deletionDirection = 0
     var onAction: ((KeyAction) -> Void)?
+    var onInteractionChanged: ((Bool) -> Void)?
     var onCursor: ((CGPoint) -> Void)?
     var onCursorBegan: (() -> Void)?
     var onCursorEnded: (() -> Void)?
@@ -46,6 +47,8 @@ final class KeyButton: UIButton {
     var accent = UIColor.systemTeal
     var haptics = false
     private var feedback: UIImpactFeedbackGenerator?
+    private var interactionActive = false
+    private var shiftSymbol = ""
 
     init(key: KeyboardKey) {
         self.key = key; super.init(frame: .zero)
@@ -102,7 +105,9 @@ final class KeyButton: UIButton {
     }
     func updateShift(active: Bool, capsLocked: Bool) {
         guard key.action == .shift else { return }
-        icon.image = UIImage(systemName: capsLocked ? "capslock.fill" : active ? "shift.fill" : "shift")
+        let symbol = capsLocked ? "capslock.fill" : active ? "shift.fill" : "shift"
+        guard shiftSymbol != symbol else { return }
+        shiftSymbol = symbol; icon.image = UIImage(systemName: symbol)
         accessibilityValue = capsLocked ? "大写锁定" : active ? "大写" : "小写"
     }
     override func layoutSubviews() {
@@ -136,7 +141,7 @@ final class KeyButton: UIButton {
         pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
         caption.textColor = .label
         icon.tintColor = .label
-        if key.action == .shift { icon.image = UIImage(systemName: capsLocked ? "capslock.fill" : (active ? "shift.fill" : "shift")) }
+        updateShift(active: active, capsLocked: capsLocked)
         if let title { updateTitle(title) }
     }
     func updateTitle(_ title: String) {
@@ -149,6 +154,7 @@ final class KeyButton: UIButton {
         plate.alpha = active ? 0.1 : 1
     }
     @objc private func down() {
+        if !interactionActive { interactionActive = true; onInteractionChanged?(true) }
         didRepeat = false; suppressTap = false; pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
         if haptics { if feedback == nil { feedback = UIImpactFeedbackGenerator(style: .light) }; feedback?.impactOccurred(intensity: 0.35) }
         guard key.action == .delete else { return }
@@ -165,7 +171,11 @@ final class KeyButton: UIButton {
         cancelPress()
         if shouldFire { onAction?(key.action) }
     }
-    @objc func cancelPress() { repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil; pressWash.backgroundColor = .clear; plate.alpha = cursorMode ? 0.1 : 1 }
+    @objc func cancelPress() {
+        repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
+        pressWash.backgroundColor = .clear; plate.alpha = cursorMode ? 0.1 : 1
+        if interactionActive { interactionActive = false; onInteractionChanged?(false) }
+    }
     @objc private func cursorGesture(_ gesture: UILongPressGestureRecognizer) {
         let point = gesture.location(in: window)
         switch gesture.state {

@@ -58,6 +58,7 @@ import UIKit
         proxy.reads = 0; proxy.contextReads = 0; proxy.readDelay = 0.008
         let start = ProcessInfo.processInfo.systemUptime
         for character in "nichifankm" { model.handle(.text(String(character))); controller.textDidChange(nil) }
+        XCTAssertEqual(proxy.reads, 0, "Even document identity reads must be outside a key's notification callback")
         XCTAssertEqual(proxy.contextReads, 0, "Own notifications must not synchronously poll text during rapid typing")
         XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - start) * 1_000, 250)
         try await waitFor { model.candidatesAreCurrent && proxy.contextReads > 0 }
@@ -78,6 +79,7 @@ import UIKit
         try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "稍等" }
         try await Task.sleep(nanoseconds: 1_200_000_000)
         XCTAssertEqual(model.composition.raw, "shaod", "Reading candidates must not expire an uncommitted spelling")
+        for view in descendants(controller.view) { view.setNeedsLayout(); view.layoutIfNeeded() }
         let button = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.稍等" })
         XCTAssertTrue(button.isUserInteractionEnabled)
         proxy.contextReads = 0; proxy.contextReadDelay = 0.15
@@ -135,6 +137,7 @@ import UIKit
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
         for character in "ni" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
         let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你" }), context = model.candidateContext
         for character in "hao" { model.handle(.text(String(character))) }
         model.chooseDisplayed(candidate, context: context)
@@ -149,6 +152,7 @@ import UIKit
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
         for character in "ni" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
         let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你" }), context = model.candidateContext
         model.clearComposition(); controller.insert("另一位置")
         for character in "nihao" { model.handle(.text(String(character))) }
@@ -163,6 +167,7 @@ import UIKit
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
         for character in "nih" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
         let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你好" }), context = model.candidateContext
         for character in "aoma" { model.handle(.text(String(character))) }
         model.chooseDisplayed(candidate, context: context)
@@ -190,6 +195,122 @@ import UIKit
         try await waitFor { !ribbon.holdsCandidateUpdates && ribbon.numberOfItems(inSection: 0) == 1 }
         XCTAssertEqual(transitions, [true, false], "One continuous interaction must not repeatedly start host refreshes")
     }
+    func testPacedKeysDoNotReadTheHostInTheirFrames() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), host = UIViewController()
+        window.rootViewController = host; window.makeKeyAndVisible()
+        host.addChild(controller); host.view.addSubview(controller.view)
+        NSLayoutConstraint.activate([controller.view.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: host.view.bottomAnchor)])
+        controller.didMove(toParent: host)
+        host.view.layoutIfNeeded(); controller.view.layoutIfNeeded()
+        let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+        let model = surface.model
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        let frames = KeyboardFrameProbe(); frames.start()
+        defer { frames.stop(); window.isHidden = true; model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        let buttons = descendants(surface).compactMap { $0 as? KeyButton }
+        for view in descendants(surface) { view.layoutIfNeeded() }
+        let originalFrames = buttons.map(\.frame), originalHeight = surface.desiredHeight
+        proxy.reads = 0; proxy.contextReads = 0; proxy.readDelay = 0.012
+        var costs: [Double] = []
+        for character in "nichifankmnihao" {
+            let button = try XCTUnwrap(buttons.first { $0.key.action == .text(String(character)) })
+            let start = ProcessInfo.processInfo.systemUptime
+            button.sendActions(for: .touchDown); button.sendActions(for: .touchUpInside)
+            controller.textDidChange(nil); controller.selectionDidChange(nil)
+            costs.append((ProcessInfo.processInfo.systemUptime - start) * 1_000)
+            // Separate run-loop turns: a tight for-loop misses per-frame host work.
+            try await Task.sleep(nanoseconds: 45_000_000)
+        }
+        XCTAssertEqual(proxy.reads, 0, "Continuous keys and acknowledgements must not poll the proxy")
+        XCTAssertEqual(buttons.map(\.frame), originalFrames)
+        XCTAssertEqual(surface.desiredHeight, originalHeight)
+        let sorted = costs.sorted()
+        print("PACED_KEY_FRAMES keys=\(costs.count) hostReads=\(proxy.reads) p95Ms=\(sorted[Int(Double(sorted.count - 1) * 0.95)]) maxMs=\(sorted.last!)")
+        let gaps = frames.gaps.sorted()
+        XCTAssertGreaterThan(gaps.count, 5, "The real window must keep drawing during the paced input")
+        if !gaps.isEmpty {
+            print("SIMULATOR_DISPLAY_FRAMES samples=\(gaps.count) p95Ms=\(gaps[Int(Double(gaps.count - 1) * 0.95)] * 1_000) maxMs=\(gaps.last! * 1_000)")
+        }
+        try await waitFor { proxy.contextReads > 0 }
+        XCTAssertEqual(proxy.contextReads, 3, "Read the final host snapshot once after the typing burst")
+    }
+    func testHoldingAKeyDefersAnAlreadyScheduledHostRead() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        proxy.contextReads = 0; controller.textDidChange(nil)
+        controller.keyInteractionChanged(true)
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(proxy.contextReads, 0)
+        controller.keyInteractionChanged(false)
+        try await waitFor { proxy.contextReads > 0 }
+        XCTAssertEqual(proxy.contextReads, 3)
+    }
+    func testSlowWordLookupNeverRunsOnTheKeyThreadOrOverwritesNewerResults() async throws {
+        let document = WordLookupDocument()
+        let lookup = expectation(description: "Delayed word worker finishes")
+        var settings = KeyboardSettings(); settings.automaticClipboard = false; settings.learnChoices = false
+        let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
+            XCTAssertFalse(Thread.isMainThread, "A mapped-file lookup must not run inside a touch event")
+            if raw == "nihao" {
+                Thread.sleep(forTimeInterval: 0.15)
+                lookup.fulfill()
+                return [Candidate(text: "过期的快速结果", consumed: 5)]
+            }
+            return engine.immediateCandidates(raw, preferred: preferred)
+        }
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        let start = ProcessInfo.processInfo.systemUptime
+        for character in "nihao" { model.handle(.text(String(character))) }
+        XCTAssertEqual(document.before, "nihao", "Typed spelling reaches the editor before lookup completes")
+        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - start) * 1_000, 50)
+        try await waitFor { model.candidates.first?.text == "你好" && model.candidatesAreCurrent }
+        await fulfillment(of: [lookup], timeout: 2)
+        // Allow the worker's main-queue delivery to run after its expectation.
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(model.candidates.first?.text, "你好", "Late fast results cannot replace a settled sentence")
+    }
+}
+
+@MainActor private final class KeyboardFrameProbe: NSObject {
+    private var link: CADisplayLink?
+    private var previous: CFTimeInterval?
+    private(set) var gaps: [Double] = []
+    func start() {
+        let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+        link.add(to: .main, forMode: .common); self.link = link
+    }
+    @objc private func frame(_ link: CADisplayLink) {
+        let now = CACurrentMediaTime()
+        if let previous { gaps.append(now - previous) }; previous = now
+    }
+    func stop() { link?.invalidate(); link = nil }
+}
+
+@MainActor private final class WordLookupDocument: KeyboardDocument {
+    var before = "", marked = ""
+    var contextBefore: String { before }; var contextAfter: String { "" }
+    let documentIdentity = UUID().uuidString
+    var selectedText: String { "" }; var enterTitle: String { "换行" }
+    var needsGlobe: Bool { false }; var fullAccess: Bool { false }
+    var prefersEnglish: Bool { false }; var capitalization: UITextAutocapitalizationType { .none }
+    func insert(_ text: String) { before += text }
+    func setMarkedText(_ text: String) { before = String(before.dropLast(marked.count)) + text; marked = text }
+    func unmarkText() { marked = "" }
+    func deleteBackward() { if !before.isEmpty { before.removeLast() } }
+    func moveCursor(_ offset: Int) {}; func beginTrackpad() {}; func trackCursor(translation: CGPoint) {}
+    func endTrackpad() {}; func nextKeyboard() {}
+    func clearInput() -> DeletedInput? { nil }; func restoreInput(_ value: DeletedInput) -> Bool { false }
 }
 
 @MainActor private final class ProxyKeyboardController: KeyboardViewController {

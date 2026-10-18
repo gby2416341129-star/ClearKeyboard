@@ -29,6 +29,16 @@ import ImageIO
     private var rendering = false
     private var renderQueued = false
     private var reportedHeight: CGFloat?
+    private struct KeyPresentation: Equatable {
+        let uppercase: Bool; let chinese: Bool; let shifted: Bool; let capsLocked: Bool; let enter: String
+    }
+    private var keyPresentation: KeyPresentation?
+    private struct GeometryPresentation: Equatable {
+        let size: CGSize; let keyHeight: Double; let hand: HandMode
+        let fraction: Double; let left: CGFloat; let right: CGFloat
+    }
+    private var geometryPresentation: GeometryPresentation?
+    private var keyFramesNeedLayout = true
     private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
     private var headerHeight: CGFloat { KeyboardGeometry.headerHeight }
     private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
@@ -45,7 +55,7 @@ import ImageIO
         addSubview(candidateScroll)
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateScroll.delaysContentTouches = false; candidateScroll.canCancelContentTouches = true
-        candidateScroll.onSettled = { [weak self] in self?.renderCandidates() }
+        candidateScroll.onSettled = { [weak self] in self?.setNeedsLayout() }
         candidateScroll.onInteractionChanged = { [weak model] active in model?.document?.candidateInteractionChanged(active) }
         candidateScroll.onSelect = { [weak model] candidate, context, arithmetic in
             if arithmetic { model?.chooseArithmetic(candidate.text) }
@@ -59,7 +69,9 @@ import ImageIO
         deleteHint.font = .systemFont(ofSize: 13, weight: .semibold); deleteHint.textAlignment = .center
         deleteHint.textColor = .white; deleteHint.layer.cornerRadius = 10; deleteHint.clipsToBounds = true
         model.onChange = { [weak self] in self?.render() }
-        model.onCandidatesChange = { [weak self] in self?.renderCandidates() }
+        // UIKit coalesces these invalidations into its next layout pass. A word
+        // lookup and sentence result arriving in one frame draw only the latest.
+        model.onCandidatesChange = { [weak self] in self?.setNeedsLayout() }
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.appearanceSignature = ""; self?.render() }
@@ -80,23 +92,27 @@ import ImageIO
     override func layoutSubviews() {
         super.layoutSubviews()
         guard initialized, bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { return }
-        backdrop.frame = bounds
         let settings = model.settings
+        let geometry = GeometryPresentation(size: bounds.size, keyHeight: settings.keyHeight, hand: settings.hand,
+            fraction: settings.oneHandFraction, left: safeAreaInsets.left, right: safeAreaInsets.right)
         let layout = KeyboardGeometry.layout(size: bounds.size, metrics: metrics, hand: settings.hand,
             oneHandFraction: settings.oneHandFraction, leadingInset: safeAreaInsets.left,
             trailingInset: safeAreaInsets.right, fitHeight: !systemBacked)
-        toolbar.frame = layout.header
-        candidateScroll.frame = layout.header
-        if candidateScroll.frame.height != candidateHeight { candidateScroll.frame.size.height = candidateHeight }
-        candidateScroll.layoutIfNeeded()
-        hint.frame = candidateScroll.frame
-        keyGlassGroup.frame = layout.keys
-        for (button, row, start, units) in keys {
-            button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
-                                  width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
+        if keyFramesNeedLayout || geometryPresentation != geometry {
+            geometryPresentation = geometry; keyFramesNeedLayout = false
+            backdrop.frame = bounds; toolbar.frame = layout.header
+            keyGlassGroup.frame = layout.keys
+            for (button, row, start, units) in keys {
+                button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
+                                      width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
+            }
+            sideRail.isHidden = settings.hand == .full
+            sideRail.frame = layout.sideRail
         }
-        sideRail.isHidden = settings.hand == .full
-        sideRail.frame = layout.sideRail
+        var header = layout.header; header.size.height = candidateHeight
+        if candidateScroll.frame != header { candidateScroll.frame = header }
+        hint.frame = header
+        renderCandidates()
         if panelKind == .clipboard {
             panel?.frame = CGRect(x: layout.panel.minX, y: 0, width: layout.panel.width, height: layout.panel.maxY)
         } else { panel?.frame = layout.panel }
@@ -121,6 +137,7 @@ import ImageIO
                 var start = row.insetUnits
                 for key in row.keys {
                     let button = KeyButton(key: key)
+                    button.onInteractionChanged = { [weak model] active in model?.document?.keyInteractionChanged(active) }
                     if key.action == .globe, let configureGlobe { configureGlobe(button) }
                     else { button.onAction = { [weak model] action in model?.handle(action) } }
                     button.onCursor = { [weak model] translation in model?.trackCursor(translation: translation) }
@@ -135,7 +152,7 @@ import ImageIO
                     keysContainer.addSubview(button); keys.append((button, rowIndex, start, key.units)); start += key.units
                 }
             }
-            appearanceSignature = ""
+            appearanceSignature = ""; keyPresentation = nil; keyFramesNeedLayout = true
         }
         let toolSignature = "\(settings.toolbar)-\(toolbarEditing)-\(toolboxVisible)"
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
@@ -145,21 +162,26 @@ import ImageIO
         if appearanceChanged {
             appearanceSignature = style; backdrop.apply(settings, systemBacked: systemBacked); tintColor = settings.accentInkColor
         }
-        for (button, _, _, _) in keys {
-            var title: String? = nil
-            if case .text(let value) = button.key.action { title = uppercase && model.page == .letters ? value.uppercased() : value }
-            if button.key.action == .space { title = settings.language == .chinese ? "空格" : "space" }
-            if button.key.action == .language { title = settings.language == .chinese ? "中" : "EN" }
-            if button.key.action == .enter { title = model.composition.isEmpty ? (model.document?.enterTitle ?? "换行") : "确认" }
-            if appearanceChanged { button.apply(settings, title: title, active: button.key.action == .shift && model.shifted, capsLocked: model.capsLocked) }
-            else if let title { button.updateTitle(title) }
-            button.updateShift(active: model.shifted, capsLocked: model.capsLocked)
-            if button.key.action == .language {
-                button.accessibilityLabel = settings.language == .chinese ? "中文，点按切换英文" : "英文，点按切换中文"
-                button.accessibilityIdentifier = "key.language"
+        let presentation = KeyPresentation(uppercase: uppercase, chinese: settings.language == .chinese,
+            shifted: model.shifted, capsLocked: model.capsLocked,
+            enter: model.composition.isEmpty ? (model.document?.enterTitle ?? "换行") : "确认")
+        if appearanceChanged || keyPresentation != presentation {
+            keyPresentation = presentation
+            for (button, _, _, _) in keys {
+                var title: String? = nil
+                if case .text(let value) = button.key.action { title = uppercase && model.page == .letters ? value.uppercased() : value }
+                if button.key.action == .space { title = settings.language == .chinese ? "空格" : "space" }
+                if button.key.action == .language { title = settings.language == .chinese ? "中" : "EN" }
+                if button.key.action == .enter { title = presentation.enter }
+                if appearanceChanged { button.apply(settings, title: title, active: button.key.action == .shift && model.shifted, capsLocked: model.capsLocked) }
+                else if let title { button.updateTitle(title) }
+                button.updateShift(active: model.shifted, capsLocked: model.capsLocked)
+                if button.key.action == .language {
+                    button.accessibilityLabel = settings.language == .chinese ? "中文，点按切换英文" : "英文，点按切换中文"
+                    button.accessibilityIdentifier = "key.language"
+                }
             }
         }
-        renderCandidates()
         // Candidates and language changes share one header. Only a real height-setting
         // change should renegotiate the remote input view's size.
         if reportedHeight != desiredHeight { reportedHeight = desiredHeight; onHeightChange?(desiredHeight) }
@@ -173,8 +195,8 @@ import ImageIO
         candidateScroll.isHidden = panelKind == .clipboard || movingCursor || candidateHeight == 0
         hint.isHidden = !movingCursor; hint.text = movingCursor ? "滑动键盘，移动光标" : nil
         // Candidate updates only touch the header, never the keys or glass layers.
-        candidateScroll.frame.size.height = candidateHeight
-        candidateScroll.layoutIfNeeded()
+        // The collection lays out in UIKit's normal pass, never synchronously
+        // from a key event or a decoder completion.
     }
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)

@@ -15,6 +15,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostRefresh: Timer?
     private var hostRefreshGeneration = 0
     private var candidateTouchActive = false
+    private var activeKeys = 0
+    private var hostActive = true
     private var needsHostRefresh = false
     private var trackpad: ProxyTrackpad?
     private var lastLayoutLog = ""
@@ -46,7 +48,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
 
     }
     override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated); refreshHostState(refreshTraits: true); model?.reloadSettings()
+        super.viewWillAppear(animated); hostActive = true; refreshHostState(refreshTraits: true); model?.reloadSettings()
         if let surface { updateHeight(surface.desiredHeight) }
     }
     override func updateViewConstraints() {
@@ -98,21 +100,27 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if inputView?.allowsSelfSizing != true { inputView?.allowsSelfSizing = true }
     }
     override func viewWillDisappear(_ animated: Bool) {
+        hostActive = false
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
         super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
         if model?.isMovingCursor == true { return }
-        // Keep identity changes immediate. Own text acknowledgements are reconciled
-        // only when idle; a main-queue work item could otherwise stall a scroll.
-        let identity = connectedDocumentIdentifier()?.uuidString ?? "disconnected"
-        if identity != hostState.snapshot.document {
-            hostRefreshGeneration += 1; hostRefresh?.invalidate(); refreshHostState(refreshTraits: true); return
-        }
+        // Even the identity getter can cross the remote-host boundary. A text
+        // acknowledgement must not do synchronous proxy reads in a key's frame.
         needsHostRefresh = true
-        if !hostState.hasPendingEdits(), !hostState.hasMarkedText, !candidateTouchActive { refreshHostState(); return }
         scheduleHostRefresh()
+    }
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        super.selectionDidChange(textInput)
+        guard model?.isMovingCursor != true else { return }
+        needsHostRefresh = true; scheduleHostRefresh()
+    }
+    func keyInteractionChanged(_ active: Bool) {
+        activeKeys = max(0, activeKeys + (active ? 1 : -1))
+        if active { hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil }
+        else if activeKeys == 0, needsHostRefresh { scheduleHostRefresh() }
     }
     func candidateInteractionChanged(_ active: Bool) {
         candidateTouchActive = active
@@ -121,11 +129,12 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     private func scheduleHostRefresh() {
         hostRefresh?.invalidate(); hostRefresh = nil
-        guard !candidateTouchActive else { return }
+        guard hostActive, !candidateTouchActive, activeKeys == 0 else { return }
         hostRefreshGeneration += 1; let request = hostRefreshGeneration
         let timer = Timer(timeInterval: 0.35, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.hostRefreshGeneration == request, !self.candidateTouchActive else { return }
+                guard let self, self.hostRefreshGeneration == request,
+                      self.hostActive, !self.candidateTouchActive, self.activeKeys == 0 else { return }
                 self.hostRefresh = nil; self.refreshHostState()
             }
         }
@@ -141,9 +150,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private func refreshHostState(refreshTraits: Bool = false) {
         needsHostRefresh = false
         let outcome = hostState.reconcile(readHostSnapshot())
-        // Input traits belong to the field, not to every composing keystroke.
-        // Refresh on attachment/field changes and outside marked composition.
-        if refreshTraits || !hostState.hasMarkedText {
+        // Traits belong to the field. Own text acknowledgements must not fetch
+        // all of them again after each confirmed word.
+        if refreshTraits || outcome == .externalEdit {
             hostNeedsGlobe = needsInputModeSwitchKey
             hostCapitalization = textDocumentProxy.autocapitalizationType ?? .sentences
             switch textDocumentProxy.keyboardType ?? .default {
@@ -187,15 +196,24 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     var capitalization: UITextAutocapitalizationType { hostCapitalization }
     var prefersEnglish: Bool { hostPrefersEnglish }
     var enterTitle: String { hostEnterTitle }
-    func insert(_ text: String) { hostState.insert(text); textDocumentProxy.insertText(text) }
-    func setMarkedText(_ text: String) {
-        hostState.setMarked(text)
-        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+    private func performHostEdit(_ edit: () -> Void) {
+        // A key arriving before the idle timer fires must cancel that read even
+        // if its own textDidChange acknowledgement has not arrived yet.
+        hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
+        edit()
+        if needsHostRefresh { scheduleHostRefresh() }
     }
-    func unmarkText() { hostState.unmark(); textDocumentProxy.unmarkText() }
-    func deleteBackward() { hostState.deleteBackward(); textDocumentProxy.deleteBackward() }
+    func insert(_ text: String) { performHostEdit { hostState.insert(text); textDocumentProxy.insertText(text) } }
+    func setMarkedText(_ text: String) {
+        performHostEdit {
+            hostState.setMarked(text)
+            textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+        }
+    }
+    func unmarkText() { performHostEdit { hostState.unmark(); textDocumentProxy.unmarkText() } }
+    func deleteBackward() { performHostEdit { hostState.deleteBackward(); textDocumentProxy.deleteBackward() } }
     func moveCursor(_ offset: Int) {
-        hostState.moveCursor(offset); textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+        performHostEdit { hostState.moveCursor(offset); textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) }
     }
     func beginTrackpad() { trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter) }
     func trackCursor(translation: CGPoint) {

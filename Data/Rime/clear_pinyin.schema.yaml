@@ -2,7 +2,7 @@
 schema:
   schema_id: clear_pinyin
   name: 澈拼音
-  version: '0.1.15'
+  version: '0.1.16'
 switches:
   - name: ascii_mode
     reset: 0
