@@ -117,7 +117,7 @@ struct HomeView: View {
                         .font(.system(size: 13)).foregroundStyle(.secondary)
                     Button { showSetup = true } label: {
                         HStack { Text("设置键盘"); Spacer(); Image(systemName: "arrow.up.right") }.padding(.horizontal, 18)
-                    }.buttonStyle(PrimaryAppButton(bodyColor: Color(preferences.settings.accentColor)))
+                    }.buttonStyle(PrimaryAppButton(bodyColor: Color(preferences.settings.accentColor), ink: Color(preferences.settings.onAccentColor)))
                         .accessibilityIdentifier("home.setup")
                 }
                 AppSectionTitle(title: "按你的习惯", caption: "MAKE IT YOURS")

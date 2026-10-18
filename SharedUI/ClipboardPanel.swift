@@ -166,7 +166,7 @@ import ImageIO
         return CGSize(width: min(max(34, width), max(34, words.bounds.width)), height: 36)
     }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) { selection = (indexPath.item, indexPath.item); words.reloadData(); send.isEnabled = true }
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
         let velocity = pan.velocity(in: words); return abs(velocity.x) > abs(velocity.y)
     }
@@ -193,7 +193,9 @@ import ImageIO
         let content = UIStackView(); content.axis = .vertical; content.spacing = 9
         content.translatesAutoresizingMaskIntoConstraints = false; card.addSubview(content)
         let row = UIStackView(); row.spacing = 10; row.alignment = .top
-        preview.contentMode = .scaleAspectFit; preview.widthAnchor.constraint(equalToConstant: 42).isActive = true; preview.heightAnchor.constraint(equalToConstant: 42).isActive = true
+        preview.contentMode = .scaleAspectFit
+        let previewWidth = preview.widthAnchor.constraint(equalToConstant: 42); previewWidth.priority = .defaultHigh; previewWidth.isActive = true
+        preview.heightAnchor.constraint(equalToConstant: 42).isActive = true
         label.font = .systemFont(ofSize: 16); label.numberOfLines = 3
         more.setImage(UIImage(systemName: "ellipsis"), for: .normal); more.transform = CGAffineTransform(rotationAngle: .pi / 2)
         more.widthAnchor.constraint(equalToConstant: 26).isActive = true; more.heightAnchor.constraint(equalToConstant: 28).isActive = true

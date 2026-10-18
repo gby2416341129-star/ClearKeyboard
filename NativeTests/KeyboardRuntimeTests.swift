@@ -744,5 +744,17 @@ import SwiftUI
         prefs.clearLearning()
         XCTAssertNil(defaults.data(forKey: "clear.choices.v2"))
     }
+    func testWaitingSpaceIsCancelledWhenTheEditingContextChanges() async throws {
+        let controller = TypingLabController(settings: testSettings()); controller.loadViewIfNeeded()
+        try await waitFor { controller.model.engineState == "离线就绪" }
+        for character in "womenjintianquchifan" { controller.model.handle(.text(String(character))) }
+        controller.model.handle(.space)
+        controller.textView.text = "第二个"; controller.textView.selectedRange = NSRange(location: 3, length: 0)
+        controller.model.cursorChanged()
+        for character in "nihao" { controller.model.handle(.text(String(character))) }
+        try await waitFor { controller.model.candidatesAreCurrent && controller.model.candidates.first?.text == "你好" }
+        controller.model.handle(.space)
+        XCTAssertEqual(controller.textView.text, "第二个你好")
+    }
 
 }

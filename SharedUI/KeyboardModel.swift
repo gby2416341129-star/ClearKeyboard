@@ -34,6 +34,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private(set) var candidateContext: CandidateContext?
     private var requestedContext: CandidateContext?
     private var awaitingCommit = false
+    private var deferredContext: CandidateContext?
     private var deferredActions: [KeyAction] = []
     weak var document: KeyboardDocument?
     var settings: KeyboardSettings { didSet { settings.sanitize(); store.save(settings); if clipboardActive { startClipboardCapture() }; onChange?() } }
@@ -100,11 +101,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
         refreshCandidates()
     }
     func clearComposition() {
+        awaitingCommit = false; deferredContext = nil; deferredActions = []
         if !composition.raw.isEmpty { document?.setMarkedText(""); document?.unmarkText() }
         composition.clear(); refreshCandidates()
     }
     func cursorChanged() {
         guard !isMovingCursor else { return }
+        awaitingCommit = false; deferredContext = nil; deferredActions = []
         deletionUndo = nil
         if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates()
     }
@@ -133,6 +136,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func endCursorMovement() { guard isMovingCursor else { return }; document?.endTrackpad(); isMovingCursor = false; refreshCandidates() }
     func clearInput() {
         guard let document else { return }
+        awaitingCommit = false; deferredContext = nil; deferredActions = []
         let spelling = composition
         document.unmarkText(); composition.clear()
         if let deleted = document.clearInput() {
@@ -273,15 +277,16 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if action == .delete { return false }
         if case .text(let text) = action, page == .letters,
            text.first?.isLetter == true || text == "'" { return false }
-        return true
+        return requestedContext != nil
     }
     private func deferUntilCandidates(_ action: KeyAction) {
-        awaitingCommit = true; deferredActions.append(action)
+        awaitingCommit = true; deferredContext = requestedContext; deferredActions.append(action)
         // Reuse the in-flight current query. Cancelling it and enqueuing the
         // identical sentence again used to stall space and every following key.
     }
     private func resumeDeferredActions() {
         guard !awaitingCommit else { return }
+        deferredContext = nil
         let pending = deferredActions; deferredActions = []
         for action in pending { handle(action) }
     }
@@ -330,7 +335,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 guard let self, self.generation == requestedGeneration else { return }
                 self.candidates = result; self.candidateGeneration = requestedGeneration
                 self.candidateContext = queryContext; self.onChange?()
-                if self.awaitingCommit { self.awaitingCommit = false; self.resumeDeferredActions() }
+                if self.awaitingCommit {
+                    self.awaitingCommit = false
+                    if self.deferredContext == queryContext { self.resumeDeferredActions() }
+                    else { self.deferredActions = []; self.deferredContext = nil }
+                }
             }
             // The first visible row never waits for offscreen alternatives.
             // Expand only after a short idle interval; another key cancels it.
@@ -365,7 +374,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         store.defaults.set(learned, forKey: "clear.learned.v1")
         if let data = try? JSONEncoder().encode(personal) { store.defaults.set(data, forKey: "clear.choices.v2") }
     }
-    func suspend() { stopClipboardCapture(); work?.cancel(); cancellation.cancel(); generation += 1; awaitingCommit = false; deferredActions = []; flushLearning() }
+    func suspend() { stopClipboardCapture(); work?.cancel(); cancellation.cancel(); generation += 1; awaitingCommit = false; deferredContext = nil; deferredActions = []; flushLearning() }
 }
 
 private final class QueryCancellation: @unchecked Sendable {

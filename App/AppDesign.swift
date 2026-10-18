@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum AppPalette {
     static let canvas = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.055, green: 0.067, blue: 0.082, alpha: 1) : UIColor(red: 0.955, green: 0.962, blue: 0.960, alpha: 1) })
@@ -83,10 +84,11 @@ struct AppRow: View {
 
 struct PrimaryAppButton: ButtonStyle {
     var bodyColor: Color
+    var ink: Color = .white
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 15, weight: .semibold))
             .frame(maxWidth: .infinity).padding(.vertical, 17)
-            .foregroundStyle(.white).background(bodyColor, in: RoundedRectangle(cornerRadius: 17))
+            .foregroundStyle(ink).background(bodyColor, in: RoundedRectangle(cornerRadius: 17))
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }
