@@ -74,6 +74,13 @@ public final class InputEngine {
                 if left != right { return left }
                 return $0.frequency == $1.frequency ? $0.text < $1.text : $0.frequency > $1.frequency
             }.map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
+            // The small compatibility lexicon omits many short initialisms
+            // (including djdj). Use the same production dictionary as Rime for
+            // those misses, without waiting on the sentence decoder's lock.
+            if output.isEmpty, !raw.contains("'") {
+                output += (associations?.lookup("i:" + input, limit: 8) ?? [])
+                    .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
+            }
         }
         var seen = Set<String>()
         return Array(output.filter { seen.insert($0.text).inserted }.prefix(8))

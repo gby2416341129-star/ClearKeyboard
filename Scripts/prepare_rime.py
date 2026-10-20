@@ -26,26 +26,55 @@ def fetch(item):
     if expected and digest != expected: raise RuntimeError(f'Checksum mismatch: {name}: {digest}')
     return name, digest
 
-def associations(words, english, output):
-    # Only a read-only continuation index is loaded by the keyboard. Pinyin decoding
-    # uses the full upstream dictionary and language model, not this reduced index.
-    words = heapq.nlargest(250_000, ((t, f) for t, p, f in words if 1 < len(t) <= 16), key=lambda x: (x[1], x[0]))
+def short_initial_words(words, conversational=()):
+    # Index complete one-to-four-syllable initialisms from the production
+    # dictionary. Never concatenate guesses or run the sentence model here.
     buckets = defaultdict(list)
-    for i, (text, frequency) in enumerate(words):
+    for priority, entries in [(0, words), (1, conversational)]:
+        for text, reading, frequency in entries:
+            syllables = reading.split()
+            if not 1 <= len(syllables) <= 4:
+                continue
+            code = ''.join(part[0] for part in syllables)
+            bucket = buckets[code]
+            # Conversation entries replace the same literal reading, rather
+            # than taking two of the eight bounded result slots.
+            duplicate = next((i for i, row in enumerate(bucket) if row[2:] == (text, reading)), None)
+            rank = (priority, frequency, text, reading)
+            if duplicate is not None:
+                if rank > bucket[duplicate]:
+                    bucket[duplicate] = rank
+                    heapq.heapify(bucket)
+            elif len(bucket) < 8:
+                heapq.heappush(bucket, rank)
+            elif rank > bucket[0]:
+                heapq.heapreplace(bucket, rank)
+    return buckets
+
+def associations(words, english, output, conversational=()):
+    # Both continuations and short initialisms are immutable CLX lookups,
+    # independent of the serial Rime session and its language-model work.
+    initials = short_initial_words(words, conversational)
+    words = heapq.nlargest(250_000, ((t, '', f) for t, p, f in words if 1 < len(t) <= 16), key=lambda x: (x[2], x[0]))
+    buckets = defaultdict(list)
+    for i, (text, reading, frequency) in enumerate(words):
         for length in range(1, min(6, len(text)-1)+1):
             bucket = buckets['t:'+text[:length]]; rank = (frequency, -i, i)
             if len(bucket) < 16: heapq.heappush(bucket, rank)
             elif rank > bucket[0]: heapq.heapreplace(bucket, rank)
-    offset=len(words)
     for word,frequency in english:
-        i=len(words);words.append((word,frequency));buckets['e:'+word.lower()]=[(frequency,-i,i)]
+        i=len(words);words.append((word,'',frequency));buckets['e:'+word.lower()]=[(frequency,-i,i)]
+    for code, bucket in sorted(initials.items()):
+        for position, (_, frequency, text, reading) in enumerate(sorted(bucket, reverse=True)):
+            i = len(words); words.append((text, reading, frequency))
+            buckets['i:'+code].append((8-position, -i, i))
     strings = bytearray(); interned = {}
     def string(s):
         if s not in interned:
             b=s.encode();interned[s]=(len(strings),len(b));strings.extend(b)
         return interned[s]
     records = bytearray()
-    for text, frequency in words: records.extend(struct.pack('<7I', *string(text), *string(text), *string(''), frequency))
+    for text, reading, frequency in words: records.extend(struct.pack('<7I', *string(text), *string(text), *string(reading), frequency))
     index=bytearray();results=[]
     for key, bucket in sorted(buckets.items(), key=lambda x:x[0].encode()):
         ids=[r[2] for r in sorted(bucket,reverse=True)]
@@ -116,7 +145,7 @@ def main():
         f=line.split('\t')
         if len(f)>=3 and f[2].isdigit() and f[1].isascii() and f[1].isalpha() and len(f[1])>=3:
             key=f[1].lower();english[key]=max(english.get(key,0),int(f[2]))
-    count,contexts=associations(rows,list(sorted(english.items())),ROOT/'Core/Resources/associations.clx')
+    count,contexts=associations(rows,list(sorted(english.items())),ROOT/'Core/Resources/associations.clx',conversational)
     (CACHE/'sources.json').write_text(json.dumps({'revision':REV,'hashes':hashes,'words':len(rows),'associationWords':count,'associationContexts':contexts},indent=2)+'\n')
     print(f'Verified {len(rows)} Wanxiang readings; {count} association words / {contexts} contexts',flush=True)
     if args.download_only:return

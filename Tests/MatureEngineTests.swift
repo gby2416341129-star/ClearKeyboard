@@ -19,6 +19,19 @@ final class MatureEngineTests: XCTestCase {
         XCTAssertTrue(engine.immediateCandidates("nichifankm").isEmpty)
         XCTAssertEqual(engine.candidates("nichifankm").first?.text, "你吃饭了吗")
     }
+    func testShortInitialismsMissingFromTheSmallLexiconHaveImmediateWords() {
+        for raw in ["d", "djdj"] {
+            let values = engine.immediateCandidates(raw)
+            XCTAssertFalse(values.isEmpty, raw)
+            XCTAssertLessThanOrEqual(values.count, 8)
+            XCTAssertTrue(values.allSatisfy { $0.consumed == raw.count })
+            XCTAssertTrue(values.allSatisfy { $0.reading.split(separator: " ").compactMap(\.first).map(String.init).joined() == raw })
+        }
+        XCTAssertEqual(engine.immediateCandidates("d").first?.text, "的")
+        XCTAssertTrue(engine.immediateCandidates("djdj").contains { $0.text == "道教典籍" })
+        XCTAssertTrue(engine.immediateCandidates("nichifankm").isEmpty,
+                      "An unmatched sentence still belongs to the sentence decoder")
+    }
     func testSentencesUseTheLanguageModel() {
         for (input, expected) in ["nichifanlema": "你吃饭了吗", "womenshiyongshurufa": "我们使用输入法",
                                   "womenjintianquchifan": "我们今天去吃饭", "woyaoshangke": "我要上课",

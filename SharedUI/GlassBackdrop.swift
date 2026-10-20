@@ -38,6 +38,7 @@ final class KeyButton: UIButton {
     private var cursorDisplayLink: CADisplayLink?
     private var deletionDirection = 0
     var onAction: ((KeyAction) -> Void)?
+    var onPrepare: ((KeyAction) -> Void)?
     var onInteractionChanged: ((Bool) -> Void)?
     var onCursor: ((CGPoint) -> Void)?
     var onCursorBegan: (() -> Void)?
@@ -53,6 +54,9 @@ final class KeyButton: UIButton {
 
     init(key: KeyboardKey) {
         self.key = key; super.init(frame: .zero)
+        // Keep the entire non-overlapping key cell eligible for remote-host
+        // touch delivery, including its transparent margins and rounded corners.
+        backgroundColor = UIColor(white: 0.5, alpha: 0.01); isOpaque = false
         addSubview(plate); plate.isUserInteractionEnabled = false; plate.layer.cornerRadius = 8
         plate.layer.cornerCurve = .continuous
         plate.layer.borderWidth = 0.5
@@ -159,6 +163,7 @@ final class KeyButton: UIButton {
     @objc private func down() {
         if !interactionActive { interactionActive = true; onInteractionChanged?(true) }
         didRepeat = false; suppressTap = false; pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
+        onPrepare?(key.action)
         if haptics { if feedback == nil { feedback = UIImpactFeedbackGenerator(style: .light) }; feedback?.impactOccurred(intensity: 0.35) }
         guard key.action == .delete else { return }
         let start = DispatchWorkItem { [weak self] in

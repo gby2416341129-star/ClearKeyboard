@@ -380,6 +380,107 @@ import UIKit
         try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(model.candidates.first?.text, "你好", "Late fast results cannot replace a settled sentence")
     }
+    func testKeyContactPreparesWordsButOnlyReleaseChangesTheDocument() async throws {
+        let document = WordLookupDocument()
+        let lookup = expectation(description: "Word preparation begins during contact")
+        var settings = KeyboardSettings()
+        settings.automaticClipboard = false; settings.learnChoices = false; settings.predictions = false
+        let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
+            if raw == "d" { lookup.fulfill() }
+            return engine.immediateCandidates(raw, preferred: preferred)
+        }
+        let surface = KeyboardSurface(model: model)
+        surface.frame = CGRect(x: 0, y: 0, width: 390, height: 276); surface.layoutIfNeeded()
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" && model.candidatesAreCurrent }
+        let key = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("d") })
+        let oldRow = model.candidates, oldContext = model.candidateContext
+        key.sendActions(for: .touchDown)
+        await fulfillment(of: [lookup], timeout: 2)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(document.before, "")
+        XCTAssertEqual(model.composition.raw, "")
+        XCTAssertEqual(model.candidates, oldRow, "Preparation must not show an uncommitted spelling")
+        XCTAssertEqual(model.candidateContext, oldContext)
+        key.sendActions(for: .touchUpInside)
+        XCTAssertEqual(document.before, "d")
+        XCTAssertEqual(model.candidateContext?.raw, "d")
+        XCTAssertTrue(model.candidatesAreCurrent, "A ready result is adopted in the release frame")
+        XCTAssertFalse(model.candidates.isEmpty)
+    }
+    func testCancelledPreparedKeyNeverAppearsInTheDocumentOrRow() async throws {
+        let document = WordLookupDocument()
+        var settings = KeyboardSettings(); settings.automaticClipboard = false; settings.learnChoices = false
+        let model = KeyboardModel(document: document, settings: settings)
+        let surface = KeyboardSurface(model: model)
+        surface.frame = CGRect(x: 0, y: 0, width: 390, height: 276); surface.layoutIfNeeded()
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" && model.candidatesAreCurrent }
+        let keys = descendants(surface).compactMap { $0 as? KeyButton }
+        let d = try XCTUnwrap(keys.first { $0.key.action == .text("d") })
+        let j = try XCTUnwrap(keys.first { $0.key.action == .text("j") })
+        j.sendActions(for: .touchDown); j.sendActions(for: .touchCancel)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(document.before, ""); XCTAssertEqual(model.composition.raw, "")
+        d.sendActions(for: .touchDown); d.sendActions(for: .touchUpInside)
+        try await waitFor { model.candidatesAreCurrent }
+        XCTAssertEqual(document.before, "d"); XCTAssertEqual(model.candidateContext?.raw, "d")
+        XCTAssertEqual(model.composition.raw, "d", "Cancelled preparation cannot leak into a later key")
+    }
+    func testDirectKeyStartsWordWorkerBeforeSynchronousHostWrite() async throws {
+        let document = WordLookupDocument(), started = DispatchSemaphore(value: 0)
+        var settings = KeyboardSettings(); settings.automaticClipboard = false; settings.learnChoices = false
+        let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
+            XCTAssertFalse(Thread.isMainThread)
+            if raw == "d" { started.signal() }
+            return engine.immediateCandidates(raw, preferred: preferred)
+        }
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        document.beforeMarkedWrite = {
+            XCTAssertEqual(started.wait(timeout: .now() + 0.5), .success,
+                           "Dictionary work must overlap a host write even without a preceding touchDown")
+        }
+        model.handle(.text("d"))
+        document.beforeMarkedWrite = nil
+        XCTAssertEqual(document.before, "d")
+        try await waitFor { model.candidatesAreCurrent }
+    }
+    func testRepeatedSpellingCanReuseSettledCandidatesInTheSameTurn() async throws {
+        let document = WordLookupDocument()
+        var settings = KeyboardSettings(); settings.automaticClipboard = false; settings.learnChoices = false
+        let model = KeyboardModel(document: document, settings: settings)
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "你好" }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        model.clearComposition()
+        for character in "nihao" { model.handle(.text(String(character))) }
+        XCTAssertEqual(document.before, "nihao")
+        XCTAssertTrue(model.candidatesAreCurrent, "No worker or main-queue turn is needed for a settled cached spelling")
+        XCTAssertEqual(model.candidates.first?.text, "你好")
+        XCTAssertEqual(model.candidateContext?.before, document.before)
+    }
+    func testKeyCellMarginsHaveRenderedCoverageWithoutOverlappingHitAreas() throws {
+        let key = try XCTUnwrap(KeyboardLayout.rows(page: .letters, uppercase: true, globe: false)
+            .flatMap(\.keys).first { $0.action == .text("d") })
+        let button = KeyButton(key: key)
+        button.frame = CGRect(x: 0, y: 0, width: 40, height: 52); button.layoutIfNeeded()
+        for style: UIUserInterfaceStyle in [.light, .dark] {
+            button.overrideUserInterfaceStyle = style; button.apply(KeyboardSettings())
+            var pixels = [UInt8](repeating: 0, count: 40 * 52 * 4)
+            try pixels.withUnsafeMutableBytes { storage in
+                let context = try XCTUnwrap(CGContext(data: storage.baseAddress, width: 40, height: 52,
+                    bitsPerComponent: 8, bytesPerRow: 40 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                button.layer.render(in: context)
+            }
+            XCTAssertFalse(stride(from: 3, to: pixels.count, by: 4).contains { pixels[$0] == 0 })
+            XCTAssertTrue(button.point(inside: CGPoint(x: 1, y: 1), with: nil))
+            XCTAssertFalse(button.point(inside: CGPoint(x: -1, y: 1), with: nil))
+        }
+    }
 }
 
 @MainActor private final class KeyboardFrameProbe: NSObject {
@@ -401,13 +502,14 @@ import UIKit
 
 @MainActor private final class WordLookupDocument: KeyboardDocument {
     var before = "", marked = ""
+    var beforeMarkedWrite: (() -> Void)?
     var contextBefore: String { before }; var contextAfter: String { "" }
     let documentIdentity = UUID().uuidString
     var selectedText: String { "" }; var enterTitle: String { "换行" }
     var needsGlobe: Bool { false }; var fullAccess: Bool { false }
     var prefersEnglish: Bool { false }; var capitalization: UITextAutocapitalizationType { .none }
     func insert(_ text: String) { before += text }
-    func setMarkedText(_ text: String) { before = String(before.dropLast(marked.count)) + text; marked = text }
+    func setMarkedText(_ text: String) { beforeMarkedWrite?(); before = String(before.dropLast(marked.count)) + text; marked = text }
     func unmarkText() { marked = "" }
     func deleteBackward() { if !before.isEmpty { before.removeLast() } }
     func moveCursor(_ offset: Int) {}; func beginTrackpad() {}; func trackCursor(translation: CGPoint) {}

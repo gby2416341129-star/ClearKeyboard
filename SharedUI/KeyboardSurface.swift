@@ -146,7 +146,11 @@ import ImageIO
                 var start = row.insetUnits
                 for key in row.keys {
                     let button = KeyButton(key: key)
-                    button.onInteractionChanged = { [weak model] active in model?.document?.keyInteractionChanged(active) }
+                    button.onInteractionChanged = { [weak model] active in
+                        model?.document?.keyInteractionChanged(active)
+                        if !active { model?.cancelPreparation() }
+                    }
+                    button.onPrepare = { [weak model] action in model?.prepare(action) }
                     if key.action == .globe, let configureGlobe { configureGlobe(button) }
                     else { button.onAction = { [weak model] action in model?.handle(action) } }
                     button.onCursor = { [weak model] translation in model?.trackCursor(translation: translation) }
