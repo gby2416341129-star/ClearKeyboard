@@ -2,6 +2,59 @@ import XCTest
 import UIKit
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
+    func testMarkedTextBurstSendsLatestSpellingAndCommitFlushesInOrder() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        proxy.markedWrites = []
+        for text in ["w", "wo", "wog", "woge", "wogei"] { controller.setMarkedText(text) }
+        XCTAssertEqual(controller.contextBefore, "wogei")
+        XCTAssertTrue(proxy.markedWrites.isEmpty, "A backlog of keys must not synchronously send obsolete spellings")
+        try await waitFor { proxy.before == "wogei" }
+        XCTAssertEqual(proxy.markedWrites, ["wogei"])
+        controller.setMarkedText("我给妈妈")
+        controller.unmarkText()
+        controller.insert("。")
+        XCTAssertEqual(proxy.before, "我给妈妈。")
+        await Task.yield()
+        XCTAssertEqual(proxy.before, "我给妈妈。", "A scheduled flush cannot restore the old spelling after commit")
+    }
+    func testOverlappingKeyReleasesKeepContactOrderAndCancellation() async throws {
+        let document = WordLookupDocument()
+        var settings = KeyboardSettings(); settings.language = .english
+        settings.automaticClipboard = false; settings.predictions = false
+        let model = KeyboardModel(document: document, settings: settings)
+        let surface = KeyboardSurface(model: model)
+        surface.frame = CGRect(x: 0, y: 0, width: 390, height: 276); surface.layoutIfNeeded()
+        defer { model.suspend() }
+        let keys = descendants(surface).compactMap { $0 as? KeyButton }
+        let l = try XCTUnwrap(keys.first { $0.key.action == .text("l") })
+        let e = try XCTUnwrap(keys.first { $0.key.action == .text("e") })
+        l.sendActions(for: .touchDown); e.sendActions(for: .touchDown)
+        e.sendActions(for: .touchUpInside)
+        XCTAssertEqual(document.before, "")
+        l.sendActions(for: .touchUpInside)
+        XCTAssertEqual(document.before, "le")
+        l.sendActions(for: .touchDown); e.sendActions(for: .touchDown)
+        e.sendActions(for: .touchUpInside); l.sendActions(for: .touchCancel)
+        XCTAssertEqual(document.before, "lee")
+    }
+    func testCandidateFontChangesReflowAndKeepContinuousTouchSurface() throws {
+        let ribbon = CandidateScrollView()
+        ribbon.frame = CGRect(x: 0, y: 0, width: 390, height: 44)
+        let items = (0..<24).map { Candidate(text: "候选词\($0)", consumed: 2) }
+        var widths: [CGFloat] = []
+        for size in CandidateTextSize.allCases {
+            ribbon.update(items, context: nil, arithmetic: false, accent: .systemTeal, textSize: size)
+            ribbon.layoutIfNeeded()
+            widths.append(ribbon.contentSize.width)
+            let first = try XCTUnwrap(descendants(ribbon).compactMap { $0 as? UIButton }.first { $0.tag == 0 })
+            first.layoutIfNeeded()
+            let label = try XCTUnwrap(descendants(first).compactMap { $0 as? UILabel }.first)
+            XCTAssertEqual(label.font.pointSize, CGFloat(size.points))
+            XCTAssertTrue(ribbon.hitTest(CGPoint(x: first.frame.maxX - 2, y: 22), with: nil) === ribbon)
+        }
+        XCTAssertTrue(zip(widths, widths.dropFirst()).allSatisfy { $0 < $1 })
+    }
     private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<200 { if condition() { return }; try await Task.sleep(nanoseconds: 10_000_000) }
@@ -141,6 +194,7 @@ import UIKit
         let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你" }), context = model.candidateContext
         for character in "hao" { model.handle(.text(String(character))) }
         model.chooseDisplayed(candidate, context: context)
+        try await waitFor { proxy.before == "你hao" }
         XCTAssertEqual(proxy.before, "你hao")
         XCTAssertEqual(model.composition.raw, "hao", "A visible prefix choice must retain the later spelling")
     }
@@ -157,6 +211,7 @@ import UIKit
         model.clearComposition(); controller.insert("另一位置")
         for character in "nihao" { model.handle(.text(String(character))) }
         model.chooseDisplayed(candidate, context: context)
+        try await waitFor { proxy.before == "另一位置nihao" }
         XCTAssertEqual(proxy.before, "另一位置nihao")
     }
     func testVisibleCompletionConsumesLaterLettersWithinItsReading() async throws {
@@ -171,6 +226,7 @@ import UIKit
         let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你好" }), context = model.candidateContext
         for character in "aoma" { model.handle(.text(String(character))) }
         model.chooseDisplayed(candidate, context: context)
+        try await waitFor { proxy.before == "你好ma" }
         XCTAssertEqual(proxy.before, "你好ma", "Completed hao belongs to 你好; only the following word stays marked")
         XCTAssertEqual(model.composition.raw, "ma")
     }
@@ -183,7 +239,7 @@ import UIKit
         let controls = descendants(ribbon).compactMap { $0 as? UIButton }
         let frames = controls.map(\.frame)
         let contentSize = ribbon.contentSize
-        XCTAssertEqual(controls.count, old.count)
+        XCTAssertLessThan(controls.count, old.count)
         ribbon.scrollViewWillBeginDragging(ribbon)
         // Exercise snapshot retention and geometry only. Delegate calls and
         // offsets cannot validate native finger recognition or device latency.
@@ -197,7 +253,8 @@ import UIKit
         await Task.yield()
         let appendedControls = descendants(ribbon).compactMap { $0 as? UIButton }
         XCTAssertEqual(Array(appendedControls.prefix(controls.count)), controls)
-        XCTAssertEqual(appendedControls.count, 25, "New choices may extend the tail without replacing existing targets")
+        XCTAssertLessThan(appendedControls.count, 25)
+        XCTAssertEqual(ribbon.accessibilityElements?.count, 25, "New choices extend the logical list without replacing visible targets")
         XCTAssertEqual(controls.map(\.frame), frames)
         XCTAssertEqual(ribbon.contentOffset.x, 70, accuracy: 0.1)
         var selection: String?
@@ -207,7 +264,7 @@ import UIKit
         let nextContext = KeyboardModel.CandidateContext(raw: "shij", before: "shij", after: "", document: "field", language: .chinese)
         ribbon.update([Candidate(text: "时间", consumed: 4)], context: nextContext, arithmetic: false, accent: .systemTeal)
         ribbon.layoutIfNeeded()
-        let updated = descendants(ribbon).compactMap { $0 as? UIButton }
+        let updated = descendants(ribbon).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
         XCTAssertEqual(updated.count, 1)
         XCTAssertEqual(updated.first?.accessibilityIdentifier, "candidate.时间")
         XCTAssertEqual(ribbon.contentOffset.x, 0, accuracy: 0.1)
@@ -288,11 +345,11 @@ import UIKit
             ribbon.selectCandidate(at: word.convert(CGPoint(x: word.bounds.midX, y: 22), to: ribbon))
             XCTAssertEqual(selected.last, "候选2")
             let count = selected.count
-            ribbon.selectCandidate(at: word.convert(CGPoint(x: word.bounds.maxX - 6, y: 22), to: ribbon))
-            XCTAssertEqual(selected.count, count, "A light tap in a 12-point gap must not select a word")
+            ribbon.selectCandidate(at: word.convert(CGPoint(x: word.bounds.maxX - 2, y: 22), to: ribbon))
+            XCTAssertEqual(selected.count, count, "A light tap in a 4-point gap must not select a word")
         }
         XCTAssertEqual(selected, ["候选2", "候选2"])
-        XCTAssertEqual(ribbon.accessibilityElements?.count, controls.count)
+        XCTAssertEqual(ribbon.accessibilityElements?.count, 24)
         XCTAssertTrue(word.accessibilityActivate())
         XCTAssertEqual(selected, ["候选2", "候选2", "候选2"])
     }
@@ -637,6 +694,7 @@ import UIKit
     var before = "", after = "", selected = ""
     var visibleBefore: String?
     var markedLength = 0
+    var markedWrites: [String] = []
     var reads = 0
     var contextReads = 0
     var readDelay: TimeInterval = 0
@@ -657,6 +715,7 @@ import UIKit
     func insertText(_ text: String) { before += text; selected = ""; markedLength = 0 }
     func deleteBackward() { if !before.isEmpty { before.removeLast() }; markedLength = 0 }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
+        markedWrites.append(text)
         before = String(before.dropLast(min(markedLength, before.count))) + text; markedLength = text.count
     }
     func unmarkText() { markedLength = 0 }

@@ -8,6 +8,7 @@ import UIKit
         let context: KeyboardModel.CandidateContext?
         let arithmetic: Bool
         let hasMore: Bool
+        let textSize: CandidateTextSize
     }
     private var presentation: Presentation?
     private var pending: (Presentation, UIColor)?
@@ -20,6 +21,10 @@ import UIKit
     private var requestedCount = -1
     private var stripWidth: CGFloat = 0
     private var viewportSize = CGSize.zero
+    private var visibleRange: Range<Int> = 0..<0
+    private var accessibleItems: [Any]?
+    private var normalFont = UIFont.systemFont(ofSize: 19)
+    private var firstFont = UIFont.systemFont(ofSize: 19, weight: .medium)
     private var interactionActive = false
     private var idleScheduled = false
     private var browsed: Presentation?
@@ -65,8 +70,8 @@ import UIKit
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
     func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool,
-                accent: UIColor, hasMore: Bool = false) {
-        var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore)
+                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard) {
+        var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize)
         let resolved = accent.resolvedColor(with: traitCollection)
         if sameQuery(browsed, next), let current = presentation, sameQuery(current, next) {
             // Keep every visible target at the same x coordinate, while allowing
@@ -74,7 +79,7 @@ import UIKit
             var seen = Set(current.items.map(\.text))
             let appended = current.items + items.filter { seen.insert($0.text).inserted }
             next = Presentation(items: appended, context: current.context,
-                                arithmetic: arithmetic, hasMore: hasMore)
+                                arithmetic: arithmetic, hasMore: hasMore, textSize: textSize)
             pending = nil; apply(next, accent: resolved); return
         }
         if holdsCandidateUpdates { pending = (next, resolved); return }
@@ -101,15 +106,20 @@ import UIKit
         let previous = presentation?.items ?? []
         let changedItems = previous.map(\.text) != next.items.map(\.text)
         let changedColor = !ink.isEqual(accent)
+        let changedFont = presentation?.textSize != next.textSize
+        if changedFont {
+            normalFont = .systemFont(ofSize: CGFloat(next.textSize.points))
+            firstFont = .systemFont(ofSize: CGFloat(next.textSize.points), weight: .medium)
+        }
         let appendOnly = next.items.count >= previous.count &&
             zip(previous, next.items).allSatisfy { $0.text == $1.text }
         if changedQuery { browsed = nil; requestedCount = -1 }
         presentation = next; ink = accent
-        if changedItems {
-            if !appendOnly { frames = [] }
-            var x = frames.last?.maxX ?? 2
+        if changedItems || changedFont {
+            if !appendOnly || changedFont { frames = [] }
+            var x = frames.last?.maxX ?? 0
             for index in frames.count..<next.items.count {
-                let width = CandidateButton.width(next.items[index], first: index == 0) + 12
+                let width = CandidateButton.width(next.items[index], font: index == 0 ? firstFont : normalFont) + 4
                 frames.append(CGRect(x: x, y: 0, width: width, height: bounds.height))
                 x += width
             }
@@ -117,7 +127,7 @@ import UIKit
             updateStripSize()
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
-        updateVisible(force: changedColor || (changedItems && !appendOnly))
+        updateVisible(force: changedColor || changedFont || (changedItems && !appendOnly))
         if changedItems || changedQuery { updateAccessibility() }
         requestMoreIfNeeded()
     }
@@ -145,38 +155,51 @@ import UIKit
     }
     private func updateVisible(force: Bool = false) {
         guard let current = presentation else { return }
-        let small = frames.count <= 32
-        let first = small ? 0 : firstIndex(at: max(0, contentOffset.x - bounds.width))
+        let first = firstIndex(at: max(0, contentOffset.x - bounds.width * 0.5))
         var end = first
-        while end < frames.count && (small || frames[end].minX <= contentOffset.x + bounds.width * 2) { end += 1 }
-        let needed = min(frames.count, max(32, end - first))
-        while buttons.count < needed {
-            let button = CandidateButton()
-            button.tag = -1
+        while end < frames.count && frames[end].minX <= contentOffset.x + bounds.width * 1.5 { end += 1 }
+        let range = first..<end
+        // UIScrollView may call both its delegate and layout in the same frame.
+        guard force || range != visibleRange else { return }
+        visibleRange = range
+        while buttons.count < range.count {
+            let button = CandidateButton(); button.tag = -1; button.isHidden = true
             button.addTarget(self, action: #selector(candidateUp(_:)), for: .touchUpInside)
             strip.addSubview(button); buttons.append(button)
         }
-        while buttons.count > needed { buttons.removeLast().removeFromSuperview() }
-        for (slot, button) in buttons.enumerated() {
-            let index = first + slot
-            let visible = index < end
-            button.isHidden = !visible
-            guard visible else { continue }
-            if force || button.tag != index {
-                button.configure(current.items[index], first: index == 0, accent: ink)
+        // Keep the controls that remain visible. A word entering at one edge
+        // should configure one cell, not move and relabel the entire pool.
+        for button in buttons where !range.contains(button.tag) {
+            button.tag = -1
+            if !button.isHidden { button.isHidden = true }
+        }
+        var existing = Dictionary(uniqueKeysWithValues: buttons.filter { $0.tag >= 0 }.map { ($0.tag, $0) })
+        var unused = buttons.filter { $0.tag < 0 }.makeIterator()
+        for index in range {
+            let old = existing.removeValue(forKey: index)
+            guard let button = old ?? unused.next() else { continue }
+            if force || old == nil {
+                button.configure(current.items[index], first: index == 0, accent: ink,
+                                 font: index == 0 ? firstFont : normalFont)
                 button.tag = index; button.frame = frames[index]
             }
-            button.isAccessibilityElement = small
+            if button.isHidden { button.isHidden = false }
+            button.isAccessibilityElement = false
         }
     }
-    private func updateAccessibility() {
-        if frames.count <= 32 {
-            accessibilityElements = buttons
-        } else {
-            accessibilityElements = frames.indices.map { index in
-                CandidateAccessibility(owner: self, index: index, text: presentation!.items[index].text)
+    private func updateAccessibility() { accessibleItems = nil }
+    override var accessibilityElements: [Any]? {
+        get {
+            // Build virtual offscreen elements only when an accessibility client
+            // asks for them, not on every appended candidate page.
+            if accessibleItems == nil, let current = presentation {
+                accessibleItems = current.items.indices.map {
+                    CandidateAccessibility(owner: self, index: $0, text: current.items[$0].text)
+                }
             }
+            return accessibleItems
         }
+        set { accessibleItems = newValue }
     }
     fileprivate func accessibilityFrame(at index: Int) -> CGRect {
         guard frames.indices.contains(index) else { return .zero }
@@ -221,7 +244,7 @@ import UIKit
         let local = strip.convert(point, from: self)
         let index = firstIndex(at: local.x)
         guard frames.indices.contains(index) else { return }
-        var face = frames[index]; face.size.width = max(0, face.width - 12)
+        var face = frames[index]; face.size.width = max(0, face.width - 4)
         guard face.contains(local) else { return }
         activate(index)
     }
@@ -252,7 +275,7 @@ import UIKit
         if let (next, color) = pending, sameQuery(browsed, next) {
             pending = nil
             update(next.items, context: next.context, arithmetic: next.arithmetic,
-                   accent: color, hasMore: next.hasMore)
+                   accent: color, hasMore: next.hasMore, textSize: next.textSize)
         }
         requestedCount = -1; requestMoreIfNeeded()
     }
@@ -268,7 +291,7 @@ import UIKit
                 if let (next, color) = self.pending {
                     self.pending = nil
                     // Recheck the browsing lock after finger-up as well.
-                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore)
+                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore, textSize: next.textSize)
                 }
             }
         }
@@ -307,15 +330,13 @@ import UIKit
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        plate.frame = CGRect(x: 0, y: 0, width: max(0, bounds.width - 12), height: bounds.height)
+        plate.frame = CGRect(x: 0, y: 4, width: max(0, bounds.width - 4), height: max(0, bounds.height - 8))
         label.frame = plate.bounds.insetBy(dx: 10, dy: 0)
     }
-    static func width(_ candidate: Candidate, first: Bool) -> CGFloat {
-        let font = UIFont.systemFont(ofSize: 19, weight: first ? .medium : .regular)
+    static func width(_ candidate: Candidate, font: UIFont) -> CGFloat {
         return max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
     }
-    func configure(_ candidate: Candidate, first: Bool, accent: UIColor) {
-        let font = UIFont.systemFont(ofSize: 19, weight: first ? .medium : .regular)
+    func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont) {
         label.font = font
         label.text = candidate.text; label.textColor = first ? accent : .label
         plate.backgroundColor = first ? .secondarySystemFill : .clear

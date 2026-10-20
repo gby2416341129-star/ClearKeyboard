@@ -48,7 +48,19 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var deferredContext: CandidateContext?
     private var deferredActions: [KeyAction] = []
     weak var document: KeyboardDocument?
-    var settings: KeyboardSettings { didSet { settings.sanitize(); discardPreparedCandidates(); candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []; store.save(settings); if clipboardActive { startClipboardCapture() }; onChange?() } }
+    var settings: KeyboardSettings { didSet {
+        settings.sanitize()
+        if settings != oldValue {
+            if settings.language != oldValue.language || settings.fuzzyPairs != oldValue.fuzzyPairs ||
+                settings.learnChoices != oldValue.learnChoices {
+                discardPreparedCandidates(); candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []
+            }
+            store.save(settings)
+            if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
+                settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }
+            onChange?()
+        }
+    } }
     private(set) var page: KeyboardPage = .letters
     private(set) var shifted = false
     private(set) var capsLocked = false
@@ -92,6 +104,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var candidateCacheEpoch = 0
     private var refinementWork: DispatchWorkItem?
     private var refinementCancellation = QueryCancellation()
+    private var scheduledQuery: PreparedCandidates?
+    private var scheduledLimit = 0
+    private var scheduledStage = 0
     private var generation = 0
     private var candidateGeneration = -1
     private var englishSnapshot = ""
@@ -191,7 +206,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
             guard !query.token.isCancelled else { return }
             if !words.isEmpty { query.publish(Self.preferredWords(preferred, words), stage: 0) }
             DispatchQueue.main.async {
-                guard let self, self.activeCandidates === query, !query.token.isCancelled else { return }
+                guard let self, !query.token.isCancelled else { return }
+                if self.preparedCandidates === query, self.activeCandidates !== query {
+                    if words.isEmpty { self.scheduleDecoder(query, delay: 0) }
+                    return
+                }
+                guard self.activeCandidates === query else { return }
                 self.presentCandidates(query)
                 guard self.activeCandidates === query, !query.token.isCancelled else { return }
                 if !words.isEmpty, Self.isShortInitialism(raw), query.result?.stage == 0,
@@ -223,30 +243,35 @@ struct DeletedInput { let text: String; let selection: NSRange }
         return Array((preferred + words).filter { seen.insert($0.text).inserted }.prefix(8))
     }
 
-    private func scheduleDecoder(_ query: PreparedCandidates, limit: Int = 24, stage: Int = 1,
-                                 correction: Bool = false, delay: Double) {
-        guard activeCandidates === query, !query.token.isCancelled, let engine else { return }
+    private func scheduleDecoder(_ query: PreparedCandidates, limit: Int = 8, stage: Int = 1,
+                                 correction: Bool = true, delay: Double) {
+        guard activeCandidates === query || preparedCandidates === query,
+              !query.token.isCancelled, let engine else { return }
+        // A quick-word miss may arrive after the same sentence query started.
+        // Keep that work; cancelling and restarting it only adds latency.
+        if scheduledQuery === query, scheduledLimit == limit, scheduledStage == stage,
+           !refinementCancellation.isCancelled { return }
         refinementCancellation.cancel(); refinementWork?.cancel()
         let token = QueryCancellation(); refinementCancellation = token
+        scheduledQuery = query; scheduledLimit = limit; scheduledStage = stage
         let raw = query.raw, settings = self.settings
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
         let learned = settings.learnChoices ? self.learned : [:]
+        let recent = settings.learnChoices ? personal.recentCorrections(for: raw) : []
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             let cancelled = { query.token.isCancelled || token.isCancelled }
             guard !cancelled() else { return }
             let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
-                learned: learned, preferred: preferred, limit: limit + 1,
+                learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
                 correction: correction, cancelled: cancelled)
             guard !cancelled() else { return }
             query.publish(Array(result.prefix(limit)), stage: stage, limit: limit,
-                          hasMore: result.count > limit && limit < 4095, correction: correction)
+                          hasMore: stage == 1 ? !result.isEmpty : (result.count > limit && limit < 4095),
+                          correction: correction)
             DispatchQueue.main.async {
                 guard let self, self.activeCandidates === query, !cancelled() else { return }
                 self.loadingMoreCandidates = false
                 self.presentCandidates(query)
-                if stage == 1, !Self.isShortInitialism(raw), self.browsedContext != self.candidateContext {
-                    self.scheduleDecoder(query, stage: 2, correction: true, delay: 0.25)
-                }
             }
         }
         refinementWork = job
@@ -455,7 +480,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private func commitComposition(flushRemainder: Bool = true) {
         guard !composition.isEmpty else { composition.clear(); return }
         let current = candidateGeneration == generation ? candidates.first : nil
-        let fallback = current ?? engine?.candidates(composition.raw, fuzzy: settings.fuzzyPairs, learned: learned, compose: false).first
+        // Gestures and language changes can commit before decoding finishes.
+        // Never enter any dictionary or mutable decoder from the UI thread.
+        let fallback = current ?? hotWords.value(composition.raw)?.first
         if let candidate = fallback {
             let spelling = composition.raw
             document?.setMarkedText(candidate.text); document?.unmarkText(); composition.consume(candidate.consumed)
@@ -562,7 +589,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         generation += 1; let requestedGeneration = generation
         cancellation.cancel(); activeCandidates = nil; presentedRevision = 0
         let token = prepared?.token ?? QueryCancellation(); cancellation = token
-        refinementCancellation.cancel(); refinementWork?.cancel()
+        if prepared == nil || scheduledQuery !== prepared {
+            refinementCancellation.cancel(); refinementWork?.cancel()
+        }
         work?.cancel(); candidateGeneration = -1
         hasMoreCandidates = false; loadingMoreCandidates = false
         let selectionIsEmpty = document?.selectedText.isEmpty == true
@@ -604,11 +633,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 // Short initials already have real ranked dictionary choices.
                 // Resolve additional pages only when the user browses them.
                 if query.result != nil, Self.isShortInitialism(raw) { return }
-                let delay = query.missedWords ? 0.0 :
-                    (query.result != nil || Self.isShortInitialism(raw) ? 0.16 : 0.0)
-                scheduleDecoder(query, delay: delay)
-            } else if query.result?.stage == 1, !Self.isShortInitialism(raw) {
-                scheduleDecoder(query, stage: 2, correction: true, delay: 0.25)
+                // Publish one corrected sentence row. Showing an uncorrected
+                // sentence and replacing it 250 ms later made the row jump and
+                // allowed Space to commit the intermediate, incorrect phrase.
+                scheduleDecoder(query, delay: 0)
             }
             return
         }

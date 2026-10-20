@@ -5,6 +5,24 @@ final class MatureEngineTests: XCTestCase {
     private var engine: InputEngine!
     override func setUpWithError() throws { engine = try .bundled() }
     func testProductionUsesRimeAndWanxiang() { XCTAssertEqual(engine.chineseBackend, "rime-wanxiang") }
+    func testChineseMixedInitialsDoNotBecomeAnEnglishSuffix() {
+        for limit in [9, 24, 64] {
+            let values = engine.candidates("wogeimam", limit: limit)
+            XCTAssertEqual(values.first?.text, "我给妈妈")
+            XCTAssertFalse(values.contains { $0.text == "我哥imam" || $0.text == "我哥 imam" })
+        }
+        XCTAssertTrue(InputEngine.matchesReadingWithInitials("wogeimam", reading: "wo gei ma ma"))
+        XCTAssertFalse(InputEngine.matchesReadingWithInitials("wodeiphone", reading: "wo dei ping heng ou nai er"))
+        XCTAssertEqual(engine.candidates("wodeiphone", limit: 9).first?.text, "我的iphone")
+    }
+    func testReportedSentenceUsesCorrectedLeadingRowAndRecentRepeatedPhrase() throws {
+        for (raw, text) in ["mamanichifanlema": "妈妈你吃饭了吗", "wochielde": "我吃了的", "nichilema": "你吃了吗"] {
+            XCTAssertEqual(engine.candidates(raw, limit: 9).first?.text, text, raw)
+        }
+        let chosen = try XCTUnwrap(engine.candidates("wochielde", limit: 9).first)
+        var memory = PersonalLexicon(); memory.record(chosen, for: "wochielde")
+        XCTAssertEqual(engine.candidates("wochiekdr", recentCorrections: memory.recentCorrections(for: "wochiekdr"), limit: 9).first?.text, "我吃了的")
+    }
     func testShorthandAliasRetainsCommonAlternativesAndSupportsMoreThan24Choices() {
         let small = engine.candidates("hd", limit: 24, correction: false)
         let larger = engine.candidates("hd", limit: 96, correction: false)

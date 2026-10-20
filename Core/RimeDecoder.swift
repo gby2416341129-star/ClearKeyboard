@@ -56,10 +56,11 @@ final class RimeDecoder {
             }
         }
         var result: [Candidate] = [], seen = Set<String>()
+        result.reserveCapacity(count)
+        var text = [CChar](repeating: 0, count: 1_536)
+        var reading = [CChar](repeating: 0, count: 1_536)
         for index in 0..<count {
             if cancelled() { return [] }
-            var text = [CChar](repeating: 0, count: 1_536)
-            var reading = [CChar](repeating: 0, count: 1_536)
             let consumed = cr_candidate(session, Int32(index), &text, text.count, &reading, reading.count)
             let value = String(cString: text)
             if consumed > 0, !value.isEmpty, seen.insert(value).inserted {

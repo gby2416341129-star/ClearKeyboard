@@ -97,7 +97,36 @@ public final class InputEngine {
         return Array(output.filter { seen.insert($0.text).inserted }.prefix(8))
     }
 
-    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
+    /// Recognize mixed full syllables and initials before considering an English
+    /// suffix. For example wo + gei + ma + m is a Chinese spelling, even though
+    /// the last four letters also happen to be an English dictionary entry.
+    static func matchesReadingWithInitials(_ input: String, reading: String) -> Bool {
+        let letters = Array(input)
+        var positions: Set<Int> = [0]
+        let syllables = reading.split(separator: " ").map(String.init)
+        guard !syllables.isEmpty else { return false }
+        for syllable in syllables {
+            var forms = [syllable]
+            if let first = syllable.first, initials.contains(first) {
+                forms.append(String(first))
+                if ["zh", "ch", "sh"].contains(String(syllable.prefix(2))) {
+                    forms.append(String(syllable.prefix(2)))
+                }
+            }
+            var next = Set<Int>()
+            for position in positions {
+                for form in forms {
+                    let end = position + form.count
+                    if end <= letters.count && letters[position..<end].elementsEqual(form) { next.insert(end) }
+                }
+            }
+            positions = next
+            if positions.isEmpty { return false }
+        }
+        return positions.contains(letters.count)
+    }
+
+    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], recentCorrections: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
         if !compose, matureDecoder != nil, input.count >= 3,
@@ -120,7 +149,9 @@ public final class InputEngine {
                 // default. Recognized English such as iphone/hello stays literal.
                 if chinese.lookup("e:" + input, limit: 1).isEmpty { output.insert(literal, at: 0) }
                 else { output.insert(literal, at: min(1, output.count)) }
-            } else if correction, input.count >= 6, !raw.contains("'"), !result.contains(where: { $0.consumed == input.count && FuzzyPinyin.normalize($0.reading) == input }) {
+            } else if correction, input.count >= 6, !raw.contains("'"), !result.contains(where: {
+                $0.consumed == input.count && Self.matchesReadingWithInitials(input, reading: $0.reading)
+            }) {
                 // Decode a genuine pinyin prefix and preserve a recognized English
                 // suffix as one token, instead of turning every Latin letter into Hanzi.
                 for length in stride(from: min(20, input.count - 2), through: 4, by: -1) {
@@ -130,9 +161,9 @@ public final class InputEngine {
                           PinyinSpelling.reachablePrefix(suffix) < suffix.count,
                           PinyinSpelling.reachablePrefix(prefix) == prefix.count,
                           chinese.lookup("e:" + input, limit: 1).isEmpty,
-                          let first = matureDecoder.candidates(prefix, cancelled: cancelled).first,
+                          let first = matureDecoder.candidates(prefix, limit: 4, correction: false, cancelled: cancelled).first,
                           first.consumed == prefix.count else { continue }
-                    output.insert(Candidate(text: first.text + suffix, consumed: raw.count, score: 110), at: 0); break
+                    output.insert(Candidate(text: first.text + suffix, consumed: input.count, score: 110), at: 0); break
                 }
             }
             if correction, !fuzzy.isEmpty {
@@ -142,6 +173,11 @@ public final class InputEngine {
                 }
             }
             if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }
+            if correction, !isEnglishWord, !result.contains(where: {
+                $0.consumed == input.count && Self.matchesReadingWithInitials(input, reading: $0.reading)
+            }) {
+                output.insert(contentsOf: recentCorrections.filter { $0.consumed == input.count }, at: 0)
+            }
             // An alias is a preferred choice, never an exclusive result.
             if input.count >= 2, input.count % 2 == 0,
                input == String(repeating: "hd", count: input.count / 2) {

@@ -3,6 +3,19 @@ import CoreGraphics
 @testable import ClearCore
 
 final class StateTests: XCTestCase {
+    func testCandidateTextSizeRoundTripsAndOldSettingsUseStandard() throws {
+        let old = try JSONEncoder().encode(KeyboardSettings())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: old) as? [String: Any])
+        object.removeValue(forKey: "candidateTextSize")
+        let decoded = try JSONDecoder().decode(KeyboardSettings.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(decoded.resolvedCandidateTextSize, .standard)
+        for size in CandidateTextSize.allCases {
+            var settings = decoded; settings.candidateTextSize = size
+            let restored = try JSONDecoder().decode(KeyboardSettings.self, from: JSONEncoder().encode(settings))
+            XCTAssertEqual(restored.resolvedCandidateTextSize, size)
+        }
+        XCTAssertEqual(CandidateTextSize.allCases.map(\.points), [16, 19, 22, 25])
+    }
     func testZeroSizeKeyGeometryIsFinite() {
         for size in [CGSize.zero, CGSize(width: 1, height: 1), CGSize(width: 5, height: 7), CGSize(width: 39, height: 56)] {
             let result = KeyboardGeometry.keyPlate(in: CGRect(origin: .zero, size: size))

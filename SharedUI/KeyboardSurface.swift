@@ -41,6 +41,12 @@ import ImageIO
     private var keyFramesNeedLayout = true
     private var presentedHeaderHeight: CGFloat = -1
     private var requestedSpelling = ""
+    private struct KeyContact {
+        let key: ObjectIdentifier
+        let action: KeyAction
+        var released: Bool?
+    }
+    private var keyContacts: [KeyContact] = []
     var isInteractingWithCandidates: Bool { candidateScroll.holdsCandidateUpdates }
     private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
     private var headerHeight: CGFloat { KeyboardGeometry.headerHeight }
@@ -120,7 +126,9 @@ import ImageIO
             sideRail.isHidden = settings.hand == .full
             sideRail.frame = layout.sideRail
         }
-        var header = layout.header; header.size.height = candidateHeight
+        // Candidate content uses its own small inset; toolbar margins should
+        // not push the first candidate 16 points away from the keyboard edge.
+        var header = layout.header.insetBy(dx: -12, dy: 0); header.size.height = candidateHeight
         if candidateScroll.frame != header { candidateScroll.frame = header }
         hint.frame = header
         renderCandidates()
@@ -148,13 +156,26 @@ import ImageIO
                 var start = row.insetUnits
                 for key in row.keys {
                     let button = KeyButton(key: key)
-                    button.onInteractionChanged = { [weak model] active in
-                        model?.document?.keyInteractionChanged(active)
-                        if !active { model?.cancelPreparation() }
+                    button.onInteractionChanged = { [weak self, weak button] active in
+                        guard let self else { return }
+                        self.model.document?.keyInteractionChanged(active)
+                        if !active {
+                            if let button { self.finishContact(button, released: false) }
+                            self.model.cancelPreparation()
+                        }
                     }
-                    button.onPrepare = { [weak model] action in model?.prepare(action) }
+                    button.onPrepare = { [weak self, weak button] action in
+                        guard let self, let button else { return }
+                        if case .text = action { self.beginContact(button, action: action) }
+                        else if action == .space || action == .enter { self.beginContact(button, action: action) }
+                        self.model.prepare(action)
+                    }
                     if key.action == .globe, let configureGlobe { configureGlobe(button) }
-                    else { button.onAction = { [weak model] action in model?.handle(action) } }
+                    else { button.onAction = { [weak self, weak button] action in
+                        guard let self else { return }
+                        if let button, self.finishContact(button, released: true) { return }
+                        self.model.handle(action)
+                    } }
                     button.onCursor = { [weak model] translation in model?.trackCursor(translation: translation) }
                     button.onCursorBegan = { [weak self] in self?.model.beginCursorMovement(); self?.setCursorMode(true) }
                     button.onCursorEnded = { [weak self] in self?.model.endCursorMovement(); self?.setCursorMode(false) }
@@ -233,7 +254,7 @@ import ImageIO
         // A result can arrive before the first host layout. Do not ask a zero-
         // sized flow layout to lay out 44-point cells; layout will pull the latest.
         if height > 0, candidateScroll.bounds.width > 0 {
-            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates)
+            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize)
         }
         toolbar.isHidden = panelKind == .clipboard || candidateHeight > 0
         candidateScroll.isHidden = panelKind == .clipboard || movingCursor || candidateHeight == 0
@@ -241,6 +262,23 @@ import ImageIO
         // Candidate updates only touch the header, never the keys or glass layers.
         // The collection lays out in UIKit's normal pass, never synchronously
         // from a key event or a decoder completion.
+    }
+    private func beginContact(_ button: KeyButton, action: KeyAction) {
+        let key = ObjectIdentifier(button)
+        guard !keyContacts.contains(where: { $0.key == key && $0.released == nil }) else { return }
+        keyContacts.append(KeyContact(key: key, action: action, released: nil))
+    }
+    @discardableResult private func finishContact(_ button: KeyButton, released: Bool) -> Bool {
+        let key = ObjectIdentifier(button)
+        guard let index = keyContacts.firstIndex(where: { $0.key == key && $0.released == nil }) else { return false }
+        keyContacts[index].released = released
+        // With overlapping fingers, the second finger may lift first. Preserve
+        // contact order without committing a key that slides away or is cancelled.
+        while let first = keyContacts.first, let committed = first.released {
+            keyContacts.removeFirst()
+            if committed { model.handle(first.action) }
+        }
+        return true
     }
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)
@@ -447,6 +485,16 @@ import ImageIO
             height.addAction(UIAction { [weak self, weak height] _ in if let height { self?.model.settings.keyHeight = Double(height.value.rounded()) } }, for: .valueChanged)
             stack.addArrangedSubview(height)
         case .appearance:
+            stack.addArrangedSubview(note("候选词大小"))
+            let textSize = UISegmentedControl(items: CandidateTextSize.allCases.map(\.title))
+            textSize.selectedSegmentIndex = CandidateTextSize.allCases.firstIndex(of: model.settings.resolvedCandidateTextSize) ?? 1
+            textSize.accessibilityLabel = "候选词大小"
+            textSize.accessibilityIdentifier = "keyboard.candidateTextSize"
+            textSize.addAction(UIAction { [weak self, weak textSize] _ in
+                guard let textSize, CandidateTextSize.allCases.indices.contains(textSize.selectedSegmentIndex) else { return }
+                self?.model.settings.candidateTextSize = CandidateTextSize.allCases[textSize.selectedSegmentIndex]
+            }, for: .valueChanged)
+            stack.addArrangedSubview(textSize)
             let segment = UISegmentedControl(items: GlassPreset.allCases.map(\.title))
             segment.selectedSegmentIndex = GlassPreset.allCases.firstIndex(of: model.settings.glass) ?? 0
             segment.addAction(UIAction { [weak self, weak segment] _ in guard let segment else { return }; self?.model.settings.glass = GlassPreset.allCases[segment.selectedSegmentIndex] }, for: .valueChanged)

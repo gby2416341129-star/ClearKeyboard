@@ -172,7 +172,11 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   std::unordered_set<std::string> full;
   for (const auto &item : conversational) if (item.consumed == length) full.insert(item.text);
   for (const auto &item : literal) if (item.consumed == length) full.insert(item.text);
-  if (full.size() < static_cast<size_t>(std::clamp(limit, 1, 4096))) {
+  // A typing query needs a stable leading row, not every possible alternative.
+  // Do not invoke the sentence model just to fill empty slots beside a complete
+  // dictionary phrase. Explicit paging can request the larger merged menu.
+  const bool leading_row = limit <= 9;
+  if (full.empty() || (!leading_row && full.size() < static_cast<size_t>(std::clamp(limit, 1, 4096)))) {
     auto channel = correction ? id : query.fluent;
     auto &previous = correction ? query.input : query.fluent_input;
     if (previous != input) { api->set_input(channel, input); previous = input; }

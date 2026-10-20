@@ -32,4 +32,33 @@ public struct PersonalLexicon: Codable {
             Candidate(text: $0.text, reading: $0.reading, consumed: $0.consumed, score: 200)
         }
     }
+    /// A just-committed phrase is strong context for its next occurrence. Reuse
+    /// it only for long spellings with at most two neighbouring-key mistakes;
+    /// this is separate from exact learning and never rewrites the raw input.
+    public func recentCorrections(for raw: String, now: Date = Date()) -> [Candidate] {
+        let code = Self.key(raw), typed = Array(code)
+        guard code.count >= 8, !code.contains("'") else { return [] }
+        let rows: [[Character]] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"].map { Array($0) }
+        func neighbours(_ a: Character, _ b: Character) -> Bool {
+            rows.contains { row in
+                guard let x = row.firstIndex(of: a), let y = row.firstIndex(of: b) else { return false }
+                return abs(x - y) == 1
+            }
+        }
+        return entries.prefix(12).compactMap { entry in
+            let age = now.timeIntervalSince(entry.selectedAt)
+            guard age >= 0, age <= 120, entry.code.count == code.count,
+                  entry.consumed == code.count, !entry.reading.isEmpty,
+                  entry.code.prefix(4) == code.prefix(4),
+                  entry.text.allSatisfy({ !$0.isASCII }) else { return nil }
+            var changes = 0
+            for (old, new) in zip(entry.code, typed) where old != new {
+                guard neighbours(old, new) else { return nil }
+                changes += 1
+                if changes > 2 { return nil }
+            }
+            guard changes > 0 else { return nil }
+            return Candidate(text: entry.text, reading: entry.reading, consumed: code.count, score: 150)
+        }
+    }
 }

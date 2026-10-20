@@ -2,6 +2,17 @@ import XCTest
 @testable import ClearCore
 
 final class PersonalLexiconTests: XCTestCase {
+    func testRecentNeighbourCorrectionsStayBoundedAndDoNotReplaceExactChoices() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        var memory = PersonalLexicon()
+        memory.record(Candidate(text: "我吃了的", reading: "wo chi le de", consumed: 9), for: "wochielde", now: now)
+        XCTAssertEqual(memory.recentCorrections(for: "wochiekdr", now: now).first?.text, "我吃了的")
+        XCTAssertTrue(memory.candidates(for: "wochiekdr").isEmpty)
+        XCTAssertTrue(memory.recentCorrections(for: "wochielde", now: now).isEmpty)
+        XCTAssertTrue(memory.recentCorrections(for: "wochiekdr", now: now.addingTimeInterval(121)).isEmpty)
+        XCTAssertTrue(memory.recentCorrections(for: "nochiekdr", now: now).isEmpty)
+        XCTAssertTrue(memory.recentCorrections(for: "wochiezdr", now: now).isEmpty)
+    }
     func testSingleExplicitChoiceBecomesFirstForTheSameAbbreviatedSpelling() throws {
         let engine = try InputEngine.bundled()
         let before = engine.candidates("ganghuam")

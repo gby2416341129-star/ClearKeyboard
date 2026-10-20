@@ -22,6 +22,19 @@ struct CustomizationView: View {
         AppPage(title: "你的风格。", eyebrow: "PERSONALIZE / 定制", subtitle: "从一抹颜色，到指尖的每次触碰。") {
             MaterialStudy(settings: preferences.settings)
             AppCard {
+                AppSectionTitle(title: "候选词大小", caption: "CANDIDATES")
+                Picker("候选词大小", selection: Binding(
+                    get: { preferences.settings.resolvedCandidateTextSize },
+                    set: { preferences.settings.candidateTextSize = $0 })) {
+                    ForEach(CandidateTextSize.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).accessibilityIdentifier("custom.candidateTextSize")
+                HStack(spacing: 16) {
+                    Text("我给妈妈").foregroundStyle(Color(preferences.settings.accentInkColor))
+                    Text("好的").foregroundStyle(.primary)
+                }.font(.system(size: CGFloat(preferences.settings.resolvedCandidateTextSize.points)))
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            AppCard {
                 AppSectionTitle(title: "材质", caption: "MATERIAL")
                 Picker("材质", selection: $preferences.settings.glass) {
                     ForEach(GlassPreset.allCases) { Text($0.title).tag($0) }

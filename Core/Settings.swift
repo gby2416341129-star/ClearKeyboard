@@ -17,6 +17,16 @@ public enum Accent: String, Codable, CaseIterable, Identifiable {
     public var id: String { rawValue }
     public var title: String { switch self { case .jade: return "青瓷"; case .ocean: return "海盐"; case .rose: return "蔷薇"; case .graphite: return "石墨" } }
 }
+public enum CandidateTextSize: String, Codable, CaseIterable, Identifiable {
+    case small, standard, large, extraLarge
+    public var id: String { rawValue }
+    public var title: String {
+        switch self { case .small: return "小"; case .standard: return "标准"; case .large: return "大"; case .extraLarge: return "特大" }
+    }
+    public var points: Double {
+        switch self { case .small: return 16; case .standard: return 19; case .large: return 22; case .extraLarge: return 25 }
+    }
+}
 public enum ToolbarTool: String, Codable, CaseIterable, Identifiable {
     case language, clipboard, emoji, oneHand, appearance
     public var id: String { rawValue }
@@ -35,6 +45,9 @@ public struct KeyboardSettings: Codable, Equatable {
     public var customAccentHex: String? = nil
     public var glassOpacity: Double = 0.52
     public var keyHeight: Double = 50
+    /// Optional storage keeps settings saved before this control was added readable.
+    public var candidateTextSize: CandidateTextSize? = nil
+    public var resolvedCandidateTextSize: CandidateTextSize { candidateTextSize ?? .standard }
     public var hand: HandMode = .full
     public var toolbar: [ToolbarTool] = [.language, .clipboard, .emoji, .appearance]
     public var oneHandWidth: Double? = nil

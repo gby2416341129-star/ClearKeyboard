@@ -13,6 +13,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostPrefersEnglish = false
     private var hostNeedsGlobe = true
     private var hostRefresh: Timer?
+    private var pendingMarkedText: String?
+    private var markedFlushScheduled = false
     private var hostRefreshGeneration = 0
     private var activeKeys = 0
     private var hostActive = true
@@ -171,7 +173,10 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             default: hostEnterTitle = "换行"
             }
         }
-        if case .externalEdit = outcome { surface?.closePanel(); model?.cursorChanged() }
+        if case .externalEdit = outcome {
+            pendingMarkedText = nil
+            surface?.closePanel(); model?.cursorChanged()
+        }
     }
     func validateCandidate(before: String, after: String, identity: String) -> Bool {
         // The candidate's generation and local edit snapshot have already been
@@ -202,15 +207,31 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // A key arriving before the idle timer fires must cancel that read even
         // if its own textDidChange acknowledgement has not arrived yet.
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
+        flushMarkedText()
         edit()
         if needsHostRefresh { scheduleHostRefresh() }
     }
     func insert(_ text: String) { performHostEdit { hostState.insert(text); textDocumentProxy.insertText(text) } }
     func setMarkedText(_ text: String) {
-        performHostEdit {
-            hostState.setMarked(text)
-            textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+        hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
+        hostState.setMarked(text)
+        pendingMarkedText = text
+        // Several queued touch events can arrive in one main-loop turn. Send
+        // their latest spelling once, instead of synchronously sending every
+        // obsolete intermediate string across the process boundary.
+        guard !markedFlushScheduled else { return }
+        markedFlushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.markedFlushScheduled = false
+            self.flushMarkedText()
+            if self.needsHostRefresh { self.scheduleHostRefresh() }
         }
+    }
+    private func flushMarkedText() {
+        guard let text = pendingMarkedText else { return }
+        pendingMarkedText = nil
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
     }
     func unmarkText() { performHostEdit { hostState.unmark(); textDocumentProxy.unmarkText() } }
     func deleteBackward() { performHostEdit { hostState.deleteBackward(); textDocumentProxy.deleteBackward() } }
