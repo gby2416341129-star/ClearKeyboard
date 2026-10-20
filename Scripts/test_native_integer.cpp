@@ -132,6 +132,7 @@ int main(int argc,char **argv){
   assert(!after.native_full({""},output,budget<clear_sentence::Budget>()) && output==std::vector<float>{123});
   assert(!after.native_full(std::vector<std::string>(5,u8"我们"),output,budget<clear_sentence::Budget>()) && output==std::vector<float>{123});
   assert(!after.native_full(sentences,output,budget<clear_sentence::Budget>(0)) && output==std::vector<float>{123});
+  after.clear_whole_cache(); // This work-cap check must be cold.
   assert(!after.native_full(sentences,output,budget<clear_sentence::Budget>(),1) && output==std::vector<float>{123});
   after.set_native_enabled(false);assert(!after.native_ready() && !after.has_scorer() && after.native_score_limit()==0);after.set_native_enabled(true);
   std::vector<float> activations(400001),scratch;double activation_error=0;
@@ -167,8 +168,8 @@ int main(int argc,char **argv){
   auto median=[](std::vector<double> values){std::sort(values.begin(),values.end());return(values[values.size()/2-1]+values[values.size()/2])/2;};
   std::vector<double> full_ms,reference_full_ms;
   for(int repetition=0;repetition<25;++repetition) {
-    auto reference_run=[&] {std::vector<float> actual;const auto start=std::chrono::steady_clock::now();assert(before.native_full(sentences,actual,budget<reference_sentence::Budget>()));return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
-    auto proposed_run=[&] {std::vector<float> actual;const auto start=std::chrono::steady_clock::now();assert(after.native_full(sentences,actual,budget<clear_sentence::Budget>()));return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
+    auto reference_run=[&] {before.clear_cache();std::vector<float> actual;const auto start=std::chrono::steady_clock::now();assert(before.native_full(sentences,actual,budget<reference_sentence::Budget>()));return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
+    auto proposed_run=[&] {after.clear_cache();std::vector<float> actual;const auto start=std::chrono::steady_clock::now();assert(after.native_full(sentences,actual,budget<clear_sentence::Budget>()));return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
     double old_ms,new_ms;if(repetition%2){new_ms=proposed_run();old_ms=reference_run();}else{old_ms=reference_run();new_ms=proposed_run();}
     if(repetition){full_ms.push_back(new_ms);reference_full_ms.push_back(old_ms);}
   }

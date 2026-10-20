@@ -107,6 +107,12 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
         if (initials<0 || initials>abbreviations || !sentence_model->encode(item.text,tokens) || tokens.size()<4 || tokens.size()>16) continue;
         indices.push_back(index);texts.push_back(item.text);
       }
+      // Keep the incumbent and the largest leading legal pool that fits this
+      // device's measured new-position allowance. Never spend a failed full
+      // projection before discovering that the pool was too large.
+      while(texts.size()>=2 && !sentence_model->whole_pool_fits(texts)) {
+        texts.pop_back();indices.pop_back();
+      }
       std::vector<float> scores;
       if (texts.size()>=2 && indices.front()==0 && sentence_model->compare(texts,scores,budget)) {
         for(size_t row=0;row<indices.size();++row) {

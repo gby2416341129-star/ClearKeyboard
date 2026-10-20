@@ -68,6 +68,9 @@ jobs:
           reference=urllib.request.urlopen(url,timeout=60).read()
           assert hashlib.sha256(reference).hexdigest()=='3726b2b3eed6fca9c3eaff7bed37c3f50cd01cf74f5cb08a2f25ec402b14b9d6'
           Path('.build/native-reference.h').write_bytes(reference)
+          reference=urllib.request.urlopen('https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/c0f36661b34567af19d7ff52fa9562531eae6cdc/CRime/private/clear_sentence.h',timeout=60).read()
+          assert hashlib.sha256(reference).hexdigest()=='696c07cdc5aaa2982b570e9fc6abebdd54d1cf6620e6698576f6f062bd3e1652'
+          Path('.build/whole-reference.h').write_bytes(reference)
           fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
           Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
           PY
@@ -75,6 +78,8 @@ jobs:
           .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_integer.cpp -o .build/test-native-integer
           .build/test-native-integer Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_whole_cache.cpp -o .build/test-whole-cache
+          .build/test-whole-cache Core/Resources/Rime/clear-sentence.clm
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_sentence.cpp -o .build/test-sentence
           .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_bridge.cpp -o .build/test-bridge
@@ -100,8 +105,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.38')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 41')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.39')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 42')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

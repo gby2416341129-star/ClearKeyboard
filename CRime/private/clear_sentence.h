@@ -380,6 +380,14 @@ class Model {
     uint64_t touched=0;
     std::string key;
   };
+  struct WholeNode {
+    std::array<float,Layers*D> keys{},values{};
+    std::array<float,D> hidden{};
+    float normalizer=0;uint64_t touched=0;
+  };
+  static_assert(sizeof(WholeNode)*64<2*1024*1024,"Bounded whole-state payload must fit below two MiB");
+  // At most 64 causal states; retain scalar normalizers, not vocabulary CDFs.
+  std::unordered_map<std::string,WholeNode> whole_cache;
   Matrix embedding;
   std::array<Block,Layers> blocks;
   std::vector<float> positions, finalw, finalb;
@@ -684,7 +692,7 @@ public:
   bool native_ready() const { return native_enabled; }
   bool native_integer_ready() const { return loaded && native_integer; }
   bool native_whole_integer_ready() const { return loaded && native_whole_integer; }
-  void set_native_whole_integer_enabled(bool enabled) { native_whole_integer=enabled;means.clear(); }
+  void set_native_whole_integer_enabled(bool enabled) { if(native_whole_integer==enabled)return;native_whole_integer=enabled;means.clear();whole_cache.clear(); }
   const IntegerKernelCalibration &native_integer_calibration() const { return integer_calibration; }
   // A precision change invalidates all hidden states, distributions and means.
   // Standalone tests can select either path without weakening F32 references.
@@ -776,23 +784,19 @@ public:
     if(!loaded || sentences.empty() || sentences.size()>4 || !budget.alive()) return false;
     #if defined(__APPLE__)
     if(__builtin_available(macOS 15.0,iOS 18.0,*)) {} else return false;
-    // Float workspaces occupy less than 8 MiB at the largest supported pool.
-    // Check the extension's remaining allowance rather than total device RAM.
     #if TARGET_OS_IPHONE
     if(os_proc_available_memory()<12*1024*1024) return false;
     #endif
     struct ThreadScope {
-      BLAS_THREADING previous;
-      bool changed=false;
-      ThreadScope() {
-        if(__builtin_available(macOS 15.0,iOS 18.0,*)) {previous=BLASGetThreading();changed=BLASSetThreading(BLAS_THREADING_SINGLE_THREADED)==0;}
-      }
-      ~ThreadScope() {if(changed) {if(__builtin_available(macOS 15.0,iOS 18.0,*))BLASSetThreading(previous);}}
+      BLAS_THREADING previous; bool changed=false;
+      ThreadScope() { if(__builtin_available(macOS 15.0,iOS 18.0,*)) {previous=BLASGetThreading();changed=BLASSetThreading(BLAS_THREADING_SINGLE_THREADED)==0;} }
+      ~ThreadScope() { if(changed) {if(__builtin_available(macOS 15.0,iOS 18.0,*))BLASSetThreading(previous);} }
     } threading;
     #endif
     struct Use {int node,token;};
     std::vector<std::vector<Use>> uses;
     std::vector<int> tokens={2},parents={-1},depths={0};
+    std::vector<std::string> keys={""};
     std::unordered_map<std::string,int> index={{"",0}};
     for(const auto &sentence:sentences) {
       std::vector<int> ids;if(!encode(sentence,ids) || ids.empty() || ids.size()>16) return false;
@@ -804,71 +808,136 @@ public:
         const auto found=index.find(key);
         if(found!=index.end()) parent=found->second;
         else {
-          const auto child=static_cast<int>(tokens.size());index.emplace(key,child);
+          const auto child=static_cast<int>(tokens.size());index.emplace(key,child);keys.push_back(key);
           tokens.push_back(ids[depth]);parents.push_back(parent);depths.push_back(static_cast<int>(depth+1));parent=child;
         }
       }
       uses.push_back(std::move(path));
     }
-    const int count=static_cast<int>(tokens.size());
-    if(count>maximum_positions) return false;
+    const int total=static_cast<int>(tokens.size());if(total>61 || maximum_positions<1) return false;
+    std::vector<int> pending,offsets(total,-1);std::vector<const WholeNode*> nodes(total,nullptr);
+    for(int row=0;row<total;++row) {
+      auto found=whole_cache.find(keys[row]);
+      if(found!=whole_cache.end())nodes[row]=&found->second;
+      else {offsets[row]=static_cast<int>(pending.size());pending.push_back(row);}
+    }
+    const int count=static_cast<int>(pending.size());
+    if(count>maximum_positions || !budget.alive())return false;
+    std::vector<WholeNode> fresh(count);
+    for(int row=0;row<count;++row)nodes[pending[row]]=&fresh[row];
     std::vector<std::array<int,16>> ancestors(count);
     for(int row=0;row<count;++row) {
-      int node=row;for(int position=depths[row];position>=0;--position) {ancestors[row][position]=node;node=parents[node];}
+      int node=pending[row];
+      for(int position=depths[node];position>=0;--position) {ancestors[row][position]=node;node=parents[node];}
     }
     std::vector<float> x(count*D),y(count*D),qkv(count*3*D),attended(count*D),projected(count*D),expanded(count*4*D),panel,gelu_scratch;
     for(int row=0;row<count;++row) for(int i=0;i<D;++i)
-      x[row*D+i]=embedding.weight[tokens[row]*D+i]*embedding.scale[tokens[row]]+positions[depths[row]*D+i];
-    for(int layer=0;layer<Layers;++layer) {
+      x[row*D+i]=embedding.weight[tokens[pending[row]]*D+i]*embedding.scale[tokens[pending[row]]]+positions[depths[pending[row]]*D+i];
+    for(int layer=0;count && layer<Layers;++layer) {
       const auto &block=blocks[layer];
-      for(int row=0;row<count;++row) norm(x.data()+row*D,block.ln1w,block.ln1b,y.data()+row*D);
-      if(!block.qkv.apply_bulk(y.data(),qkv.data(),count,panel,budget,native_whole_integer)) return false;
+      for(int row=0;row<count;++row)norm(x.data()+row*D,block.ln1w,block.ln1b,y.data()+row*D);
+      if(!block.qkv.apply_bulk(y.data(),qkv.data(),count,panel,budget,native_whole_integer))return false;
       for(int row=0;row<count;++row) {
-        if(!budget.alive()) return false;
+        std::copy_n(qkv.data()+row*3*D+D,D,fresh[row].keys.data()+layer*D);
+        std::copy_n(qkv.data()+row*3*D+2*D,D,fresh[row].values.data()+layer*D);
+      }
+      for(int row=0;row<count;++row) {
+        if(!budget.alive())return false;
+        const int depth=depths[pending[row]];
         for(int head=0;head<Heads;++head) {
-          std::array<float,16> weights{};float maximum=-std::numeric_limits<float>::infinity(),total=0;
-          for(int position=0;position<=depths[row];++position) {
-            float score=0;const auto *key=qkv.data()+ancestors[row][position]*3*D+D+head*(D/Heads);
-            for(int j=0;j<D/Heads;++j) score+=qkv[row*3*D+head*(D/Heads)+j]*key[j];
-            weights[position]=score/std::sqrt(float(D/Heads));maximum=std::max(maximum,weights[position]);
+          std::array<float,16> weights{};float maximum=-std::numeric_limits<float>::infinity(),sum=0;
+          for(int position=0;position<=depth;++position) {
+            float value=0;const auto *key=nodes[ancestors[row][position]]->keys.data()+layer*D+head*(D/Heads);
+            for(int j=0;j<D/Heads;++j)value+=qkv[row*3*D+head*(D/Heads)+j]*key[j];
+            weights[position]=value/std::sqrt(float(D/Heads));maximum=std::max(maximum,weights[position]);
           }
-          for(int position=0;position<=depths[row];++position) {weights[position]=std::exp(weights[position]-maximum);total+=weights[position];}
+          for(int position=0;position<=depth;++position){weights[position]=std::exp(weights[position]-maximum);sum+=weights[position];}
           for(int j=0;j<D/Heads;++j) {
-            float value=0;for(int position=0;position<=depths[row];++position)
-              value+=weights[position]/total*qkv[ancestors[row][position]*3*D+2*D+head*(D/Heads)+j];
+            float value=0;
+            for(int position=0;position<=depth;++position)value+=weights[position]/sum*nodes[ancestors[row][position]]->values[layer*D+head*(D/Heads)+j];
             attended[row*D+head*(D/Heads)+j]=value;
           }
         }
       }
-      if(!block.proj.apply_bulk(attended.data(),projected.data(),count,panel,budget,native_whole_integer)) return false;
+      if(!block.proj.apply_bulk(attended.data(),projected.data(),count,panel,budget,native_whole_integer))return false;
       for(int row=0;row<count;++row) {
-        for(int i=0;i<D;++i) x[row*D+i]+=projected[row*D+i];
+        for(int i=0;i<D;++i)x[row*D+i]+=projected[row*D+i];
         norm(x.data()+row*D,block.ln2w,block.ln2b,y.data()+row*D);
       }
-      if(!block.fc.apply_bulk(y.data(),expanded.data(),count,panel,budget,native_whole_integer)) return false;
-      {
-        gelu_many(expanded.data(),static_cast<int>(expanded.size()),gelu_scratch);
-      }
-      if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget,native_whole_integer)) return false;
-      for(size_t i=0;i<x.size();++i) x[i]+=projected[i];
+      if(!block.fc.apply_bulk(y.data(),expanded.data(),count,panel,budget,native_whole_integer))return false;
+      gelu_many(expanded.data(),static_cast<int>(expanded.size()),gelu_scratch);
+      if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget,native_whole_integer))return false;
+      for(size_t i=0;i<x.size();++i)x[i]+=projected[i];
     }
-    for(int row=0;row<count;++row) norm(x.data()+row*D,finalw,finalb,y.data()+row*D);
-    std::vector<float> logits(count*Vocab),normalizers(count);
-    if(!embedding.apply_bulk(y.data(),logits.data(),count,panel,budget,native_whole_integer)) return false;
     for(int row=0;row<count;++row) {
-      if(!budget.alive()) return false;
-      const auto begin=logits.data()+row*Vocab;const float maximum=*std::max_element(begin,begin+Vocab);double total=0;
-      for(int token=0;token<Vocab;++token) total+=std::exp(begin[token]-maximum);
-      normalizers[row]=maximum+static_cast<float>(std::log(total));if(!std::isfinite(normalizers[row])) return false;
+      norm(x.data()+row*D,finalw,finalb,fresh[row].hidden.data());
+      std::copy_n(fresh[row].hidden.data(),D,y.data()+row*D);
+    }
+    std::vector<float> logits(count*Vocab);
+    if(count && !embedding.apply_bulk(y.data(),logits.data(),count,panel,budget,native_whole_integer))return false;
+    for(int row=0;row<count;++row) {
+      if(!budget.alive())return false;
+      const auto begin=logits.data()+row*Vocab;const float maximum=*std::max_element(begin,begin+Vocab);double sum=0;
+      for(int token=0;token<Vocab;++token)sum+=std::exp(begin[token]-maximum);
+      fresh[row].normalizer=maximum+static_cast<float>(std::log(sum));
+      if(!std::isfinite(fresh[row].normalizer))return false;
     }
     std::vector<float> completed;
     for(const auto &path:uses) {
-      double total=0;for(const auto &use:path) total+=logits[use.node*Vocab+use.token]-normalizers[use.node];
-      const auto value=static_cast<float>(total/path.size());if(!std::isfinite(value) || value>0) return false;
-      completed.push_back(value);
+      double sum=0;
+      for(const auto &use:path) {
+        if(!budget.alive())return false;
+        const auto &node=*nodes[use.node];float logit=0;const int row=offsets[use.node];
+        if(row>=0)logit=logits[row*Vocab+use.token];
+        else if(native_whole_integer) {
+          Input16 prepared(node.hidden.data(),D);const Input16 *input=&prepared;int64_t product=0;
+          dot16_many<1>(embedding.weight+use.token*D,&input,D,&product);
+          logit=static_cast<float>(double(product)*prepared.step)*embedding.scale[use.token];
+        } else logit=embedding.at(use.token,node.hidden.data());
+        sum+=logit-node.normalizer;
+      }
+      const float mean=static_cast<float>(sum/path.size());if(!std::isfinite(mean) || mean>0)return false;
+      completed.push_back(mean);
     }
-    if(!budget.alive()) return false;scores=std::move(completed);return true;
+    if(!budget.alive())return false;
+    // Only complete causal states and complete softmax normalizers enter this
+    // precision-specific cache. Cached scalar projections never renormalize a
+    // subset of vocabulary, so the model's full probability remains intact.
+    for(int row=0;row<total;++row)if(offsets[row]<0)whole_cache.at(keys[row]).touched=++clock;
+    for(int row=0;row<count;++row) {
+      if(whole_cache.size()>=64) {
+        auto oldest=std::min_element(whole_cache.begin(),whole_cache.end(),[](const auto &a,const auto &b){return a.second.touched<b.second.touched;});
+        whole_cache.erase(oldest);
+      }
+      fresh[row].touched=++clock;whole_cache.emplace(keys[pending[row]],std::move(fresh[row]));
+    }
+    if(!budget.alive())return false;
+    scores=std::move(completed);return true;
   }
+
+  bool whole_pool_fits(const std::vector<std::string> &sentences) const {
+    if(!loaded || sentences.empty() || sentences.size()>4)return false;
+    std::vector<std::string> missing;
+    for(const auto &sentence:sentences) {
+      std::vector<int> ids;if(!encode(sentence,ids) || ids.size()>16)return false;
+      if(!means.count(sentence))missing.push_back(sentence);
+    }
+    if(missing.empty() || scorer)return true;
+    if(native_score_positions<=0)return false;
+    std::unordered_set<std::string> prefixes={""};
+    for(const auto &sentence:missing) {
+      std::vector<int> ids;encode(sentence,ids);std::string key;
+      for(size_t i=0;i+1<ids.size();++i) {
+        key+=static_cast<char>(ids[i]&255);key+=static_cast<char>(ids[i]>>8);prefixes.insert(key);
+      }
+    }
+    size_t count=0;for(const auto &prefix:prefixes)count+=!whole_cache.count(prefix);
+    return prefixes.size()<=61 && count<=static_cast<size_t>(native_score_positions);
+  }
+  #ifdef CLEAR_SENTENCE_TESTING
+  void test_native_whole_limit(int positions) {native_score_positions=positions;}
+  #endif
+
   bool mean_logprob(const std::string &value,float &score,const Budget &budget) {
     // The dedicated full-sequence function also handles an incumbent/seed in
     // one call. Without it, keep causal requests separated by depth.
@@ -915,7 +984,9 @@ public:
   }
   bool ready() const { return loaded; }
   size_t cached_positions() const { return cache.size(); }
-  void clear_cache() { cache.clear(); cache_index.clear(); distributions.clear(); means.clear(); clock=0; }
+  size_t cached_whole_positions() const { return whole_cache.size(); }
+  void clear_whole_cache() { whole_cache.clear(); }
+  void clear_cache() { whole_cache.clear();cache.clear(); cache_index.clear(); distributions.clear(); means.clear(); clock=0; }
   bool load(const std::string &path) {
     // A failed reload must never retain partially replaced weights.
     loaded=false; native_enabled=false; native_score_positions=0; set_native_integer_enabled(false); integer_calibration={}; vocabulary.clear();
@@ -1056,13 +1127,13 @@ public:
           // Leave that device on Rime until a fast platform predictor is ready.
           std::chrono::duration<double,std::milli>(Budget::Clock::now()-started).count()<0.6;
       #if defined(__APPLE__)
-      // A seven-position causal graph calibrates a separate, low-memory whole
-      // scorer. Bound each live pool by its actual unique prefix count, not by
+      // A three-position causal graph calibrates a separate, low-memory whole
+      // scorer. Bound each live pool by its uncached causal prefix count, not by
       // candidate count alone. The extrapolation is conservative for the
       // fixed weight-decoding cost; the live ten-millisecond deadline remains
       // authoritative even if the device later slows down.
       std::vector<std::string> probes(2);
-      for(int row=0;row<2;++row) for(int depth=0;depth<4;++depth) probes[row]+=characters[400+row*4+depth];
+      for(int row=0;row<2;++row) for(int depth=0;depth<2;++depth) probes[row]+=characters[400+row*2+depth];
       // Prefix and whole scoring have different matrix shapes. Validate and
       // time the whole kernel independently; a rejected prefix speed probe
       // must not close an otherwise timely whole scorer.
@@ -1074,6 +1145,7 @@ public:
       auto timed=[&](bool integer,std::array<double,3> &costs,double &worst) {
         set_native_whole_integer_enabled(integer);worst=0;
         for(int repetition=0;repetition<3;++repetition) {
+          clear_whole_cache();
           const auto begin=Budget::Clock::now();Budget probe{begin+std::chrono::milliseconds(8),nullptr,nullptr};
           const bool complete=native_full(probes,ignored,probe);
           costs[repetition]=std::chrono::duration<double,std::milli>(Budget::Clock::now()-begin).count();
@@ -1106,7 +1178,7 @@ public:
       set_native_whole_integer_enabled(choose_integer);
       if(choose_integer || exact_fast) {
         const auto worst=choose_integer?integer_worst:exact_worst;
-        native_score_positions=std::clamp(static_cast<int>(7*8/worst),7,61);
+        native_score_positions=std::clamp(static_cast<int>(3*8/worst),3,61);
       }
       #endif
     }
