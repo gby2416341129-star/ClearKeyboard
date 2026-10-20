@@ -53,6 +53,7 @@ jobs:
           python3 Scripts/test_ime_model.py
           swiftc -O -parse-as-library Core/CoreMLPrefixState.swift Scripts/test_coreml_prefix.swift -o .rime-cache/test-coreml-prefix
           .rime-cache/test-coreml-prefix Core/Resources/Rime
+          python3 Scripts/test_coreml_worker.py
       - name: Check native model, phonetic search and input state
         run: |
           mkdir -p .build
