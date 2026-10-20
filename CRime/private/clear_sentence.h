@@ -257,6 +257,7 @@ template<size_t Batch> inline void dot16_many(const int8_t *weight,const Input16
 
 struct IntegerKernelCalibration {
   std::array<double,3> exactMS{},integerMS{};
+  std::array<double,2> numericalWarmMS{};
   double maximumError=0;
   int comparisons=0;
   bool available=false,validated=false;
@@ -997,39 +998,47 @@ public:
         // checked separately against the pinned model in the release tests.
         const std::vector<std::string> probes={""};
         std::array<double,3> ratios{};
-        bool accepted=true;
-        for(int repetition=0;repetition<3 && accepted;++repetition) {
-          std::vector<std::vector<float>> exact,approximate;
-          auto measure=[&](bool integer,std::vector<std::vector<float>> &values,double &cost) {
-            set_native_integer_enabled(integer);const auto start=Budget::Clock::now();
-            Budget probe{start+std::chrono::milliseconds(5),nullptr,nullptr};
-            const bool complete=native_many(probes,values,probe);
-            cost=std::chrono::duration<double,std::milli>(Budget::Clock::now()-start).count();return complete;
-          };
-          double slow=0,fast=0;
-          if(repetition%2)accepted=measure(true,approximate,fast) && measure(false,exact,slow);
-          else accepted=measure(false,exact,slow) && measure(true,approximate,fast);
-          integer_calibration.exactMS[repetition]=slow;integer_calibration.integerMS[repetition]=fast;
-          if(!accepted)break;
+        auto measure=[&](bool integer,std::vector<std::vector<float>> &values,double &cost,int milliseconds) {
+          set_native_integer_enabled(integer);const auto start=Budget::Clock::now();
+          Budget probe{start+std::chrono::milliseconds(milliseconds),nullptr,nullptr};
+          const bool complete=native_many(probes,values,probe);
+          cost=std::chrono::duration<double,std::milli>(Budget::Clock::now()-start).count();return complete;
+        };
+        auto agree=[&](const std::vector<std::vector<float>> &exact,const std::vector<std::vector<float>> &approximate) {
+          if(exact.size()!=probes.size() || approximate.size()!=exact.size())return false;
           for(size_t row=0;row<exact.size();++row) {
-            if(exact[row].size()!=approximate[row].size() ||
+            if(exact[row].size()!=Vocab || exact[row].size()!=approximate[row].size() ||
                 std::max_element(exact[row].begin(),exact[row].end())-exact[row].begin()!=
-                std::max_element(approximate[row].begin(),approximate[row].end())-approximate[row].begin()) {accepted=false;break;}
+                std::max_element(approximate[row].begin(),approximate[row].end())-approximate[row].begin())return false;
             for(size_t token=0;token<exact[row].size();++token) {
               const auto difference=std::abs(exact[row][token]-approximate[row][token]);
-              if(!std::isfinite(approximate[row][token]) || difference>=0.01f) {accepted=false;break;}
+              if(!std::isfinite(approximate[row][token]) || difference>=0.01f)return false;
               integer_calibration.maximumError=std::max(integer_calibration.maximumError,double(difference));
             }
           }
+          return true;
+        };
+        // Numerical validation and steady-state speed are different checks.
+        // Bound cold initialization separately so a lazy library/page warm-up
+        // cannot be misreported as an arithmetic mismatch in the whole kernel.
+        std::vector<std::vector<float>> warm_exact,warm_integer;
+        integer_calibration.validated=measure(false,warm_exact,integer_calibration.numericalWarmMS[0],20) &&
+            measure(true,warm_integer,integer_calibration.numericalWarmMS[1],20) && agree(warm_exact,warm_integer);
+        bool accepted=integer_calibration.validated;
+        for(int repetition=0;repetition<3 && accepted;++repetition) {
+          std::vector<std::vector<float>> exact,approximate;double slow=0,fast=0;
+          if(repetition%2)accepted=measure(true,approximate,fast,5) && measure(false,exact,slow,5);
+          else accepted=measure(false,exact,slow,5) && measure(true,approximate,fast,5);
+          integer_calibration.exactMS[repetition]=slow;integer_calibration.integerMS[repetition]=fast;
+          if(!accepted)break;
+          if(!agree(exact,approximate)) {accepted=false;integer_calibration.validated=false;break;}
           if(slow<=0) {accepted=false;break;}
           ratios[repetition]=fast/slow;++integer_calibration.comparisons;
         }
-        integer_calibration.validated=accepted && integer_calibration.comparisons==3;
-        // Compare paired runs in alternating order. A scheduler outlier must
-        // not pick the kernel; require a ten-percent median gain. Every run
-        // still has the same five-millisecond limit and numerical checks.
+        // Three paired, alternating runs must show a ten-percent median gain.
+        // The existing live prefix and whole-score gates are independent.
         std::sort(ratios.begin(),ratios.end());
-        set_native_integer_enabled(integer_calibration.validated && ratios[1]<0.9);
+        set_native_integer_enabled(integer_calibration.validated && accepted && integer_calibration.comparisons==3 && ratios[1]<0.9);
       }
       #endif
 

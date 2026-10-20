@@ -20,7 +20,7 @@ int main(int argc,char **argv){
   const bool prefix_calibrated=after.native_ready();
   const auto probe=after.native_integer_calibration();
   std::cout<<"{\"probeAvailable\":"<<probe.available<<",\"probeValidated\":"<<probe.validated<<",\"probeComparisons\":"<<probe.comparisons
-    <<",\"probeMaximumError\":"<<probe.maximumError<<",\"prefixCalibrated\":"<<prefix_calibrated<<",\"probeMS\":[";
+    <<",\"probeWarmMS\":["<<probe.numericalWarmMS[0]<<","<<probe.numericalWarmMS[1]<<"],\"probeMaximumError\":"<<probe.maximumError<<",\"prefixCalibrated\":"<<prefix_calibrated<<",\"probeMS\":[";
   for(int i=0;i<3;++i)std::cout<<(i?",":"")<<"["<<probe.exactMS[i]<<","<<probe.integerMS[i]<<"]";std::cout<<"]}\n";
   std::cout<<"{\"wholeReferenceAvailable\":"<<probe.wholeReferenceAvailable<<",\"wholeNumericallyValidated\":"<<probe.wholeValidated<<",\"wholeProbeMaximumError\":"<<probe.wholeMaximumError<<",\"wholeProbeMS\":[";
   for(int i=0;i<3;++i)std::cout<<(i?",":"")<<"["<<probe.wholeExactMS[i]<<","<<probe.wholeIntegerMS[i]<<"]";std::cout<<"]}\n";
