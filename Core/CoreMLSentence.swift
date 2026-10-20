@@ -20,6 +20,75 @@ final class CoreMLSentence {
     #if canImport(CoreML)
     private var prefixState: CoreMLPrefixState?
     private var candidateScorer: CoreMLCandidateScorer?
+    private struct PrefixAttempt {
+        let state: CoreMLPrefixState?
+        let vocabulary: [String], metadata: [String: String], timings: [Double]
+        let numericalValidation: Bool, maximumError: Double, function: String
+        var enabled: Bool { state != nil }
+    }
+    private struct ScoreAttempt {
+        let scorer: CoreMLCandidateScorer?
+        let timings: [Double]
+        let numericalValidation: Bool
+        var enabled: Bool { scorer != nil }
+    }
+    @available(macOS 15.0, iOS 18.0, *)
+    private func checkedScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits) throws -> ScoreAttempt? {
+        try autoreleasepool {
+            let bytes = try Data(contentsOf: directory.appendingPathComponent("CoreML25M-score-validation.json"))
+            guard let reference = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  reference["sourceSHA256"] as? String == metadata["source_sha256"],
+                  let rows = reference["rows"] as? [[String: Any]], rows.count == 8,
+                  metadata["score_format"] == "clear-score-v1: 4x16 tokens,targets,valid_mask -> 4 means" else { return nil }
+            let configuration = MLModelConfiguration(); configuration.computeUnits = units; configuration.functionName = "score"
+            let model = try MLModel(contentsOf: directory.appendingPathComponent("ClearSentence25M.mlmodelc"), configuration: configuration)
+            let scorer = try CoreMLCandidateScorer(model: model, vocabulary: vocabulary)
+            var timings: [Double] = []
+            for start in stride(from: 0, to: 8, by: 4) {
+                let slice = Array(rows[start..<start + 4]), texts = slice.compactMap { $0["text"] as? String }
+                guard texts.count == 4, let scores = try scorer.score(texts, abandoned: { false }) else { return nil }
+                for row in 0..<4 {
+                    guard let expected = slice[row]["score"] as? Double, abs(Double(scores[row]) - expected) < 0.025 else {
+                        return ScoreAttempt(scorer: nil, timings: [], numericalValidation: false)
+                    }
+                }
+            }
+            let texts = rows.prefix(4).compactMap { $0["text"] as? String }
+            for _ in 0..<3 {
+                scorer.clearScores(); guard try scorer.score(texts, abandoned: { false }) != nil else { return nil }
+                timings.append(scorer.lastPredictionMilliseconds)
+            }
+            let enabled = timings.count == 3 && timings.allSatisfy { $0 < 10 }
+            return ScoreAttempt(scorer: enabled ? scorer : nil, timings: timings, numericalValidation: true)
+        }
+    }
+    @available(macOS 15.0, iOS 18.0, *)
+    private func checkedPrefix(directory: URL, function: String, sequences: [String], expected: [[String: Any]], units: MLComputeUnits) throws -> PrefixAttempt? {
+        try autoreleasepool {
+            let configuration = MLModelConfiguration(); configuration.computeUnits = units; configuration.functionName = function
+            let model = try MLModel(contentsOf: directory.appendingPathComponent("ClearSentence25M.mlmodelc"), configuration: configuration)
+            guard let metadata = model.modelDescription.metadata[.creatorDefinedKey] as? [String: String],
+                  metadata["source_sha256"] == "0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469",
+                  metadata["state_format"] == "clear-kv-v1: layers,batch,time,hidden -> batch,layers,hidden",
+                  let encoded = metadata["vocab"]?.data(using: .utf8),
+                  let vocabulary = try JSONSerialization.jsonObject(with: encoded) as? [String], vocabulary.count == 12_288 else { return nil }
+            let state = try CoreMLPrefixState(model: model, vocabulary: vocabulary)
+            var timings: [Double] = [], validated = 0, maximum = 0.0
+            for step in 0..<16 {
+                guard let output = try state.next(sequences.map { String($0.prefix(step)) }, abandoned: { false }) else { return nil }
+                for item in expected where item["step"] as? Int == step {
+                    guard let row = item["row"] as? Int, let token = item["token"] as? Int,
+                          let value = item["value"] as? Double, (0..<8).contains(row), (0..<12_288).contains(token) else { return nil }
+                    maximum = max(maximum, abs(Double(output[row * 12_288 + token]) - value)); validated += 1
+                }
+                if step >= 14 { timings.append(state.lastPredictionMilliseconds) }
+            }
+            let numerical = validated == expected.count && maximum < 0.025
+            let enabled = numerical && timings.count == 2 && timings.allSatisfy { $0 < 4 }
+            return PrefixAttempt(state: enabled ? state : nil, vocabulary: vocabulary, metadata: metadata,
+                timings: timings, numericalValidation: numerical, maximumError: maximum, function: function)
+        }
+    }
     #endif
     private final class Request {
         let lock = NSLock(), signal = DispatchSemaphore(value: 0)
@@ -57,57 +126,20 @@ final class CoreMLSentence {
                       let sequences = validation["sequences"] as? [String], sequences.count == 8,
                       sequences.allSatisfy({ $0.count == 15 }),
                       let expected = validation["expected"] as? [[String: Any]], expected.count >= 200 else { return }
-                let configuration = MLModelConfiguration(); configuration.computeUnits = .cpuAndNeuralEngine; configuration.functionName = "step"
-                let accelerated = try MLModel(contentsOf: directory.appendingPathComponent("ClearSentence25M.mlmodelc"), configuration: configuration)
-                guard let metadata = accelerated.modelDescription.metadata[.creatorDefinedKey] as? [String: String],
-                      metadata["source_sha256"] == "0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469",
-                      metadata["state_format"] == "clear-kv-v1: layers,batch,time,hidden -> batch,layers,hidden",
-                      let encoded = metadata["vocab"]?.data(using: .utf8),
-                      let vocab = try JSONSerialization.jsonObject(with: encoded) as? [String], vocab.count == 12_288 else { return }
-                let state = try CoreMLPrefixState(model: accelerated, vocabulary: vocab)
-                var timings: [Double] = [], validated = 0
-                for step in 0..<16 {
-                    guard let output = try state.next(sequences.map { String($0.prefix(step)) }, abandoned: { false }) else { return }
-                    for item in expected where item["step"] as? Int == step {
-                        guard let row = item["row"] as? Int, let token = item["token"] as? Int,
-                              let value = item["value"] as? Double,
-                              (0..<8).contains(row), (0..<12_288).contains(token),
-                              output[row * 12_288 + token].isFinite,
-                              abs(Double(output[row * 12_288 + token]) - value) < 0.025 else { return }
-                        validated += 1
-                    }
-                    if step >= 14 { timings.append(state.lastPredictionMilliseconds) }
-                }
-                guard validated == expected.count else { return }
-                let enabled = timings.max().map { $0 < 4 } ?? false
-                let scoreBytes = try Data(contentsOf: directory.appendingPathComponent("CoreML25M-score-validation.json"))
-                guard let reference = try JSONSerialization.jsonObject(with: scoreBytes) as? [String: Any],
-                      reference["sourceSHA256"] as? String == metadata["source_sha256"],
-                      let rows = reference["rows"] as? [[String: Any]], rows.count == 8,
-                      metadata["score_format"] == "clear-score-v1: 4x16 tokens,targets,valid_mask -> 4 means" else { return }
-                let scoreConfiguration = MLModelConfiguration(); scoreConfiguration.computeUnits = .cpuAndNeuralEngine; scoreConfiguration.functionName = "score"
-                let scoreModel = try MLModel(contentsOf: directory.appendingPathComponent("ClearSentence25M.mlmodelc"), configuration: scoreConfiguration)
-                let scorer = try CoreMLCandidateScorer(model: scoreModel, vocabulary: vocab)
-                var scoreTimings: [Double] = []
-                for start in stride(from: 0, to: 8, by: 4) {
-                    let slice = Array(rows[start..<start + 4])
-                    let texts = slice.compactMap { $0["text"] as? String }
-                    guard texts.count == 4, let scores = try scorer.score(texts, abandoned: { false }) else { return }
-                    for row in 0..<4 {
-                        guard let expected = slice[row]["score"] as? Double,
-                              abs(Double(scores[row]) - expected) < 0.025 else { return }
-                    }
-                }
-                let scoreTexts = rows.prefix(4).compactMap { $0["text"] as? String }
-                for _ in 0..<3 {
-                    scorer.clearScores()
-                    guard try scorer.score(scoreTexts, abandoned: { false }) != nil else { return }
-                    scoreTimings.append(scorer.lastPredictionMilliseconds)
-                }
-                let scoreEnabled = scoreTimings.max().map { $0 < 10 } ?? false
+                let fast = try? checkedPrefix(directory: directory, function: "step_fast", sequences: sequences, expected: expected, units: .cpuAndNeuralEngine)
+                let selected = fast?.enabled == true ? fast : ((try? checkedPrefix(directory: directory, function: "step", sequences: sequences, expected: expected, units: .cpuAndNeuralEngine)) ?? fast)
+                guard let selected else { return }
+                let state = selected.state, vocab = selected.vocabulary, metadata = selected.metadata
+                let enabled = selected.enabled, timings = selected.timings
+                let scoring = os_proc_available_memory() >= 64 * 1_024 * 1_024
+                    ? (try? checkedScorer(directory: directory, vocabulary: vocab, metadata: metadata, units: .cpuAndNeuralEngine)) : nil
+                let scorer = scoring?.scorer, scoreEnabled = scoring?.enabled ?? false, scoreTimings = scoring?.timings ?? []
                 let diagnostics: [String: Any] = ["model": "25M", "stateFormat": "clear-kv-v1", "predictionMS": timings,
-                    "numericalValidation": "passed", "enabled": enabled, "scoreEnabled": scoreEnabled,
+                    "numericalValidation": selected.numericalValidation ? "passed" : "prefix_not_enabled", "enabled": enabled, "scoreEnabled": scoreEnabled,
+                    "scoreNumericalValidation": scoring?.numericalValidation ?? false,
                     "scorePredictionMS": scoreTimings, "scoreCandidateLimit": 4,
+                    "prefixFunction": selected.function, "fastPrefixEnabled": fast?.enabled ?? false,
+                    "prefixNumericalValidation": selected.numericalValidation, "maximumPrefixError": selected.maximumError,
                     "actualANEPlacementVerified": false, "energyMeasured": false]
                 if let bytes = try? JSONSerialization.data(withJSONObject: diagnostics, options: [.sortedKeys]),
                    let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
@@ -145,7 +177,8 @@ final class CoreMLSentence {
                         values.withUnsafeBufferPointer { output.update(from: $0.baseAddress!, count: $0.count) }; return 1
                     }, nil)
                 }
-                lock.lock(); epoch += 1; lock.unlock()
+                lock.lock(); let limitedAfterRegistration = constrained; epoch += 1; lock.unlock()
+                if limitedAfterRegistration { cr_set_sentence_predictor(nil, nil); cr_set_sentence_scorer(nil, nil) }
             } catch { }
         }
         #endif

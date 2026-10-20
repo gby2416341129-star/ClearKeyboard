@@ -101,14 +101,16 @@ def export(root,build_only=False):
     if build_only:
         print(json.dumps({'status':'MIL_typecheck_passed','ops':counts,'executionVerified':False}));return
     target=root/'.rime-cache/shared25m';target.mkdir(parents=True,exist_ok=True)
+    step_fast,_=programs(arrays)
     paths={}
-    for name,program in [('step',step),('score',score)]:
-        names=['log_probs','new_k','new_v'] if name=='step' else ['mean_scores']
+    for name,program in [('step',step),('step_fast',step_fast),('score',score)]:
+        names=['mean_scores'] if name=='score' else ['log_probs','new_k','new_v']
+        mixed=ct.transform.FP16ComputePrecision(op_selector=lambda op: op.op_type not in
+            {'layer_norm','softmax','reduce_log_sum_exp','sub','gather_along_axis','squeeze','reduce_sum','real_div'} and op.name not in {'score_masked_logp','vocab_projection'})
         model=ct.convert(program,convert_to='mlprogram',minimum_deployment_target=ct.target.iOS18,
             # Keep probability normalization and final reductions in float32;
             # half normalization drift must not change sentence ranking.
-            compute_precision=ct.transform.FP16ComputePrecision(op_selector=lambda op: op.op_type not in
-                {'layer_norm','softmax','reduce_log_sum_exp','sub','gather_along_axis','squeeze','reduce_sum','real_div'} and op.name not in {'score_masked_logp','vocab_projection'}),
+            compute_precision=ct.precision.FLOAT32 if name=='step' else mixed,
             outputs=[ct.TensorType(name=value,dtype=np.float32) for value in names],skip_model_load=True)
         for key,value in metadata.items():model.user_defined_metadata[key]=value
         model.user_defined_metadata['source_sha256']=SOURCE_SHA
@@ -125,7 +127,7 @@ def export(root,build_only=False):
     merged.user_defined_metadata['source_sha256']=SOURCE_SHA
     merged.user_defined_metadata['state_format']='clear-kv-v1: layers,batch,time,hidden -> batch,layers,hidden'
     merged.user_defined_metadata['score_format']='clear-score-v1: 4x16 tokens,targets,valid_mask -> 4 means'
-    merged.user_defined_metadata['compute_precision']='mixed float16 transformer and float32 probabilities; original int8 weights'
+    merged.user_defined_metadata['compute_precision']='float32 step fallback; optional mixed step_fast and score; original int8 weights'
     merged.license=metadata['license']
     final=target/'ClearSentence25M.mlpackage';merged.save(str(final))
     size=lambda path:sum(p.stat().st_size for p in path.rglob('*') if p.is_file())

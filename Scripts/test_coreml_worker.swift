@@ -15,6 +15,16 @@ func cr_trim_sentence_cache() {}
         let metadata = model.modelDescription.metadata[.creatorDefinedKey] as! [String: String]
         let vocabulary = try JSONSerialization.jsonObject(with: metadata["vocab"]!.data(using: .utf8)!) as! [String]
         let worker = CoreMLSentence()
+        let numerical = fixture["expected"] as! [[String: Any]]
+        let checked = try worker.checkedPrefix(directory: directory, function: "step", sequences: sequences, expected: numerical, units: .cpuOnly)
+        expect(checked?.numericalValidation == true, "High-precision fallback did not pass the production selector")
+        let incorrect = numerical.map { row -> [String: Any] in var changed = row; changed["value"] = (row["value"] as! Double) + 1; return changed }
+        let rejected = try worker.checkedPrefix(directory: directory, function: "step", sequences: sequences, expected: incorrect, units: .cpuOnly)
+        expect(rejected?.numericalValidation == false && rejected?.enabled == false,
+            "Production selector enabled a backend that failed numerical validation")
+        let faster = try worker.checkedPrefix(directory: directory, function: "step_fast", sequences: sequences, expected: numerical, units: .cpuOnly)
+        let checkedScore = try worker.checkedScorer(directory: directory, vocabulary: vocabulary, metadata: checked!.metadata, units: .cpuOnly)
+        expect(checkedScore?.numericalValidation == true, "Whole-sentence selector failed source verification")
         worker.prefixState = try CoreMLPrefixState(model: model, vocabulary: vocabulary)
         worker.ready = true
         let sequences = ["我们明天再讨论", "你今天吃饭了吗", "他们已经回家了", "她正在准备晚饭"]
@@ -98,6 +108,9 @@ func cr_trim_sentence_cache() {}
             "successResetsConsecutiveFaults": true, "threeRealFaultsDisableBackend": true,
             "wholeSentenceDeadlineRequests": 4, "wholeSentenceCachedRecovery": true,
             "wholeSentenceRealFaultsDisableBackend": true,
+            "highPrecisionSelectorPassed": true, "numericalFailureCannotEnableBackend": true,
+            "fastPrefixNumericalValidation": faster?.numericalValidation ?? false,
+            "fastPrefixMaximumError": faster?.maximumError ?? -1,
             "scope": "macOS real Core ML CPU_ONLY and the production worker method; no iOS runtime, ANE or phone latency"]
         print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
     }
