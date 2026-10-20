@@ -1,4 +1,4 @@
-name: Validate bounded native batch inference
+name: Validate experimental int16 native kernel
 on:
   push:
     branches: [codex/ime-native-batch-20261021]
@@ -19,35 +19,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Restore the exact existing model and verified source reference
+      - name: Restore unchanged weights and pinned shipping F32 reference
         run: |
           python3 Scripts/prepare_ime_model.py
           mkdir -p .build
           python3 - <<'PY'
           import hashlib,urllib.request,json
           from pathlib import Path
-          url='https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/5aa07f314dca525b990da1f8a65071ec17779eec/CRime/private/clear_sentence.h'
-          data=urllib.request.urlopen(url,timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()=='3726b2b3eed6fca9c3eaff7bed37c3f50cd01cf74f5cb08a2f25ec402b14b9d6'
+          data=urllib.request.urlopen('https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/1832b8ac6bb6e3fd8ed3b0318fad54781377f91b/CRime/private/clear_sentence.h',timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()=='d774e6ed81315e3b665249da09ba674df0ef667ca19ff83b39ae13c41dde0678'
           Path('.build/native-reference.h').write_bytes(data)
           fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
           Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
           PY
-      - name: Check single-thread small-matrix inference with exact activation
+      - name: Check approximate int16 arithmetic, cache, cancellation and ARM cost
         run: |
-          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -DCLEAR_NATIVE_PANEL=512 -DACCELERATE_NEW_LAPACK -DCLEAR_NATIVE_SINGLE_THREAD -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-size
-          .build/test-native-batch-size Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
-      - name: Check single-thread small-matrix inference with vector activation
-        run: |
-          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -DCLEAR_NATIVE_PANEL=512 -DCLEAR_NATIVE_FAST_GELU -DACCELERATE_NEW_LAPACK -DCLEAR_NATIVE_SINGLE_THREAD -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
-          .build/test-native-batch-speed Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
-      - name: Read the current shipping target optimization settings without running iOS
-        run: |
-          xcodebuild -project ClearKeyboard.xcodeproj -target ClearKeyboardExtension -configuration Release -sdk iphoneos -showBuildSettings > .build/native-build-settings.txt
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          lines=Path('.build/native-build-settings.txt').read_text().splitlines()
-          selected=[line.strip() for line in lines if any(key+' =' in line for key in ['GCC_OPTIMIZATION_LEVEL','SWIFT_OPTIMIZATION_LEVEL','OTHER_CPLUSPLUSFLAGS','CLANG_CXX_LANGUAGE_STANDARD'])]
-          print(json.dumps({'shippingBuildSettings':selected,'iOSRuntimeTestsRun':False}))
-          PY
+          c++ -O3 -UNDEBUG -DACCELERATE_NEW_LAPACK -std=c++17 -framework Accelerate Scripts/test_native_int16.cpp -o .build/test-native-int16
+          .build/test-native-int16 Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv

@@ -416,16 +416,22 @@ import os
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
         guard animate, oldText != candidate.text, !UIAccessibility.isReduceMotionEnabled else { return }
+        let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
+        let rate = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
         // The new text and hit geometry are already committed. One replaceable
         // layer animation softens the glyph change; it never queues a result,
         // springs a cell, delays selection, or animates native scrolling.
         if replacingVisibleText, (oldText?.utf16.count ?? 0) <= 32, candidate.text.utf16.count <= 32 {
             let fade = CATransition(); fade.type = .fade; fade.duration = 0.085
+            // Keep the timing request on the animation after the one-shot
+            // submission link goes idle. The system still chooses the rate.
+            fade.preferredFrameRateRange = rate
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
             label.layer.add(fade, forKey: "candidateText")
         } else {
             // Avoid snapshotting a very long offscreen label just to fade it.
             let fade = CABasicAnimation(keyPath: "opacity")
+            fade.preferredFrameRateRange = rate
             fade.fromValue = 0.7; fade.toValue = 1; fade.duration = 0.065
             fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
             label.layer.add(fade, forKey: "candidateText")

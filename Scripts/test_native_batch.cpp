@@ -7,7 +7,7 @@
 #undef clear_sentence
 #undef CLEAR_SENTENCE_H
 #ifdef CLEAR_LOCAL_BENCH
-#include "after/clear_sentence.h"
+#include "production/clear_sentence.h"
 #else
 #include "../CRime/private/clear_sentence.h"
 #endif
@@ -24,7 +24,8 @@ template<class B> B budget(double milliseconds=10000) {
 int cancel_count(void *context){return --*static_cast<int*>(context)<=0;}
 int main(int argc,char **argv){
   assert(argc==2 || argc==3);reference_sentence::Model before;clear_sentence::Model after;
-  assert(before.load(argv[1]) && after.load(argv[1]));before.set_native_enabled(true);after.set_native_enabled(true);
+  assert(before.load(argv[1]) && after.load(argv[1]));const int calibrated_limit=after.native_score_limit();
+  before.set_native_enabled(true);after.set_native_enabled(true);
   size_t compared=0;double maximum=0;
   auto check=[&](const std::vector<std::string> &values,bool cold){
     if(cold){before.clear_cache();after.clear_cache();}
@@ -104,6 +105,16 @@ int main(int argc,char **argv){
   assert(!after.native_full({""},output,budget<clear_sentence::Budget>()) && output==std::vector<float>{123});
   assert(!after.native_full(std::vector<std::string>(5,u8"我们"),output,budget<clear_sentence::Budget>()) && output==std::vector<float>{123});
   assert(!after.native_full(sentences,output,budget<clear_sentence::Budget>(0)) && output==std::vector<float>{123});
+  assert(!after.native_full(sentences,output,budget<clear_sentence::Budget>(),1) && output==std::vector<float>{123});
+  after.set_native_enabled(false);assert(!after.native_ready() && !after.has_scorer() && after.native_score_limit()==0);after.set_native_enabled(true);
+  std::vector<float> activations(400001),scratch;double activation_error=0;
+  for(size_t i=0;i<activations.size();++i)activations[i]=static_cast<float>(i)*0.0001f-20;
+  const auto input_activations=activations;clear_sentence::gelu_many(activations.data(),static_cast<int>(activations.size()),scratch);
+  for(size_t i=0;i<activations.size();++i) {
+    const float x=input_activations[i],expected=0.5f*x*(1+std::erf(x*0.7071067811865475f));
+    activation_error=std::max(activation_error,double(std::abs(activations[i]-expected)));
+  }
+  assert(activation_error<0.000003);
   if(argc==3) {
     std::ifstream fixture(argv[2]);assert(fixture);std::string line;std::vector<std::string> texts;std::vector<float> expected;
     auto verify=[&]{
@@ -128,20 +139,14 @@ int main(int argc,char **argv){
   }
   auto median=[](std::vector<double> values){std::sort(values.begin(),values.end());return(values[values.size()/2-1]+values[values.size()/2])/2;};
   std::vector<double> full_ms;
-  #ifdef CLEAR_NATIVE_PROFILE
-  clear_sentence::matrix_ms=clear_sentence::gelu_ms=clear_sentence::softmax_ms=clear_sentence::dequant_ms=clear_sentence::gemm_ms=0;
-  #endif
   for(int repetition=0;repetition<13;++repetition) {
     std::vector<float> actual;const auto start=std::chrono::steady_clock::now();
     assert(after.native_full(sentences,actual,budget<clear_sentence::Budget>()));
     const auto cost=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
     if(repetition)full_ms.push_back(cost);
   }
-  std::cout<<"{\"fullSequenceCompared\":"<<full_compared<<",\"fullSequenceMaximumError\":"<<full_error<<",\"fullSequenceMedianMS\":"<<median(full_ms)<<",\"fullSequenceMS\":[";
+  std::cout<<"{\"calibratedNativePositionLimit\":"<<calibrated_limit<<",\"activationMaximumError\":"<<activation_error<<",\"fullSequenceCompared\":"<<full_compared<<",\"fullSequenceMaximumError\":"<<full_error<<",\"fullSequenceMedianMS\":"<<median(full_ms)<<",\"fullSequenceMS\":[";
   for(size_t i=0;i<full_ms.size();++i)std::cout<<(i?",":"")<<full_ms[i];std::cout<<"]}\n";
-  #ifdef CLEAR_NATIVE_PROFILE
-  std::cout<<"{\"matrixMS\":"<<clear_sentence::matrix_ms/13<<",\"geluMS\":"<<clear_sentence::gelu_ms/13<<",\"softmaxMS\":"<<clear_sentence::softmax_ms/13<<",\"dequantMS\":"<<clear_sentence::dequant_ms/13<<",\"gemmMS\":"<<clear_sentence::gemm_ms/13<<"}\n";
-  #endif
   std::cout<<"{\"status\":\"passed\",\"scope\":\"Native CPU numeric, cache, cancellation and cold four-sentence workload; not phone or UI latency\",\"comparedValues\":"<<compared<<",\"maximumError\":"<<maximum<<",\"beforeMedianMS\":"<<median(baseline_ms)<<",\"afterMedianMS\":"<<median(batched_ms)<<",\"speedup\":"<<median(baseline_ms)/median(batched_ms)<<",\"afterCachePositions\":"<<after.cached_positions()<<",\"beforeMS\":[";
   for(size_t i=0;i<baseline_ms.size();++i)std::cout<<(i?",":"")<<baseline_ms[i];std::cout<<"],\"afterMS\":[";
   for(size_t i=0;i<batched_ms.size();++i)std::cout<<(i?",":"")<<batched_ms[i];std::cout<<"]}\n";

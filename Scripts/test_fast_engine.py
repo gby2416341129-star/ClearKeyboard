@@ -9,7 +9,7 @@ for name in ['Rime','pinyin.clx','english.clx','pinyin-corrections.clx','associa
  target=build/name
  if not target.exists():target.symlink_to(ROOT/'Core/Resources'/name,target_is_directory=name=='Rime')
 library=build/'libclear-test.dylib'
-subprocess.run(['c++','-O2','-std=c++17','-dynamiclib','Scripts/test_fast_engine_bridge.cpp','-F',str(framework.parent),
+subprocess.run(['c++','-O3','-std=c++17','-dynamiclib','Scripts/test_fast_engine_bridge.cpp','-F',str(framework.parent),
  '-framework','RimeDynamic','-framework','Accelerate','-Wl,-rpath,'+str(framework.parent),'-o',str(library)],check=True)
 sources=['Candidate','Lexicon','FuzzyPinyin','Composition','RepetitionModel','InputEngine','RimeDecoder','CoreMLSentence','CoreMLPrefixState','CoreMLCandidateScorer']
 subprocess.run(['swiftc','-O','-parse-as-library','-import-objc-header','CRime/include/ClearRime.h',

@@ -63,9 +63,17 @@ int main(int argc,char **argv) {
   assert(sentence_model->mean_logprob(u8"学习资料",whole_mean,budget) && control.calls==scalar_calls);
   sentence_model->set_scorer(nullptr,nullptr);sentence_model->set_native_enabled(true);
   const std::vector<std::string> texts={u8"这份材料收到了",u8"我们明天再讨论"};
-  std::vector<float> actual,reference;
+  std::vector<float> actual={123},reference,unbounded;
   budget.deadline=clear_sentence::Budget::Clock::now()+std::chrono::seconds(5);
-  assert(sentence_model->compare(texts,actual,budget) && sentence_model->mean_logprobs(texts,reference,budget));
-  for(size_t row=0;row<actual.size();++row) assert(std::abs(actual[row]-reference[row])<0.00001f);
+  // The live native comparator retains its ten-millisecond limit even when a
+  // diagnostic caller supplies five seconds. A slow host must fall back
+  // atomically, not relax the shipping time limit to make this test pass.
+  const bool timely=sentence_model->compare(texts,actual,budget);
+  if(!timely) assert(actual==std::vector<float>{123});
+  assert(sentence_model->native_full(texts,unbounded,budget) && sentence_model->mean_logprobs(texts,reference,budget));
+  for(size_t row=0;row<reference.size();++row) {
+    assert(std::abs(unbounded[row]-reference[row])<0.00001f);
+    if(timely) assert(std::abs(actual[row]-reference[row])<0.00001f);
+  }
   std::cout<<"PASS: legal complete pool, joint margin, dictionary protection, stable paging, atomic invalid/deadline/cancel fallback and native score parity\n";
 }

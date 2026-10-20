@@ -17,7 +17,14 @@
 #include <unordered_set>
 #include <vector>
 #if defined(__APPLE__)
+#ifndef ACCELERATE_NEW_LAPACK
+#define ACCELERATE_NEW_LAPACK 1
+#endif
 #include <Accelerate/Accelerate.h>
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -30,14 +37,6 @@
 #endif
 
 namespace clear_sentence {
-#ifdef CLEAR_NATIVE_PROFILE
-inline double matrix_ms=0,gelu_ms=0,softmax_ms=0,dequant_ms=0,gemm_ms=0;
-struct NativeCost {
-  double &value;std::chrono::steady_clock::time_point start=std::chrono::steady_clock::now();
-  NativeCost(double &value):value(value){}
-  ~NativeCost(){value+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();}
-};
-#endif
 using Cancelled = int (*)(void *);
 struct Budget {
   using Clock = std::chrono::steady_clock;
@@ -133,7 +132,6 @@ template<size_t Batch> inline void dot_many(const int8_t *w,const float *const *
 }
 
 inline void gelu_many(float *values,int count,std::vector<float> &scratch) {
-  #if defined(CLEAR_NATIVE_FAST_GELU)
   // Smooth approximation of erf, evaluated in float32. Acceptance uses the
   // unchanged end-to-end model tolerance, not only this function's error.
   scratch.resize(count);
@@ -164,10 +162,6 @@ inline void gelu_many(float *values,int count,std::vector<float> &scratch) {
     const float poly=(((((1.061405429f*t-1.453152027f)*t)+1.421413741f)*t-0.284496736f)*t+0.254829592f)*t;
     const float erf=std::copysign(1-poly*scratch[i],value);values[i]=0.5f*value*(1+erf);
   }
-  #else
-  (void)scratch;
-  for(int i=0;i<count;++i) {auto &value=values[i];value=0.5f*value*(1+std::erf(value*0.7071067811865475f));}
-  #endif
 }
 
 class Model {
@@ -201,23 +195,14 @@ class Model {
       }
     }
     bool apply_bulk(const float *x,float *out,int count,std::vector<float> &panel,const Budget &budget) const {
-      #ifdef CLEAR_NATIVE_PROFILE
-      NativeCost timer(matrix_ms);
-      #endif
       #if defined(__APPLE__)
-      #ifndef CLEAR_NATIVE_PANEL
-      #define CLEAR_NATIVE_PANEL 128
-      #endif
-      static constexpr int Panel=CLEAR_NATIVE_PANEL;
+      static constexpr int Panel=512;
       panel.resize(Panel*columns);
       for(int start=0;start<rows;start+=Panel) {
         if(!budget.alive()) return false;
         const int width=std::min(Panel,rows-start),size=width*columns;
         const auto *source=weight+start*columns;
         {
-        #ifdef CLEAR_NATIVE_PROFILE
-        NativeCost timer(dequant_ms);
-        #endif
         #if defined(__aarch64__)
         for(int i=0;i<size;i+=16) {
           const auto bytes=vld1q_s8(source+i);
@@ -232,9 +217,6 @@ class Model {
         #endif
         }
         {
-        #ifdef CLEAR_NATIVE_PROFILE
-        NativeCost timer(gemm_ms);
-        #endif
         cblas_sgemm(CblasRowMajor,CblasNoTrans,CblasTrans,count,width,columns,1,x,columns,panel.data(),columns,0,out+start,rows);
         }
         for(int input=0;input<count;++input) for(int row=0;row<width;++row)
@@ -285,6 +267,7 @@ private:
   std::unordered_map<std::string,Mean> means;
   bool loaded=false;
   bool native_enabled=false;
+  int native_score_positions=0;
   const uint8_t *mapped=nullptr;
   size_t mapped_size=0;
   #if !defined(__APPLE__)
@@ -557,12 +540,15 @@ public:
   static constexpr int vocabulary_size=Vocab;
   void set_predictor(Predictor value,void *context) { predictor=value;predictor_context=context; }
   void set_scorer(Scorer value,void *context) { scorer=value;scorer_context=context;means.clear(); }
-  // Prefix calibration is not a speed guarantee for four complete sentences.
-  // Live reranking requires the separately validated one-call backend.
-  bool has_scorer() const { return loaded && scorer; }
+  // Whole scoring has its own measured work limit. A fast prefix probe alone
+  // cannot enable reranking of an arbitrary complete candidate pool.
+  bool has_scorer() const { return loaded && (scorer || native_score_positions>0); }
   bool can_search() const { return loaded && (native_enabled || predictor); }
   bool native_ready() const { return native_enabled; }
-  void set_native_enabled(bool value) { native_enabled=value; }
+  // Explicit override used by standalone numerical tests and memory trimming.
+  // Normal loading assigns the independently calibrated limits instead.
+  void set_native_enabled(bool value) { native_enabled=value;native_score_positions=value?61:0; }
+  int native_score_limit() const { return native_score_positions; }
   const std::string &text(int token) const { return characters[token]; }
   bool next(const std::vector<std::string> &prefixes,std::vector<std::vector<float>> &result,
             const Budget &budget) {
@@ -638,9 +624,15 @@ public:
   // Teacher-forced causal scoring: evaluate independent prefix positions by
   // layer, sharing each weight panel. Attention still sees ancestors only.
   // Temporary float weights are bounded to one panel, never the whole model.
-  bool native_full(const std::vector<std::string> &sentences,std::vector<float> &scores,const Budget &budget) {
+  bool native_full(const std::vector<std::string> &sentences,std::vector<float> &scores,const Budget &budget,int maximum_positions=61) {
     if(!loaded || sentences.empty() || sentences.size()>4 || !budget.alive()) return false;
-    #if defined(__APPLE__) && defined(CLEAR_NATIVE_SINGLE_THREAD)
+    #if defined(__APPLE__)
+    if(__builtin_available(macOS 15.0,iOS 18.0,*)) {} else return false;
+    // Float workspaces occupy less than 8 MiB at the largest supported pool.
+    // Check the extension's remaining allowance rather than total device RAM.
+    #if TARGET_OS_IPHONE
+    if(os_proc_available_memory()<12*1024*1024) return false;
+    #endif
     struct ThreadScope {
       BLAS_THREADING previous;
       bool changed=false;
@@ -671,6 +663,7 @@ public:
       uses.push_back(std::move(path));
     }
     const int count=static_cast<int>(tokens.size());
+    if(count>maximum_positions) return false;
     std::vector<std::array<int,16>> ancestors(count);
     for(int row=0;row<count;++row) {
       int node=row;for(int position=depths[row];position>=0;--position) {ancestors[row][position]=node;node=parents[node];}
@@ -706,9 +699,6 @@ public:
       }
       if(!block.fc.apply_bulk(y.data(),expanded.data(),count,panel,budget)) return false;
       {
-        #ifdef CLEAR_NATIVE_PROFILE
-        NativeCost timer(gelu_ms);
-        #endif
         gelu_many(expanded.data(),static_cast<int>(expanded.size()),gelu_scratch);
       }
       if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget)) return false;
@@ -718,9 +708,6 @@ public:
     std::vector<float> logits(count*Vocab),normalizers(count);
     if(!embedding.apply_bulk(y.data(),logits.data(),count,panel,budget)) return false;
     for(int row=0;row<count;++row) {
-      #ifdef CLEAR_NATIVE_PROFILE
-      NativeCost timer(softmax_ms);
-      #endif
       if(!budget.alive()) return false;
       const auto begin=logits.data()+row*Vocab;const float maximum=*std::max_element(begin,begin+Vocab);double total=0;
       for(int token=0;token<Vocab;++token) total+=std::exp(begin[token]-maximum);
@@ -738,7 +725,7 @@ public:
     // The dedicated full-sequence function also handles an incumbent/seed in
     // one call. Without it, keep causal requests separated by depth.
     std::vector<float> scores;
-    if (!(scorer ? compare({value},scores,budget) : mean_logprobs({value},scores,budget))) return false;
+    if (!((scorer || (!native_enabled && native_score_positions>0)) ? compare({value},scores,budget) : mean_logprobs({value},scores,budget))) return false;
     score=scores.front();return true;
   }
   // Use the full causal graph for a small candidate pool. Cache only complete
@@ -758,6 +745,9 @@ public:
         const auto allowance=std::chrono::duration<double,std::milli>(budget.deadline-Budget::Clock::now()).count();
         complete=allowance>0 && scorer(pointers.data(),static_cast<int>(pointers.size()),values.data(),allowance,
             budget.cancelled,budget.context,scorer_context)>0;
+      } else if (native_score_positions>0) {
+        auto bounded=budget;bounded.deadline=std::min(bounded.deadline,Budget::Clock::now()+std::chrono::milliseconds(10));
+        complete=native_full(missing,values,bounded,native_score_positions);
       } else if (native_enabled) complete=mean_logprobs(missing,values,budget);
       if (!complete || !budget.alive() || values.size()!=missing.size() ||
           !std::all_of(values.begin(),values.end(),[](float value){return std::isfinite(value) && value<=0;})) return false;
@@ -780,7 +770,7 @@ public:
   void clear_cache() { cache.clear(); cache_index.clear(); distributions.clear(); means.clear(); clock=0; }
   bool load(const std::string &path) {
     // A failed reload must never retain partially replaced weights.
-    loaded=false; native_enabled=false; clear_cache(); vocabulary.clear();
+    loaded=false; native_enabled=false; native_score_positions=0; clear_cache(); vocabulary.clear();
     release_mapping();
     #if defined(__APPLE__)
     // Borrow immutable tensors from a read-only mapping. Copying int8 weights
@@ -865,6 +855,26 @@ public:
           // probe passed the old gate but then exhausted every typing budget.
           // Leave that device on Rime until a fast platform predictor is ready.
           std::chrono::duration<double,std::milli>(Budget::Clock::now()-started).count()<0.6;
+      #if defined(__APPLE__)
+      // A seven-position causal graph calibrates a separate, low-memory whole
+      // scorer. Bound each live pool by its actual unique prefix count, not by
+      // candidate count alone. The extrapolation is conservative for the
+      // fixed weight-decoding cost; the live ten-millisecond deadline remains
+      // authoritative even if the device later slows down.
+      std::vector<std::string> probes(2);
+      for(int row=0;row<2;++row) for(int depth=0;depth<4;++depth) probes[row]+=characters[400+row*4+depth];
+      std::vector<float> ignored;
+      Budget warm{Budget::Clock::now()+std::chrono::milliseconds(20),nullptr,nullptr};
+      if(native_full(probes,ignored,warm)) {
+        double worst=0;bool fast=true;
+        for(int repetition=0;repetition<3;++repetition) {
+          const auto begin=Budget::Clock::now();Budget probe{begin+std::chrono::milliseconds(8),nullptr,nullptr};
+          if(!native_full(probes,ignored,probe)) {fast=false;break;}
+          worst=std::max(worst,std::chrono::duration<double,std::milli>(Budget::Clock::now()-begin).count());
+        }
+        if(fast && worst>0 && worst<8) native_score_positions=std::clamp(static_cast<int>(7*8/worst),7,61);
+      }
+      #endif
     }
     return loaded;
   }
@@ -896,3 +906,4 @@ public:
 };
 } // namespace clear_sentence
 #endif
+
