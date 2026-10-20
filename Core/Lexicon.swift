@@ -19,7 +19,8 @@ public final class Lexicon {
     private let stringsOffset: Int
     public var count: Int { entryCount }
 
-    public init(url: URL) throws {
+    public convenience init(url: URL) throws { try self.init(url: url, validateContents: true) }
+    init(url: URL, validateContents: Bool) throws {
         let bytes = try Data(contentsOf: url, options: .mappedIfSafe)
         guard bytes.count >= 32, String(data: bytes.prefix(8), encoding: .utf8) == "CLRX0001" else { throw LexiconError.invalidFormat }
         data = bytes
@@ -29,8 +30,10 @@ public final class Lexicon {
         guard u32(28) == bytes.count, indexOffset == 32 + entryCount * 28,
               resultsOffset == indexOffset + indexCount * 16,
               stringsOffset >= resultsOffset, stringsOffset <= bytes.count else { throw LexiconError.truncated }
-        // Validate all bounds once on the background load queue, never on a keypress.
-        try bytes.withUnsafeBytes { raw in
+        // External dictionaries retain eager validation. Bundled, build-verified
+        // dictionaries validate each accessed record instead: touching every
+        // mapped page here defeated demand paging and delayed keyboard startup.
+        if validateContents { try bytes.withUnsafeBytes { raw in
             func number(_ offset: Int) -> Int { Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: UInt32.self))) }
             for i in 0..<entryCount {
                 let offset = 32 + i * 28
@@ -43,19 +46,22 @@ public final class Lexicon {
                 guard number(offset) + number(offset + 4) <= bytes.count - stringsOffset,
                       (number(offset + 8) + number(offset + 12)) * 4 <= stringsOffset - resultsOffset else { throw LexiconError.truncated }
             }
-        }
+        } }
     }
     private func u32(_ offset: Int) -> UInt32 {
         data.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: offset, as: UInt32.self)) }
     }
-    private func string(_ offset: Int) -> String {
-        let start = stringsOffset + Int(u32(offset)), length = Int(u32(offset + 4))
+    private func string(_ offset: Int) -> String? {
+        let relative = Int(u32(offset)), length = Int(u32(offset + 4))
+        guard relative + length <= data.count - stringsOffset else { return nil }
+        let start = stringsOffset + relative
         return String(decoding: data[start..<(start + length)], as: UTF8.self)
     }
     public func entry(_ id: Int) -> LexiconEntry? {
         guard (0..<entryCount).contains(id) else { return nil }
         let base = 32 + id * 28
-        return LexiconEntry(key: string(base), text: string(base + 8), reading: string(base + 16), frequency: u32(base + 24))
+        guard let key = string(base), let text = string(base + 8), let reading = string(base + 16) else { return nil }
+        return LexiconEntry(key: key, text: text, reading: reading, frequency: u32(base + 24))
     }
     private func indexEntry(for key: String) -> Int? {
         let target = Array(key.utf8)
@@ -63,23 +69,31 @@ public final class Lexicon {
         return data.withUnsafeBytes { raw in
             let bytes = raw.bindMemory(to: UInt8.self)
             func number(_ offset: Int) -> Int { Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: offset, as: UInt32.self))) }
-            func compare(_ position: Int) -> Int {
+            func compare(_ position: Int) -> Int? {
                 let base = indexOffset + position * 16
-                let start = stringsOffset + number(base), length = number(base + 4)
+                let relative = number(base), length = number(base + 4)
+                guard relative + length <= data.count - stringsOffset else { return nil }
+                let start = stringsOffset + relative
                 for i in 0..<min(length, target.count) {
                     if bytes[start + i] != target[i] { return bytes[start + i] < target[i] ? -1 : 1 }
                 }
                 return length == target.count ? 0 : (length < target.count ? -1 : 1)
             }
             var low = 0, high = indexCount
-            while low < high { let mid = (low + high) / 2; if compare(mid) < 0 { low = mid + 1 } else { high = mid } }
+            while low < high {
+                let mid = (low + high) / 2
+                guard let order = compare(mid) else { return nil }
+                if order < 0 { low = mid + 1 } else { high = mid }
+            }
             return low < indexCount && compare(low) == 0 ? indexOffset + low * 16 : nil
         }
     }
     public func contains(_ key: String) -> Bool { indexEntry(for: key) != nil }
     public func lookup(_ key: String, limit: Int = 24) -> [LexiconEntry] {
         guard let base = indexEntry(for: key) else { return [] }
-        let start = Int(u32(base + 8)), count = min(max(0, limit), Int(u32(base + 12)))
+        let start = Int(u32(base + 8)), available = Int(u32(base + 12))
+        guard (start + available) * 4 <= stringsOffset - resultsOffset else { return [] }
+        let count = min(max(0, limit), available)
         return (0..<count).compactMap { entry(Int(u32(resultsOffset + (start + $0) * 4))) }
     }
     private static let bundleLock = NSLock()
@@ -93,6 +107,6 @@ public final class Lexicon {
         let bundle = Bundle.main
         #endif
         guard let url = bundle.url(forResource: name, withExtension: "clx") else { throw LexiconError.invalidFormat }
-        let value = try Lexicon(url: url); bundledLexicons[name] = value; return value
+        let value = try Lexicon(url: url, validateContents: false); bundledLexicons[name] = value; return value
     }
 }

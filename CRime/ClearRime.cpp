@@ -1,7 +1,9 @@
 #include "include/ClearRime.h"
 #include "private/rime_api.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -16,10 +18,21 @@ namespace {
 std::recursive_mutex gate;
 RimeApi *api = nullptr;
 std::string shared_path, user_path, prebuilt_path;
-struct Item { std::string text, reading; int consumed; };
+struct Item {
+  std::string text, reading;
+  int consumed;
+  double weight = -std::numeric_limits<double>::infinity();
+};
+struct ChannelCache {
+  std::string input;
+  std::vector<Item> items;
+  std::unordered_set<std::string> seen;
+  int next_index = 0;
+  bool initialized = false, exhausted = false;
+};
 struct Query {
-  std::string input, exact_input, conversation_input, fluent_input;
   uintptr_t exact = 0, conversation = 0, fluent = 0;
+  ChannelCache exact_cache, conversation_cache, fluent_cache, correction_cache;
   std::vector<Item> items;
 };
 std::unordered_map<uintptr_t, Query> queries;
@@ -32,30 +45,72 @@ std::string letters(const std::string &value) {
   for (unsigned char c : value) if (c >= 'a' && c <= 'z') result += c;
   return result;
 }
-void collect(uintptr_t id, const std::string &input, int limit, std::vector<Item> &items,
+void collect(uintptr_t id, const std::string &input, int limit, ChannelCache &cache,
              cr_cancelled cancelled, void *context) {
+  if (!cache.initialized || cache.input != input) {
+    cache = {};
+    api->set_input(id, input.c_str());
+    cache.input = input; cache.initialized = true;
+  }
+  const auto capacity = static_cast<size_t>(std::clamp(limit, 1, 4096));
+  if (cache.exhausted || cache.items.size() >= capacity || (cancelled && cancelled(context))) return;
   RimeCandidateListIterator it = {};
-  if (!api->candidate_list_begin(id, &it)) return;
-  std::unordered_set<std::string> seen;
-  while (items.size() < static_cast<size_t>(std::clamp(limit, 1, 4096)) &&
-         !(cancelled && cancelled(context)) && api->candidate_list_next(&it)) {
+  // Resume the live menu at its next raw index. Rewalking 24, 56, 88... rows
+  // during scrolling was quadratic, even though Rime had already built them.
+  const bool resume = cache.next_index > 0 && api->candidate_list_from_index;
+  if (!(resume ? api->candidate_list_from_index(id, &it, cache.next_index)
+               : api->candidate_list_begin(id, &it))) { cache.exhausted = true; return; }
+  if (!resume) {
+    for (int skipped = 0; skipped < cache.next_index; ++skipped) {
+      if (!api->candidate_list_next(&it)) { cache.exhausted = true; break; }
+    }
+  }
+  while (!cache.exhausted && cache.items.size() < capacity && !(cancelled && cancelled(context))) {
+    if (!api->candidate_list_next(&it)) { cache.exhausted = true; break; }
+    ++cache.next_index;
     std::string comment = it.candidate.comment ? it.candidate.comment : "";
-    auto separator = comment.rfind('\t');
+    auto separator = comment.find('\t');
     int end = 0;
+    double weight = -std::numeric_limits<double>::infinity();
     if (separator != std::string::npos) {
       try { end = std::stoi(comment.substr(separator + 1)); } catch (...) { end = 0; }
+      auto score_separator = comment.find('\t', separator + 1);
+      if (score_separator != std::string::npos) {
+        try { weight = std::stod(comment.substr(score_separator + 1)); } catch (...) {}
+      }
       comment.resize(separator);
     }
     if (end > 0 && end <= static_cast<int>(input.size())) {
       while (end < static_cast<int>(input.size()) && input[end] == '\'') ++end;
       std::string text = it.candidate.text ? it.candidate.text : "";
-      if (!text.empty() && seen.insert(text).second) {
-        items.push_back({std::move(text), comment,
-                         static_cast<int>(letters(input.substr(0, end)).size())});
+      if (!text.empty() && cache.seen.insert(text).second) {
+        cache.items.push_back({std::move(text), comment,
+                         static_cast<int>(letters(input.substr(0, end)).size()), weight});
       }
     }
   }
   api->candidate_list_end(&it);
+}
+bool reliable_literal_sentence(const Item &item, const std::string &input) {
+  if (item.consumed != static_cast<int>(input.size()) || !std::isfinite(item.weight)) return false;
+  const auto reading = letters(item.reading);
+  if (reading.empty()) return false;
+  // Full spelling, or an unfinished LAST syllable only. Internal initials in a
+  // malformed spelling must still be compared with bounded corrections.
+  bool literal = reading == input;
+  if (!literal) {
+    auto last = item.reading.rfind(' ');
+    if (last != std::string::npos) {
+      auto prefix = letters(item.reading.substr(0, last));
+      literal = input.size() > prefix.size() && reading.size() > input.size() &&
+                reading.compare(0, input.size(), input) == 0;
+    }
+  }
+  const auto syllables = 1 + std::count(item.reading.begin(), item.reading.end(), ' ');
+  // A weak but legal reading (e.g. ke instead of le) can still be a typo. This
+  // gate is deliberately conservative; uncertain input uses the same bounded
+  // corrected search, and a real dictionary phrase is handled separately.
+  return literal && item.weight >= -5.0 * syllables;
 }
 // Merge real decoder choices, retaining each candidate's consumed prefix.
 // A handful of exact phrases must not hide sentence alternatives or prevent
@@ -151,20 +206,16 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   std::lock_guard<std::recursive_mutex> lock(gate);
   if (!api || !queries.count(id) || (cancelled && cancelled(context))) return 0;
   auto &query = queries[id]; query.items.clear();
-  if (query.conversation_input != input) {
-    api->set_input(query.conversation, input); query.conversation_input = input;
-  }
-  collect(query.conversation, input, limit, query.items, cancelled, context);
+  collect(query.conversation, input, limit, query.conversation_cache, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
-  auto conversational = std::move(query.items); query.items.clear();
+  const auto &conversational = query.conversation_cache.items;
   // A valid mixed full/initial spelling is a dictionary lookup, not a typo.
   // Share the large table with a correction-free prism and no grammar model.
   // Only a complete dictionary phrase can bypass sentence correction; partial
   // words must not hide a genuinely mistyped sentence.
-  if (query.exact_input != input) { api->set_input(query.exact, input); query.exact_input = input; }
-  collect(query.exact, input, limit, query.items, cancelled, context);
+  collect(query.exact, input, limit, query.exact_cache, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
-  auto literal = std::move(query.items);
+  const auto &literal = query.exact_cache.items;
   std::vector<Item> fluent;
   // Plenty of whole dictionary words require no language-model work. If the
   // dictionaries only have a few, also expose the fluent decoder's alternatives.
@@ -177,11 +228,21 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   // dictionary phrase. Explicit paging can request the larger merged menu.
   const bool leading_row = limit <= 9;
   if (full.empty() || (!leading_row && full.size() < static_cast<size_t>(std::clamp(limit, 1, 4096)))) {
-    auto channel = correction ? id : query.fluent;
-    auto &previous = correction ? query.input : query.fluent_input;
-    if (previous != input) { api->set_input(channel, input); previous = input; }
+    collect(query.fluent, input, correction ? 1 : limit, query.fluent_cache, cancelled, context);
     if (cancelled && cancelled(context)) return 0;
-    collect(channel, previous, limit, fluent, cancelled, context);
+    const auto spelling = letters(input);
+    const bool reliable = !query.fluent_cache.items.empty() &&
+                          reliable_literal_sentence(query.fluent_cache.items.front(), spelling);
+    if (!correction || reliable) {
+      collect(query.fluent, input, limit, query.fluent_cache, cancelled, context);
+      fluent = query.fluent_cache.items;
+    } else {
+      collect(id, input, limit, query.correction_cache, cancelled, context);
+      fluent = query.correction_cache.items;
+      // Retain literal alternatives when correction was needed; never lose the
+      // user's original interpretation solely because a correction scored well.
+      fluent.insert(fluent.end(), query.fluent_cache.items.begin(), query.fluent_cache.items.end());
+    }
   }
   if (cancelled && cancelled(context)) return 0;
   query.items = merge_candidates(input, conversational, literal, fluent, limit);
@@ -199,7 +260,7 @@ int cr_candidate(uintptr_t id, int index, char *text, size_t capacity,
   if (!api || !queries.count(id)) return 0;
   auto &query = queries[id];
   if (index < 0 || static_cast<size_t>(index) >= query.items.size()) return 0;
-  auto item = query.items[index];
+  const auto &item = query.items[index];
   copy(item.text, text, capacity); copy(item.reading, reading, reading_capacity);
   return item.consumed;
 }

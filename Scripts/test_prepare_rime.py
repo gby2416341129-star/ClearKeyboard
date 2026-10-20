@@ -4,25 +4,25 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from prepare_rime import associations, short_initial_words
+from prepare_rime import INITIAL_LIMIT, associations, short_initial_words
 
 
 class ShortInitialIndexTests(unittest.TestCase):
     def test_top_words_are_bounded_and_conversation_duplicates_replace(self):
-        words = [(f"词{i}", "da jia", i) for i in range(20)]
-        values = short_initial_words(words, [("词19", "da jia", 1), ("会话", "da jia", 2)])["dj"]
-        self.assertEqual(len(values), 8)
+        words = [(f"词{i}", "da jia", i) for i in range(40)]
+        values = short_initial_words(words, [("词39", "da jia", 1), ("会话", "da jia", 2)])["dj"]
+        self.assertEqual(len(values), INITIAL_LIMIT)
         ranked = sorted(values, reverse=True)
-        self.assertEqual([row[2] for row in ranked[:2]], ["会话", "词19"])
-        self.assertEqual(sum(row[2] == "词19" for row in values), 1)
-        self.assertEqual(ranked[2][2], "词18")
+        self.assertEqual([row[2] for row in ranked[:2]], ["会话", "词39"])
+        self.assertEqual(sum(row[2] == "词39" for row in values), 1)
+        self.assertEqual(ranked[2][2], "词38")
 
-    def test_only_complete_short_initial_codes_are_indexed(self):
+    def test_complete_words_and_bounded_initial_prefixes_are_indexed(self):
         values = short_initial_words([
             ("的", "de", 100), ("道教典籍", "dao jiao dian ji", 50),
             ("超过四个字", "chao guo si ge zi", 20),
         ])
-        self.assertEqual(set(values), {"d", "djdj"})
+        self.assertEqual(set(values), {"d", "djd", "djdj", "cgs", "cgsg"})
         self.assertEqual(values["djdj"][0][2:], ("道教典籍", "dao jiao dian ji"))
 
     def test_binary_keeps_readings_and_existing_continuations_and_english(self):

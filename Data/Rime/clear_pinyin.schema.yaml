@@ -39,7 +39,10 @@ translator:
   enable_sentence: true
   enable_completion: true
   enable_word_completion: false
-  enable_correction: true
+  # The marked algebra rules above handle bounded keyboard mistakes. Enabling
+  # the additional tolerance search also rewrites already valid syllables
+  # (ni -> bu, chi -> chu) and expands the graph at every input position.
+  enable_correction: false
   strict_spelling: true
   max_sentences: 4
   always_show_comments: true

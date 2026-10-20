@@ -90,6 +90,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     // Keep them independent of the serial sentence decoder so a long sentence
     // never holds up the next common-word lookup.
     private let wordQueue = DispatchQueue(label: "clear.words", qos: .userInitiated)
+    private let warmQueue = DispatchQueue(label: "clear.words.prefetch", qos: .utility)
     private let wordLookup: (InputEngine, String, [Candidate]) -> [Candidate]
     private let hotWords = HotWordCache()
     private let warmsWords: Bool
@@ -191,7 +192,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             return query
         }
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
-        let lookup = wordLookup, cache = hotWords, warm = warmsWords
+        let lookup = wordLookup, cache = hotWords, warm = warmsWords, prefetch = warmQueue
         warmCancellation.cancel()
         let warmToken = QueryCancellation(); warmCancellation = warmToken
         let cachedWords = warm ? cache.value(raw) : nil
@@ -226,11 +227,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             // Warm only the next 26 contacts, never all possible spellings.
             // New input cancels this batch between read-only dictionary lookups.
-            if warm, raw.count <= 4, !raw.contains("'") {
-                for letter in "abcdefghijklmnopqrstuvwxyz" {
-                    guard !warmToken.isCancelled, !query.token.isCancelled else { return }
-                    let next = raw + String(letter)
-                    if cache.value(next) == nil { cache.put(next, lookup(engine, next, [])) }
+            if warm, raw.count < 4, !raw.contains("'") {
+                // Speculative reads must never occupy the worker that services
+                // the next actual contact. The cache is independently locked.
+                prefetch.async {
+                    for letter in "abcdefghijklmnopqrstuvwxyz" {
+                        guard !warmToken.isCancelled, !query.token.isCancelled else { return }
+                        let next = raw + String(letter)
+                        if cache.value(next) == nil { cache.put(next, lookup(engine, next, [])) }
+                    }
                 }
             }
         }
@@ -320,15 +325,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         personal = defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
         learningEpoch = defaults.string(forKey: "clear.learned.epoch")
         if document.prefersEnglish { self.settings.language = .english }
-        let cache = hotWords, warm = warmsWords
+        let cache = hotWords, warm = warmsWords, prefetch = warmQueue
         queue.async { [weak self] in
             let result = Result { try InputEngine.bundled() }
-            if warm, case .success(let engine) = result {
-                for letter in "abcdefghijklmnopqrstuvwxyz" {
-                    let raw = String(letter)
-                    cache.put(raw, engine.immediateCandidates(raw))
-                }
-            }
             DispatchQueue.main.async {
                 guard let self else { return }
                 switch result {
@@ -336,6 +335,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
                     self.resumeDeferredActions()
                 case .failure: self.engineState = "词库不可用 · 可继续输入英文"; self.onChange?()
+                }
+            }
+            if warm, case .success(let engine) = result {
+                prefetch.async {
+                    for letter in "abcdefghijklmnopqrstuvwxyz" {
+                        let raw = String(letter)
+                        if cache.value(raw) == nil { cache.put(raw, engine.immediateCandidates(raw)) }
+                    }
                 }
             }
         }

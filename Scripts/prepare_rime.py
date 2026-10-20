@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / '.rime-cache'
 REV = 'ed55bd5c7f94dd06d333db0c51a7dbfe50cc9bd2'
 PACK = '1.17.0-pack.10.0.0'
+INITIAL_LIMIT = 32
 ASSETS = {
     'dynamic.zip': (f'https://github.com/ghostflyby/librime-xcframework/releases/download/{PACK}/librime-dynamic.xcframework.zip', '5beaca3b6263e8ddc4a053eaebe4a0de2e33c2fc36056dd7fa0a8b87edb88533'),
     'wanxiang-lts-zh-hans.gram': ('https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram', '1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488'),
@@ -27,28 +28,31 @@ def fetch(item):
     return name, digest
 
 def short_initial_words(words, conversational=()):
-    # Index complete one-to-four-syllable initialisms from the production
-    # dictionary. Never concatenate guesses or run the sentence model here.
+    # Store actual words/phrases and bounded final completions. A four-initial
+    # prefix can complete a longer phrase, without inventing a sentence on the
+    # key path. Retain a bounded page so browsing uses the initial row's order.
     buckets = defaultdict(list)
     for priority, entries in [(0, words), (1, conversational)]:
         for text, reading, frequency in entries:
             syllables = reading.split()
-            if not 1 <= len(syllables) <= 4:
+            if not 1 <= len(syllables) <= 8:
                 continue
             code = ''.join(part[0] for part in syllables)
-            bucket = buckets[code]
-            # Conversation entries replace the same literal reading, rather
-            # than taking two of the eight bounded result slots.
-            duplicate = next((i for i, row in enumerate(bucket) if row[2:] == (text, reading)), None)
-            rank = (priority, frequency, text, reading)
-            if duplicate is not None:
-                if rank > bucket[duplicate]:
-                    bucket[duplicate] = rank
-                    heapq.heapify(bucket)
-            elif len(bucket) < 8:
-                heapq.heappush(bucket, rank)
-            elif rank > bucket[0]:
-                heapq.heapreplace(bucket, rank)
+            for length in range(1, min(4, len(code)) + 1):
+                missing = len(code) - length
+                if missing and (length < 3 or missing > 2):
+                    continue
+                bucket = buckets[code[:length]]
+                duplicate = next((i for i, row in enumerate(bucket) if row[2:] == (text, reading)), None)
+                rank = (priority, frequency // (4 ** missing), text, reading)
+                if duplicate is not None:
+                    if rank > bucket[duplicate]:
+                        bucket[duplicate] = rank
+                        heapq.heapify(bucket)
+                elif len(bucket) < INITIAL_LIMIT:
+                    heapq.heappush(bucket, rank)
+                elif rank > bucket[0]:
+                    heapq.heapreplace(bucket, rank)
     return buckets
 
 def associations(words, english, output, conversational=()):
@@ -64,10 +68,16 @@ def associations(words, english, output, conversational=()):
             elif rank > bucket[0]: heapq.heapreplace(bucket, rank)
     for word,frequency in english:
         i=len(words);words.append((word,'',frequency));buckets['e:'+word.lower()]=[(frequency,-i,i)]
+    initial_records = {}
     for code, bucket in sorted(initials.items()):
         for position, (_, frequency, text, reading) in enumerate(sorted(bucket, reverse=True)):
-            i = len(words); words.append((text, reading, frequency))
-            buckets['i:'+code].append((8-position, -i, i))
+            # One phrase may match several prefixes. Share its record rather
+            # than mapping duplicate copies into the keyboard's small process.
+            key = (text, reading)
+            if key not in initial_records:
+                initial_records[key] = len(words); words.append((text, reading, frequency))
+            i = initial_records[key]
+            buckets['i:'+code].append((INITIAL_LIMIT-position, -i, i))
     strings = bytearray(); interned = {}
     def string(s):
         if s not in interned:
@@ -87,8 +97,7 @@ def fluent_schema(compiled):
     # Reuse the already compiled strict prism and the same grammar/table. This
     # adds a small session configuration, not a second dictionary or model.
     replacements = [('schema_id: clear_pinyin', 'schema_id: clear_fluent'),
-                    ('prism: clear_pinyin', 'prism: clear_exact'),
-                    ('enable_correction: true', 'enable_correction: false')]
+                    ('prism: clear_pinyin', 'prism: clear_exact')]
     for old, new in replacements:
         if old not in compiled: raise RuntimeError('Unexpected compiled schema: '+old)
         compiled = compiled.replace(old, new, 1)

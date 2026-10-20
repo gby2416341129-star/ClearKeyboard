@@ -71,7 +71,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // A cached host frame is provisional, especially when Safari changes input traits.
         // Keep the requested key pitch while UIKit negotiates the remote view's final height.
         // Squeezing the surface into that frame permanently changed both key size and font size.
-        surface.layoutIfNeeded()
+        // UIKit completes the normal layout pass. Forcing a second synchronous
+        // subtree layout here makes host size acknowledgements contend with keys.
         let layout = "root=\(view.bounds) content=\(surface.frame) parent=\(view.superview?.bounds ?? .zero) window=\(view.window?.bounds ?? .zero)"
         if layout != lastLayoutLog && layoutLogCount < 12 {
             lastLayoutLog = layout; layoutLogCount += 1

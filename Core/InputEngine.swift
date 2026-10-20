@@ -173,6 +173,17 @@ public final class InputEngine {
                 }
             }
             if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }
+            if !raw.contains("'"), input.count <= 4,
+               input.allSatisfy({ Self.initials.contains($0) }) {
+                // The first row and later pages must use one order. These are
+                // real dictionary phrases, including short-prefix completion.
+                let words = (associations?.lookup("i:" + input, limit: min(32, limit)) ?? [])
+                    .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
+                output.insert(contentsOf: words, at: 0)
+                if let alias = Self.conversational[input], let index = output.firstIndex(where: { $0.text == alias }) {
+                    output.insert(output.remove(at: index), at: 0)
+                }
+            }
             if correction, !isEnglishWord, !result.contains(where: {
                 $0.consumed == input.count && Self.matchesReadingWithInitials(input, reading: $0.reading)
             }) {

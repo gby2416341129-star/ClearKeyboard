@@ -5,6 +5,34 @@ final class MatureEngineTests: XCTestCase {
     private var engine: InputEngine!
     override func setUpWithError() throws { engine = try .bundled() }
     func testProductionUsesRimeAndWanxiang() { XCTAssertEqual(engine.chineseBackend, "rime-wanxiang") }
+    func testCorrectSpellingCannotBeOverriddenByBroadCorrection() {
+        let cases = [
+            "babanichifanlema": "爸爸你吃饭了吗",
+            "babanichifablema": "爸爸你吃饭了吗",
+            "bababuchifanlema": "爸爸不吃饭了吗",
+            "wobuxiangchifan": "我不想吃饭",
+            "nibuyaobawenjianshanchu": "你不要把文件删除",
+            "mamanichifanlemawochiledewochiledenichilema": "妈妈你吃饭了吗我吃了的我吃了的你吃了吗",
+            "dengyixiawozaigeinidagedianhua": "等一下我再给你打个电话"
+        ]
+        for (raw, expected) in cases {
+            for limit in [9, 24, 96] {
+                XCTAssertEqual(engine.candidates(raw, limit: limit).first?.text, expected, raw)
+            }
+        }
+    }
+    func testCommonInitialCompletionsHaveOneOrderAcrossPages() {
+        for raw in ["djdj", "wmdj", "nmdz", "hd"] {
+            let quick = engine.immediateCandidates(raw).map(\.text)
+            let first = engine.candidates(raw, limit: 9).map(\.text)
+            let expanded = engine.candidates(raw, limit: 96).map(\.text)
+            XCTAssertEqual(Array(first.prefix(quick.count)), quick, raw)
+            XCTAssertEqual(Array(expanded.prefix(8)), Array(first.prefix(8)), raw)
+            XCTAssertGreaterThan(expanded.count, first.count, raw)
+        }
+        XCTAssertEqual(engine.immediateCandidates("djdj").first?.text, "大家都觉得")
+        XCTAssertEqual(engine.candidates("djdj", limit: 96).first?.consumed, 4)
+    }
     func testChineseMixedInitialsDoNotBecomeAnEnglishSuffix() {
         for limit in [9, 24, 64] {
             let values = engine.candidates("wogeimam", limit: limit)
@@ -70,10 +98,13 @@ final class MatureEngineTests: XCTestCase {
             XCTAssertFalse(values.isEmpty, raw)
             XCTAssertLessThanOrEqual(values.count, 8)
             XCTAssertTrue(values.allSatisfy { $0.consumed == raw.count })
-            XCTAssertTrue(values.allSatisfy { $0.reading.split(separator: " ").compactMap(\.first).map(String.init).joined() == raw })
+            XCTAssertTrue(values.allSatisfy {
+                let initials = $0.reading.split(separator: " ").compactMap(\.first).map(String.init).joined()
+                return initials.hasPrefix(raw) && initials.count - raw.count <= 2
+            })
         }
         XCTAssertEqual(engine.immediateCandidates("d").first?.text, "的")
-        XCTAssertTrue(engine.immediateCandidates("djdj").contains { $0.text == "道教典籍" })
+        XCTAssertTrue(engine.candidates("djdj", limit: 64).contains { $0.text == "道教典籍" })
         XCTAssertTrue(engine.immediateCandidates("nichifankm").isEmpty,
                       "An unmatched sentence still belongs to the sentence decoder")
     }
