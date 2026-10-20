@@ -12,7 +12,7 @@ import CRime
 final class CoreMLSentence {
     static let shared = CoreMLSentence()
     private let queue = DispatchQueue(label: "clear.coreml", qos: .userInitiated)
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var started = false, ready = false, busy = false, constrained = false
     private var failures = 0, epoch = 0
     private var memoryObserver: NSObjectProtocol?
@@ -32,7 +32,7 @@ final class CoreMLSentence {
         memoryObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name("UIApplicationDidReceiveMemoryWarningNotification"), object: nil, queue: nil) { [weak self] _ in
             guard let self else { return }
-            self.lock.lock(); self.ready = false; self.constrained = true; self.lock.unlock()
+            self.lock.lock(); self.ready = false; self.constrained = true; self.lock.broadcast(); self.lock.unlock()
             self.queue.async {
                 #if canImport(CoreML)
                 self.model = nil
@@ -116,10 +116,22 @@ final class CoreMLSentence {
         guard !prefixes.isEmpty, prefixes.count <= 8, prefixes.allSatisfy({ $0.count < 16 }),
               milliseconds > 0.2, !cancelled() else { return nil }
         let started = ProcessInfo.processInfo.systemUptime
-        lock.lock(); guard ready, !busy else { lock.unlock(); return nil }; busy = true; lock.unlock()
+        // A cancelled key may leave one prediction finishing on the serial
+        // queue. Give that bounded operation time to release its slot instead
+        // of discarding the latest key merely because the old one is busy.
+        // This worker wait never blocks the main thread or grows a request queue.
+        let allowance = min(milliseconds, 8) / 1_000
+        let idleDeadline = started + min(allowance / 2, 0.004)
+        lock.lock()
+        while ready && busy && !cancelled() && ProcessInfo.processInfo.systemUptime < idleDeadline {
+            let remaining = idleDeadline - ProcessInfo.processInfo.systemUptime
+            _ = lock.wait(until: Date(timeIntervalSinceNow: min(0.001, max(0, remaining))))
+        }
+        guard ready, !busy, !cancelled(), ProcessInfo.processInfo.systemUptime - started < allowance else { lock.unlock(); return nil }
+        busy = true; lock.unlock()
         let request = Request()
         queue.async { [self] in
-            defer { lock.lock(); busy = false; lock.unlock(); request.signal.signal() }
+            defer { lock.lock(); busy = false; lock.broadcast(); lock.unlock(); request.signal.signal() }
             request.lock.lock(); let abandoned = request.abandoned; request.lock.unlock()
             guard !abandoned, let model else { return }
             let result: [Float]? = autoreleasepool {
@@ -149,7 +161,6 @@ final class CoreMLSentence {
             }
             request.lock.lock(); if !request.abandoned { request.result = result }; request.lock.unlock()
         }
-        let allowance = min(milliseconds, 4) / 1_000
         while ProcessInfo.processInfo.systemUptime - started < allowance, !cancelled() {
             let remaining = allowance - (ProcessInfo.processInfo.systemUptime - started)
             if request.signal.wait(timeout: .now() + min(0.00015, max(0, remaining))) == .success {
@@ -162,7 +173,7 @@ final class CoreMLSentence {
         #endif
         return nil
     }
-    private func failed() { lock.lock(); failures += 1; if failures >= 3 { ready = false }; lock.unlock() }
+    private func failed() { lock.lock(); failures += 1; if failures >= 3 { ready = false }; lock.broadcast(); lock.unlock() }
     #if canImport(CoreML)
     private func flatten(_ value: Any) -> [Float] {
         if let number = value as? NSNumber { return [number.floatValue] }
