@@ -67,7 +67,7 @@ int main(int argc,char **argv) {
   {
     std::ifstream source(argv[2]);std::string bytes((std::istreambuf_iterator<char>(source)),{}),row;
     std::istringstream lines(bytes);while(std::getline(lines,row))if(row.find(u8"不\tfou\t")==0)break;
-    assert(!row.empty());{std::ofstream duplicate(argv[3]);duplicate<<bytes<<'\n'<<row<<'\n';}
+    assert(row.find(u8"不\tfou\t")==0);{std::ofstream duplicate(argv[3]);duplicate<<bytes<<'\n'<<row<<'\n';}
     clear_sentence::PhoneticSearch repeated;assert(repeated.load(argv[3],model));
     assert(repeated.pronunciation_score("fou",u8"不","fou",model,a) && std::abs(a-rare)<1e-12);
     std::remove(argv[3]);

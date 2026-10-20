@@ -16,12 +16,14 @@ template<class B> B budget(double milliseconds=10000) {
 int cancel_count(void *context){return --*static_cast<int*>(context)<=0;}
 int main(int argc,char **argv){
   assert(argc==2 || argc==3);reference_sentence::Model before;clear_sentence::Model after;
-  assert(before.load(argv[1]) && after.load(argv[1]));const int calibrated_limit=after.native_score_limit();const bool integer_calibrated=after.native_integer_ready();
+  assert(before.load(argv[1]) && after.load(argv[1]));const int calibrated_limit=after.native_score_limit();const bool integer_calibrated=after.native_integer_ready();const bool whole_integer_calibrated=after.native_whole_integer_ready();
   const bool prefix_calibrated=after.native_ready();
   const auto probe=after.native_integer_calibration();
   std::cout<<"{\"probeAvailable\":"<<probe.available<<",\"probeValidated\":"<<probe.validated<<",\"probeComparisons\":"<<probe.comparisons
     <<",\"probeMaximumError\":"<<probe.maximumError<<",\"prefixCalibrated\":"<<prefix_calibrated<<",\"probeMS\":[";
   for(int i=0;i<3;++i)std::cout<<(i?",":"")<<"["<<probe.exactMS[i]<<","<<probe.integerMS[i]<<"]";std::cout<<"]}\n";
+  std::cout<<"{\"wholeNumericallyValidated\":"<<probe.wholeValidated<<",\"wholeProbeMaximumError\":"<<probe.wholeMaximumError<<",\"wholeProbeMS\":[";
+  for(int i=0;i<3;++i)std::cout<<(i?",":"")<<"["<<probe.wholeExactMS[i]<<","<<probe.wholeIntegerMS[i]<<"]";std::cout<<"]}\n";
   before.set_native_integer_enabled(false);after.set_native_integer_enabled(true);
   before.set_native_enabled(true);after.set_native_enabled(true);
   
@@ -86,6 +88,19 @@ int main(int argc,char **argv){
   assert(!after.next({u8"我们"},unchanged,expired) && unchanged==std::vector<std::vector<float>>{{123}});
   assert(!after.next({u8"我们",u8"🦄"},unchanged,budget<clear_sentence::Budget>()) && unchanged==std::vector<std::vector<float>>{{123}});
   std::vector<std::string> sentences={u8"我们明天再讨论",u8"我们明天见",u8"你今天吃饭了吗",u8"这份材料收到了"};
+  // An independent whole-precision switch leaves integer prefix nodes intact.
+  const auto prefix_nodes=after.cached_positions();
+  after.set_native_whole_integer_enabled(false);
+  assert(after.native_integer_ready() && !after.native_whole_integer_ready() && after.cached_positions()==prefix_nodes);
+  std::vector<float> full_float,full_reference;
+  assert(after.native_full(sentences,full_float,budget<clear_sentence::Budget>()) && before.native_full(sentences,full_reference,budget<reference_sentence::Budget>()));
+  for(size_t row=0;row<full_float.size();++row)assert(std::abs(full_float[row]-full_reference[row])<0.0001);
+  after.set_native_integer_enabled(false);after.set_native_whole_integer_enabled(true);
+  assert(!after.native_integer_ready() && after.native_whole_integer_ready());
+  std::vector<float> full_integer;assert(after.native_full(sentences,full_integer,budget<clear_sentence::Budget>()));
+  for(size_t row=0;row<full_integer.size();++row)assert(std::abs(full_integer[row]-full_reference[row])<0.025);
+  after.set_native_integer_enabled(true);
+
   size_t full_compared=0;double full_error=0;
   auto check_full=[&](const std::vector<std::string> &values) {
     before.clear_cache();std::vector<float> expected,actual;
@@ -158,7 +173,7 @@ int main(int argc,char **argv){
     if(repetition){full_ms.push_back(new_ms);reference_full_ms.push_back(old_ms);}
   }
   std::cout<<"{\"referenceFullMedianMS\":"<<median(reference_full_ms)<<",\"proposedFullMedianMS\":"<<median(full_ms)<<",\"fullSpeedup\":"<<median(reference_full_ms)/median(full_ms)<<"}\n";
-  std::cout<<"{\"integerCalibrated\":"<<integer_calibrated<<",\"calibratedNativePositionLimit\":"<<calibrated_limit<<",\"activationMaximumError\":"<<activation_error<<",\"fullSequenceCompared\":"<<full_compared<<",\"fullSequenceMaximumError\":"<<full_error<<",\"fullSequenceMedianMS\":"<<median(full_ms)<<",\"fullSequenceMS\":[";
+  std::cout<<"{\"integerWholeCalibrated\":"<<whole_integer_calibrated<<",\"integerCalibrated\":"<<integer_calibrated<<",\"calibratedNativePositionLimit\":"<<calibrated_limit<<",\"activationMaximumError\":"<<activation_error<<",\"fullSequenceCompared\":"<<full_compared<<",\"fullSequenceMaximumError\":"<<full_error<<",\"fullSequenceMedianMS\":"<<median(full_ms)<<",\"fullSequenceMS\":[";
   for(size_t i=0;i<full_ms.size();++i)std::cout<<(i?",":"")<<full_ms[i];std::cout<<"]}\n";
   std::cout<<"{\"changedDistributionMaxima\":"<<maxima_changed<<",\"status\":\"passed\",\"scope\":\"Native CPU numeric, cache, cancellation and cold four-sentence workload; not phone or UI latency\",\"comparedValues\":"<<compared<<",\"maximumError\":"<<maximum<<",\"beforeMedianMS\":"<<median(baseline_ms)<<",\"afterMedianMS\":"<<median(batched_ms)<<",\"speedup\":"<<median(baseline_ms)/median(batched_ms)<<",\"afterCachePositions\":"<<after.cached_positions()<<",\"beforeMS\":[";
   for(size_t i=0;i<baseline_ms.size();++i)std::cout<<(i?",":"")<<baseline_ms[i];std::cout<<"],\"afterMS\":[";
