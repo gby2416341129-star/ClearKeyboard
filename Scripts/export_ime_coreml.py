@@ -77,6 +77,12 @@ def build(source,output):
     for key,value in metadata.items():spec.description.metadata.userDefined[key]=value
     spec.description.metadata.userDefined['source_sha256']=hashlib.sha256(data).hexdigest()
     spec.description.metadata.userDefined['shape']='8x16; BOS plus prefix; last-position 12288-way log probabilities; no truncation'
+    write_model(spec,output)
+    return spec,w
+
+
+def write_model(spec,output):
+    """Compress constants once and reject invalid producer/consumer graphs."""
     def compress(message):
         if message.DESCRIPTOR.full_name.endswith('.WeightParams') and len(message.floatValue)>1000:
             message.float16Value=np.array(message.floatValue,dtype='<f2').tobytes();message.ClearField('floatValue')
@@ -101,7 +107,6 @@ def build(source,output):
             assert len(bias.floatValue) or len(bias.float16Value), 'Compressed bias was lost'
     output.write_bytes(spec.SerializeToString(deterministic=True))
     print(json.dumps(dict(path=str(output),bytes=output.stat().st_size,layers=len(spec.neuralNetwork.layers),sha256=hashlib.sha256(output.read_bytes()).hexdigest())))
-    return spec,w
 
 
 if __name__=='__main__':

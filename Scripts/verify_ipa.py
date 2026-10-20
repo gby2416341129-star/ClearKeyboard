@@ -92,12 +92,14 @@ def verify(path):
         require(not any(name.startswith(extension+'Rime/') for name in names), 'Language models duplicated in keyboard bundle')
         coreml=json.loads(archive.read(app+'Rime/CoreML25M-manifest.json'))
         require(coreml.get('source_sha256')==ASSETS['sentence-model.safetensors'], 'Core ML source mismatch')
+        require(coreml.get('state_format')=='clear-kv-v1', 'Core ML incremental state contract missing')
         require(bool(coreml.get('files')), 'Missing compiled Core ML graph')
         for name,digest in coreml['files'].items():
             require(name.startswith('ClearSentence25M.mlmodelc/') and '..' not in name.split('/'), 'Invalid Core ML resource path')
             require(hashlib.sha256(archive.read(app+'Rime/'+name)).hexdigest()==digest, 'Compiled Core ML asset mismatch: '+name)
         validation=json.loads(archive.read(app+'Rime/CoreML25M-validation.json'))
-        require(len(validation.get('expected',[]))>=185, 'Missing on-device model validation')
+        require(validation.get('format')=='clear-kv-v1' and len(validation.get('expected',[]))>=200,
+                'Missing incremental on-device model validation')
         phonetic=archive.read(app+'Rime/clear-phonetic.tsv')
         require(len(phonetic.splitlines())>10000 and b'CC BY 4.0' in phonetic[:1024], 'Missing attributed phonetic graph')
         require(not any('ClearSentence4M.mlmodelc/' in name or name.endswith('IME-4M-LICENSE.txt') for name in names), 'Obsolete 4M resources duplicated')
