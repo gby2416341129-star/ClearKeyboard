@@ -79,16 +79,16 @@ import ImageIO
         deleteHint.textColor = .white; deleteHint.layer.cornerRadius = 10; deleteHint.clipsToBounds = true
         model.onChange = { [weak self] in
             guard let self else { return }
-            let raw = self.model.composition.raw
-            if self.requestedSpelling != raw {
-                self.requestedSpelling = raw; self.candidateScroll.inputChanged()
-            }
+            self.compositionChanged()
             self.render()
         }
         // A result belongs to the collection, not to the whole remote keyboard's
         // layout. Native scrolling and key geometry need no layout invalidation.
         model.onCandidatesChange = { [weak self] in self?.renderCandidates() }
-        model.onInputChange = { [weak self] in self?.renderInput() }
+        model.onInputChange = { [weak self] in
+            guard let self else { return }
+            self.compositionChanged(); self.renderInput()
+        }
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.appearanceSignature = ""; self?.render() }
@@ -105,6 +105,16 @@ import ImageIO
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     deinit { observerTokens.forEach { NotificationCenter.default.removeObserver($0) } }
+
+    private func compositionChanged() {
+        let raw = model.composition.raw
+        guard requestedSpelling != raw else { return }
+        requestedSpelling = raw
+        // Letters use the lightweight input callback as well. Leaving that
+        // path out kept the old row coasting and deferred new words until its
+        // momentum ended, even though the new candidate query had completed.
+        candidateScroll.inputChanged()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
