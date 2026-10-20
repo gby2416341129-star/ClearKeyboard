@@ -35,12 +35,36 @@ import Foundation
         let personalizedPage = engine.candidates("jdjdjd", preferred: [personal], limit: 40)
         require(personalized.first == personal && Array(personalizedPage.prefix(personalized.count)) == personalized,
                 "A preferred word outside the model's short row changed on paging")
-        for raw in ["jtzgsm", "lzqnmd", "busuanchadla", "wogeimam", "mamncfm"] {
+        let index = try Lexicon.bundled("associations")
+        let initials = Array("bpmfdtnlgkhjqxrzcsyw")
+        var exactRows = 0
+        for n in 0..<1200 {
+            var value = n * 7919 + 137
+            let raw = String((0..<(n % 2 == 0 ? 3 : 4)).map { _ -> Character in
+                defer { value /= initials.count }; return initials[value % initials.count]
+            })
+            guard !index.contains("e:" + raw), index.lookup("i:" + raw, limit: 32).contains(where: {
+                String($0.reading.split(separator: " ").compactMap(\.first)) == raw
+            }) else { continue }
+            let words = engine.immediateCandidates(raw)
+            require(words.first?.reading.split(separator: " ").count == raw.count,
+                    "A prefix completion hid the exact fast row for \(raw): \(words)")
+            exactRows += 1
+        }
+        require(exactRows > 20, "The generic short-initial check did not exercise enough dictionary rows")
+        for raw in ["jtzgsm", "lzqnmd", "busuanchadla", "wogeimam", "mamncfm", "nnnd"] {
             let values=engine.candidates(raw,limit:9)
             if raw=="busuanchadla" { require(values.first?.text=="不算差的啦", "Literal repair failed in the real engine: \(values)") }
+            if raw=="nnnd" {
+                require(engine.immediateCandidates(raw).first?.text == "你奶奶的" && values.first?.text == "你奶奶的",
+                        "Prefix expansion still displaced the complete conversion: \(values)")
+                let page=engine.candidates(raw,limit:64)
+                require(Array(page.prefix(values.count)) == values, "Browsing changed the initial candidate row")
+                require(page.contains { $0.text == "奶奶你到家没" }, "A longer completion was lost instead of ranked later")
+            }
             rows.append(["input":raw,"head":values.map(\.text),"readings":values.map(\.reading)])
         }
-        print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows,
+        print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows, "exactInitialRowsChecked": exactRows,
             "scope": "macOS release, real Swift InputEngine and Rime; excludes UIKit, physical phone and display frame rate"], options: [.sortedKeys]), encoding: .utf8)!)
     }
 }

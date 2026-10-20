@@ -61,6 +61,7 @@ final class KeyButton: UIButton {
         plate.layer.cornerCurve = .continuous
         plate.layer.borderWidth = 0.5
         plate.addSubview(pressWash); pressWash.isUserInteractionEnabled = false
+        pressWash.alpha = 0
         pressWash.layer.cornerRadius = 8; pressWash.layer.cornerCurve = .continuous
         plate.addSubview(caption); caption.isUserInteractionEnabled = false; caption.contentMode = .redraw
         plate.addSubview(icon); icon.isUserInteractionEnabled = false; icon.contentMode = .center
@@ -162,7 +163,9 @@ final class KeyButton: UIButton {
     }
     @objc private func down() {
         if !interactionActive { interactionActive = true; onInteractionChanged?(true) }
-        didRepeat = false; suppressTap = false; pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
+        didRepeat = false; suppressTap = false
+        pressWash.layer.removeAnimation(forKey: "keyRelease"); pressWash.alpha = 1
+        pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
         onPrepare?(key.action)
         if haptics { if feedback == nil { feedback = UIImpactFeedbackGenerator(style: .light) }; feedback?.impactOccurred(intensity: 0.35) }
         guard key.action == .delete else { return }
@@ -184,7 +187,15 @@ final class KeyButton: UIButton {
     }
     @objc func cancelPress() {
         repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
-        pressWash.backgroundColor = .clear; plate.alpha = cursorMode ? 0.1 : 1
+        let opacity = pressWash.layer.presentation()?.opacity ?? Float(pressWash.alpha)
+        pressWash.alpha = 0; plate.alpha = cursorMode ? 0.1 : 1
+        pressWash.layer.removeAnimation(forKey: "keyRelease")
+        if opacity > 0, !UIAccessibility.isReduceMotionEnabled {
+            let release = CABasicAnimation(keyPath: "opacity")
+            release.fromValue = opacity; release.toValue = 0; release.duration = 0.06
+            release.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            pressWash.layer.add(release, forKey: "keyRelease")
+        }
         if interactionActive { interactionActive = false; onInteractionChanged?(false) }
     }
     @objc private func cursorGesture(_ gesture: UILongPressGestureRecognizer) {

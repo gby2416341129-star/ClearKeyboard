@@ -46,11 +46,13 @@ final class MatureEngineTests: XCTestCase {
             let quick = engine.immediateCandidates(raw).map(\.text)
             let first = engine.candidates(raw, limit: 9).map(\.text)
             let expanded = engine.candidates(raw, limit: 96).map(\.text)
-            XCTAssertEqual(Array(first.prefix(quick.count)), quick, raw)
+            XCTAssertTrue(quick.allSatisfy { expanded.contains($0) }, raw)
             XCTAssertEqual(Array(expanded.prefix(8)), Array(first.prefix(8)), raw)
             XCTAssertGreaterThan(expanded.count, first.count, raw)
         }
-        XCTAssertEqual(engine.immediateCandidates("djdj").first?.text, "大家都觉得")
+        XCTAssertTrue(engine.immediateCandidates("djdj").contains { $0.text == "大家都觉得" })
+        XCTAssertEqual(engine.immediateCandidates("djdj").first?.reading.split(separator: " ").count, 4,
+                       "A longer prefix completion must not displace a complete abbreviation")
         XCTAssertEqual(engine.candidates("djdj", limit: 96).first?.consumed, 4)
     }
     func testChineseMixedInitialsDoNotBecomeAnEnglishSuffix() {

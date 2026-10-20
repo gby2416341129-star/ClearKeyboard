@@ -101,8 +101,7 @@ public final class InputEngine {
             // changes the first word when the native decoder catches up.
             if !raw.contains("'"), input.count <= 4,
                input.allSatisfy({ Self.initials.contains($0) }) {
-                output += (associations?.lookup("i:" + input, limit: 8) ?? [])
-                    .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
+                output += shortInitialWords(input)
             }
             output += initialCompletions(input)
             let entries = exact + chinese.lookup("a:" + input, limit: 8)
@@ -208,18 +207,15 @@ public final class InputEngine {
                 }
             }
             if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }
-            if !raw.contains("'"), input.count <= 4,
+            if !isEnglishWord, !raw.contains("'"), input.count <= 4,
                input.allSatisfy({ Self.initials.contains($0) }) {
-                // The first row and later pages must use one order. These are
-                // real dictionary phrases, including short-prefix completion.
-                let words = (associations?.lookup("i:" + input, limit: min(32, limit)) ?? [])
-                    .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
-                // Full initialisms follow the semantic decoder's order. Only
-                // intentional prefix completions (e.g. djdj -> 大家都觉得) lead
-                // it; a static frequency row must not overwrite a decoded phrase.
-                let completions = words.filter { abbreviation($0.reading).count > input.count }
-                output.insert(contentsOf: completions, at: 0)
-                output += words.filter { abbreviation($0.reading).count == input.count }
+                let words = shortInitialWords(input)
+                // A prefix expansion must not displace a complete conversion.
+                // Keep the decoder's first screen intact. Insert the same
+                // bounded dictionary row after it on every page, so a larger
+                // request cannot move a new expansion ahead of the visible head.
+                let head = min(8, output.count)
+                output = Array(output.prefix(head)) + words + Array(output.dropFirst(head))
                 if let alias = Self.conversational[input], let index = output.firstIndex(where: { $0.text == alias }) {
                     output.insert(output.remove(at: index), at: 0)
                 }
@@ -541,6 +537,15 @@ public final class InputEngine {
         }.prefix(3).map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count, score: 110) })
     }
     private func abbreviation(_ reading: String) -> String { reading.split(separator: " ").compactMap(\.first).map(String.init).joined() }
+    private func shortInitialWords(_ input: String) -> [Candidate] {
+        // Read the bounded bucket before selecting a screen. Frequent prefix
+        // expansions can otherwise occupy its first eight slots and hide every
+        // exact word even though the index contains the complete abbreviation.
+        let words = (associations?.lookup("i:" + input, limit: 32) ?? [])
+            .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
+        return words.filter { abbreviation($0.reading) == input } +
+            words.filter { abbreviation($0.reading).count > input.count }
+    }
     private func token(_ entry: LexiconEntry, for key: String, completion: Bool = false) -> Token {
         let abbreviated = !completion && entry.key != key
         var score: Double = log((Double(entry.frequency) + 1) / 10_000_000) - 2.5

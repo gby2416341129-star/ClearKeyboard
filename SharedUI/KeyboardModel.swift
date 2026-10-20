@@ -53,6 +53,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     var settings: KeyboardSettings { didSet {
         settings.sanitize()
         if settings != oldValue {
+            if settings.language != oldValue.language { shiftState.reset(); manualShift = false }
             if settings.language != oldValue.language || settings.fuzzyPairs != oldValue.fuzzyPairs ||
                 settings.learnChoices != oldValue.learnChoices {
                 discardPreparedCandidates(); candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []
@@ -64,8 +65,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
     } }
     private(set) var page: KeyboardPage = .letters
-    private(set) var shifted = false
-    private(set) var capsLocked = false
+    private var shiftState = KeyboardShift()
+    private(set) var shifted: Bool {
+        get { shiftState.shifted }
+        set { shiftState.shifted = newValue }
+    }
+    private(set) var capsLocked: Bool {
+        get { shiftState.capsLocked }
+        set { shiftState.capsLocked = newValue }
+    }
     private(set) var composition = Composition()
     private(set) var candidates: [Candidate] = []
     private(set) var arithmetic: ArithmeticResult?
@@ -128,7 +136,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var personal = PersonalLexicon()
     private var learningEpoch: String?
     private var saveWork: DispatchWorkItem?
-    private var lastShift = Date.distantPast
     private var manualShift = false
     private var cancellation = QueryCancellation()
     private let signpost = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
@@ -157,7 +164,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     // A cancelled key is still cancelled; only handle(_:) commits the spelling.
     func prepare(_ action: KeyAction) {
         guard !awaitingCommit, !isMovingCursor, settings.language == .chinese,
-              page == .letters else { return }
+              page == .letters, !shifted else { return }
         var next = composition
         switch action {
         case .text(let text) where text.first?.isLetter == true || (text == "'" && !next.isEmpty):
@@ -425,7 +432,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func toggleLanguage() {
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         settings.language = settings.language == .chinese ? .english : .chinese
-        page = .letters; shifted = false; capsLocked = false; manualShift = false; refreshCandidates()
+        page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
     }
     func handle(_ action: KeyAction) {
         if awaitingCommit {
@@ -448,6 +455,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if needsLatestCandidate(for: action), !automaticChoiceIsReady, engine != nil {
             deferUntilCandidates(action); return
         }
+        if action != .shift { shiftState.interruptTapSequence() }
         deletionUndo = nil
         let event = OSSignpostID(log: signpost)
         os_signpost(.begin, log: signpost, name: "KeyAction", signpostID: event)
@@ -460,7 +468,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             let mathCharacter = possibleOperator && document?.contextBefore.last.map({ $0.isNumber || $0 == ")" }) == true
             if mathCharacter {
                 commitComposition(); document?.insert(text)
-            } else if settings.language == .chinese && page == .letters && text.first?.isLetter == true {
+            } else if settings.language == .chinese && page == .letters && !shifted && text.first?.isLetter == true {
                 if !composition.append(text) { commitComposition(); _ = composition.append(text) }
                 prepared = prepareCandidates(for: composition.raw)
                 inputOnly = true; syncMarkedText()
@@ -475,12 +483,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 if page != .letters && [".", ",", "?", "!"].contains(text) { page = .letters }
             }
         case .shift:
-            if settings.language == .chinese { toggleLanguage(); return }
-            let now = Date()
-            if now.timeIntervalSince(lastShift) < 0.3 { capsLocked = true; shifted = true }
-            else { shifted.toggle(); capsLocked = false }
+            shiftState.tap(now: ProcessInfo.processInfo.systemUptime)
             manualShift = true
-            lastShift = now
+            if settings.language == .chinese {
+                // Changing case neither commits nor restarts the Chinese draft.
+                // The next uppercase literal uses the normal ordered commit path.
+                discardPreparedCandidates(); onChange?(); return
+            }
         case .delete:
             if !composition.raw.isEmpty {
                 composition.deleteBackward()
@@ -618,7 +627,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         switch action {
         case .space: return requestedContext != nil
         case .text(let text):
-            if page == .letters, text.first?.isLetter == true || text == "'" { return false }
+            if page == .letters, !shifted, text.first?.isLetter == true || text == "'" { return false }
             return requestedContext != nil
         default: return false // Layout, return, delete and mode changes do not need a decoded sentence.
         }

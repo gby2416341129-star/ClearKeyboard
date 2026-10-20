@@ -66,6 +66,8 @@ jobs:
           .build/test-frame-delivery
           swiftc -O -parse-as-library Core/CandidateStripLayout.swift Scripts/test_candidate_layout.swift -o .build/test-candidate-layout
           .build/test-candidate-layout
+          swiftc -O -parse-as-library Core/KeyboardShift.swift Scripts/test_keyboard_shift.swift -o .build/test-keyboard-shift
+          .build/test-keyboard-shift
           swiftc -O -parse-as-library Core/Candidate.swift Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/RepetitionModel.swift Scripts/test_repetition.swift -o .build/test-repetition
           .build/test-repetition Core/Resources/Rime/repetition-priors.tsv
           python3 Scripts/test_fast_engine.py

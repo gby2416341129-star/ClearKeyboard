@@ -79,6 +79,7 @@ import os
                 accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard) {
         var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize)
         let resolved = accent.resolvedColor(with: traitCollection)
+        if UIAccessibility.isReduceMotionEnabled { buttons.forEach { $0.finishTransition() } }
         if sameQuery(browsed, next), let current = presentation, sameQuery(current, next) {
             // Keep every visible target at the same x coordinate, while allowing
             // unseen alternatives to extend the tail during native momentum.
@@ -153,7 +154,8 @@ import os
             extendLayout(offset: changedQuery ? 0 : contentOffset.x)
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
-        updateVisible(force: changedColor || changedFont || (changedItems && !appendOnly))
+        updateVisible(force: changedColor || changedFont || (changedItems && !appendOnly),
+                      animateChanges: changedItems && (!changedFont || previous.isEmpty) && !holdsCandidateUpdates)
         if changedItems || changedQuery { updateAccessibility() }
         requestMoreIfNeeded()
     }
@@ -187,7 +189,7 @@ import os
     private func firstIndex(at x: CGFloat) -> Int {
         geometry.firstIndex(at: x)
     }
-    private func updateVisible(force: Bool = false) {
+    private func updateVisible(force: Bool = false, animateChanges: Bool = false) {
         guard let current = presentation else { return }
         let first = firstIndex(at: max(0, contentOffset.x - bounds.width * 0.5))
         var end = first
@@ -214,7 +216,8 @@ import os
             guard let button = old ?? unused.next() else { continue }
             if force || old == nil {
                 button.configure(current.items[index], first: index == 0, accent: ink,
-                                 font: index == 0 ? firstFont : normalFont)
+                                 font: index == 0 ? firstFont : normalFont,
+                                 animate: animateChanges && window != nil)
                 button.tag = index; button.frame = frames[index]
             }
             if button.isHidden { button.isHidden = false }
@@ -311,6 +314,9 @@ import os
         interactionActive = active; onInteractionChanged?(active)
     }
     private func beginBrowsing() {
+        // Touches select the latest actual row. End any visual blend at contact
+        // down; native scrolling and selection never chase an animated target.
+        buttons.forEach { $0.finishTransition() }
         browsed = presentation
         setInteraction(true)
         if let (next, color) = pending, sameQuery(browsed, next) {
@@ -388,13 +394,32 @@ import os
         measuredWidths.setObject(NSNumber(value: Double(width)), forKey: key)
         return width
     }
-    func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont) {
+    func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false) {
+        let oldText = label.text
+        let replacingVisibleText = !isHidden && oldText != nil
+        finishTransition()
         if label.font != font { label.font = font }
         if label.text != candidate.text { label.text = candidate.text }
         label.textColor = first ? accent : .label
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
+        guard animate, oldText != candidate.text, !UIAccessibility.isReduceMotionEnabled else { return }
+        // The new text and hit geometry are already committed. One replaceable
+        // layer animation softens the glyph change; it never queues a result,
+        // springs a cell, delays selection, or animates native scrolling.
+        if replacingVisibleText, (oldText?.utf16.count ?? 0) <= 32, candidate.text.utf16.count <= 32 {
+            let fade = CATransition(); fade.type = .fade; fade.duration = 0.085
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            label.layer.add(fade, forKey: "candidateText")
+        } else {
+            // Avoid snapshotting a very long offscreen label just to fade it.
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.7; fade.toValue = 1; fade.duration = 0.065
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            label.layer.add(fade, forKey: "candidateText")
+        }
     }
+    func finishTransition() { label.layer.removeAnimation(forKey: "candidateText") }
     override func accessibilityActivate() -> Bool {
         sendActions(for: .touchUpInside); return true
     }
