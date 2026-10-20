@@ -30,7 +30,11 @@ int from_index(RimeSessionId id, RimeCandidateListIterator *it, int index) {
   begin_list(id, it); it->index = index - 1; return 1;
 }
 void end_list(RimeCandidateListIterator *) { ended++; }
-int set_input_mock(RimeSessionId, const char *) { return 1; }
+RimeSessionId delayed_session=0;
+int set_input_mock(RimeSessionId id, const char *) {
+  if (id==delayed_session) std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  return 1;
+}
 int cancelled_now(void *) { return 1; }
 std::unordered_map<uintptr_t,std::string> live_inputs;
 int complete_resets=0,incremental_edits=0;
@@ -136,6 +140,23 @@ int main(int argc, char **argv) {
   assert(clear_sentence::PhoneticSearch::matches("busuanchadla","bu suan cha de lian ai")==-1);
   assert(clear_sentence::PhoneticSearch::matches("zhgs","zhong guo shi")==3);
   assert(clear_sentence::PhoneticSearch::matches("xa","xi an")==-1);
+  assert(argc==3);
+  clear_sentence::Model fixture;
+  assert(fixture.load(argv[1]) && phonetic_search.load(argv[2],fixture));
+  // A slow literal lookup must not disable the same phonetic repair that
+  // succeeds on an idle machine, or pay for the broader correction graph first.
+  q.exact_cache={};q.conversation_cache={};q.fluent_cache={};q.correction_cache={};q.repair_cache={};
+  q.repair=5;q.rank_decided=false;q.ranked_input.clear();q.head_items.clear();
+  lists[2]={{"partial","bu suan\t6\t-8"}};lists[3].clear();
+  lists[4]={{"contradictory","bu suan cha de lian ai\t12\t-19"}};
+  lists[1]={{"unneeded-correction","bu suan cha de lian ai\t12\t-18"}};
+  lists[5]={{"literal-repair","bu suan cha de la\t13\t-20"}};
+  const auto corrections_before_repair=starts[1];delayed_session=4;
+  assert(cr_query(1,"busuanchadla",9,nullptr,nullptr)>0);
+  assert(q.items.front().text=="literal-repair" && q.items.front().consumed==12);
+  assert(starts[1]==corrections_before_repair);
+  assert(cr_query_fast(1,"busuanchadla",40,nullptr,nullptr)>0 && q.items.front().text=="literal-repair");
+  delayed_session=0;
   mock.set_input=reset_live;mock.get_input=read_live;mock.process_key=edit_live;
   ChannelCache incremental;
   collect(2,"ni",1,incremental,nullptr,nullptr);
@@ -145,5 +166,5 @@ int main(int argc, char **argv) {
   live_inputs[2]="foreign";
   collect(2,"nih",1,incremental,nullptr,nullptr);
   assert(live_inputs[2]=="nih" && complete_resets==2 && incremental_edits==2);
-  std::cout << "PASS: unique paging, incremental cursor, literal retention, cancellation, stable heads, phonetic boundaries\n";
+  std::cout << "PASS: unique paging, incremental cursor, literal retention, cancellation, stable heads, phonetic boundaries, slow-host literal repair\n";
 }

@@ -194,6 +194,30 @@ void collect(uintptr_t id, const std::string &input, int limit, ChannelCache &ca
   }
   api->candidate_list_end(&it);
 }
+bool repair_literal(Query &query,const std::string &input,const Item &original,Item &replacement,
+                    cr_cancelled cancelled,void *context) {
+  const auto length=static_cast<int>(letters(input).size());
+  if (original.consumed!=length || (cancelled && cancelled(context))) return false;
+  std::string reading;
+  if (!phonetic_search.literal_repair(input,syllables(original.reading),reading)) return false;
+  // A literal phonetic contradiction is deterministic. Resolve it before
+  // running the broader correction graph; scheduler/CPU load must not decide
+  // whether the same spelling is repaired. At most one small query is needed.
+  if (!query.repair && api->create_session && api->select_schema) {
+    const auto extra=api->create_session();
+    if (extra && api->select_schema(extra,"clear_fluent")) query.repair=extra;
+    else if (extra) api->destroy_session(extra);
+  }
+  if (!query.repair || (cancelled && cancelled(context))) return false;
+  const auto expanded=letters(reading);
+  collect(query.repair,expanded,4,query.repair_cache,cancelled,context);
+  if (cancelled && cancelled(context)) return false;
+  for (const auto &item:query.repair_cache.items) if (item.consumed==static_cast<int>(expanded.size()) &&
+      clear_sentence::PhoneticSearch::matches(input,syllables(item.reading))>=0) {
+    replacement={item.text,item.reading,length,item.weight};return true;
+  }
+  return false;
+}
 bool reliable_literal_sentence(const Item &item, const std::string &input) {
   if (item.consumed != static_cast<int>(input.size()) || !std::isfinite(item.weight)) return false;
   const auto reading = letters(item.reading);
@@ -372,7 +396,7 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   collect(query.exact, input, limit, query.exact_cache, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
   const auto &literal = query.exact_cache.items;
-  std::vector<Item> fluent;
+  std::vector<Item> fluent;bool repaired=false;
   // Plenty of whole dictionary words require no language-model work. If the
   // dictionaries only have a few, also expose the fluent decoder's alternatives.
   std::unordered_set<std::string> full;
@@ -387,7 +411,14 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
     const auto spelling = letters(input);
     const bool reliable = !query.fluent_cache.items.empty() &&
                           reliable_literal_sentence(query.fluent_cache.items.front(), spelling);
-    if (!correction || reliable) {
+    Item literal_replacement;
+    if (leading_row && correction && !query.fluent_cache.items.empty() &&
+        repair_literal(query,input,query.fluent_cache.items.front(),literal_replacement,cancelled,context)) {
+      collect(query.fluent,input,limit,query.fluent_cache,cancelled,context);
+      fluent=query.fluent_cache.items;
+      fluent.erase(std::remove_if(fluent.begin(),fluent.end(),[&](const Item &old){return old.text==literal_replacement.text;}),fluent.end());
+      fluent.insert(fluent.begin(),std::move(literal_replacement));repaired=true;
+    } else if (!correction || reliable) {
       collect(query.fluent, input, limit, query.fluent_cache, cancelled, context);
       fluent = query.fluent_cache.items;
     } else {
@@ -400,29 +431,11 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   }
   if (cancelled && cancelled(context)) return 0;
   query.items = merge_candidates(input, conversational, literal, fluent, limit);
-  bool repaired=false;
-  if (leading_row && correction && !query.items.empty() && query.items.front().consumed==length) {
-    std::string reading;
-    if (phonetic_search.literal_repair(input,syllables(query.items.front().reading),reading) &&
-        clear_sentence::Budget::Clock::now()-started<std::chrono::milliseconds(20)) {
-      // Repair a contradictory spelling with the existing context decoder.
-      // This works even when the optional 25M predictor is too slow or disabled.
-      // A separate lazy session cannot invalidate a live candidate iterator.
-      if (!query.repair && api->create_session && api->select_schema) {
-        const auto extra=api->create_session();
-        if (extra && api->select_schema(extra,"clear_fluent")) query.repair=extra;
-        else if (extra) api->destroy_session(extra);
-      }
-      const auto expanded=letters(reading);
-      if (query.repair) {
-        collect(query.repair,expanded,4,query.repair_cache,cancelled,context);
-        for (const auto &item:query.repair_cache.items) if (item.consumed==static_cast<int>(expanded.size()) &&
-            clear_sentence::PhoneticSearch::matches(input,syllables(item.reading))>=0) {
-          query.items.erase(std::remove_if(query.items.begin(),query.items.end(),[&](const Item &old){return old.text==item.text;}),query.items.end());
-          query.items.insert(query.items.begin(),{item.text,item.reading,length,item.weight});repaired=true;break;
-        }
-      }
-    }
+  Item literal_replacement;
+  if (!repaired && leading_row && correction && !query.items.empty() &&
+      repair_literal(query,input,query.items.front(),literal_replacement,cancelled,context)) {
+    query.items.erase(std::remove_if(query.items.begin(),query.items.end(),[&](const Item &old){return old.text==literal_replacement.text;}),query.items.end());
+    query.items.insert(query.items.begin(),std::move(literal_replacement));repaired=true;
   }
   rank_sentence(query,input,length,leading_row,correction,repaired,started,cancelled,context,limit);
   if (cancelled && cancelled(context)) return 0;

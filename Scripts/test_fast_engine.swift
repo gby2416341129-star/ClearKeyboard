@@ -36,7 +36,9 @@ import Foundation
         require(personalized.first == personal && Array(personalizedPage.prefix(personalized.count)) == personalized,
                 "A preferred word outside the model's short row changed on paging")
         for raw in ["jtzgsm", "lzqnmd", "busuanchadla", "wogeimam", "mamncfm"] {
-            rows.append(["input": raw, "head": engine.candidates(raw, limit: 9).map(\.text)])
+            let values=engine.candidates(raw,limit:9)
+            if raw=="busuanchadla" { require(values.first?.text=="不算差的啦", "Literal repair failed in the real engine: \(values)") }
+            rows.append(["input":raw,"head":values.map(\.text),"readings":values.map(\.reading)])
         }
         print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows,
             "scope": "macOS release, real Swift InputEngine and Rime; excludes UIKit, physical phone and display frame rate"], options: [.sortedKeys]), encoding: .utf8)!)
