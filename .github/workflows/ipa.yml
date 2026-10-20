@@ -58,7 +58,7 @@ jobs:
           .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
           c++ -O2 -UNDEBUG -std=c++17 Scripts/test_native_bridge.cpp -o .build/test-bridge
           .build/test-bridge
-          swiftc -O -parse-as-library Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
+          swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
           .build/test-input-core
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
