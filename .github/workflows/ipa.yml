@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ipa-${{ github.ref }}
@@ -23,6 +24,22 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Restore pinned language model cache
+        id: language-model
+        uses: actions/cache/restore@v4
+        with:
+          path: .rime-cache/wanxiang-lts-zh-hans.gram
+          key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
+      - name: Recover and verify the same model used in the previous IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/restore_pinned_model.py
+      - name: Cache verified pinned model
+        if: steps.language-model.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .rime-cache/wanxiang-lts-zh-hans.gram
+          key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
       - name: Prepare verified offline Chinese engine and language model
         run: python3 Scripts/prepare_rime.py
       - name: Compile repaired app and keyboard for iPhone, then package IPA
