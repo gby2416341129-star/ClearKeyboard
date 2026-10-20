@@ -50,10 +50,20 @@ import CoreML
         let restored = try state.next(sequences, abandoned: { false })!
         expect(restored.count == original.count, "Restored batch has wrong shape")
         for index in original.indices { expect(abs(restored[index] - original[index]) < 0.0001, "Eviction corrupted a shared ancestor") }
+        // An interrupted multi-step request keeps completed ancestors. The
+        // next request resumes the same real model, without replaying them.
+        let interrupted = try CoreMLPrefixState(model: model, vocabulary: vocab)
+        expect(try interrupted.next(sequences, abandoned: { interrupted.predictionCount >= 2 }) == nil,
+            "An interrupted request returned a partial result")
+        expect(interrupted.predictionCount == 2, "Cancellation did not stop between model steps")
+        let resumed = try interrupted.next(sequences, abandoned: { false })!
+        expect(interrupted.predictionCount == 16, "Resumption recomputed completed causal ancestors")
+        for index in original.indices { expect(abs(resumed[index] - original[index]) < 0.0001, "Resumption used an incomplete state") }
         let report: [String: Any] = ["status": "passed", "sampledValues": samples,
             "maximumSampleError": maxError, "cacheLimit": 128, "cachedPositions": state.cachedPositions,
             "modelCalls": state.predictionCount, "mixedDepthReuse": true, "evictionPreservesResults": true,
             "cancelledAndInvalidRequestsDoNotPredict": true,
+            "interruptedPredictionResumesWithoutReplay": true,
             "scope": "macOS Swift release and Core ML CPU_ONLY; not iPhone, ANE or UI latency"]
         print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
     }

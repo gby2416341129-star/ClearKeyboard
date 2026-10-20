@@ -36,6 +36,10 @@ int set_input_mock(RimeSessionId id, const char *) {
   return 1;
 }
 int cancelled_now(void *) { return 1; }
+int unexpected_predictions=0;
+int reject_unneeded_predictor(const char *const *,int,float *,int,double,cr_cancelled,void *,void *) {
+  ++unexpected_predictions;return 0;
+}
 std::unordered_map<uintptr_t,std::string> live_inputs;
 int complete_resets=0,incremental_edits=0;
 int reset_live(RimeSessionId id,const char *value) { ++complete_resets;live_inputs[id]=value;return 1; }
@@ -173,5 +177,15 @@ int main(int argc, char **argv) {
   live_inputs[2]="foreign";
   collect(2,"nih",1,incremental,nullptr,nullptr);
   assert(live_inputs[2]=="nih" && complete_resets==2 && incremental_edits==2);
-  std::cout << "PASS: unique paging, incremental cursor, literal retention, cancellation, stable heads, phonetic boundaries, slow-host literal repair\n";
+  // A platform predictor being available must not start character search for
+  // an already complete dictionary phrase, or alter its first candidate.
+  sentence_model=std::make_unique<clear_sentence::Model>();assert(sentence_model->load(argv[1]));
+  sentence_model->set_native_enabled(false);cr_set_sentence_predictor(reject_unneeded_predictor,nullptr);
+  q.exact_cache={};q.conversation_cache={};q.fluent_cache={};q.correction_cache={};
+  lists[2]={{u8"你奶奶的","ni nai nai de\t4\t-10"}};lists[3].clear();lists[4].clear();
+  assert(cr_query(1,"nnnd",9,nullptr,nullptr)==1);
+  assert(q.items.front().text==u8"你奶奶的" && unexpected_predictions==0 && q.rank_decided);
+  assert(cr_query_fast(1,"nnnd",32,nullptr,nullptr)>=1);
+  assert(q.items.front().text==u8"你奶奶的" && unexpected_predictions==0);
+  std::cout << "PASS: unique paging, incremental cursor, literal retention, cancellation, stable heads, phonetic boundaries, slow-host literal repair, complete dictionary bypass\n";
 }

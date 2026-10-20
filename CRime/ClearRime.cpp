@@ -448,7 +448,10 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
     query.items.erase(std::remove_if(query.items.begin(),query.items.end(),[&](const Item &old){return old.text==literal_replacement.text;}),query.items.end());
     query.items.insert(query.items.begin(),std::move(literal_replacement));repaired=true;
   }
-  rank_sentence(query,input,length,leading_row,correction,repaired,started,cancelled,context,limit);
+  // A complete dictionary word must use the same protected path as the
+  // dedicated conversation dictionary. Neural continuation search is for
+  // ambiguous composition, not a second vote over an already exact phrase.
+  rank_sentence(query,input,length,leading_row,correction,repaired || !full.empty(),started,cancelled,context,limit);
   if (cancelled && cancelled(context)) return 0;
   return static_cast<int>(query.items.size());
 }

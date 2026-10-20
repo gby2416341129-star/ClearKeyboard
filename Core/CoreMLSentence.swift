@@ -22,7 +22,7 @@ final class CoreMLSentence {
     #endif
     private final class Request {
         let lock = NSLock(), signal = DispatchSemaphore(value: 0)
-        var result: [Float]?, abandoned = false
+        var result: [Float]?, abandoned = false, faulted = false
     }
     func start(directory: URL) {
         lock.lock()
@@ -125,24 +125,31 @@ final class CoreMLSentence {
             defer { lock.lock(); busy = false; lock.broadcast(); lock.unlock(); request.signal.signal() }
             request.lock.lock(); let abandoned = request.abandoned; request.lock.unlock()
             guard !abandoned, let prefixState else { return }
+            var faulted = false
             let result: [Float]? = autoreleasepool {
                 do {
                     return try prefixState.next(prefixes, abandoned: {
                         request.lock.lock(); defer { request.lock.unlock() }; return request.abandoned
                     })
-                } catch { return nil }
+                } catch { faulted = true; return nil }
             }
-            request.lock.lock(); if !request.abandoned { request.result = result }; request.lock.unlock()
+            request.lock.lock()
+            if !request.abandoned { request.result = result; request.faulted = faulted }
+            request.lock.unlock()
         }
         while ProcessInfo.processInfo.systemUptime - started < allowance, !cancelled() {
             let remaining = allowance - (ProcessInfo.processInfo.systemUptime - started)
             if request.signal.wait(timeout: .now() + min(0.00015, max(0, remaining))) == .success {
-                request.lock.lock(); let result = request.result; request.lock.unlock()
-                if result == nil { failed() }; return result
+                request.lock.lock(); let result = request.result, faulted = request.faulted; request.lock.unlock()
+                if result != nil { lock.lock(); failures = 0; lock.unlock() }
+                else if faulted { failed() }
+                return result
             }
         }
         request.lock.lock(); request.abandoned = true; request.lock.unlock()
-        if !cancelled() { failed() }
+        // An ordinary deadline or cancellation says nothing about model
+        // integrity. Its finished ancestors remain usable by the latest key.
+        // Only a thrown runtime/cache/numerical error counts as a fault.
         #endif
         return nil
     }

@@ -303,21 +303,43 @@ public:
     }
     if (!budget.alive()) return false; result=std::move(completed);return true;
   }
-  bool mean_logprob(const std::string &value,float &score,const Budget &budget) {
-    std::vector<int> tokens;
-    if (!encode(value,tokens) || tokens.size()>16) return false;
-    double total=0;
-    std::string prefix;
-    for (size_t start=0; start<tokens.size(); start+=8) {
-      std::vector<std::string> prefixes;
-      const auto end=std::min(tokens.size(),start+8);
-      for (size_t i=start; i<end; ++i) { prefixes.push_back(prefix);prefix+=text(tokens[i]); }
-      std::vector<std::vector<float>> rows;
-      if (!next(prefixes,rows,budget)) return false;
-      for (size_t i=start; i<end; ++i) total+=rows[i-start][tokens[i]];
+  // Joint sentence scoring shares common prefixes and requests one causal
+  // depth at a time. An eight-lane accelerator can evaluate several choices
+  // in one call instead of replaying each sentence's prefix separately.
+  bool mean_logprobs(const std::vector<std::string> &sentences,std::vector<float> &scores,const Budget &budget) {
+    if (sentences.empty() || sentences.size()>8 || !budget.alive()) return false;
+    struct Position {size_t row;int token;};
+    std::vector<std::unordered_map<std::string,std::vector<Position>>> levels(16);
+    std::vector<size_t> lengths;std::vector<double> totals(sentences.size(),0);
+    for (size_t row=0;row<sentences.size();++row) {
+      std::vector<int> ids;if (!encode(sentences[row],ids) || ids.empty() || ids.size()>16) return false;
+      lengths.push_back(ids.size());std::string prefix;
+      for (size_t depth=0;depth<ids.size();++depth) {
+        levels[depth][prefix].push_back({row,ids[depth]});prefix+=text(ids[depth]);
+      }
     }
-    if (!budget.alive()) return false;
-    score=static_cast<float>(total/tokens.size());return std::isfinite(score);
+    for (const auto &level:levels) {
+      if (level.empty()) continue;
+      std::vector<std::string> prefixes;for (const auto &entry:level) prefixes.push_back(entry.first);
+      std::sort(prefixes.begin(),prefixes.end());
+      std::vector<std::vector<float>> values;if (!next(prefixes,values,budget)) return false;
+      for (size_t index=0;index<prefixes.size();++index)
+        for (const auto &position:level.at(prefixes[index])) totals[position.row]+=values[index][position.token];
+    }
+    std::vector<float> completed;
+    for (size_t row=0;row<sentences.size();++row) {
+      auto score=static_cast<float>(totals[row]/lengths[row]);if (!std::isfinite(score)) return false;
+      completed.push_back(score);
+    }
+    if (!budget.alive()) return false;scores=std::move(completed);return true;
+  }
+  bool mean_logprob(const std::string &value,float &score,const Budget &budget) {
+    // Each accelerator request has a short allowance. Do not bundle several
+    // uncached causal depths into a single request: they require sequential
+    // predictions even when presented as one batch of prefixes.
+    std::vector<float> scores;
+    if (!mean_logprobs({value},scores,budget)) return false;
+    score=scores.front();return true;
   }
   bool ready() const { return loaded; }
   size_t cached_positions() const { return cache.size(); }

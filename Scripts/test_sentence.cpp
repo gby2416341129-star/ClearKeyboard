@@ -30,6 +30,21 @@ int main(int argc,char **argv) {
   model.clear_cache();int checks=0;cancelled=budget();cancelled.cancelled=cancel_during;cancelled.context=&checks;
   assert(!model.next({u8"这里"},out,cancelled) && out==std::vector<std::vector<float>>{{123}});
   assert(model.mean_logprob(u8"这班公交车不到医院",score,budget()) && std::abs(score+4.4460439682f)<0.0001);
+  // Joint evaluation is numerically identical to separate sentences, retains
+  // duplicate rows, and never exposes a partial score list on invalid requests.
+  const std::vector<std::string> alternatives={u8"我们明天再讨论",u8"我们明天见",u8"你今天吃饭了吗",u8"这份材料收到了"};
+  std::vector<float> joint;
+  assert(model.mean_logprobs(alternatives,joint,budget()) && joint.size()==alternatives.size());
+  for (size_t row=0;row<alternatives.size();++row) {
+    float scalar=0;assert(model.mean_logprob(alternatives[row],scalar,budget()));assert(std::abs(joint[row]-scalar)<0.00001f);
+  }
+  const auto saved_scores=joint;
+  assert(!model.mean_logprobs(alternatives,joint,expired) && joint==saved_scores);
+  assert(!model.mean_logprobs({},joint,budget()) && joint==saved_scores);
+  assert(!model.mean_logprobs({""},joint,budget()) && joint==saved_scores);
+  assert(!model.mean_logprobs({u8"🦄"},joint,budget()) && joint==saved_scores);
+  assert(!model.mean_logprobs(std::vector<std::string>(9,u8"我们"),joint,budget()) && joint==saved_scores);
+  assert(model.mean_logprobs({alternatives.front(),alternatives.front()},joint,budget()) && joint[0]==joint[1]);
   for(int value=0;value<150;++value) {
     std::string prefix;for(int bit=0;bit<8;++bit) prefix+=(value&(1<<bit))?u8"你":u8"我";
     assert(model.next({prefix},out,budget()));assert(model.cached_positions()<=128);

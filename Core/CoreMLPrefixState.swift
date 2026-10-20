@@ -5,6 +5,7 @@ import CoreML
 /// Serial-worker-owned attention states. A node stores one causal position;
 /// sibling candidates share its ancestors without recalculating the prefix.
 final class CoreMLPrefixState {
+    enum PredictionFailure: Error { case invalidCache, invalidOutput }
     private struct Node {
         let parent: String?
         let position: Int
@@ -100,7 +101,7 @@ final class CoreMLPrefixState {
             mask.advanced(by: row * 16).update(repeating: 0, count: position + 1)
             var ancestor: String? = key.isEmpty ? nil : String(key.dropLast())
             while let prefix = ancestor {
-                guard let node = nodes[prefix], node.position < position else { return false }
+                guard let node = nodes[prefix], node.position < position else { throw PredictionFailure.invalidCache }
                 for layer in 0..<8 {
                     let offset = ((layer * 8 + row) * 16 + node.position) * 448
                     node.keys.withUnsafeBufferPointer { k.advanced(by: offset).update(from: $0.baseAddress!.advanced(by: layer * 448), count: 448) }
@@ -120,7 +121,7 @@ final class CoreMLPrefixState {
         }
         guard let scores = output("log_probs", shape: [8, 12_288], strides: [12_288, 1]),
               let newK = output("new_k", shape: [8, 8, 448], strides: [3_584, 448, 1]),
-              let newV = output("new_v", shape: [8, 8, 448], strides: [3_584, 448, 1]) else { return false }
+              let newV = output("new_v", shape: [8, 8, 448], strides: [3_584, 448, 1]) else { throw PredictionFailure.invalidOutput }
         let scoreBuffer = scores.dataPointer.assumingMemoryBound(to: Float.self)
         let keyBuffer = newK.dataPointer.assumingMemoryBound(to: Float.self)
         let valueBuffer = newV.dataPointer.assumingMemoryBound(to: Float.self)
@@ -129,7 +130,7 @@ final class CoreMLPrefixState {
             let probabilities = Array(UnsafeBufferPointer(start: scoreBuffer.advanced(by: row * 12_288), count: 12_288))
             let keys = Array(UnsafeBufferPointer(start: keyBuffer.advanced(by: row * 3_584), count: 3_584))
             let values = Array(UnsafeBufferPointer(start: valueBuffer.advanced(by: row * 3_584), count: 3_584))
-            guard probabilities.allSatisfy(\.isFinite), keys.allSatisfy(\.isFinite), values.allSatisfy(\.isFinite) else { return false }
+            guard probabilities.allSatisfy(\.isFinite), keys.allSatisfy(\.isFinite), values.allSatisfy(\.isFinite) else { throw PredictionFailure.invalidOutput }
             clock &+= 1
             completed.append((key, Node(parent: key.isEmpty ? nil : String(key.dropLast()), position: key.count,
                 keys: keys, values: values, probabilities: probabilities, touched: clock)))
