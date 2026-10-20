@@ -66,6 +66,7 @@ public final class InputEngine {
         if english && exact.isEmpty {
             output.append(Candidate(text: raw, reading: raw, consumed: input.count))
         } else {
+            output += conversationalCandidates(input, raw: raw)
             // Production short-initial rows are already ranked and bounded.
             // Prefer them to the small compatibility dictionary, which otherwise
             // changes the first word when the native decoder catches up.
@@ -184,6 +185,7 @@ public final class InputEngine {
                     output.insert(output.remove(at: index), at: 0)
                 }
             }
+            if !isEnglishWord { output.insert(contentsOf: conversationalCandidates(input, raw: raw), at: 0) }
             if correction, !isEnglishWord, !result.contains(where: {
                 $0.consumed == input.count && Self.matchesReadingWithInitials(input, reading: $0.reading)
             }) {
@@ -236,6 +238,12 @@ public final class InputEngine {
         var seen = Set<String>()
         return choices.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
             .filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))).map { $0 }
+    }
+
+    private func conversationalCandidates(_ input: String, raw: String) -> [Candidate] {
+        guard !raw.contains("'") else { return [] }
+        return (associations?.lookup("c:" + input, limit: 32) ?? [])
+            .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
     }
 
     private func sentences(_ input: String, cancelled: () -> Bool) -> [Candidate] {

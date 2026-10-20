@@ -190,7 +190,7 @@ import ImageIO
             }
             appearanceSignature = ""; keyPresentation = nil; keyFramesNeedLayout = true
         }
-        let toolSignature = "\(settings.toolbar)-\(toolbarEditing)-\(toolboxVisible)"
+        let toolSignature = "\(settings.toolbar)-\(toolbarEditing)-\(toolboxVisible)-\(panelKind?.rawValue ?? "")"
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
         let style = "\(settings.glass)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.glassOpacity)-\(settings.haptics)-\(traitCollection.userInterfaceStyle.rawValue)"
@@ -296,11 +296,12 @@ import ImageIO
     }
     private func rebuildToolbar() {
         toolbar.arrangedSubviews.forEach { toolbar.removeArrangedSubview($0); $0.removeFromSuperview() }
-        let brand = circleButton(symbol: toolbarEditing ? "checkmark" : (toolboxVisible ? "chevron.down" : nil),
-            image: toolbarEditing || toolboxVisible ? nil : ToolArtwork.brand(size: 28), label: toolbarEditing ? "完成工具栏编辑" : "键盘工具") { [weak self] in
+        let panelOpen = panel != nil
+        let brand = circleButton(symbol: toolbarEditing ? "checkmark" : (panelOpen ? "chevron.down" : nil),
+            image: panelOpen ? nil : ToolArtwork.brand(size: 28),
+            label: toolbarEditing ? "完成工具栏编辑" : (panelOpen ? "返回键盘" : "键盘工具")) { [weak self] in
                 guard let self else { return }
-                if self.toolbarEditing { self.closePanel() }
-                else if self.toolboxVisible { self.closePanel() }
+                if self.panel != nil { self.closePanel() }
                 else { self.showToolbox() }
             }
         brand.configuration?.baseForegroundColor = model.settings.accentInkColor
@@ -409,14 +410,13 @@ import ImageIO
     }
     private func panelStack(title: String) -> UIStackView {
         let container = UIView(); container.backgroundColor = .clear
+        container.accessibilityLabel = title
+        container.accessibilityContainerType = .semanticGroup
         addSubview(container); panel = container; keyGlassGroup.isHidden = true
         let scroll = UIScrollView(); scroll.translatesAutoresizingMaskIntoConstraints = false; container.addSubview(scroll)
         NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor), scroll.topAnchor.constraint(equalTo: container.topAnchor), scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor)])
         let stack = UIStackView(); stack.axis = .vertical; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = false; scroll.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 12), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -12), stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 10), stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12), stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -24)])
-        let header = UIStackView(); header.axis = .horizontal
-        let label = UILabel(); label.text = title; label.font = .systemFont(ofSize: 14, weight: .semibold); header.addArrangedSubview(label)
-        header.addArrangedSubview(actionButton("完成") { [weak self] in self?.closePanel() }); stack.addArrangedSubview(header)
         return stack
     }
     private func showToolbox() {

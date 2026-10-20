@@ -85,10 +85,25 @@ int main() {
   assert(!reliable_literal_sentence({"weak", "ni chi fan ke ma", 12, -33.3}, "nichifankema"));
   assert(!reliable_literal_sentence({"internal-initial", "wo chi e le de", 9, -20}, "wochielde"));
   assert(!reliable_literal_sentence({"changed", "wo chu le de", 9, -10}, "wochilede"));
+  assert(reliable_literal_sentence({"initials", "wo men jin tian qu chi fan", 7, -24}, "wmjtqcf"));
+  assert(reliable_literal_sentence({"mixed", "ma ma ni chi fan ma", 7, -22.5}, "mamncfm"));
+  assert(!reliable_literal_sentence({"short-typo", "ni chi fan ke ma", 10, -20}, "nichifankm"));
+  assert(!reliable_literal_sentence({"weak-initials", "wo men jin tian qu chi fan", 7, -50}, "wmjtqcf"));
+  assert(!reliable_literal_sentence({"typo-in-a-long-phrase", "ni chi fan qu na le mei lao po",
+      18, -30}, "nichifqnlemeilaopo"));
   lists[4] = {{"weak", "ni chi fan ke ma\t12\t-33.3"}};
   lists[1] = {{"corrected", "ni chi fan le ma\t12\t-19.5"}};
   assert(cr_query(1, "nichifankema", 9, nullptr, nullptr) == 2);
   assert(q.items[0].text == "corrected" && q.items[1].text == "weak");
   assert(starts[1] == 1);
+  lists[3] = {{"question", "ma ma ni chi fan ma\t7\t-12"}};
+  lists[2] = {{"other", "ma ma ni chi fan mei\t7\t-13"}};
+  lists[4].clear();
+  const auto prior_exact = starts[2], prior_fluent = starts[4], prior_corrected = starts[1];
+  assert(cr_query(1, "mamncfm", 9, nullptr, nullptr) == 1);
+  assert(q.items[0].text == "question");
+  assert(starts[2] == prior_exact && starts[4] == prior_fluent && starts[1] == prior_corrected);
+  assert(cr_query_fast(1, "mamncfm", 96, nullptr, nullptr) == 2);
+  assert(q.items[0].text == "question" && q.items[1].text == "other");
   std::cout << "PASS: bounded unique paging, incremental cursor, confidence gate, literal retention, cancellation, iterator cleanup\n";
 }

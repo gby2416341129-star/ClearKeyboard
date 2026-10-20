@@ -3,6 +3,7 @@
 import argparse, concurrent.futures, hashlib, heapq, json, os, platform, shutil, struct
 import subprocess, unicodedata, urllib.request, zipfile
 from collections import defaultdict
+from itertools import product
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +56,32 @@ def short_initial_words(words, conversational=()):
                     heapq.heapreplace(bucket, rank)
     return buckets
 
+
+def conversational_words(base, vocatives):
+    # Compile a small, explicit address + question grammar. Only existing
+    # singular-你 questions participate; arbitrary word pairs and missing
+    # syllables are never invented during a keystroke.
+    entries = {(t, p): f for t, p, f in base}
+    for text, reading, frequency in base:
+        syllables = reading.split()
+        if not text.startswith('你') or text.startswith('你们') or syllables[0] != 'ni':
+            continue
+        for address, spelling in vocatives:
+            canonical = spelling + ' ' + reading
+            if len(canonical.split()) <= 8:
+                key = (address + text, canonical)
+                entries[key] = max(entries.get(key, 0), frequency)
+    return [(t, p, f) for (t, p), f in sorted(entries.items())]
+
+
+def mixed_spellings(reading):
+    syllables = reading.split()
+    if not 2 <= len(syllables) <= 8:
+        return ()
+    # Full syllables and one-letter initials can mix at every position.
+    # At most 2**8 forms; Rime still handles digraph initials and other input.
+    return {''.join(parts) for parts in product(*[(s, s[0]) for s in syllables])}
+
 def associations(words, english, output, conversational=()):
     # Both continuations and short initialisms are immutable CLX lookups,
     # independent of the serial Rime session and its language-model work.
@@ -78,6 +105,22 @@ def associations(words, english, output, conversational=()):
                 initial_records[key] = len(words); words.append((text, reading, frequency))
             i = initial_records[key]
             buckets['i:'+code].append((INITIAL_LIMIT-position, -i, i))
+    # Common mixed spellings must have the same immediate row as the native
+    # phrase dictionary, without waiting for the general sentence model.
+    conversation_buckets = defaultdict(dict)
+    for text, reading, frequency in conversational:
+        key = (text, reading)
+        if key not in initial_records:
+            initial_records[key] = len(words); words.append((text, reading, frequency))
+        i = initial_records[key]
+        for code in mixed_spellings(reading):
+            rank = (frequency, text, reading, i)
+            bucket = conversation_buckets[code]
+            if text not in bucket or rank > bucket[text]:
+                bucket[text] = rank
+    for code, bucket in conversation_buckets.items():
+        for position, (_, text, reading, i) in enumerate(sorted(bucket.values(), reverse=True)[:INITIAL_LIMIT]):
+            buckets['c:'+code].append((INITIAL_LIMIT-position, -i, i))
     strings = bytearray(); interned = {}
     def string(s):
         if s not in interned:
@@ -133,7 +176,17 @@ def main():
         if len(text)!=len(reading.split()) or not all('\u3400'<=c<='\u9fff' for c in text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading):
             raise RuntimeError('Invalid conversational reading: '+text)
         conversational.append((text,reading,int(frequency)))
-    conversation_version=hashlib.sha256(conversation.read_bytes()).hexdigest()[:12]
+    vocatives_path = ROOT/'Data/Rime/vocatives.tsv'
+    vocatives=[]
+    for line in vocatives_path.read_text(encoding='utf-8').splitlines():
+        if not line or line.startswith('#'):continue
+        fields=line.split('\t')
+        if len(fields)!=2 or len(fields[0])!=len(fields[1].split()):
+            raise RuntimeError('Invalid vocative: '+line)
+        vocatives.append(tuple(fields))
+    conversational=conversational_words(conversational,vocatives)
+    conversation_version=hashlib.sha256(
+        ''.join(f'{t}\t{p}\t{f}\n' for t,p,f in conversational).encode()).hexdigest()[:12]
     rows=[(t,p,f) for (t,p),f in sorted(words.items())]
     if len(rows)<500_000:raise RuntimeError(f'Incomplete Wanxiang dictionary: {len(rows)}')
     (source/'clear_pinyin.dict.yaml').write_text('# Derived from Wanxiang; CC BY 4.0, AMZ and contributors.\n---\nname: clear_pinyin\nversion: "'+REV+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in rows),encoding='utf-8')

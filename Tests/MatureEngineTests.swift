@@ -5,6 +5,26 @@ final class MatureEngineTests: XCTestCase {
     private var engine: InputEngine!
     override func setUpWithError() throws { engine = try .bundled() }
     func testProductionUsesRimeAndWanxiang() { XCTAssertEqual(engine.chineseBackend, "rime-wanxiang") }
+    func testAddressQuestionsHaveFastMixedSpellingCandidates() {
+        let cases = [
+            "mamncfm": "妈妈你吃饭吗", "mamancfm": "妈妈你吃饭吗", "mmncfm": "妈妈你吃饭吗",
+            "babancfm": "爸爸你吃饭吗", "laopncfm": "老婆你吃饭吗", "laogncfm": "老公你吃饭吗",
+            "laosncfm": "老师你吃饭吗", "gegncfm": "哥哥你吃饭吗",
+            "mamnzgm": "妈妈你在干嘛", "babanxbm": "爸爸你下班没"
+        ]
+        for (raw, expected) in cases {
+            let immediate = engine.immediateCandidates(raw)
+            XCTAssertEqual(immediate.first?.text, expected, raw)
+            for limit in [9, 96] {
+                let values = engine.candidates(raw, limit: limit)
+                XCTAssertEqual(values.first?.text, expected, raw)
+                XCTAssertEqual(values.first?.consumed, raw.count, raw)
+                XCTAssertEqual(Array(values.prefix(immediate.count)), immediate, raw)
+            }
+        }
+        XCTAssertEqual(engine.immediateCandidates("mamcfm").first?.text, "妈妈吃饭没",
+                       "Do not silently add a missing pronoun to an exact abbreviation")
+    }
     func testCorrectSpellingCannotBeOverriddenByBroadCorrection() {
         let cases = [
             "babanichifanlema": "爸爸你吃饭了吗",

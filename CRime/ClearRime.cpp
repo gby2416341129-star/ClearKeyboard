@@ -107,6 +107,30 @@ bool reliable_literal_sentence(const Item &item, const std::string &input) {
     }
   }
   const auto syllables = 1 + std::count(item.reading.begin(), item.reading.end(), ' ');
+  if (!literal) {
+    // A run of genuine initials is intentional abbreviated input, not a reason
+    // to run the larger typo graph a second time. Keep one/two internal initials
+    // on the correction path: they can be incomplete or mistyped syllables.
+    std::vector<int> positions(input.size() + 1, -1);
+    positions[0] = 0;
+    size_t start = 0;
+    while (start < item.reading.size()) {
+      const auto end = item.reading.find(' ', start);
+      const auto syllable = item.reading.substr(start, end - start);
+      std::vector<int> next(input.size() + 1, -1);
+      for (size_t offset = 0; offset < input.size(); ++offset) if (positions[offset] >= 0) {
+        if (input.compare(offset, syllable.size(), syllable) == 0)
+          next[offset + syllable.size()] = std::max(next[offset + syllable.size()], positions[offset]);
+        if (syllable.size() > 1 && input[offset] == syllable.front())
+          next[offset + 1] = std::max(next[offset + 1], positions[offset] + 1);
+      }
+      positions = std::move(next);
+      if (end == std::string::npos) break;
+      start = end + 1;
+    }
+    literal = positions.back() >= 3 && positions.back() * 2 >= syllables &&
+              item.weight >= -4.5 * syllables;
+  }
   // A weak but legal reading (e.g. ke instead of le) can still be a typo. This
   // gate is deliberately conservative; uncertain input uses the same bounded
   // corrected search, and a real dictionary phrase is handled separately.
@@ -209,6 +233,15 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   collect(query.conversation, input, limit, query.conversation_cache, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
   const auto &conversational = query.conversation_cache.items;
+  const auto length = static_cast<int>(letters(input).size());
+  const bool leading_row = limit <= 9;
+  if (leading_row && std::any_of(conversational.begin(), conversational.end(),
+      [&](const Item &item) { return item.consumed == length; })) {
+    // These are exact dictionary phrases, including mixed full/initial input.
+    // Other dictionaries and sentence alternatives are needed only on paging.
+    query.items = merge_candidates(input, conversational, {}, {}, limit);
+    return static_cast<int>(query.items.size());
+  }
   // A valid mixed full/initial spelling is a dictionary lookup, not a typo.
   // Share the large table with a correction-free prism and no grammar model.
   // Only a complete dictionary phrase can bypass sentence correction; partial
@@ -219,14 +252,12 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   std::vector<Item> fluent;
   // Plenty of whole dictionary words require no language-model work. If the
   // dictionaries only have a few, also expose the fluent decoder's alternatives.
-  const auto length = static_cast<int>(letters(input).size());
   std::unordered_set<std::string> full;
   for (const auto &item : conversational) if (item.consumed == length) full.insert(item.text);
   for (const auto &item : literal) if (item.consumed == length) full.insert(item.text);
   // A typing query needs a stable leading row, not every possible alternative.
   // Do not invoke the sentence model just to fill empty slots beside a complete
   // dictionary phrase. Explicit paging can request the larger merged menu.
-  const bool leading_row = limit <= 9;
   if (full.empty() || (!leading_row && full.size() < static_cast<size_t>(std::clamp(limit, 1, 4096)))) {
     collect(query.fluent, input, correction ? 1 : limit, query.fluent_cache, cancelled, context);
     if (cancelled && cancelled(context)) return 0;
