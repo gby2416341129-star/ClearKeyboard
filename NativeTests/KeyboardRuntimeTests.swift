@@ -166,7 +166,8 @@ import SwiftUI
         let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你好" })
         XCTAssertTrue(candidate.isEnabled)
         let point = candidate.convert(CGPoint(x: candidate.bounds.midX, y: candidate.bounds.midY), to: surface)
-        XCTAssertTrue(surface.hitTest(point, with: nil)?.isDescendant(of: candidate) == true, "A visible native candidate button must receive the finger tap")
+        let scroll = try XCTUnwrap(descendants(surface).compactMap { $0 as? CandidateScrollView }.first)
+        XCTAssertTrue(surface.hitTest(point, with: nil) === scroll, "Word taps must reach the same row surface as gap drags")
         XCTAssertFalse(descendants(surface).compactMap { $0 as? UILabel }.contains { ($0.text ?? "").hasPrefix("已清空") || ($0.text ?? "").hasPrefix("已恢复删除") })
     }
     func testDefaultKeyFacesAndSpacingMatchTheAirReferenceInEveryHandMode() throws {
@@ -408,8 +409,9 @@ import SwiftUI
         settleLayout(controller.view)
         let result = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.8712" })
         let point = result.convert(CGPoint(x: result.bounds.midX, y: result.bounds.midY), to: controller.view)
-        XCTAssertTrue(controller.view.hitTest(point, with: nil)?.isDescendant(of: result) == true)
-        XCTAssertTrue(result.isEnabled); result.sendActions(for: .touchUpInside)
+        let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? CandidateScrollView }.first)
+        XCTAssertTrue(controller.view.hitTest(point, with: nil) === scroll)
+        scroll.selectCandidate(at: scroll.convert(point, from: controller.view))
         XCTAssertEqual(controller.textView.text, "8712")
     }
     func testInputViewFitsOwnContentAndTransparentSurfaceHasOneOutline() throws {

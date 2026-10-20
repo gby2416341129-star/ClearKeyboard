@@ -1,8 +1,8 @@
 import UIKit
 
-/// A small, fixed strip of candidates. UIKit owns dragging and momentum; no
-/// collection layout, cell recycling or selection recognizer runs while scrolling.
-@MainActor final class CandidateScrollView: UIScrollView, UIScrollViewDelegate {
+/// A small, fixed strip of candidates. The whole row is one touch surface;
+/// UIKit owns dragging and momentum, independently of the word under a finger.
+@MainActor final class CandidateScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     private struct Presentation: Equatable {
         let items: [Candidate]
         let context: KeyboardModel.CandidateContext?
@@ -12,6 +12,8 @@ import UIKit
     private var pending: (Presentation, UIColor)?
     private var ink: UIColor = .systemTeal
     private let strip = UIView()
+    private let selectionTap = UITapGestureRecognizer()
+    private var tapStoppedScrolling = false
     private var buttons: [CandidateButton] = []
     private var stripWidth: CGFloat = 0
     private var viewportSize = CGSize.zero
@@ -31,6 +33,9 @@ import UIKit
         delegate = self
         addSubview(strip)
         strip.isOpaque = false
+        // Word faces and their spacing are presentation only. Every contact,
+        // including one in a gap, reaches this same scroll view and native pan.
+        strip.isUserInteractionEnabled = false
         backgroundColor = .clear; isOpaque = false
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         delaysContentTouches = false; canCancelContentTouches = true
@@ -40,6 +45,14 @@ import UIKit
         contentInsetAdjustmentBehavior = .never
         scrollsToTop = false
         accessibilityIdentifier = "clear.candidates"
+        selectionTap.addTarget(self, action: #selector(candidateTapped(_:)))
+        selectionTap.delegate = self
+        selectionTap.cancelsTouchesInView = false
+        selectionTap.delaysTouchesBegan = false
+        selectionTap.delaysTouchesEnded = false
+        addGestureRecognizer(selectionTap)
+        // Only selection waits for the native pan; dragging never waits for a tap.
+        selectionTap.require(toFail: panGestureRecognizer)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
@@ -82,9 +95,7 @@ import UIKit
             // for this query so a direction change needs no creation or sizing.
             while buttons.count < next.items.count {
                 let button = CandidateButton()
-                button.addTarget(self, action: #selector(candidateDown), for: .touchDown)
                 button.addTarget(self, action: #selector(candidateUp(_:)), for: .touchUpInside)
-                button.addTarget(self, action: #selector(candidateCancelled), for: [.touchCancel, .touchUpOutside])
                 strip.addSubview(button); buttons.append(button)
             }
             while buttons.count > next.items.count { buttons.removeLast().removeFromSuperview() }
@@ -93,11 +104,13 @@ import UIKit
                 let button = buttons[index]
                 let width = button.configure(candidate, first: index == 0, accent: accent)
                 button.tag = index
-                // Include the inter-word spacing in the control's hit area.
+                // The trailing spacing scrolls with the row but is not a word tap.
                 button.frame = CGRect(x: x, y: 0, width: width + 12, height: bounds.height)
                 x += width + 12
             }
             stripWidth = x
+            // Preserve individually focusable words without separate touch targets.
+            accessibilityElements = buttons
             updateStripSize()
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
@@ -119,12 +132,44 @@ import UIKit
         if strip.frame.size != size { strip.frame = CGRect(origin: .zero, size: size) }
         if contentSize != size { contentSize = size }
     }
-    @objc private func candidateDown() { beginBrowsing() }
-    @objc private func candidateCancelled() { scheduleIdle() }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === selectionTap else { return true }
+        tapStoppedScrolling = isDecelerating || isScrollAnimating
+        if tapStoppedScrolling {
+            // A new contact anywhere in the row takes over old momentum.
+            // Do not reset the native pan or consume the new drag to stop it.
+            stopScrollingAndZooming()
+        }
+        beginBrowsing()
+        return true
+    }
+    @objc private func candidateTapped(_ recognizer: UITapGestureRecognizer) {
+        defer { scheduleIdle() }
+        guard recognizer.state == .ended, !tapStoppedScrolling else { return }
+        selectCandidate(at: recognizer.location(in: self))
+    }
+    /// `point` uses this scroll view's bounds coordinates, including its offset.
+    func selectCandidate(at point: CGPoint) {
+        guard !isDragging, !isDecelerating, bounds.contains(point) else { return }
+        let local = strip.convert(point, from: self)
+        guard let index = buttons.firstIndex(where: {
+            var face = $0.frame
+            face.size.width = max(0, face.width - 12)
+            return face.contains(local)
+        }) else { return }
+        activate(index)
+    }
     @objc private func candidateUp(_ sender: CandidateButton) {
-        // UIScrollView cancels the control as soon as its native pan wins.
-        // The explicit guard also rejects activation during momentum.
+        // Accessibility activation keeps the same snapshot as a physical tap.
         if !isDragging && !isDecelerating { activate(sender.tag) }
+        scheduleIdle()
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        scheduleIdle()
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
         scheduleIdle()
     }
     private func activate(_ index: Int) {
@@ -142,8 +187,7 @@ import UIKit
     }
     private func scheduleIdle() {
         guard !idleScheduled else { return }; idleScheduled = true
-        // No recognizer, failure dependency, hold threshold or settlement timer.
-        // Native tracking wins even if another finger starts in this turn.
+        // Native tracking wins even if another contact starts in this turn.
         RunLoop.main.perform(inModes: [.default]) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }

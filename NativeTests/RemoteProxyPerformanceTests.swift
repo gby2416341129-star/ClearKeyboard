@@ -210,6 +210,62 @@ import UIKit
         XCTAssertEqual(ribbon.contentOffset.x, 0, accuracy: 0.1)
         XCTAssertLessThanOrEqual(ribbon.contentSize.height, ribbon.bounds.height)
     }
+    func testCandidateStripReceivesTouchesAcrossWordsGapsAndUnusedSpace() throws {
+        let ribbon = CandidateScrollView()
+        ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
+        let context = KeyboardModel.CandidateContext(raw: "shi", before: "shi", after: "", document: "field", language: .chinese)
+        let candidates = (0..<24).map { Candidate(text: "候选\($0)", consumed: 3) }
+        ribbon.update(candidates, context: context, arithmetic: false, accent: .systemTeal)
+        ribbon.layoutIfNeeded()
+        for width: CGFloat in [320, 240] {
+            ribbon.frame.size.width = width; ribbon.layoutIfNeeded()
+            for offset: CGFloat in [0, 95, 20, 130] {
+                ribbon.contentOffset.x = offset; ribbon.layoutIfNeeded()
+                for x in stride(from: CGFloat(1), to: width, by: 3) {
+                    for y: CGFloat in [1, 22, 43] {
+                        let point = CGPoint(x: ribbon.bounds.minX + x, y: y)
+                        XCTAssertTrue(ribbon.hitTest(point, with: nil) === ribbon,
+                                      "Every visible point must reach the row at offset \(offset), point \(point)")
+                    }
+                }
+            }
+        }
+        let next = KeyboardModel.CandidateContext(raw: "shij", before: "shij", after: "", document: "field", language: .chinese)
+        ribbon.update([Candidate(text: "时", consumed: 4)], context: next, arithmetic: false, accent: .systemTeal)
+        ribbon.layoutIfNeeded()
+        XCTAssertTrue(ribbon.hitTest(CGPoint(x: 1, y: 22), with: nil) === ribbon)
+        XCTAssertTrue(ribbon.hitTest(CGPoint(x: 230, y: 22), with: nil) === ribbon,
+                      "Unused space after a short row must also accept a drag")
+        XCTAssertNil(ribbon.hitTest(CGPoint(x: -1, y: 22), with: nil))
+        XCTAssertNil(ribbon.hitTest(CGPoint(x: 120, y: 45), with: nil))
+    }
+    func testCandidateRowTapsExcludeGapsAndKeepAccessibilityActivation() throws {
+        let ribbon = CandidateScrollView()
+        ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
+        let context = KeyboardModel.CandidateContext(raw: "shi", before: "shi", after: "", document: "field", language: .chinese)
+        ribbon.update((0..<24).map { Candidate(text: "候选\($0)", consumed: 3) },
+                      context: context, arithmetic: false, accent: .systemTeal)
+        ribbon.layoutIfNeeded()
+        let controls = descendants(ribbon).compactMap { $0 as? UIButton }
+        let word = controls[2]
+        var selected: [String] = []
+        ribbon.onSelect = { candidate, snapshot, arithmetic in
+            selected.append(candidate.text)
+            XCTAssertEqual(snapshot, context); XCTAssertFalse(arithmetic)
+        }
+        for offset: CGFloat in [0, 95] {
+            ribbon.contentOffset.x = offset; ribbon.layoutIfNeeded()
+            ribbon.selectCandidate(at: word.convert(CGPoint(x: word.bounds.midX, y: 22), to: ribbon))
+            XCTAssertEqual(selected.last, "候选2")
+            let count = selected.count
+            ribbon.selectCandidate(at: word.convert(CGPoint(x: word.bounds.maxX - 6, y: 22), to: ribbon))
+            XCTAssertEqual(selected.count, count, "A light tap in a 12-point gap must not select a word")
+        }
+        XCTAssertEqual(selected, ["候选2", "候选2"])
+        XCTAssertEqual(ribbon.accessibilityElements?.count, controls.count)
+        XCTAssertTrue(word.accessibilityActivate())
+        XCTAssertEqual(selected, ["候选2", "候选2", "候选2"])
+    }
     func testPacedKeysDoNotReadTheHostInTheirFrames() async throws {
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
