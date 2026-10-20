@@ -627,6 +627,7 @@ public:
   bool native_full(const std::vector<std::string> &sentences,std::vector<float> &scores,const Budget &budget,int maximum_positions=61) {
     if(!loaded || sentences.empty() || sentences.size()>4 || !budget.alive()) return false;
     #if defined(__APPLE__)
+    if(__builtin_available(macOS 15.0,iOS 18.0,*)) {} else return false;
     // Float workspaces occupy less than 8 MiB at the largest supported pool.
     // Check the extension's remaining allowance rather than total device RAM.
     #if TARGET_OS_IPHONE
@@ -905,3 +906,4 @@ public:
 };
 } // namespace clear_sentence
 #endif
+
