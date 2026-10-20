@@ -195,11 +195,22 @@ void collect(uintptr_t id, const std::string &input, int limit, ChannelCache &ca
   api->candidate_list_end(&it);
 }
 bool repair_literal(Query &query,const std::string &input,const Item &original,Item &replacement,
-                    cr_cancelled cancelled,void *context) {
+                    cr_cancelled cancelled,void *context,bool terminal_only=false) {
   const auto length=static_cast<int>(letters(input).size());
   if (original.consumed!=length || (cancelled && cancelled(context))) return false;
   std::string reading;
   if (!phonetic_search.literal_repair(input,syllables(original.reading),reading)) return false;
+  if (terminal_only) {
+    std::istringstream before(syllables(original.reading)),after(reading);
+    std::vector<std::string> left,right;std::string part;
+    while (before>>part) left.push_back(part);
+    while (after>>part) right.push_back(part);
+    size_t same=0;while (same<std::min(left.size(),right.size()) && left[same]==right[same]) ++same;
+    // Only one collapsed final syllable is unambiguous enough to bypass the
+    // typo graph. An internal merge can be another explanation of a mistyped
+    // word; keep comparing those alternatives through normal correction.
+    if (same+1!=right.size() || right.size()>=left.size()) return false;
+  }
   // A literal phonetic contradiction is deterministic. Resolve it before
   // running the broader correction graph; scheduler/CPU load must not decide
   // whether the same spelling is repaired. At most one small query is needed.
@@ -413,7 +424,7 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
                           reliable_literal_sentence(query.fluent_cache.items.front(), spelling);
     Item literal_replacement;
     if (leading_row && correction && !query.fluent_cache.items.empty() &&
-        repair_literal(query,input,query.fluent_cache.items.front(),literal_replacement,cancelled,context)) {
+        repair_literal(query,input,query.fluent_cache.items.front(),literal_replacement,cancelled,context,true)) {
       collect(query.fluent,input,limit,query.fluent_cache,cancelled,context);
       fluent=query.fluent_cache.items;
       fluent.erase(std::remove_if(fluent.begin(),fluent.end(),[&](const Item &old){return old.text==literal_replacement.text;}),fluent.end());

@@ -157,6 +157,13 @@ int main(int argc, char **argv) {
   assert(starts[1]==corrections_before_repair);
   assert(cr_query_fast(1,"busuanchadla",40,nullptr,nullptr)>0 && q.items.front().text=="literal-repair");
   delayed_session=0;
+  q.exact_cache={};q.conversation_cache={};q.fluent_cache={};q.correction_cache={};q.repair_cache={};
+  q.rank_decided=false;q.ranked_input.clear();q.head_items.clear();
+  lists[4]={{"internal-ambiguity","bu suan cha de lian ai ma\t14\t-24"}};
+  lists[1]={{"broad-correction","bu suan cha de la ma\t14\t-20"}};
+  const auto before_internal=starts[1],before_extra=starts[5];
+  assert(cr_query(1,"busuanchadlama",9,nullptr,nullptr)>0);
+  assert(q.items.front().text=="broad-correction" && starts[1]==before_internal+1 && starts[5]==before_extra);
   mock.set_input=reset_live;mock.get_input=read_live;mock.process_key=edit_live;
   ChannelCache incremental;
   collect(2,"ni",1,incremental,nullptr,nullptr);
