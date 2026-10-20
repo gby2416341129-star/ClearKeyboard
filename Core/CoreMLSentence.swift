@@ -34,7 +34,7 @@ final class CoreMLSentence {
         var enabled: Bool { scorer != nil }
     }
     @available(macOS 15.0, iOS 18.0, *)
-    private func checkedScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits, function: String = "score", retain: Bool = true) throws -> ScoreAttempt? {
+    private func checkedScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits, function: String = "score", retain: Bool = true, limitMS: Double = 10) throws -> ScoreAttempt? {
         try autoreleasepool {
             let bytes = try Data(contentsOf: directory.appendingPathComponent("CoreML25M-score-validation.json"))
             guard let reference = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
@@ -59,21 +59,21 @@ final class CoreMLSentence {
                 scorer.clearScores(); guard try scorer.score(texts, abandoned: { false }) != nil else { return nil }
                 timings.append(scorer.lastPredictionMilliseconds)
             }
-            let enabled = timings.count == 3 && timings.allSatisfy { $0 < 10 }
+            let enabled = timings.count == 3 && timings.allSatisfy { $0 < limitMS }
             return ScoreAttempt(scorer: enabled && retain ? scorer : nil, timings: timings, numericalValidation: true, withinBudget: enabled, function: function)
         }
     }
     @available(macOS 15.0, iOS 18.0, *)
-    private func chooseScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits) -> ScoreAttempt? {
+    private func chooseScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits, limitMS: Double = 10) -> ScoreAttempt? {
         // Probe and release each model before loading the next. Shared files do
         // not justify keeping several runtime weight allocations alive.
         let probes = ["score", "score_f32"].compactMap {
-            try? checkedScorer(directory: directory, vocabulary: vocabulary, metadata: metadata, units: units, function: $0, retain: false)
+            try? checkedScorer(directory: directory, vocabulary: vocabulary, metadata: metadata, units: units, function: $0, retain: false, limitMS: limitMS)
         }
         guard let best = probes.filter({ $0.numericalValidation && $0.withinBudget }).min(by: {
             ($0.timings.max() ?? .infinity) < ($1.timings.max() ?? .infinity)
         }) else { return nil }
-        return try? checkedScorer(directory: directory, vocabulary: vocabulary, metadata: metadata, units: units, function: best.function)
+        return try? checkedScorer(directory: directory, vocabulary: vocabulary, metadata: metadata, units: units, function: best.function, limitMS: limitMS)
     }
     @available(macOS 15.0, iOS 18.0, *)
     private func checkedPrefix(directory: URL, function: String, sequences: [String], expected: [[String: Any]], units: MLComputeUnits) throws -> PrefixAttempt? {

@@ -34,6 +34,12 @@ func cr_trim_sentence_cache() {}
             expect(selectedScore.numericalValidation && selectedScore.withinBudget && selectedScore.enabled,
                 "Selection retained a slow or inaccurate scoring function")
         }
+        // CI hardware may reject both functions under the shipping 10 ms gate.
+        // Exercise successful selection with a test-only allowance as well;
+        // its prediction still uses the actual model and unchanged numerics.
+        let selectedForTest = worker.chooseScorer(directory: directory, vocabulary: vocabulary, metadata: checked!.metadata, units: .cpuOnly, limitMS: 1000)
+        expect(selectedForTest?.enabled == true && selectedForTest?.numericalValidation == true,
+            "Successful model selection could not retain a verified scorer")
         worker.prefixState = try CoreMLPrefixState(model: model, vocabulary: vocabulary)
         worker.ready = true
         let sequences = ["我们明天再讨论", "你今天吃饭了吗", "他们已经回家了", "她正在准备晚饭"]
@@ -121,6 +127,7 @@ func cr_trim_sentence_cache() {}
             "fastPrefixNumericalValidation": faster?.numericalValidation ?? false,
             "fastPrefixMaximumError": faster?.maximumError ?? -1,
             "scoringFunctionSelectedOnCPU": selectedScore?.function ?? "none_within_budget",
+            "successfulSelectionWithTestOnlyAllowance": selectedForTest?.function ?? "failed",
             "scope": "macOS real Core ML CPU_ONLY and the production worker method; no iOS runtime, ANE or phone latency"]
         print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
     }
