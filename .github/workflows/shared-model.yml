@@ -28,4 +28,9 @@ jobs:
       - name: Verify existing Swift state code with the new default function
         run: |
           swiftc -O -parse-as-library Core/CoreMLPrefixState.swift Scripts/test_coreml_prefix.swift -o .rime-cache/shared25m/test-prefix
-          .rime-cache/shared25m/test-prefix .rime-cache/shared25m/resources
+          .rime-cache/shared25m/test-prefix Core/Resources/Rime
+      - name: Verify direct Swift scorer and bounded worker with actual Core ML
+        run: |
+          swiftc -O -target "$(uname -m)-apple-macos15.0" -parse-as-library Core/CoreMLCandidateScorer.swift Scripts/test_coreml_scorer.swift -o .rime-cache/shared25m/test-scorer
+          .rime-cache/shared25m/test-scorer Core/Resources/Rime
+          python3 Scripts/test_coreml_worker.py

@@ -1,5 +1,5 @@
 """Direct macOS worker checks. Only private visibility changes in a test copy."""
-import hashlib,json,subprocess
+import hashlib,json,platform,subprocess
 from pathlib import Path
 import coremltools as ct
 from coremltools.models import datatypes
@@ -16,7 +16,7 @@ fixture=BUILD/'WorkerFault.mlmodel'
 ct.models.MLModel(builder.spec,skip_model_load=True).save(str(fixture))
 subprocess.run(['xcrun','coremlcompiler','compile',str(fixture),str(BUILD)],check=True)
 executable=BUILD/'test-worker'
-subprocess.run(['swiftc','-O','-parse-as-library',str(ROOT/'Core/CoreMLPrefixState.swift'),str(copied),
+subprocess.run(['swiftc','-O','-target',platform.machine()+'-apple-macos15.0','-parse-as-library',str(ROOT/'Core/CoreMLPrefixState.swift'),str(ROOT/'Core/CoreMLCandidateScorer.swift'),str(copied),
     str(ROOT/'Scripts/test_coreml_worker.swift'),'-o',str(executable)],check=True)
 subprocess.run([str(executable),str(ROOT/'Core/Resources/Rime'),str(BUILD/'WorkerFault.mlmodelc')],check=True)
 print(json.dumps({'workerSourceSHA256':hashlib.sha256(source.encode()).hexdigest(),

@@ -62,10 +62,42 @@ func cr_trim_sentence_cache() {}
             expect(worker.failures == number, "Real consecutive faults were lost")
         }
         expect(!worker.ready, "Repeated real model faults did not disable the backend")
+        let scoreConfiguration = MLModelConfiguration(); scoreConfiguration.computeUnits = .cpuOnly; scoreConfiguration.functionName = "score"
+        let scoreModel = try MLModel(contentsOf: directory.appendingPathComponent("ClearSentence25M.mlmodelc"), configuration: scoreConfiguration)
+        let scoreState = try CoreMLCandidateScorer(model: scoreModel, vocabulary: vocabulary)
+        worker.queue.sync { worker.candidateScorer = scoreState }
+        worker.lock.lock(); worker.scoreReady = true; worker.failures = 0; worker.lock.unlock()
+        let sentences = Array(sequences.prefix(4))
+        for _ in 0..<4 {
+            worker.queue.sync { scoreState.clearScores() }
+            expect(worker.score(sentences, milliseconds: 0.21, cancelled: { false }) == nil,
+                "A score call ignored its deadline")
+            worker.queue.sync {}
+            expect(worker.scoreReady && worker.failures == 0, "A score deadline disabled a healthy model")
+        }
+        let scoreReference = try worker.queue.sync { try scoreState.score(sentences, abandoned: { false })! }
+        let scoreCalls = scoreState.predictionCount
+        expect(worker.score(sentences, milliseconds: 12, cancelled: { false }) == scoreReference,
+            "Scoring did not recover through its complete-result cache")
+        worker.queue.sync {}
+        expect(scoreState.predictionCount == scoreCalls, "Score recovery replayed prediction")
+        expect(worker.score(sentences, milliseconds: 12, cancelled: { true }) == nil && worker.failures == 0,
+            "Cancelled score call affected model health")
+        let badScorer = try CoreMLCandidateScorer(model: bad, vocabulary: vocabulary)
+        worker.queue.sync { worker.candidateScorer = badScorer }
+        for number in 1...3 {
+            expect(worker.score(["我们"], milliseconds: 12, cancelled: { false }) == nil,
+                "A score runtime error returned partial results")
+            worker.queue.sync {}
+            expect(worker.failures == number, "Score runtime exceptions were not counted")
+        }
+        expect(!worker.scoreReady, "Three real score faults did not disable scoring")
         let report: [String: Any] = ["status": "passed", "deadlineRequests": deadlines,
             "healthyAfterDeadlines": true, "cachedRecoveryWithoutPrediction": true,
             "cancelDoesNotCountAsFault": true, "actualRuntimeErrorCounted": true,
             "successResetsConsecutiveFaults": true, "threeRealFaultsDisableBackend": true,
+            "wholeSentenceDeadlineRequests": 4, "wholeSentenceCachedRecovery": true,
+            "wholeSentenceRealFaultsDisableBackend": true,
             "scope": "macOS real Core ML CPU_ONLY and the production worker method; no iOS runtime, ANE or phone latency"]
         print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
     }

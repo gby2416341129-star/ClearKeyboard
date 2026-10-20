@@ -3,7 +3,7 @@
 Uses the same pinned int8 weights and original attribution. No training occurs.
 Build-only mode validates MIL types on Windows; execution requires macOS.
 """
-import argparse,hashlib,json,math,struct
+import argparse,hashlib,json,math,struct,subprocess
 from pathlib import Path
 import numpy as np
 import coremltools as ct
@@ -11,6 +11,7 @@ from coremltools.converters.mil import Builder as mb
 
 SOURCE_SHA='0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469'
 B,L,D,H,N,V=8,16,448,8,8,12288
+SCORE_BATCH=4
 
 def load(path):
     data=path.read_bytes();assert hashlib.sha256(data).hexdigest()==SOURCE_SHA
@@ -38,7 +39,7 @@ def norm(x,w,name):
 
 def linear(x,w,name):return mb.linear(x=x,weight=w[name+'.weight'],bias=w[name+'.bias'])
 
-def project_heads(tensor,length):return mb.transpose(x=mb.reshape(x=tensor,shape=[B,length,H,D//H]),perm=[0,2,1,3])
+def project_heads(tensor,length,batch=B):return mb.transpose(x=mb.reshape(x=tensor,shape=[batch,length,H,D//H]),perm=[0,2,1,3])
 
 def programs(arrays):
     @mb.program(input_specs=[mb.TensorSpec(shape=(B,1)),mb.TensorSpec(shape=(B,1)),
@@ -67,8 +68,8 @@ def programs(arrays):
         probs=mb.sub(x=logits,y=mb.reduce_log_sum_exp(x=logits,axes=[-1],keep_dims=True),name='log_probs')
         return probs,mb.concat(values=keys,axis=1,name='new_k'),mb.concat(values=values,axis=1,name='new_v')
 
-    @mb.program(input_specs=[mb.TensorSpec(shape=(B,L),dtype=ct.converters.mil.mil.types.int32),
-        mb.TensorSpec(shape=(B,L),dtype=ct.converters.mil.mil.types.int32),mb.TensorSpec(shape=(B,L))],opset_version=ct.target.iOS18)
+    @mb.program(input_specs=[mb.TensorSpec(shape=(SCORE_BATCH,L),dtype=ct.converters.mil.mil.types.int32),
+        mb.TensorSpec(shape=(SCORE_BATCH,L),dtype=ct.converters.mil.mil.types.int32),mb.TensorSpec(shape=(SCORE_BATCH,L))],opset_version=ct.target.iOS18)
     def score(tokens,targets,valid_mask):
         w=parameters(arrays)
         positions=mb.gather(x=w['pos.weight'],indices=np.arange(L,dtype=np.int32),axis=0)
@@ -77,9 +78,9 @@ def programs(arrays):
         for layer in range(N):
             p=f'blocks.{layer}.'
             q,k,v=mb.split(x=linear(norm(x,w,p+'ln1'),w,p+'qkv'),axis=-1,num_splits=3)
-            q,k,v=[project_heads(value,L) for value in [q,k,v]]
+            q,k,v=[project_heads(value,L,SCORE_BATCH) for value in [q,k,v]]
             attention=mb.softmax(x=mb.add(x=mb.mul(x=mb.matmul(x=q,y=k,transpose_y=True),y=np.float32(1/math.sqrt(D//H))),y=causal),axis=-1)
-            joined=mb.reshape(x=mb.transpose(x=mb.matmul(x=attention,y=v),perm=[0,2,1,3]),shape=[B,L,D])
+            joined=mb.reshape(x=mb.transpose(x=mb.matmul(x=attention,y=v),perm=[0,2,1,3]),shape=[SCORE_BATCH,L,D])
             x=mb.add(x=x,y=linear(joined,w,p+'proj'))
             expanded=mb.gelu(x=linear(norm(x,w,p+'ln2'),w,p+'fc'),mode='EXACT')
             x=mb.add(x=x,y=linear(expanded,w,p+'out'))
@@ -112,15 +113,15 @@ def export(root,build_only=False):
     descriptor=ct.utils.MultiFunctionDescriptor()
     for name,path in paths.items():descriptor.add_function(str(path),src_function_name='main',target_function_name=name)
     descriptor.default_function_name='step'
-    combined=target/'ClearSentence25M.mlpackage';ct.utils.save_multifunction(descriptor,str(combined))
+    combined=target/'merged.mlpackage';ct.utils.save_multifunction(descriptor,str(combined))
     # The merge utility builds a fresh description; retain the source metadata.
     merged=ct.models.MLModel(str(combined),skip_model_load=True,function_name='step')
     for key,value in metadata.items():merged.user_defined_metadata[key]=value
     merged.user_defined_metadata['source_sha256']=SOURCE_SHA
     merged.user_defined_metadata['state_format']='clear-kv-v1: layers,batch,time,hidden -> batch,layers,hidden'
-    merged.user_defined_metadata['score_format']='clear-score-v1: 8x16 tokens,targets,valid_mask -> 8 means'
+    merged.user_defined_metadata['score_format']='clear-score-v1: 4x16 tokens,targets,valid_mask -> 4 means'
     merged.license=metadata['license']
-    final=target/'ClearSentenceShared25M.mlpackage';merged.save(str(final))
+    final=target/'ClearSentence25M.mlpackage';merged.save(str(final))
     size=lambda path:sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
     weights=lambda path:sum(p.stat().st_size for p in path.rglob('*.bin'))
     sizes={name:size(path) for name,path in paths.items()};sizes['combined']=size(final)
@@ -128,6 +129,17 @@ def export(root,build_only=False):
     assert blob_bytes['combined']<max(blob_bytes['step'],blob_bytes['score'])*1.03+262144,blob_bytes
     result={'status':'exported','source_sha256':SOURCE_SHA,'sizes':sizes,'weightBlobBytes':blob_bytes,'ops':counts,'model':str(final)}
     (target/'export-result.json').write_text(json.dumps(result,indent=2),encoding='utf8');print(json.dumps(result),flush=True)
+    resources=root/'Core/Resources/Rime';resources.mkdir(parents=True,exist_ok=True)
+    subprocess.run(['xcrun','coremlcompiler','compile',str(final),str(resources)],check=True)
+    compiled=resources/'ClearSentence25M.mlmodelc'
+    files={str(p.relative_to(resources)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(compiled.rglob('*')) if p.is_file()}
+    assert files
+    manifest={'source_sha256':SOURCE_SHA,'state_format':'clear-kv-v1','score_format':'clear-score-v1',
+        'model_sha256':hashlib.sha256((final/'Data/com.apple.CoreML/model.mlmodel').read_bytes()).hexdigest(),'files':files}
+    (resources/'CoreML25M-manifest.json').write_text(json.dumps(manifest,sort_keys=True),encoding='utf8')
+    (resources/'CoreML25M-validation.json').write_bytes((root/'Data/Rime/coreml25m-incremental-validation.json').read_bytes())
+    (resources/'CoreML25M-score-validation.json').write_bytes((root/'Tests/Evaluation/coreml-score-reference.json').read_bytes())
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[1]);parser.add_argument('--build-only',action='store_true');args=parser.parse_args();export(args.root,args.build_only)
