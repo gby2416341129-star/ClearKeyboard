@@ -1,8 +1,8 @@
 import UIKit
 
-/// UIKit owns the entire touch stream, selection and interruption of momentum.
-/// Once a row is being browsed, keep that query's visible choices stationary.
-@MainActor final class CandidateScrollView: UICollectionView, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+/// A small, fixed strip of candidates. UIKit owns dragging and momentum; no
+/// collection layout, cell recycling or selection recognizer runs while scrolling.
+@MainActor final class CandidateScrollView: UIScrollView, UIScrollViewDelegate {
     private struct Presentation: Equatable {
         let items: [Candidate]
         let context: KeyboardModel.CandidateContext?
@@ -11,7 +11,10 @@ import UIKit
     private var presentation: Presentation?
     private var pending: (Presentation, UIColor)?
     private var ink: UIColor = .systemTeal
-    private var widths: [CGFloat] = []
+    private let strip = UIView()
+    private var buttons: [CandidateButton] = []
+    private var stripWidth: CGFloat = 0
+    private var viewportSize = CGSize.zero
     private var interactionActive = false
     private var idleScheduled = false
     private var browsed: Presentation?
@@ -24,22 +27,18 @@ import UIKit
         set {}
     }
     init() {
-        let layout = UICollectionViewFlowLayout()
-        layout.scrollDirection = .horizontal
-        layout.minimumLineSpacing = 12; layout.minimumInteritemSpacing = 0
-        layout.estimatedItemSize = .zero
-        layout.sectionInset = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: 12)
-        super.init(frame: .zero, collectionViewLayout: layout)
-        dataSource = self; delegate = self
-        register(CandidateCell.self, forCellWithReuseIdentifier: CandidateCell.reuseID)
+        super.init(frame: .zero)
+        delegate = self
+        addSubview(strip)
+        strip.isOpaque = false
         backgroundColor = .clear; isOpaque = false
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         delaysContentTouches = false; canCancelContentTouches = true
         alwaysBounceHorizontal = true; alwaysBounceVertical = false
         // Vertical drift must not lock out the next horizontal reversal.
-        isDirectionalLockEnabled = false; decelerationRate = .fast
+        isDirectionalLockEnabled = false; decelerationRate = .normal
         contentInsetAdjustmentBehavior = .never
-        isPrefetchingEnabled = false
+        scrollsToTop = false
         accessibilityIdentifier = "clear.candidates"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -50,7 +49,7 @@ import UIKit
         let newSpelling = !sameQuery(presentation, next)
         if !newSpelling, sameQuery(browsed, next) {
             // A decoder finishing between two opposite flicks must not replace
-            // cells, move the selected target or reset the offset. This lock is
+            // controls, move the selected target or reset the offset. This lock is
             // released by the next spelling, not by a timer after finger-up.
             return
         }
@@ -79,38 +78,54 @@ import UIKit
         let changedItems = presentation?.items.map(\.text) != next.items.map(\.text) || !ink.isEqual(accent)
         presentation = next; ink = accent
         if changedItems {
-            // Size each item once per result, never on a scrolling frame.
-            widths = next.items.enumerated().map { index, candidate in
-                let font = UIFont.systemFont(ofSize: 19, weight: index == 0 ? .medium : .regular)
-                return max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
+            // The engine returns at most 24 choices. Keep their controls alive
+            // for this query so a direction change needs no creation or sizing.
+            while buttons.count < next.items.count {
+                let button = CandidateButton()
+                button.addTarget(self, action: #selector(candidateDown), for: .touchDown)
+                button.addTarget(self, action: #selector(candidateUp(_:)), for: .touchUpInside)
+                button.addTarget(self, action: #selector(candidateCancelled), for: [.touchCancel, .touchUpOutside])
+                strip.addSubview(button); buttons.append(button)
             }
-            reloadData()
+            while buttons.count > next.items.count { buttons.removeLast().removeFromSuperview() }
+            var x: CGFloat = 2
+            for (index, candidate) in next.items.enumerated() {
+                let button = buttons[index]
+                let width = button.configure(candidate, first: index == 0, accent: accent)
+                button.tag = index
+                // Include the inter-word spacing in the control's hit area.
+                button.frame = CGRect(x: x, y: 0, width: width + 12, height: bounds.height)
+                x += width + 12
+            }
+            stripWidth = x
+            updateStripSize()
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
     }
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        presentation?.items.count ?? 0
-    }
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = dequeueReusableCell(withReuseIdentifier: CandidateCell.reuseID, for: indexPath) as! CandidateCell
-        if let current = presentation, current.items.indices.contains(indexPath.item) {
-            cell.configure(current.items[indexPath.item], first: indexPath.item == 0, accent: ink)
-            cell.onActivation = { [weak self] in self?.activate(indexPath.item) }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // A scroll changes bounds.origin every frame. Only a viewport resize
+        // may touch content geometry; ordinary scrolling has no app layout work.
+        guard viewportSize != bounds.size else { return }
+        viewportSize = bounds.size
+        for button in buttons {
+            var frame = button.frame; frame.size.height = bounds.height
+            button.frame = frame
         }
-        return cell
+        updateStripSize()
     }
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        activate(indexPath.item); deselectItem(at: indexPath, animated: false)
+    private func updateStripSize() {
+        let size = CGSize(width: max(bounds.width, stripWidth), height: bounds.height)
+        if strip.frame.size != size { strip.frame = CGRect(origin: .zero, size: size) }
+        if contentSize != size { contentSize = size }
+    }
+    @objc private func candidateDown() { beginBrowsing() }
+    @objc private func candidateCancelled() { scheduleIdle() }
+    @objc private func candidateUp(_ sender: CandidateButton) {
+        // UIScrollView cancels the control as soon as its native pan wins.
+        // The explicit guard also rejects activation during momentum.
+        if !isDragging && !isDecelerating { activate(sender.tag) }
         scheduleIdle()
-    }
-    func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
-        beginBrowsing(); return true
-    }
-    func collectionView(_ collectionView: UICollectionView, didUnhighlightItemAt indexPath: IndexPath) {
-        scheduleIdle()
-    }
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        CGSize(width: widths.indices.contains(indexPath.item) ? widths[indexPath.item] : 22, height: 44)
     }
     private func activate(_ index: Int) {
         guard let current = presentation, current.items.indices.contains(index) else { return }
@@ -135,7 +150,11 @@ import UIKit
                 self.idleScheduled = false
                 guard !self.holdsCandidateUpdates else { return }
                 self.setInteraction(false)
-                if let (next, color) = self.pending { self.pending = nil; self.apply(next, accent: color) }
+                if let (next, color) = self.pending {
+                    self.pending = nil
+                    // Recheck the browsing lock after finger-up as well.
+                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color)
+                }
             }
         }
     }
@@ -153,28 +172,34 @@ import UIKit
     }
 }
 
-@MainActor private final class CandidateCell: UICollectionViewCell {
-    static let reuseID = "clear.candidate.cell"
+@MainActor private final class CandidateButton: UIButton {
+    private let plate = UIView()
     private let label = UILabel()
-    var onActivation: (() -> Void)?
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.addSubview(label); backgroundColor = .clear
+        addSubview(plate); plate.addSubview(label)
+        plate.isUserInteractionEnabled = false
+        backgroundColor = .clear
         label.isUserInteractionEnabled = false; label.isAccessibilityElement = false
         label.numberOfLines = 1; label.lineBreakMode = .byClipping
-        contentView.layer.cornerRadius = 8; contentView.clipsToBounds = true
+        plate.layer.cornerRadius = 8; plate.clipsToBounds = true
         isAccessibilityElement = true; accessibilityTraits = .button
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() { super.layoutSubviews(); label.frame = contentView.bounds.insetBy(dx: 10, dy: 0) }
-    func configure(_ candidate: Candidate, first: Bool, accent: UIColor) {
-        label.font = .systemFont(ofSize: 19, weight: first ? .medium : .regular)
-        label.text = candidate.text; label.textColor = first ? accent : .label
-        contentView.backgroundColor = first ? .secondarySystemFill : .clear
-        accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        plate.frame = CGRect(x: 0, y: 0, width: max(0, bounds.width - 12), height: bounds.height)
+        label.frame = plate.bounds.insetBy(dx: 10, dy: 0)
     }
-    override func accessibilityActivate() -> Bool { onActivation?(); return true }
-    override func prepareForReuse() {
-        super.prepareForReuse(); onActivation = nil
+    func configure(_ candidate: Candidate, first: Bool, accent: UIColor) -> CGFloat {
+        let font = UIFont.systemFont(ofSize: 19, weight: first ? .medium : .regular)
+        label.font = font
+        label.text = candidate.text; label.textColor = first ? accent : .label
+        plate.backgroundColor = first ? .secondarySystemFill : .clear
+        accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
+        return max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
+    }
+    override func accessibilityActivate() -> Bool {
+        sendActions(for: .touchUpInside); return true
     }
 }

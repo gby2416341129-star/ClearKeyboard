@@ -174,26 +174,41 @@ import UIKit
         XCTAssertEqual(proxy.before, "你好ma", "Completed hao belongs to 你好; only the following word stays marked")
         XCTAssertEqual(model.composition.raw, "ma")
     }
-    func testCandidateCollectionPinsResultsThroughMomentumAndReversals() async throws {
+    func testCandidateStripPinsResultsUntilTheSpellingChanges() async throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
         let context = KeyboardModel.CandidateContext(raw: "shi", before: "shi", after: "", document: "field", language: .chinese)
-        let old = (0..<40).map { Candidate(text: "候选\($0)", consumed: 3) }
-        var transitions: [Bool] = []
-        ribbon.onInteractionChanged = { transitions.append($0) }
+        let old = (0..<24).map { Candidate(text: "候选\($0)", consumed: 3) }
         ribbon.update(old, context: context, arithmetic: false, accent: .systemTeal); ribbon.layoutIfNeeded()
-        XCTAssertLessThan(ribbon.visibleCells.count, old.count, "Only visible cells should be created")
+        let controls = descendants(ribbon).compactMap { $0 as? UIButton }
+        let frames = controls.map(\.frame)
+        let contentSize = ribbon.contentSize
+        XCTAssertEqual(controls.count, old.count)
         ribbon.scrollViewWillBeginDragging(ribbon)
-        ribbon.contentOffset.x = 70
-        ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: true)
+        // Exercise snapshot retention and geometry only. Delegate calls and
+        // offsets cannot validate native finger recognition or device latency.
+        for offset: CGFloat in [70, 130, 40, 95, 20, 70] {
+            ribbon.contentOffset.x = offset; ribbon.layoutIfNeeded()
+            XCTAssertEqual(controls.map(\.frame), frames)
+            XCTAssertEqual(ribbon.contentSize, contentSize)
+        }
         ribbon.update([Candidate(text: "新的结果", consumed: 3)], context: context, arithmetic: false, accent: .systemTeal)
-        await Task.yield()
-        XCTAssertTrue(ribbon.holdsCandidateUpdates)
-        XCTAssertEqual(ribbon.numberOfItems(inSection: 0), 40)
-        ribbon.scrollViewWillBeginDragging(ribbon)
         ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: false)
-        try await waitFor { !ribbon.holdsCandidateUpdates && ribbon.numberOfItems(inSection: 0) == 1 }
-        XCTAssertEqual(transitions, [true, false], "One continuous interaction must not repeatedly start host refreshes")
+        await Task.yield()
+        XCTAssertEqual(descendants(ribbon).compactMap { $0 as? UIButton }, controls)
+        XCTAssertEqual(ribbon.contentOffset.x, 70, accuracy: 0.1)
+        var selection: String?
+        ribbon.onSelect = { candidate, _, _ in selection = candidate.text }
+        controls[1].sendActions(for: .touchUpInside)
+        XCTAssertEqual(selection, "候选1", "A late result must not change the visible tap target")
+        let nextContext = KeyboardModel.CandidateContext(raw: "shij", before: "shij", after: "", document: "field", language: .chinese)
+        ribbon.update([Candidate(text: "时间", consumed: 4)], context: nextContext, arithmetic: false, accent: .systemTeal)
+        ribbon.layoutIfNeeded()
+        let updated = descendants(ribbon).compactMap { $0 as? UIButton }
+        XCTAssertEqual(updated.count, 1)
+        XCTAssertEqual(updated.first?.accessibilityIdentifier, "candidate.时间")
+        XCTAssertEqual(ribbon.contentOffset.x, 0, accuracy: 0.1)
+        XCTAssertLessThanOrEqual(ribbon.contentSize.height, ribbon.bounds.height)
     }
     func testPacedKeysDoNotReadTheHostInTheirFrames() async throws {
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
