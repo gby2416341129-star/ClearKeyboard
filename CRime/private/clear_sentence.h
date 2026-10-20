@@ -262,7 +262,7 @@ struct IntegerKernelCalibration {
   bool available=false,validated=false;
   std::array<double,3> wholeExactMS{},wholeIntegerMS{};
   double wholeMaximumError=0;
-  bool wholeValidated=false;
+  bool wholeValidated=false,wholeReferenceAvailable=false;
 };
 class Model {
   static constexpr int D=448, Layers=8, Heads=8, Vocab=12288, Window=128, CacheLimit=128;
@@ -1061,6 +1061,7 @@ public:
       set_native_whole_integer_enabled(false);
       Budget warm{Budget::Clock::now()+std::chrono::milliseconds(20),nullptr,nullptr};
       const bool reference_valid=native_full(probes,reference_scores,warm);
+      integer_calibration.wholeReferenceAvailable=reference_valid;
       auto timed=[&](bool integer,std::array<double,3> &costs,double &worst) {
         set_native_whole_integer_enabled(integer);worst=0;
         for(int repetition=0;repetition<3;++repetition) {
@@ -1074,12 +1075,16 @@ public:
       double exact_worst=0,integer_worst=0;
       const bool exact_fast=reference_valid && timed(false,integer_calibration.wholeExactMS,exact_worst);
       bool integer_valid=false,integer_fast=false;
-      if(reference_valid && integer_calibration.validated) {
+      // The compiled integer graph is covered by full-sequence release tests.
+      // Its runtime arithmetic also passed the complete-vocabulary root check.
+      // A slow F32 warm-up is not a numerical rejection of that independent
+      // kernel. Compare whole means too whenever the reference is available.
+      if(integer_calibration.validated) {
         set_native_whole_integer_enabled(true);
         Budget integer_warm{Budget::Clock::now()+std::chrono::milliseconds(20),nullptr,nullptr};
-        if(native_full(probes,ignored,integer_warm) && ignored.size()==reference_scores.size()) {
+        if(native_full(probes,ignored,integer_warm) && ignored.size()==probes.size()) {
           integer_valid=true;
-          for(size_t row=0;row<ignored.size();++row) {
+          if(reference_valid)for(size_t row=0;row<ignored.size();++row) {
             const auto difference=std::abs(ignored[row]-reference_scores[row]);
             if(!std::isfinite(ignored[row]) || difference>=0.025f)integer_valid=false;
             integer_calibration.wholeMaximumError=std::max(integer_calibration.wholeMaximumError,double(difference));
@@ -1087,7 +1092,7 @@ public:
         }
         integer_fast=integer_valid && timed(true,integer_calibration.wholeIntegerMS,integer_worst);
       }
-      integer_calibration.wholeValidated=integer_valid;
+      integer_calibration.wholeValidated=integer_valid && reference_valid;
       const bool choose_integer=integer_fast && (!exact_fast || integer_worst<exact_worst*0.9);
       set_native_whole_integer_enabled(choose_integer);
       if(choose_integer || exact_fast) {

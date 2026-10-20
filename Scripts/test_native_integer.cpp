@@ -22,7 +22,7 @@ int main(int argc,char **argv){
   std::cout<<"{\"probeAvailable\":"<<probe.available<<",\"probeValidated\":"<<probe.validated<<",\"probeComparisons\":"<<probe.comparisons
     <<",\"probeMaximumError\":"<<probe.maximumError<<",\"prefixCalibrated\":"<<prefix_calibrated<<",\"probeMS\":[";
   for(int i=0;i<3;++i)std::cout<<(i?",":"")<<"["<<probe.exactMS[i]<<","<<probe.integerMS[i]<<"]";std::cout<<"]}\n";
-  std::cout<<"{\"wholeNumericallyValidated\":"<<probe.wholeValidated<<",\"wholeProbeMaximumError\":"<<probe.wholeMaximumError<<",\"wholeProbeMS\":[";
+  std::cout<<"{\"wholeReferenceAvailable\":"<<probe.wholeReferenceAvailable<<",\"wholeNumericallyValidated\":"<<probe.wholeValidated<<",\"wholeProbeMaximumError\":"<<probe.wholeMaximumError<<",\"wholeProbeMS\":[";
   for(int i=0;i<3;++i)std::cout<<(i?",":"")<<"["<<probe.wholeExactMS[i]<<","<<probe.wholeIntegerMS[i]<<"]";std::cout<<"]}\n";
   before.set_native_integer_enabled(false);after.set_native_integer_enabled(true);
   before.set_native_enabled(true);after.set_native_enabled(true);
