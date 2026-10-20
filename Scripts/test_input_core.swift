@@ -42,10 +42,22 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         expect(host.hasMarkedText && host.snapshot.before == "前文" + raw, "Long spelling was lost")
         var truncated = host.snapshot; truncated.before = String(truncated.before.suffix(50))
         expect(host.reconcile(truncated, now: 11) == .ownEdit, "A bounded host window discarded the composition")
-        host.setMarked("你吃饭了吗", now: 11.1); host.unmark(); host.setMarked("wo", now: 11.2)
+        let delayedDraft = host.snapshot
+        host.setMarked("你吃饭了吗", now: 11.1); host.unmark()
+        expect(host.reconcile(delayedDraft, now: 11.15) == .ownEdit, "An expired draft acknowledgement swallowed a partial choice")
+        host.setMarked("wo", now: 11.2)
         expect(host.snapshot.before == "前文你吃饭了吗wo", "Partial commit swallowed the selected word")
         expect(host.reconcile(HostTextSnapshot(before: "新输入框", document: "other"), now: 12) == .externalEdit,
                "A foreign document was accepted")
+        var whole = HostTextState(HostTextSnapshot(before: "前文", document: "whole"))
+        whole.setMarked(raw, now: 1)
+        let delayedWhole = whole.snapshot
+        whole.setMarked("妈妈你吃饭了吗", now: 20); whole.unmark()
+        expect(whole.reconcile(delayedWhole, now: 20.1) == .ownEdit, "An expired draft acknowledgement swallowed a whole sentence")
+        expect(whole.snapshot.before == "前文妈妈你吃饭了吗", "The whole commit reverted to pinyin")
+        expect(whole.reconcile(whole.snapshot, now: 20.2) == .ownEdit, "The confirmed sentence was not acknowledged")
+        expect(whole.reconcile(HostTextSnapshot(before: "另一个位置", document: "whole"), now: 20.3) == .externalEdit,
+               "Preserving a draft acknowledgement hid an unrelated cursor edit")
         let input = String(String(repeating: "nichifanlema", count: 24).prefix(256))
         var oldChecksum = 0, newChecksum = 0
         var started = ProcessInfo.processInfo.systemUptime

@@ -43,12 +43,18 @@ public struct HostTextState {
     private mutating func remember(now: Double) {
         snapshot.before = String(snapshot.before.suffix(4_096)); snapshot.after = String(snapshot.after.prefix(4_096))
         pending.removeAll { now - $0.1 > 1 }
-        pending.append((snapshot, now)); if pending.count > 64 { pending.removeFirst(pending.count - 64) }
+        if pending.last?.0 == snapshot { pending[pending.count - 1].1 = now }
+        else { pending.append((snapshot, now)) }
+        if pending.count > 64 { pending.removeFirst(pending.count - 64) }
     }
     public mutating func insert(_ text: String, now: Double = ProcessInfo.processInfo.systemUptime) {
         snapshot.before += text; snapshot.selected = ""; marked = ""; remember(now: now)
     }
     public mutating func setMarked(_ text: String, now: Double = ProcessInfo.processInfo.systemUptime) {
+        // A long-lived draft may be older than the acknowledgement window.
+        // Renew its predecessor snapshot before replacement, so an immediately
+        // delayed host read cannot turn a confirmed word back into raw pinyin.
+        if !marked.isEmpty { remember(now: now) }
         if !marked.isEmpty, snapshot.before.hasSuffix(marked) { snapshot.before.removeLast(marked.count) }
         snapshot.before += text; snapshot.selected = ""; marked = text; remember(now: now)
     }
