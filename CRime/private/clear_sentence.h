@@ -30,6 +30,14 @@
 #endif
 
 namespace clear_sentence {
+#ifdef CLEAR_NATIVE_PROFILE
+inline double matrix_ms=0,gelu_ms=0,softmax_ms=0;
+struct NativeCost {
+  double &value;std::chrono::steady_clock::time_point start=std::chrono::steady_clock::now();
+  NativeCost(double &value):value(value){}
+  ~NativeCost(){value+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();}
+};
+#endif
 using Cancelled = int (*)(void *);
 struct Budget {
   using Clock = std::chrono::steady_clock;
@@ -155,8 +163,14 @@ class Model {
       }
     }
     bool apply_bulk(const float *x,float *out,int count,std::vector<float> &panel,const Budget &budget) const {
+      #ifdef CLEAR_NATIVE_PROFILE
+      NativeCost timer(matrix_ms);
+      #endif
       #if defined(__APPLE__)
-      static constexpr int Panel=128;
+      #ifndef CLEAR_NATIVE_PANEL
+      #define CLEAR_NATIVE_PANEL 128
+      #endif
+      static constexpr int Panel=CLEAR_NATIVE_PANEL;
       panel.resize(Panel*columns);
       for(int start=0;start<rows;start+=Panel) {
         if(!budget.alive()) return false;
@@ -633,7 +647,12 @@ public:
         norm(x.data()+row*D,block.ln2w,block.ln2b,y.data()+row*D);
       }
       if(!block.fc.apply_bulk(y.data(),expanded.data(),count,panel,budget)) return false;
-      for(auto &value:expanded) value=0.5f*value*(1+std::erf(value*0.7071067811865475f));
+      {
+        #ifdef CLEAR_NATIVE_PROFILE
+        NativeCost timer(gelu_ms);
+        #endif
+        for(auto &value:expanded) value=0.5f*value*(1+std::erf(value*0.7071067811865475f));
+      }
       if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget)) return false;
       for(size_t i=0;i<x.size();++i) x[i]+=projected[i];
     }
@@ -641,6 +660,9 @@ public:
     std::vector<float> logits(count*Vocab),normalizers(count);
     if(!embedding.apply_bulk(y.data(),logits.data(),count,panel,budget)) return false;
     for(int row=0;row<count;++row) {
+      #ifdef CLEAR_NATIVE_PROFILE
+      NativeCost timer(softmax_ms);
+      #endif
       if(!budget.alive()) return false;
       const auto begin=logits.data()+row*Vocab;const float maximum=*std::max_element(begin,begin+Vocab);double total=0;
       for(int token=0;token<Vocab;++token) total+=std::exp(begin[token]-maximum);

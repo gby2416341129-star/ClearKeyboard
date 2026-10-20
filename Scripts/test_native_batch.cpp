@@ -126,6 +126,9 @@ int main(int argc,char **argv){
   }
   auto median=[](std::vector<double> values){std::sort(values.begin(),values.end());return(values[values.size()/2-1]+values[values.size()/2])/2;};
   std::vector<double> full_ms;
+  #ifdef CLEAR_NATIVE_PROFILE
+  clear_sentence::matrix_ms=clear_sentence::gelu_ms=clear_sentence::softmax_ms=0;
+  #endif
   for(int repetition=0;repetition<13;++repetition) {
     std::vector<float> actual;const auto start=std::chrono::steady_clock::now();
     assert(after.native_full(sentences,actual,budget<clear_sentence::Budget>()));
@@ -134,6 +137,9 @@ int main(int argc,char **argv){
   }
   std::cout<<"{\"fullSequenceCompared\":"<<full_compared<<",\"fullSequenceMaximumError\":"<<full_error<<",\"fullSequenceMedianMS\":"<<median(full_ms)<<",\"fullSequenceMS\":[";
   for(size_t i=0;i<full_ms.size();++i)std::cout<<(i?",":"")<<full_ms[i];std::cout<<"]}\n";
+  #ifdef CLEAR_NATIVE_PROFILE
+  std::cout<<"{\"matrixMS\":"<<clear_sentence::matrix_ms/13<<",\"geluMS\":"<<clear_sentence::gelu_ms/13<<",\"softmaxMS\":"<<clear_sentence::softmax_ms/13<<"}\n";
+  #endif
   std::cout<<"{\"status\":\"passed\",\"scope\":\"Native CPU numeric, cache, cancellation and cold four-sentence workload; not phone or UI latency\",\"comparedValues\":"<<compared<<",\"maximumError\":"<<maximum<<",\"beforeMedianMS\":"<<median(baseline_ms)<<",\"afterMedianMS\":"<<median(batched_ms)<<",\"speedup\":"<<median(baseline_ms)/median(batched_ms)<<",\"afterCachePositions\":"<<after.cached_positions()<<",\"beforeMS\":[";
   for(size_t i=0;i<baseline_ms.size();++i)std::cout<<(i?",":"")<<baseline_ms[i];std::cout<<"],\"afterMS\":[";
   for(size_t i=0;i<batched_ms.size();++i)std::cout<<(i?",":"")<<batched_ms[i];std::cout<<"]}\n";

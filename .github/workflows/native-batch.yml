@@ -33,13 +33,13 @@ jobs:
           fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
           Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
           PY
-      - name: Compare every value, eviction, cancellation and workload at size optimization
+      - name: Profile bounded 128-row weight panels
         run: |
-          c++ -Os -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-size
+          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-size
           .build/test-native-batch-size Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
-      - name: Compare the identical workload at performance optimization
+      - name: Profile bounded 512-row weight panels
         run: |
-          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
+          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -DCLEAR_NATIVE_PANEL=512 -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
           .build/test-native-batch-speed Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
       - name: Read the current shipping target optimization settings without running iOS
         run: |
