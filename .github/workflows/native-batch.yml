@@ -1,0 +1,51 @@
+name: Validate bounded native batch inference
+on:
+  push:
+    branches: [codex/ime-native-batch-20261021]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-batch-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  numeric-and-cost:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore the exact existing model and verified source reference
+        run: |
+          python3 Scripts/prepare_ime_model.py
+          mkdir -p .build
+          python3 - <<'PY'
+          import hashlib,urllib.request
+          from pathlib import Path
+          url='https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/5aa07f314dca525b990da1f8a65071ec17779eec/CRime/private/clear_sentence.h'
+          data=urllib.request.urlopen(url,timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()=='3726b2b3eed6fca9c3eaff7bed37c3f50cd01cf74f5cb08a2f25ec402b14b9d6'
+          Path('.build/native-reference.h').write_bytes(data)
+          PY
+      - name: Compare every value, eviction, cancellation and workload at size optimization
+        run: |
+          c++ -Os -UNDEBUG -std=c++17 Scripts/test_native_batch.cpp -o .build/test-native-batch-size
+          .build/test-native-batch-size Core/Resources/Rime/clear-sentence.clm
+      - name: Compare the identical workload at performance optimization
+        run: |
+          c++ -O3 -UNDEBUG -std=c++17 Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
+          .build/test-native-batch-speed Core/Resources/Rime/clear-sentence.clm
+      - name: Read the current shipping target optimization settings without running iOS
+        run: |
+          xcodebuild -project ClearKeyboard.xcodeproj -target ClearKeyboardExtension -configuration Release -sdk iphoneos -showBuildSettings > .build/native-build-settings.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          lines=Path('.build/native-build-settings.txt').read_text().splitlines()
+          selected=[line.strip() for line in lines if any(key+' =' in line for key in ['GCC_OPTIMIZATION_LEVEL','SWIFT_OPTIMIZATION_LEVEL','OTHER_CPLUSPLUSFLAGS','CLANG_CXX_LANGUAGE_STANDARD'])]
+          print(json.dumps({'shippingBuildSettings':selected,'iOSRuntimeTestsRun':False}))
+          PY
