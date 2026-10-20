@@ -1,6 +1,6 @@
 #include "include/ClearRime.h"
 #include "private/rime_api.h"
-#include "private/clear_sentence.h"
+#include "private/clear_phonetic.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -21,8 +21,9 @@ std::recursive_mutex gate;
 RimeApi *api = nullptr;
 std::string shared_path, user_path, prebuilt_path;
 std::unique_ptr<clear_sentence::Model> sentence_model;
-cr_sentence_scorer platform_scorer = nullptr;
-void *platform_scorer_context = nullptr;
+clear_sentence::PhoneticSearch phonetic_search;
+cr_sentence_predictor platform_predictor = nullptr;
+void *platform_predictor_context = nullptr;
 struct Item {
   std::string text, reading;
   int consumed;
@@ -43,6 +44,7 @@ struct Query {
   // never move the leading row again after the user starts browsing.
   std::string ranked_input, ranked_choice;
   bool rank_decided = false;
+  std::vector<Item> head_items;
 };
 std::unordered_map<uintptr_t, Query> queries;
 void copy(const std::string &value, char *buffer, size_t capacity) {
@@ -67,82 +69,83 @@ std::string syllables(const std::string &reading) {
 }
 void rank_sentence(Query &query, const std::string &input, int length, bool leading,
                    bool correction, bool protected_dictionary, clear_sentence::Budget::Clock::time_point started,
-                   cr_cancelled cancelled, void *context) {
+                   cr_cancelled cancelled, void *context, int limit=9) {
+  const auto capacity=static_cast<size_t>(std::clamp(limit,1,4096));
   if (query.ranked_input!=input) {
-    query.ranked_input=input; query.ranked_choice.clear(); query.rank_decided=false;
+    query.ranked_input=input;query.ranked_choice.clear();query.rank_decided=false;query.head_items.clear();
   }
-  if (correction && !query.rank_decided && leading) {
-    query.rank_decided=true;
-    if (protected_dictionary || !sentence_model || !sentence_model->ready() || query.items.empty()) return;
-    const auto &first=query.items.front();
-    const auto reading=syllables(first.reading);
-    const auto count=1+std::count(reading.begin(),reading.end(),' ');
-    if (first.consumed!=length || reading.empty() || count<4 || !std::isfinite(first.weight) || first.weight<=-100000) return;
-    std::vector<size_t> indices;
-    std::vector<std::string> texts;
-    for (size_t i=0; i<query.items.size() && i<9; ++i) {
-      const auto &item=query.items[i];
-      // Language likelihood alone must not change the phonetic interpretation
-      // selected by the decoder, or compare a prefix with a complete sentence.
-      const double prior_gap=first.weight-item.weight;
-      // This small helper only resolves close alternatives in the ORIGINAL
-      // sentence search. A strong prior, missing score, or a different reading
-      // must not be overturned by the auxiliary language model.
-      if (item.consumed==length && syllables(item.reading)==reading &&
-          std::isfinite(item.weight) && prior_gap>=0 && prior_gap<=0.5) {
-        std::vector<int> tokens;
-        if (sentence_model->encode(item.text,tokens) && static_cast<int>(tokens.size())==count) {
-          indices.push_back(i); texts.push_back(item.text);
-        }
-      }
-    }
-    if (indices.size()<2 || indices.front()!=0) return;
-    const double elapsed=std::chrono::duration<double,std::milli>(clear_sentence::Budget::Clock::now()-started).count();
-    // This is a TOTAL query allowance, including Rime. Slow decoder queries
-    // receive no extra neural work. Cancellation is checked inside each layer.
-    const double remaining=8.0-elapsed;
-    if (remaining<=0) return;
-    std::vector<float> scores;
-    bool completed=false;
-    if (platform_scorer) {
-      std::vector<const char*> pointers;
-      for (const auto &text:texts) pointers.push_back(text.c_str());
-      scores.resize(texts.size());
-      completed=platform_scorer(pointers.data(),static_cast<int>(texts.size()),scores.data(),remaining,
-          cancelled,context,platform_scorer_context)!=0;
-      completed=completed && std::all_of(scores.begin(),scores.end(),[](float value){return std::isfinite(value);});
-      completed=completed && std::chrono::duration<double,std::milli>(clear_sentence::Budget::Clock::now()-started).count()<8.0;
-    }
-    if (cancelled && cancelled(context)) { query.rank_decided=false; return; }
-    if (!completed) {
-      const double now=std::chrono::duration<double,std::milli>(clear_sentence::Budget::Clock::now()-started).count();
-      if (!sentence_model->scores(texts,scores,8.0-now,cancelled,context)) {
-        if (cancelled && cancelled(context)) query.rank_decided=false;
-        return;
-      }
-    }
-    double best_gain=0.01;
-    for (size_t i=1; i<scores.size(); ++i) {
-      const double neural_gain=scores[i]-scores.front();
-      const double joint_gain=0.25*neural_gain+(query.items[indices[i]].weight-first.weight)/count;
-      // The established decoder retains the larger contribution. The helper
-      // can resolve an ambiguity; it is not an independent replacement ranker.
-      if (neural_gain>=0.02 && joint_gain>best_gain) {
-        best_gain=joint_gain; query.ranked_choice=texts[i];
-      }
-    }
+  if (query.rank_decided && !query.head_items.empty()) {
+    std::vector<Item> stable=query.head_items;
+    std::unordered_set<std::string> seen;
+    for (const auto &item:stable) seen.insert(item.text);
+    for (const auto &item:query.items) if (stable.size()<capacity && seen.insert(item.text).second) stable.push_back(item);
+    if (stable.size()>capacity) stable.resize(capacity);
+    query.items=std::move(stable);return;
   }
-  if (!query.ranked_choice.empty()) {
-    auto chosen=std::find_if(query.items.begin(),query.items.end(),[&](const Item &item){return item.text==query.ranked_choice;});
-    if (chosen!=query.items.end()) std::rotate(query.items.begin(),chosen,chosen+1);
+  if (!leading || !correction) return;
+  auto finish=[&] {
+    if (query.items.size()>capacity) query.items.resize(capacity);
+    query.head_items=query.items;query.rank_decided=true;
+  };
+  if (protected_dictionary || !sentence_model || !sentence_model->can_search() ||
+      !phonetic_search.abbreviated_input(input)) { finish();return; }
+  const auto now=clear_sentence::Budget::Clock::now();
+  const auto deadline=started+std::chrono::milliseconds(35);
+  if (now>=deadline) { finish();return; }
+  clear_sentence::Budget budget{deadline,cancelled,context};
+  std::vector<clear_sentence::PhoneticSearch::Candidate> generated;
+  if (!phonetic_search.decode(input,*sentence_model,generated,budget)) {
+    if (!(cancelled && cancelled(context))) finish();return;
   }
+  const bool complete=!query.items.empty() && query.items.front().consumed==length;
+  const bool literal=complete && clear_sentence::PhoneticSearch::matches(input,syllables(query.items.front().reading))>=0;
+  float incumbent=0;
+  if (complete && !sentence_model->mean_logprob(query.items.front().text,incumbent,budget)) {
+    if (!(cancelled && cancelled(context))) finish();return;
+  }
+  std::vector<Item> additions;
+  for (const auto &item:generated) {
+    const double mean=item.logprob/item.count;
+    // A larger LM cannot overrule the spelling. Strong language evidence is
+    // required to replace a legal interpretation. If Rime completed a different
+    // vowel syllable, a literal mixed spelling gets a modest preference instead.
+    const bool better=complete ? (literal ? mean-incumbent>=0.65
+        : item.abbreviated<=2 && mean>=-5.5 && mean-incumbent>=-0.25)
+        : mean>=-4.5;
+    if (better && clear_sentence::PhoneticSearch::matches(input,item.reading)>=0)
+      additions.push_back({item.text,item.reading,length});
+  }
+  if (!budget.alive()) { if (!(cancelled && cancelled(context))) finish();return; }
+  if (!additions.empty()) {
+    query.ranked_choice=additions.front().text;
+    std::unordered_set<std::string> seen;
+    std::vector<Item> result;
+    for (const auto &item:additions) if (seen.insert(item.text).second) result.push_back(item);
+    for (const auto &item:query.items) if (seen.insert(item.text).second) result.push_back(item);
+    query.items=std::move(result);
+  }
+  finish();
 }
+
 void collect(uintptr_t id, const std::string &input, int limit, ChannelCache &cache,
              cr_cancelled cancelled, void *context) {
+  if (cancelled && cancelled(context)) return;
   if (!cache.initialized || cache.input != input) {
-    cache = {};
-    api->set_input(id, input.c_str());
-    cache.input = input; cache.initialized = true;
+    const auto previous=cache.input;
+    const bool ready=cache.initialized && api->process_key && api->get_input;
+    bool edited=false;
+    if (ready) {
+      const char *actual=api->get_input(id);
+      if (actual && previous==actual) {
+        if (input.size()==previous.size()+1 && input.compare(0,previous.size(),previous)==0)
+          edited=api->process_key(id,static_cast<unsigned char>(input.back()),0);
+        else if (previous.size()==input.size()+1 && previous.compare(0,input.size(),input)==0)
+          edited=api->process_key(id,0xff08,0);
+      }
+    }
+    const char *actual=edited?api->get_input(id):nullptr;
+    if (!actual || input!=actual) api->set_input(id,input.c_str());
+    cache={};cache.input=input;cache.initialized=true;
   }
   const auto capacity = static_cast<size_t>(std::clamp(limit, 1, 4096));
   if (cache.exhausted || cache.items.size() >= capacity || (cancelled && cancelled(context))) return;
@@ -270,9 +273,13 @@ std::vector<Item> merge_candidates(const std::string &input, const std::vector<I
   return result;
 }
 }
-void cr_set_sentence_scorer(cr_sentence_scorer scorer, void *context) {
+void cr_set_sentence_predictor(cr_sentence_predictor predictor, void *context) {
   std::lock_guard<std::recursive_mutex> lock(gate);
-  platform_scorer=scorer; platform_scorer_context=context;
+  platform_predictor=predictor;platform_predictor_context=context;
+  if (sentence_model) sentence_model->set_predictor(predictor,context);
+  for (auto &entry:queries) {
+    entry.second.rank_decided=false;entry.second.head_items.clear();entry.second.ranked_choice.clear();
+  }
 }
 int cr_initialize(const char *shared, const char *user) {
   std::lock_guard<std::recursive_mutex> lock(gate);
@@ -288,8 +295,15 @@ int cr_initialize(const char *shared, const char *user) {
   static const char *modules[] = {"default", "lua", "octagram", nullptr}; traits.modules = modules;
   api = rime_get_api(); api->setup(&traits); api->initialize(&traits);
   auto model=std::make_unique<clear_sentence::Model>();
-  if (model->load(shared_path+"/clear-sentence.clm")) sentence_model=std::move(model);
+  if (model->load(shared_path+"/clear-sentence.clm") &&
+      phonetic_search.load(shared_path+"/clear-phonetic.tsv",*model)) {
+    model->set_predictor(platform_predictor,platform_predictor_context);sentence_model=std::move(model);
+  }
   return 1;
+}
+void cr_trim_sentence_cache() {
+  std::lock_guard<std::recursive_mutex> lock(gate);
+  if (sentence_model) { sentence_model->clear_cache();sentence_model->set_native_enabled(false); }
 }
 uintptr_t cr_session() {
   std::lock_guard<std::recursive_mutex> lock(gate);
@@ -339,7 +353,7 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
     // These are exact dictionary phrases, including mixed full/initial input.
     // Other dictionaries and sentence alternatives are needed only on paging.
     query.items = merge_candidates(input, conversational, {}, {}, limit);
-    rank_sentence(query,input,length,true,correction,true,started,cancelled,context);
+    rank_sentence(query,input,length,true,correction,true,started,cancelled,context,limit);
     return static_cast<int>(query.items.size());
   }
   // A valid mixed full/initial spelling is a dictionary lookup, not a typo.
@@ -377,7 +391,8 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   }
   if (cancelled && cancelled(context)) return 0;
   query.items = merge_candidates(input, conversational, literal, fluent, limit);
-  rank_sentence(query,input,length,leading_row,correction,!full.empty(),started,cancelled,context);
+  rank_sentence(query,input,length,leading_row,correction,false,started,cancelled,context,limit);
+  if (cancelled && cancelled(context)) return 0;
   return static_cast<int>(query.items.size());
 }
 int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context) {

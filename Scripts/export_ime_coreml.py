@@ -1,4 +1,4 @@
-"""Independent fixed-shape Core ML graph for the pinned 4M IME scorer.
+"""Independent fixed-shape Core ML graph for the pinned 25M prefix predictor.
 
 Builds protobuf only; Windows cannot execute Core ML or certify ANE placement.
 """
@@ -15,7 +15,7 @@ from coremltools.proto import FeatureTypes_pb2
 
 def build(source,output):
     data=source.read_bytes()
-    assert hashlib.sha256(data).hexdigest()=='86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1'
+    assert hashlib.sha256(data).hexdigest()=='0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469'
     n=struct.unpack_from('<Q',data)[0]; header=json.loads(data[8:8+n]);metadata=header.pop('__metadata__')
     w={}
     for name,item in header.items():
@@ -23,9 +23,9 @@ def build(source,output):
         w[name]=np.frombuffer(data,dtype,count=math.prod(item['shape']),offset=8+n+a).reshape(item['shape']).astype(np.float32)
     for name in list(w):
         if name.endswith('.scale'): w[name[:-6]]*=w[name][:,None]
-    batch,length,d,heads=9,16,192,4
-    features=[('tokens',datatypes.Array(batch,length)),('targets',datatypes.Array(batch,length,3)),('mask',datatypes.Array(batch,length))]
-    builder=NeuralNetworkBuilder(features,[('scores',datatypes.Array(batch))],disable_rank5_shape_mapping=True)
+    batch,length,d,heads=8,16,448,8
+    features=[('tokens',datatypes.Array(batch,length)),('positions',datatypes.Array(batch,2))]
+    builder=NeuralNetworkBuilder(features,[('log_probs',datatypes.Array(batch,12288))],disable_rank5_shape_mapping=True)
     # Gather indices can be integer-valued float32 in the neural-network format.
     def constant(name,arr):
         arr=np.asarray(arr,dtype=np.float32)
@@ -41,11 +41,11 @@ def build(source,output):
         return name
     constant('embedding_table',w['tok.weight'])
     builder.add_gather('embedding',['embedding_table','tokens'],'embedding',axis=0)
-    x=add('embedded','embedding',constant('positions',w['pos.weight'][:length]))
+    x=add('embedded','embedding',constant('position_embeddings',w['pos.weight'][:length]))
     causal=np.where(np.triu(np.ones((length,length),dtype=bool),k=1),-10000.,0.)
     constant('causal',causal)
     constant('attention_scale',np.array([1/math.sqrt(d//heads)]))
-    for layer in range(6):
+    for layer in range(8):
         p=f'blocks.{layer}.'; name=f'b{layer}_'
         qkv=linear(name+'qkv',norm(name+'ln1',x,p+'ln1'),p+'qkv')
         q,k,v=[name+c for c in 'qkv']
@@ -64,23 +64,19 @@ def build(source,output):
         builder.add_gelu(name+'gelu',f,name+'gelu',mode='EXACT')
         x=add(name+'residual2',x,linear(name+'out',name+'gelu',p+'out'))
     hidden=norm('final_norm',x,'ln_f')
-    builder.add_batched_mat_mul('logits',[hidden,'embedding_table'],'logits',transpose_b=True)
-    builder.add_reduce_logsumexp('normalizers','logits','normalizers',axes=[-1],keepdims=False)
-    builder.add_gather_nd('target_logits',['logits','targets'],'target_logits')
-    builder.add_subtract_broadcastable('logprobs',['target_logits','normalizers'],'logprobs')
-    mul('selected','logprobs','mask')
-    builder.add_reduce_sum('sum_logprobs','selected','sum_logprobs',axes=[1],keepdims=False)
-    builder.add_reduce_sum('length','mask','length',axes=[1],keepdims=False)
-    builder.add_divide_broadcastable('scores',['sum_logprobs','length'],'scores')
+    builder.add_gather_nd('last_hidden',['final_norm','positions'],'last_hidden')
+    builder.add_batched_mat_mul('logits',['last_hidden','embedding_table'],'logits',transpose_b=True)
+    builder.add_reduce_logsumexp('normalizers','logits','normalizers',axes=[-1],keepdims=True)
+    builder.add_subtract_broadcastable('log_probs',['logits','normalizers'],'log_probs')
     spec=builder.spec
     for feature in list(spec.description.input)+list(spec.description.output):
         feature.type.multiArrayType.dataType=FeatureTypes_pb2.ArrayFeatureType.FLOAT32
     spec.specificationVersion=max(spec.specificationVersion,5)
-    spec.description.metadata.shortDescription='ClearKeyboard 4M offline candidate scorer'
+    spec.description.metadata.shortDescription='ClearKeyboard 25M offline prefix predictor'
     spec.description.metadata.license=metadata['license']
     for key,value in metadata.items():spec.description.metadata.userDefined[key]=value
     spec.description.metadata.userDefined['source_sha256']=hashlib.sha256(data).hexdigest()
-    spec.description.metadata.userDefined['shape']='9x16; BOS plus candidate shifted right, no implicit truncation'
+    spec.description.metadata.userDefined['shape']='8x16; BOS plus prefix; last-position 12288-way log probabilities; no truncation'
     def compress(message):
         if message.DESCRIPTOR.full_name.endswith('.WeightParams') and len(message.floatValue)>1000:
             message.float16Value=np.array(message.floatValue,dtype='<f2').tobytes();message.ClearField('floatValue')
@@ -90,10 +86,19 @@ def build(source,output):
                     if descriptor.message_type.GetOptions().map_entry:continue
                     for child in value:compress(child)
                 else:compress(value)
-        if message.DESCRIPTOR.full_name.endswith('.BatchedMatMulLayerParams') and message.weights.float16Value and message.hasBias:
+        if (message.DESCRIPTOR.full_name.endswith('.BatchedMatMulLayerParams') and
+                message.weights.float16Value and message.hasBias and message.bias.floatValue):
             message.bias.float16Value=np.array(message.bias.floatValue,dtype='<f2').tobytes()
             message.bias.ClearField('floatValue')
     compress(spec)
+    produced={feature.name for feature in spec.description.input}
+    for layer in spec.neuralNetwork.layers:
+        assert not (produced & set(layer.output)), 'Graph overwrites an input or intermediate tensor'
+        assert set(layer.input)<=produced, 'Graph reads an undefined tensor'
+        produced.update(layer.output)
+        if layer.WhichOneof('layer')=='batchedMatmul' and layer.batchedMatmul.hasBias:
+            bias=layer.batchedMatmul.bias
+            assert len(bias.floatValue) or len(bias.float16Value), 'Compressed bias was lost'
     output.write_bytes(spec.SerializeToString(deterministic=True))
     print(json.dumps(dict(path=str(output),bytes=output.stat().st_size,layers=len(spec.neuralNetwork.layers),sha256=hashlib.sha256(output.read_bytes()).hexdigest())))
     return spec,w
@@ -101,15 +106,14 @@ def build(source,output):
 
 if __name__=='__main__':
     import subprocess
-    source=ROOT/'.rime-cache/ime-4m/sentence-model.safetensors'
-    output=ROOT/'.rime-cache/ClearSentence4M.mlmodel'
+    source=ROOT/'.rime-cache/ime-25m/sentence-model.safetensors'
+    output=ROOT/'.rime-cache/ClearSentence25M.mlmodel'
     spec,_=build(source,output)
     resources=ROOT/'Core/Resources/Rime'
     subprocess.run(['xcrun','coremlcompiler','compile',str(output),str(resources)],check=True)
-    (resources/'CoreML4M-validation.json').write_bytes((ROOT/'Data/Rime/coreml4m-validation.json').read_bytes())
-    compiled=resources/'ClearSentence4M.mlmodelc'
+    (resources/'CoreML25M-validation.json').write_bytes((ROOT/'Data/Rime/coreml25m-validation.json').read_bytes())
+    compiled=resources/'ClearSentence25M.mlmodelc'
     files={str(p.relative_to(resources)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(compiled.rglob('*')) if p.is_file()}
     if not files:raise RuntimeError('Core ML compilation produced no assets')
     manifest=dict(source_sha256=spec.description.metadata.userDefined['source_sha256'],model_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),files=files)
-    (resources/'CoreML4M-manifest.json').write_text(json.dumps(manifest,sort_keys=True),encoding='utf-8')
-
+    (resources/'CoreML25M-manifest.json').write_text(json.dumps(manifest,sort_keys=True),encoding='utf-8')

@@ -2,7 +2,7 @@ name: Build unsigned iPhone IPA
 
 on:
   push:
-    branches: [main, codex/ime-coreml-eval-20261020]
+    branches: [main, codex/ime-coreml-eval-20261020, codex/ime-full-optimization-20261020]
     paths-ignore:
       - 'UITests/**'
       - 'Scripts/test-candidates-ui.sh'
@@ -49,7 +49,17 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
           python3 Scripts/export_ime_coreml.py
+          python3 Scripts/validate_ime_coreml.py
           python3 Scripts/test_ime_model.py
+      - name: Check native model, phonetic search and input state
+        run: |
+          mkdir -p .build
+          c++ -O2 -UNDEBUG -std=c++17 Scripts/test_sentence.cpp -o .build/test-sentence
+          .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
+          c++ -O2 -UNDEBUG -std=c++17 Scripts/test_native_bridge.cpp -o .build/test-bridge
+          .build/test-bridge
+          swiftc -O -parse-as-library Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
+          .build/test-input-core
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
           python3 - <<'PY'
@@ -58,8 +68,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.29')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 32')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.30')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 33')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

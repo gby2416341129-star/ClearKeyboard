@@ -33,12 +33,12 @@ SHA256 1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488.
 Full license: CC-BY-4.0.txt. Attribution does not imply endorsement.
 Network downloads occur only in the build tool. The keyboard runs offline.
 
-Offline candidate reranker: chinese-ime-lm contributors, pinyin-ime-reranker-4M.
-https://huggingface.co/metasequoiaime/pinyin-ime-reranker-4M
-Revision e5b1f7e768d7cb2b6ff334db4e34af153920c6ff.
-Original weights SHA256 86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1.
+Offline candidate reranker: chinese-ime-lm contributors, pinyin-ime-reranker-25M.
+https://huggingface.co/metasequoiaime/pinyin-ime-reranker-25M
+Revision 75295b373a7ef0d14e9bebd32c1625c9cfcfea49.
+Original weights SHA256 0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469.
 License: Apache 2.0; full license and original notice are reproduced in
-IME-4M-LICENSE.txt and IME-4M-NOTICE.txt. Corpus attribution (C4 Chinese,
+IME-25M-LICENSE.txt and IME-25M-NOTICE.txt. Corpus attribution (C4 Chinese,
 ODC-BY; LCCC, MIT) is also retained inside the native model metadata.
 Modifications: lossless native int8 container, original vocabulary and metadata
 preserved. Inference is implemented independently in ClearKeyboard; no model

@@ -10,7 +10,7 @@ from prepare_ime_model import ROOT, ASSETS, NATIVE_SHA256, export, verified
 
 class ModelAssetTests(unittest.TestCase):
     def test_reproducible_export_and_preserved_attribution(self):
-        source=ROOT/'.rime-cache/ime-4m/sentence-model.safetensors'
+        source=ROOT/'.rime-cache/ime-25m/sentence-model.safetensors'
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'model.clm'
             self.assertEqual(export(source,path)['sha256'],NATIVE_SHA256)
@@ -26,7 +26,7 @@ class ModelAssetTests(unittest.TestCase):
         self.assertEqual(metadata['license'],'Apache-2.0')
         self.assertIn('C4',metadata['attribution'])
         self.assertIn('LCCC',metadata['attribution'])
-        self.assertEqual(len(json.loads(metadata['vocab'])),8192)
+        self.assertEqual(len(json.loads(metadata['vocab'])),12288)
 
     def test_corrupt_source_is_rejected_before_export(self):
         with tempfile.TemporaryDirectory() as folder:

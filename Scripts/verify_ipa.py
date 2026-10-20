@@ -10,7 +10,7 @@ import plistlib
 import struct
 import zipfile
 from pathlib import Path
-from prepare_ime_model import NATIVE_SHA256
+from prepare_ime_model import ASSETS, NATIVE_SHA256
 
 
 def require(condition, message):
@@ -88,22 +88,25 @@ def verify(path):
         with archive.open(app + "Rime/wanxiang-lts-zh-hans.gram") as stream:
             require(hashlib.file_digest(stream, "sha256").hexdigest() == "1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488", "Context model checksum mismatch")
         model=archive.read(app+'Rime/clear-sentence.clm')
-        require(hashlib.sha256(model).hexdigest()==NATIVE_SHA256, '4M sentence model checksum mismatch')
+        require(hashlib.sha256(model).hexdigest()==NATIVE_SHA256, '25M sentence model checksum mismatch')
         require(not any(name.startswith(extension+'Rime/') for name in names), 'Language models duplicated in keyboard bundle')
-        coreml=json.loads(archive.read(app+'Rime/CoreML4M-manifest.json'))
-        require(coreml.get('source_sha256')=='86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1', 'Core ML source mismatch')
+        coreml=json.loads(archive.read(app+'Rime/CoreML25M-manifest.json'))
+        require(coreml.get('source_sha256')==ASSETS['sentence-model.safetensors'], 'Core ML source mismatch')
         require(bool(coreml.get('files')), 'Missing compiled Core ML graph')
         for name,digest in coreml['files'].items():
-            require(name.startswith('ClearSentence4M.mlmodelc/') and '..' not in name.split('/'), 'Invalid Core ML resource path')
+            require(name.startswith('ClearSentence25M.mlmodelc/') and '..' not in name.split('/'), 'Invalid Core ML resource path')
             require(hashlib.sha256(archive.read(app+'Rime/'+name)).hexdigest()==digest, 'Compiled Core ML asset mismatch: '+name)
-        validation=json.loads(archive.read(app+'Rime/CoreML4M-validation.json'))
-        require(len(validation.get('expected',[]))==9, 'Missing on-device model validation')
+        validation=json.loads(archive.read(app+'Rime/CoreML25M-validation.json'))
+        require(len(validation.get('expected',[]))>=185, 'Missing on-device model validation')
+        phonetic=archive.read(app+'Rime/clear-phonetic.tsv')
+        require(len(phonetic.splitlines())>10000 and b'CC BY 4.0' in phonetic[:1024], 'Missing attributed phonetic graph')
+        require(not any('ClearSentence4M.mlmodelc/' in name or name.endswith('IME-4M-LICENSE.txt') for name in names), 'Obsolete 4M resources duplicated')
         for prefix in (app,extension):
-            for name in ('IME-4M-LICENSE.txt','IME-4M-NOTICE.txt'):
-                require(prefix+name in names, 'Missing 4M model license or attribution: '+name)
+            for name in ('IME-25M-LICENSE.txt','IME-25M-NOTICE.txt'):
+                require(prefix+name in names, 'Missing 25M model license or attribution: '+name)
     return {
         "status": "passed",
-        "checks": "ZIP integrity, bundle metadata, extension registration, executable permissions, arm64 iOS load commands, offline dictionaries, spelling-correction index and source checksum, pinned 4M model and attribution, single shared model resources, privacy manifests",
+        "checks": "ZIP integrity, bundle metadata, extension registration, executable permissions, arm64 iOS load commands, offline dictionaries, spelling-correction index and source checksum, pinned 25M model and attribution, phonetic graph, single shared model resources, privacy manifests",
         "bundles": bundles,
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "signing": "unsigned build; no signing verification performed",

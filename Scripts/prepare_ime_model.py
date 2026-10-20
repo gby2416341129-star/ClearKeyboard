@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the pinned 4M weights and export an offline, int8 native container.
+"""Verify the pinned 25M weights and export an offline, int8 native container.
 
 No training, conversion to float weights, or third-party runtime is involved.
 The original model metadata, including corpus attribution, stays in the asset.
@@ -13,15 +13,15 @@ import urllib.request
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = 'metasequoiaime/pinyin-ime-reranker-4M'
-REVISION = 'e5b1f7e768d7cb2b6ff334db4e34af153920c6ff'
+REPOSITORY = 'metasequoiaime/pinyin-ime-reranker-25M'
+REVISION = '75295b373a7ef0d14e9bebd32c1625c9cfcfea49'
 ASSETS = {
-    'sentence-model.safetensors': '86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1',
+    'sentence-model.safetensors': '0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469',
     'LICENSE': 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30',
     'NOTICE': 'b9489e8c8e3a271bf23131a57a7323264847d57561d36fc135101bf1eefd32f2',
 }
-CONFIG = dict(vocab=8192, n_embd=192, n_layer=6, n_head=4, context=64)
-NATIVE_SHA256 = 'c40f91e9062745e6e6a527a0e4d0f869a88c5938e6b6871e630a7bb1fe569816'
+CONFIG = dict(vocab=12288, n_embd=448, n_layer=8, n_head=8, context=128)
+NATIVE_SHA256 = 'e1056ca1711c10cb1726dede4d35e3cd5900ede96b2d71d808ac86e3c89df01d'
 
 
 def verified(path, digest):
@@ -39,8 +39,8 @@ def fetch(cache):
             url = f'https://huggingface.co/{REPOSITORY}/resolve/{REVISION}/{name}'
             request = urllib.request.Request(url, headers={'User-Agent': 'ClearKeyboard-build'})
             with urllib.request.urlopen(request, timeout=90) as response:
-                data = response.read(8_000_001)
-            if len(data) > 8_000_000 or hashlib.sha256(data).hexdigest() != digest:
+                data = response.read(40_000_001)
+            if len(data) > 40_000_000 or hashlib.sha256(data).hexdigest() != digest:
                 raise ValueError('Model download checksum mismatch: ' + name)
             temporary = path.with_suffix(path.suffix + '.part')
             temporary.write_bytes(data)
@@ -63,7 +63,7 @@ def export(source, output):
     if not metadata.get('attribution'):
         raise ValueError('Missing corpus attribution')
     vocab = json.loads(metadata['vocab'])
-    if len(vocab) != 8192 or vocab[:3] != ['<pad>', '<unk>', '<bos>'] or any(len(c) != 1 for c in vocab[3:]):
+    if len(vocab) != CONFIG['vocab'] or vocab[:3] != ['<pad>', '<unk>', '<bos>'] or any(len(c) != 1 for c in vocab[3:]):
         raise ValueError('Invalid vocabulary')
     if len(set(vocab)) != len(vocab):
         raise ValueError('Duplicate vocabulary token')
@@ -87,20 +87,21 @@ def export(source, output):
         if bias:
             tensor(name+'.bias', [rows])
 
-    matrix('tok', 8192, 192)
-    tensor('pos.weight', [64, 192])
-    for i in range(6):
+    d, count, layers, heads, window = (CONFIG[k] for k in ('n_embd','vocab','n_layer','n_head','context'))
+    matrix('tok', count, d)
+    tensor('pos.weight', [window, d])
+    for i in range(layers):
         p = f'blocks.{i}.'
         for part in ['weight', 'bias']:
-            tensor(p+'ln1.'+part, [192])
-        matrix(p+'qkv', 576, 192, True)
-        matrix(p+'proj', 192, 192, True)
+            tensor(p+'ln1.'+part, [d])
+        matrix(p+'qkv', 3*d, d, True)
+        matrix(p+'proj', d, d, True)
         for part in ['weight', 'bias']:
-            tensor(p+'ln2.'+part, [192])
-        matrix(p+'fc', 768, 192, True)
-        matrix(p+'out', 192, 768, True)
-    tensor('ln_f.weight', [192])
-    tensor('ln_f.bias', [192])
+            tensor(p+'ln2.'+part, [d])
+        matrix(p+'fc', 4*d, d, True)
+        matrix(p+'out', d, 4*d, True)
+    tensor('ln_f.weight', [d])
+    tensor('ln_f.bias', [d])
     if used != set(header):
         raise ValueError('Unexpected tensors')
     provenance = json.dumps(dict(repository=REPOSITORY, revision=REVISION,
@@ -108,9 +109,9 @@ def export(source, output):
         ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()
     # Keep both original metadata and an aligned, fixed-width character index.
     provenance += b' ' * (-len(provenance) % 4)
-    index = struct.pack('<8192I', 0, 0, 0, *(ord(c) for c in vocab[3:]))
+    index = struct.pack(f'<{count}I', 0, 0, 0, *(ord(c) for c in vocab[3:]))
     payload = provenance + index + tensors
-    prefix = struct.pack('<8s14I', b'CLMINT01', 1, 192, 6, 4, 8192, 64,
+    prefix = struct.pack('<8s14I', b'CLMINT01', 1, d, layers, heads, count, window,
         len(provenance), len(index), len(tensors), zlib.crc32(payload), 0, 0, 0, 0)
     result = prefix + payload
     if hashlib.sha256(result).hexdigest() != NATIVE_SHA256:
@@ -123,14 +124,14 @@ def export(source, output):
 
 
 def prepare(cache=None, output=None):
-    cache = cache or ROOT/'.rime-cache'/'ime-4m'
+    cache = cache or ROOT/'.rime-cache'/'ime-25m'
     output = output or ROOT/'Core/Resources/Rime/clear-sentence.clm'
     fetch(cache)
     result = export(cache/'sentence-model.safetensors', output)
     license_dir = ROOT/'Licenses'
     for name in ('LICENSE', 'NOTICE'):
-        (license_dir/('IME-4M-'+name+'.txt')).write_bytes(verified(cache/name, ASSETS[name]))
-    print('Verified native 4M sentence model: '+json.dumps(result), flush=True)
+        (license_dir/('IME-25M-'+name+'.txt')).write_bytes(verified(cache/name, ASSETS[name]))
+    print('Verified native 25M sentence model: '+json.dumps(result), flush=True)
     return result
 
 

@@ -11,10 +11,11 @@ void cr_destroy(uintptr_t session);
 typedef int (*cr_cancelled)(void *context);
 // Optional platform accelerator. Called only on the candidate worker. It must
 // return by its allowance and never retain output pointers or cancellation data.
-typedef int (*cr_sentence_scorer)(const char *const *texts, int count, float *scores,
-                                double milliseconds, cr_cancelled cancelled,
-                                void *cancel_context, void *context);
-void cr_set_sentence_scorer(cr_sentence_scorer scorer, void *context);
+typedef int (*cr_sentence_predictor)(const char *const *prefixes, int count, float *log_probs,
+                                    int vocabulary_size, double milliseconds, cr_cancelled cancelled,
+                                    void *cancel_context, void *context);
+void cr_set_sentence_predictor(cr_sentence_predictor predictor, void *context);
+void cr_trim_sentence_cache(void);
 int cr_query(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
 int cr_query_fast(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
 int cr_candidate(uintptr_t session, int index, char *text, size_t capacity,

@@ -1,4 +1,5 @@
 import UIKit
+import os
 
 @objc(ClearKeyboardViewController)
 class KeyboardViewController: UIInputViewController, KeyboardDocument {
@@ -22,6 +23,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var trackpad: ProxyTrackpad?
     private var lastLayoutLog = ""
     private var layoutLogCount = 0
+    private let hostLog = OSLog(subsystem: "ClearKeyboard", category: "HostWrite")
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -147,14 +149,23 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         RunLoop.main.add(timer, forMode: .default)
     }
     private func readHostSnapshot() -> HostTextSnapshot {
+        // A temporarily unavailable remote identifier is not evidence that the
+        // user switched fields. Treating nil as a new "disconnected" document
+        // unmarked long input and cleared its candidates before a tap committed.
+        guard let identifier = connectedDocumentIdentifier()?.uuidString else {
+            var unavailable = hostState.snapshot
+            unavailable.available = false
+            return unavailable
+        }
         let before = textDocumentProxy.documentContextBeforeInput
         let after = textDocumentProxy.documentContextAfterInput
         return HostTextSnapshot(before: before ?? "", after: after ?? "", selected: textDocumentProxy.selectedText ?? "",
-            document: connectedDocumentIdentifier()?.uuidString ?? "disconnected", available: before != nil || after != nil)
+            document: identifier, available: before != nil || after != nil)
     }
     private func refreshHostState(refreshTraits: Bool = false) {
         needsHostRefresh = false
         let outcome = hostState.reconcile(readHostSnapshot())
+        guard outcome != .unavailable else { needsHostRefresh = true; scheduleHostRefresh(); return }
         // Traits belong to the field. Own text acknowledgements must not fetch
         // all of them again after each confirmed word.
         if refreshTraits || outcome == .externalEdit {
@@ -185,7 +196,12 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // and rejects hosts that omit the active marked range from their context.
         guard hostState.snapshot.selected.isEmpty, before == contextBefore, after == contextAfter,
               identity == documentIdentity else { return false }
-        guard connectedDocumentIdentifier()?.uuidString == identity else { refreshHostState(); return false }
+        // Do not destroy an active draft on a transient nil response. A real,
+        // different UUID still forces the normal external-field reconciliation.
+        guard let actualIdentity = connectedDocumentIdentifier()?.uuidString else {
+            needsHostRefresh = true; scheduleHostRefresh(); return false
+        }
+        guard actualIdentity == identity else { refreshHostState(); return false }
         return true
     }
     private func connectedDocumentIdentifier() -> UUID? {
@@ -232,6 +248,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private func flushMarkedText() {
         guard let text = pendingMarkedText else { return }
         pendingMarkedText = nil
+        let event = OSSignpostID(log: hostLog)
+        os_signpost(.begin, log: hostLog, name: "MarkedTextWrite", signpostID: event, "utf16=%d", text.utf16.count)
+        defer { os_signpost(.end, log: hostLog, name: "MarkedTextWrite", signpostID: event) }
         textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
     }
     func unmarkText() { performHostEdit { hostState.unmark(); textDocumentProxy.unmarkText() } }

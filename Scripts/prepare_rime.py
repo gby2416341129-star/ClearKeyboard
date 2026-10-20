@@ -147,6 +147,20 @@ def fluent_schema(compiled):
         compiled = compiled.replace(old, new, 1)
     return compiled
 
+
+def phonetic_index(words, output):
+    # Pronunciations come from the same verified dictionary as Rime. This is
+    # character metadata for constrained search, not a list of test sentences.
+    characters = {(text, reading): frequency for text, reading, frequency in words
+                  if len(text) == 1 and reading.isascii() and reading.isalpha()}
+    if len(characters) < 10_000:
+        raise RuntimeError('Incomplete character pronunciation table')
+    content = '# Wanxiang character pronunciations; CC BY 4.0, AMZ and contributors.\n'
+    content += ''.join(f'{text}\t{reading}\t{frequency}\n'
+                       for (text, reading), frequency in sorted(characters.items()))
+    output.write_text(content, encoding='utf-8')
+    return len(characters)
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--download-only',action='store_true');args=parser.parse_args()
     CACHE.mkdir(exist_ok=True)
@@ -196,6 +210,7 @@ def main():
     # participate only in literal full-pinyin/initial matching.
     (source/'clear_conversation.dict.yaml').write_text('# ClearKeyboard first-party conversational vocabulary.\n---\nname: clear_conversation\nversion: "'+conversation_version+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in sorted(conversational)),encoding='utf-8')
     output=ROOT/'Core/Resources/Rime';output.mkdir(exist_ok=True)
+    phonetic_index(rows, output/'clear-phonetic.tsv')
     shutil.copyfile(ROOT/'Data/Rime/clear_pinyin.schema.yaml',source/'clear_pinyin.schema.yaml')
     shutil.copyfile(ROOT/'Data/Rime/clear_exact.schema.yaml',source/'clear_exact.schema.yaml')
     shutil.copyfile(ROOT/'Data/Rime/clear_conversation.schema.yaml',source/'clear_conversation.schema.yaml')

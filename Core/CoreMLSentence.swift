@@ -1,18 +1,22 @@
 import Foundation
 #if canImport(CoreML)
 import CoreML
+import os
+#endif
+#if canImport(CRime)
+import CRime
 #endif
 
-/// Optional Apple accelerator. Model loading and predictions never use the main
-/// queue. The caller waits only within the existing query budget; a timed-out
-/// prediction cannot publish a late candidate or retain C bridge pointers.
+/// Optional bounded prefix predictor. Loading and prediction never run on the
+/// main thread or retain C pointers; the input worker owns the deadline.
 final class CoreMLSentence {
     static let shared = CoreMLSentence()
-    private let queue = DispatchQueue(label: "clear.coreml", qos: .utility)
+    private let queue = DispatchQueue(label: "clear.coreml", qos: .userInitiated)
     private let lock = NSLock()
-    private var started = false, ready = false, busy = false, memoryConstrained = false
-    private var failures = 0
+    private var started = false, ready = false, busy = false, constrained = false
+    private var failures = 0, epoch = 0
     private var memoryObserver: NSObjectProtocol?
+    var revision: Int { lock.lock(); defer { lock.unlock() }; return epoch }
     #if canImport(CoreML)
     private var model: MLModel?
     private var vocabulary: [Character: Int] = [:]
@@ -21,8 +25,6 @@ final class CoreMLSentence {
         let lock = NSLock(), signal = DispatchSemaphore(value: 0)
         var result: [Float]?, abandoned = false
     }
-    private init() {}
-
     func start(directory: URL) {
         lock.lock()
         guard !started else { lock.unlock(); return }
@@ -30,23 +32,25 @@ final class CoreMLSentence {
         memoryObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name("UIApplicationDidReceiveMemoryWarningNotification"), object: nil, queue: nil) { [weak self] _ in
             guard let self else { return }
-            self.lock.lock(); self.ready = false; self.memoryConstrained = true; self.lock.unlock()
+            self.lock.lock(); self.ready = false; self.constrained = true; self.lock.unlock()
             self.queue.async {
                 #if canImport(CoreML)
                 self.model = nil
                 #endif
             }
+            DispatchQueue.global(qos: .utility).async { cr_trim_sentence_cache() }
         }
         #if canImport(CoreML)
         queue.async { [self] in
             do {
-                let url = directory.appendingPathComponent("ClearSentence4M.mlmodelc", isDirectory: true)
-                let data = try Data(contentsOf: directory.appendingPathComponent("CoreML4M-validation.json"))
-                guard let validation = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                // Check the extension's remaining allowance, not total phone RAM.
+                guard os_proc_available_memory() >= 64 * 1_024 * 1_024 else { return }
+                let bytes = try Data(contentsOf: directory.appendingPathComponent("CoreML25M-validation.json"))
+                guard let validation = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
                       let inputs = validation["inputs"] as? [String: Any],
-                      let expected = validation["expected"] as? [Double], expected.count == 9 else { return }
+                      let expected = validation["expected"] as? [[String: Any]], !expected.isEmpty else { return }
                 var features: [String: MLFeatureValue] = [:]
-                for (name, shape) in [("tokens", [9, 16]), ("targets", [9, 16, 3]), ("mask", [9, 16])] {
+                for (name, shape) in [("tokens", [8, 16]), ("positions", [8, 2])] {
                     guard let raw = inputs[name] else { return }
                     let array = try MLMultiArray(shape: shape.map { NSNumber(value: $0) }, dataType: .float32)
                     let values = flatten(raw)
@@ -55,56 +59,64 @@ final class CoreMLSentence {
                     features[name] = MLFeatureValue(multiArray: array)
                 }
                 let provider = try MLDictionaryFeatureProvider(dictionary: features)
-                // Compare the two public Core ML configurations on THIS device.
-                // This is a latency gate, not a measurement of battery energy or
-                // proof that every operation actually executes on the ANE.
-                let cpuTimes = try autoreleasepool { () throws -> [Double] in
-                    let configuration = MLModelConfiguration(); configuration.computeUnits = .cpuOnly
-                    let cpu = try MLModel(contentsOf: url, configuration: configuration)
-                    return try profile(cpu, provider: provider, expected: expected)
-                }
-                let configuration = MLModelConfiguration()
-                configuration.computeUnits = .cpuAndNeuralEngine
-                let accelerated = try MLModel(contentsOf: url, configuration: configuration)
-                let acceleratedTimes = try profile(accelerated, provider: provider, expected: expected)
+                let configuration = MLModelConfiguration(); configuration.computeUnits = .cpuAndNeuralEngine
+                let accelerated = try MLModel(contentsOf: directory.appendingPathComponent("ClearSentence25M.mlmodelc"), configuration: configuration)
                 guard let metadata = accelerated.modelDescription.metadata[.creatorDefinedKey] as? [String: String],
-                      metadata["source_sha256"] == "86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1",
-                      let bytes = metadata["vocab"]?.data(using: .utf8),
-                      let vocab = try JSONSerialization.jsonObject(with: bytes) as? [String], vocab.count == 8192 else { return }
-                var lookup: [Character: Int] = [:]
-                for (i, text) in vocab.enumerated() where i > 2 && text.count == 1 { lookup[text.first!] = i }
-                let cpuMedian = cpuTimes.sorted()[cpuTimes.count / 2]
-                let acceleratedMedian = acceleratedTimes.sorted()[acceleratedTimes.count / 2]
-                // Warm-up is separate. Retain this backend only with a clear
-                // latency advantage and enough room in the 8 ms total budget.
-                let enabled = acceleratedMedian < cpuMedian * 0.9 && acceleratedTimes.max()! < 4
-                let diagnostics: [String: Any] = ["cpuOnlyMS": cpuTimes, "cpuAndNeuralEngineMS": acceleratedTimes,
-                    "numericalValidation": "passed", "enabled": enabled, "actualANEPlacementVerified": false,
-                    "energyMeasured": false, "comparison": "Core ML configurations; not custom native CPU or WeChat"]
+                      metadata["source_sha256"] == "0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469",
+                      let encoded = metadata["vocab"]?.data(using: .utf8),
+                      let vocab = try JSONSerialization.jsonObject(with: encoded) as? [String], vocab.count == 12_288 else { return }
+                var timings: [Double] = []
+                for iteration in 0..<3 {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    let prediction = try accelerated.prediction(from: provider)
+                    guard let output = prediction.featureValue(for: "log_probs")?.multiArrayValue,
+                          output.count == 8 * 12_288 else { return }
+                    for item in expected {
+                        guard let row = item["row"] as? Int, let token = item["token"] as? Int,
+                              let value = item["value"] as? Double,
+                              (0..<8).contains(row), (0..<12_288).contains(token),
+                              output[row * 12_288 + token].doubleValue.isFinite,
+                              abs(output[row * 12_288 + token].doubleValue - value) < 0.025 else { return }
+                    }
+                    if iteration > 0 { timings.append((ProcessInfo.processInfo.systemUptime - start) * 1_000) }
+                }
+                let enabled = timings.max().map { $0 < 4 } ?? false
+                let diagnostics: [String: Any] = ["model": "25M", "predictionMS": timings,
+                    "numericalValidation": "passed", "enabled": enabled,
+                    "actualANEPlacementVerified": false, "energyMeasured": false]
                 if let bytes = try? JSONSerialization.data(withJSONObject: diagnostics, options: [.sortedKeys]),
                    let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-                    try? bytes.write(to: cache.appendingPathComponent("ClearKeyboard-CoreML4M.json"), options: .atomic)
+                    try? bytes.write(to: cache.appendingPathComponent("ClearKeyboard-CoreML25M.json"), options: .atomic)
                 }
                 guard enabled else { return }
-                model = accelerated; vocabulary = lookup
-                lock.lock(); let constrained = memoryConstrained; ready = !constrained; lock.unlock()
-                if constrained { model = nil }
-            } catch {
-                // Missing/unsupported model or failed self-check: keep native
-                // decoding. Never publish unverified model results.
-            }
+                lock.lock(); let limited = constrained; lock.unlock()
+                guard !limited else { return }
+                model = accelerated
+                for (index, text) in vocab.enumerated() where index > 2 && text.count == 1 { vocabulary[text.first!] = index }
+                lock.lock(); ready = true; lock.unlock()
+                cr_set_sentence_predictor({ pointers, count, output, vocabularySize, milliseconds, cancelled, cancelContext, _ in
+                    guard let pointers, let output, count > 0, count <= 8, vocabularySize == 12_288 else { return 0 }
+                    var prefixes: [String] = []
+                    for index in 0..<Int(count) {
+                        guard let pointer = pointers[index] else { return 0 }
+                        prefixes.append(String(cString: pointer))
+                    }
+                    guard let values = CoreMLSentence.shared.next(prefixes, milliseconds: milliseconds,
+                        cancelled: { (cancelled?(cancelContext) ?? 0) != 0 }), values.count == Int(count) * 12_288 else { return 0 }
+                    values.withUnsafeBufferPointer { source in output.update(from: source.baseAddress!, count: source.count) }
+                    return 1
+                }, nil)
+                lock.lock(); epoch += 1; lock.unlock()
+            } catch { }
         }
         #endif
     }
-
-    func score(_ texts: [String], milliseconds: Double, cancelled: () -> Bool) -> [Float]? {
+    func next(_ prefixes: [String], milliseconds: Double, cancelled: () -> Bool) -> [Float]? {
         #if canImport(CoreML)
-        guard texts.count > 1, texts.count <= 9, texts.allSatisfy({ !$0.isEmpty && $0.count <= 16 }),
+        guard !prefixes.isEmpty, prefixes.count <= 8, prefixes.allSatisfy({ $0.count < 16 }),
               milliseconds > 0.2, !cancelled() else { return nil }
-        let start = ProcessInfo.processInfo.systemUptime
-        lock.lock()
-        guard ready, !busy else { lock.unlock(); return nil }
-        busy = true; lock.unlock()
+        let started = ProcessInfo.processInfo.systemUptime
+        lock.lock(); guard ready, !busy else { lock.unlock(); return nil }; busy = true; lock.unlock()
         let request = Request()
         queue.async { [self] in
             defer { lock.lock(); busy = false; lock.unlock(); request.signal.signal() }
@@ -112,78 +124,50 @@ final class CoreMLSentence {
             guard !abandoned, let model else { return }
             let result: [Float]? = autoreleasepool {
                 do {
-                    var rows = texts
-                    while rows.count < 9 { rows.append(texts.last!) }
-                    let tokens = try MLMultiArray(shape: [9, 16], dataType: .float32)
-                    let targets = try MLMultiArray(shape: [9, 16, 3], dataType: .float32)
-                    let mask = try MLMultiArray(shape: [9, 16], dataType: .float32)
-                    for (row, text) in rows.enumerated() {
-                        let characters = Array(text)
-                        guard !characters.isEmpty, characters.count <= 16 else { return nil }
-                        let ids = characters.compactMap { vocabulary[$0] }
+                    let tokens = try MLMultiArray(shape: [8, 16], dataType: .float32)
+                    let positions = try MLMultiArray(shape: [8, 2], dataType: .float32)
+                    for index in 0..<tokens.count { tokens[index] = 0 }
+                    for row in 0..<8 {
+                        let prefix = prefixes[min(row, prefixes.count - 1)]
+                        let characters = Array(prefix), ids = characters.compactMap { vocabulary[$0] }
                         guard ids.count == characters.count else { return nil }
-                        for position in 0..<16 {
-                            let offset = row * 16 + position
-                            tokens[offset] = NSNumber(value: position == 0 ? 2 : (position < ids.count ? ids[position - 1] : 0))
-                            targets[offset * 3] = NSNumber(value: row)
-                            targets[offset * 3 + 1] = NSNumber(value: position)
-                            targets[offset * 3 + 2] = NSNumber(value: position < ids.count ? ids[position] : 0)
-                            mask[offset] = NSNumber(value: position < ids.count ? 1 : 0)
-                        }
+                        tokens[row * 16] = 2
+                        for index in ids.indices { tokens[row * 16 + index + 1] = NSNumber(value: ids[index]) }
+                        positions[row * 2] = NSNumber(value: row)
+                        positions[row * 2 + 1] = NSNumber(value: ids.count)
                     }
-                    let provider = try MLDictionaryFeatureProvider(dictionary: ["tokens": MLFeatureValue(multiArray: tokens),
-                        "targets": MLFeatureValue(multiArray: targets), "mask": MLFeatureValue(multiArray: mask)])
-                    let prediction = try model.prediction(from: provider)
-                    guard let scores = prediction.featureValue(for: "scores")?.multiArrayValue, scores.count == 9 else { return nil }
-                    let result = (0..<texts.count).map { scores[$0].floatValue }
-                    return result.allSatisfy(\.isFinite) ? result : nil
+                    let input = try MLDictionaryFeatureProvider(dictionary: ["tokens": MLFeatureValue(multiArray: tokens),
+                        "positions": MLFeatureValue(multiArray: positions)])
+                    let prediction = try model.prediction(from: input)
+                    guard let output = prediction.featureValue(for: "log_probs")?.multiArrayValue,
+                          output.dataType == .float32, output.shape.map(\.intValue) == [8, 12_288],
+                          output.strides.map(\.intValue) == [12_288, 1] else { return nil }
+                    let count = prefixes.count * 12_288
+                    let values = Array(UnsafeBufferPointer(start: output.dataPointer.assumingMemoryBound(to: Float.self), count: count))
+                    return values.allSatisfy(\.isFinite) ? values : nil
                 } catch { return nil }
             }
-            request.lock.lock()
-            if !request.abandoned { request.result = result }
-            request.lock.unlock()
-            if result == nil {
-                lock.lock(); failures += 1
-                if failures >= 3 { ready = false }
-                lock.unlock()
-            }
+            request.lock.lock(); if !request.abandoned { request.result = result }; request.lock.unlock()
         }
-        let allowance = min(milliseconds, 4) / 1000
-        while ProcessInfo.processInfo.systemUptime - start < allowance, !cancelled() {
-            let remaining = allowance - (ProcessInfo.processInfo.systemUptime - start)
+        let allowance = min(milliseconds, 4) / 1_000
+        while ProcessInfo.processInfo.systemUptime - started < allowance, !cancelled() {
+            let remaining = allowance - (ProcessInfo.processInfo.systemUptime - started)
             if request.signal.wait(timeout: .now() + min(0.00015, max(0, remaining))) == .success {
                 request.lock.lock(); let result = request.result; request.lock.unlock()
-                return result
+                if result == nil { failed() }; return result
             }
         }
         request.lock.lock(); request.abandoned = true; request.lock.unlock()
-        if !cancelled() {
-            lock.lock(); failures += 1
-            if failures >= 3 { ready = false }
-            lock.unlock()
-        }
+        if !cancelled() { failed() }
         #endif
         return nil
     }
-
+    private func failed() { lock.lock(); failures += 1; if failures >= 3 { ready = false }; lock.unlock() }
     #if canImport(CoreML)
     private func flatten(_ value: Any) -> [Float] {
         if let number = value as? NSNumber { return [number.floatValue] }
         if let values = value as? [Any] { return values.flatMap(flatten) }
         return []
-    }
-    private func profile(_ model: MLModel, provider: MLFeatureProvider, expected: [Double]) throws -> [Double] {
-        var times: [Double] = []
-        for iteration in 0..<4 {
-            let start = ProcessInfo.processInfo.systemUptime
-            let output = try model.prediction(from: provider)
-            guard let scores = output.featureValue(for: "scores")?.multiArrayValue, scores.count == expected.count,
-                  expected.indices.allSatisfy({ scores[$0].doubleValue.isFinite && abs(scores[$0].doubleValue - expected[$0]) < 0.015 }) else {
-                throw LexiconError.invalidFormat
-            }
-            if iteration > 0 { times.append((ProcessInfo.processInfo.systemUptime - start) * 1000) }
-        }
-        return times
     }
     #endif
 }

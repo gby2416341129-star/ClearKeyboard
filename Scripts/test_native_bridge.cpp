@@ -2,6 +2,9 @@
 #include <cassert>
 #include <iostream>
 #include <thread>
+#ifdef NDEBUG
+#error Native bridge tests require assertions to be enabled
+#endif
 
 void rime_require_module_octagram() {}
 void rime_require_module_lua() {}
@@ -29,11 +32,14 @@ int from_index(RimeSessionId id, RimeCandidateListIterator *it, int index) {
 void end_list(RimeCandidateListIterator *) { ended++; }
 int set_input_mock(RimeSessionId, const char *) { return 1; }
 int cancelled_now(void *) { return 1; }
-int model_calls=0;
-int platform_score_mock(const char *const *,int count,float *scores,double,cr_cancelled,void*,void *context) {
-  ++model_calls;
-  for (int i=0; i<count; ++i) scores[i]=float(i);
-  if (context) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+std::unordered_map<uintptr_t,std::string> live_inputs;
+int complete_resets=0,incremental_edits=0;
+int reset_live(RimeSessionId id,const char *value) { ++complete_resets;live_inputs[id]=value;return 1; }
+const char *read_live(RimeSessionId id) { return live_inputs[id].c_str(); }
+int edit_live(RimeSessionId id,int key,int) {
+  ++incremental_edits;
+  if (key==0xff08) { if (!live_inputs[id].empty()) live_inputs[id].pop_back(); }
+  else live_inputs[id]+=static_cast<char>(key);
   return 1;
 }
 int main(int argc, char **argv) {
@@ -116,38 +122,28 @@ int main(int argc, char **argv) {
   assert(syllables("wo  gei ma ma ")=="wo gei ma ma");
   assert(syllables("xi an")!=syllables("xian"));
   assert(syllables("wo gei ~ma").empty());
-  // A recorded decision is reused on paging, including the fast API. A new
-  // spelling cannot inherit it, and protected dictionary rows never invoke it.
-  q.ranked_input="abcdefgh"; q.rank_decided=true; q.ranked_choice="chosen";
+  // A generated leading row remains an exact prefix of every later page.
+  q.ranked_input="abcdefgh";q.rank_decided=true;
+  q.head_items={{"chosen","a b c d",8},{"incumbent","a b c d",8}};
   q.items={{"incumbent","a b c d",8},{"chosen","a b c d",8},{"tail","a b c d",8}};
   rank_sentence(q,"abcdefgh",8,false,false,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
   assert(q.items[0].text=="chosen" && q.items[1].text=="incumbent" && q.items[2].text=="tail");
   rank_sentence(q,"abcdefghx",9,true,true,true,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
-  assert(q.ranked_choice.empty());
-  if (argc>1) {
-    sentence_model=std::make_unique<clear_sentence::Model>();
-    assert(sentence_model->load(argv[1]));
-    platform_scorer=platform_score_mock;
-    auto row=[] {
-      Query result;
-      result.items={{u8"我给妈妈","wo gei ma ma",8,-10}, {u8"我哥妈妈","wo ge ma ma",8,-10.1},
-                    {u8"我给马马","wo gei ma ma",8,-10.2}, {u8"我给","wo gei",5,-5}};
-      return result;
-    };
-    auto generated=row();
-    rank_sentence(generated,"wogeimam",8,true,true,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
-    assert(model_calls==1 && generated.items.front().text==u8"我给马马");
-    assert(generated.items[1].text==u8"我给妈妈");
-    auto trusted=row();
-    rank_sentence(trusted,"wogeimam",8,true,true,true,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
-    assert(model_calls==1 && trusted.items.front().text==u8"我给妈妈");
-    auto strong=row(); strong.items[2].weight=-12;
-    rank_sentence(strong,"wogeimam",8,true,true,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
-    assert(model_calls==1 && strong.items.front().text==u8"我给妈妈");
-    auto late=row(); platform_scorer_context=&late;
-    rank_sentence(late,"wogeimam",8,true,true,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
-    assert(model_calls==2 && late.items.front().text==u8"我给妈妈");
-    platform_scorer=nullptr; platform_scorer_context=nullptr;
-  }
-  std::cout << "PASS: bounded unique paging, incremental cursor, confidence gate, literal retention, cancellation, iterator cleanup\n";
+  assert(q.ranked_choice.empty() && q.head_items.size()==q.items.size());
+  assert(clear_sentence::PhoneticSearch::matches("qingsong","qing song")==0);
+  assert(clear_sentence::PhoneticSearch::matches("qs","qing song")==2);
+  assert(clear_sentence::PhoneticSearch::matches("busuanchadla","bu suan cha de la")==1);
+  assert(clear_sentence::PhoneticSearch::matches("busuanchadla","bu suan cha de lian ai")==-1);
+  assert(clear_sentence::PhoneticSearch::matches("zhgs","zhong guo shi")==3);
+  assert(clear_sentence::PhoneticSearch::matches("xa","xi an")==-1);
+  mock.set_input=reset_live;mock.get_input=read_live;mock.process_key=edit_live;
+  ChannelCache incremental;
+  collect(2,"ni",1,incremental,nullptr,nullptr);
+  collect(2,"nih",1,incremental,nullptr,nullptr);
+  collect(2,"ni",1,incremental,nullptr,nullptr);
+  assert(live_inputs[2]=="ni" && complete_resets==1 && incremental_edits==2);
+  live_inputs[2]="foreign";
+  collect(2,"nih",1,incremental,nullptr,nullptr);
+  assert(live_inputs[2]=="nih" && complete_resets==2 && incremental_edits==2);
+  std::cout << "PASS: unique paging, incremental cursor, literal retention, cancellation, stable heads, phonetic boundaries\n";
 }

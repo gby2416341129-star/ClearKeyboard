@@ -180,7 +180,12 @@ public final class InputEngine {
                 // real dictionary phrases, including short-prefix completion.
                 let words = (associations?.lookup("i:" + input, limit: min(32, limit)) ?? [])
                     .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
-                output.insert(contentsOf: words, at: 0)
+                // Full initialisms follow the semantic decoder's order. Only
+                // intentional prefix completions (e.g. djdj -> 大家都觉得) lead
+                // it; a static frequency row must not overwrite a decoded phrase.
+                let completions = words.filter { abbreviation($0.reading).count > input.count }
+                output.insert(contentsOf: completions, at: 0)
+                output += words.filter { abbreviation($0.reading).count == input.count }
                 if let alias = Self.conversational[input], let index = output.firstIndex(where: { $0.text == alias }) {
                     output.insert(output.remove(at: index), at: 0)
                 }

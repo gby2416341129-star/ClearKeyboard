@@ -6,7 +6,7 @@ import CRime
 /// The production Chinese decoder. The C bridge serializes librime across models.
 final class RimeDecoder {
     private let session: UInt
-    private struct CacheKey: Hashable { let raw: String; let correction: Bool }
+    private struct CacheKey: Hashable { let raw: String; let correction: Bool; let backend: Int }
     private var cache: [CacheKey: (limit: Int, candidates: [Candidate])] = [:]
     private var cacheOrder: [CacheKey] = []
     private final class CancellationBox {
@@ -32,18 +32,6 @@ final class RimeDecoder {
         try FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
         guard cr_initialize(shared.path, user.path) != 0 else { throw LexiconError.invalidFormat }
         CoreMLSentence.shared.start(directory: shared)
-        cr_set_sentence_scorer({ pointers, count, output, milliseconds, cancelled, cancelContext, _ in
-            guard let pointers, let output, count > 1, count <= 9 else { return 0 }
-            var texts: [String] = []
-            for i in 0..<Int(count) {
-                guard let pointer = pointers[i] else { return 0 }
-                texts.append(String(cString: pointer))
-            }
-            guard let scores = CoreMLSentence.shared.score(texts, milliseconds: milliseconds,
-                cancelled: { (cancelled?(cancelContext) ?? 0) != 0 }), scores.count == Int(count) else { return 0 }
-            for i in scores.indices { output[i] = scores[i] }
-            return 1
-        }, nil)
         return try RimeDecoder()
     }
     private init() throws {
@@ -52,9 +40,10 @@ final class RimeDecoder {
     }
     deinit { cr_destroy(session) }
     func candidates(_ raw: String, limit: Int = 16, correction: Bool = true, cancelled: () -> Bool) -> [Candidate] {
-        let key = CacheKey(raw: raw, correction: correction)
+        let backend = CoreMLSentence.shared.revision
+        let key = CacheKey(raw: raw, correction: correction, backend: backend)
         // A previous full result is also a safe fast answer, never vice versa.
-        if let value = cache[CacheKey(raw: raw, correction: true)] ?? cache[key], value.limit >= limit {
+        if let value = cache[CacheKey(raw: raw, correction: true, backend: backend)] ?? cache[key], value.limit >= limit {
             return Array(value.candidates.prefix(limit))
         }
         guard !cancelled() else { return [] }

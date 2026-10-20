@@ -4,8 +4,24 @@ import CoreGraphics
 public enum FuzzyPinyin {
     public static let availablePairs = ["z/zh", "c/ch", "s/sh", "n/l", "f/h", "an/ang", "en/eng", "in/ing"]
     public static func normalize(_ input: String) -> String {
-        input.lowercased().replacingOccurrences(of: "ü", with: "v").unicodeScalars
-            .filter { (97...122).contains($0.value) }.map(String.init).joined()
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(input.utf8.count)
+        // Keyboard input is ASCII. Avoid a lowercase copy, a replacement scan,
+        // and one temporary String allocation per letter on every key/frame.
+        if input.utf8.allSatisfy({ $0 < 128 }) {
+            for byte in input.utf8 {
+                if (97...122).contains(byte) { bytes.append(byte) }
+                else if (65...90).contains(byte) { bytes.append(byte + 32) }
+            }
+        } else {
+            // Preserve Unicode lowercasing (including dotted I/Kelvin sign),
+            // and the existing ü -> v convention for imported/user spellings.
+            for scalar in input.lowercased().replacingOccurrences(of: "ü", with: "v").unicodeScalars {
+                if (97...122).contains(scalar.value) { bytes.append(UInt8(scalar.value)) }
+                else if scalar.value == 252 { bytes.append(118) }
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
     /// Bounded variants; edit one syllable boundary at a time instead of exponential rewrites.
     public static func variants(_ input: String, enabled: Set<String>, limit: Int = 12) -> [String] {
