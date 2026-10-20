@@ -43,7 +43,7 @@ def short_initial_words(words, conversational=()):
                 if missing and (length < 3 or missing > 2):
                     continue
                 bucket = buckets[code[:length]]
-                duplicate = next((i for i, row in enumerate(bucket) if row[2:] == (text, reading)), None)
+                duplicate = next((i for i, row in enumerate(bucket) if row[2] == text), None)
                 rank = (priority, frequency // (4 ** missing), text, reading)
                 if duplicate is not None:
                     if rank > bucket[duplicate]:

@@ -25,6 +25,12 @@ class InitialIndexTests(unittest.TestCase):
         self.assertGreater(INITIAL_LIMIT, 8)
         self.assertEqual(sorted(rows["cs"], reverse=True)[0][1], 79)
 
+    def test_polyphonic_duplicates_do_not_shrink_the_first_page(self):
+        rows = short_initial_words([("得", "de", 100), ("得", "dei", 50),
+                                    ("的", "de", 200), ("对", "dui", 80)])["d"]
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(sorted(rows, reverse=True)[1][2:], ("得", "de"))
+
     def test_binary_uses_shared_records_and_preserves_ranking(self):
         words = [("大家都觉得", "da jia dou jue de", 6000),
                  ("道教典籍", "dao jiao dian ji", 100)]
