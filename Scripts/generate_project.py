@@ -50,12 +50,12 @@ if __name__ == "__main__":
     ui_product = obj("product:ui-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardUITests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product, ui_product]) + "; name = Products; sourceTree = \"<group>\"; }"
     group = obj("group:main", "PBXGroup", children=arr(list(refs.values()) + [products]), sourceTree=q("<group>"))
-    common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0", "SWIFT_OBJC_BRIDGING_HEADER": "CRime/include/ClearRime.h", "CLANG_CXX_LANGUAGE_STANDARD": "c++17", "OTHER_LDFLAGS": "$(inherited) -lc++"}
+    common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0", "SWIFT_OBJC_BRIDGING_HEADER": "CRime/include/ClearRime.h", "CLANG_CXX_LANGUAGE_STANDARD": "c++17", "OTHER_LDFLAGS": "$(inherited) -lc++ -framework Accelerate"}
     def configurations(target, extra):
         values = []
         for mode in ["Debug", "Release"]:
             settings = dict(common_settings, **extra)
-            settings.update({"SWIFT_OPTIMIZATION_LEVEL": "-Onone" if mode == "Debug" else "-O", "DEBUG_INFORMATION_FORMAT": "dwarf" if mode == "Debug" else "dwarf-with-dsym"})
+            settings.update({"SWIFT_OPTIMIZATION_LEVEL": "-Onone" if mode == "Debug" else "-O", "GCC_OPTIMIZATION_LEVEL": "0" if mode == "Debug" else "3", "DEBUG_INFORMATION_FORMAT": "dwarf" if mode == "Debug" else "dwarf-with-dsym"})
             if mode == "Debug":
                 settings["SWIFT_ACTIVE_COMPILATION_CONDITIONS"] = "DEBUG"
                 settings["ENABLE_TESTABILITY"] = "YES"

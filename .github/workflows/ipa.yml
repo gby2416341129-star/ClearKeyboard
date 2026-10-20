@@ -61,11 +61,23 @@ jobs:
       - name: Check native model, phonetic search and input state
         run: |
           mkdir -p .build
-          c++ -O2 -UNDEBUG -std=c++17 Scripts/test_sentence.cpp -o .build/test-sentence
+          python3 - <<'PY'
+          import hashlib,json,urllib.request
+          from pathlib import Path
+          url='https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/5aa07f314dca525b990da1f8a65071ec17779eec/CRime/private/clear_sentence.h'
+          reference=urllib.request.urlopen(url,timeout=60).read()
+          assert hashlib.sha256(reference).hexdigest()=='3726b2b3eed6fca9c3eaff7bed37c3f50cd01cf74f5cb08a2f25ec402b14b9d6'
+          Path('.build/native-reference.h').write_bytes(reference)
+          fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
+          Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
+          PY
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch
+          .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_sentence.cpp -o .build/test-sentence
           .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
-          c++ -O2 -UNDEBUG -std=c++17 Scripts/test_native_bridge.cpp -o .build/test-bridge
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_bridge.cpp -o .build/test-bridge
           .build/test-bridge Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
-          c++ -O2 -UNDEBUG -std=c++17 Scripts/test_candidate_ranking.cpp -o .build/test-candidate-ranking
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_candidate_ranking.cpp -o .build/test-candidate-ranking
           .build/test-candidate-ranking Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
           swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
           .build/test-input-core
@@ -86,8 +98,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.35')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 38')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.36')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 39')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

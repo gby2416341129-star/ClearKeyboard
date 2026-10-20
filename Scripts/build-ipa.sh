@@ -45,6 +45,19 @@ xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboard \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
   DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build
 
+# Verify the flags passed to the actual Clang device compile. A linker command
+# or the standalone benchmark's flags do not prove the shipping optimization.
+python3 - <<'PY'
+from pathlib import Path
+import shlex
+root=Path('.build/IPA/Build/Intermediates.noindex/ClearKeyboard.build/Release-iphoneos')
+for target in ['ClearKeyboard.build','ClearKeyboardExtension.build']:
+    arguments=[shlex.split(p.read_text()) for p in (root/target).rglob('*.resp')]
+    cpp=[args for args in arguments if '-std=c++17' in args]
+    assert cpp and all('-O3' in args and not any(flag in args for flag in ['-Os','-Ofast','-ffast-math']) for args in cpp), target
+print('Verified -O3 in both actual iPhone C++ compile response files; unsafe fast-math is not enabled.')
+PY
+
 APP="$DERIVED/Build/Products/Release-iphoneos/ClearKeyboard.app"
 test -d "$APP/PlugIns/ClearKeyboardExtension.appex"
 mkdir "$STAGE/Payload"
