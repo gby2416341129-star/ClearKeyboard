@@ -64,7 +64,7 @@ def programs(arrays):
             expanded=mb.gelu(x=linear(norm(x,w,p+'ln2'),w,p+'fc'),mode='EXACT')
             x=mb.add(x=x,y=linear(expanded,w,p+'out'))
         hidden=mb.reshape(x=norm(x,w,'ln_f'),shape=[B,D])
-        logits=mb.matmul(x=hidden,y=w['tok.weight'],transpose_y=True)
+        logits=mb.matmul(x=hidden,y=w['tok.weight'],transpose_y=True,name='vocab_projection')
         probs=mb.sub(x=logits,y=mb.reduce_log_sum_exp(x=logits,axes=[-1],keep_dims=True),name='log_probs')
         return probs,mb.concat(values=keys,axis=1,name='new_k'),mb.concat(values=values,axis=1,name='new_v')
 
@@ -85,7 +85,7 @@ def programs(arrays):
             expanded=mb.gelu(x=linear(norm(x,w,p+'ln2'),w,p+'fc'),mode='EXACT')
             x=mb.add(x=x,y=linear(expanded,w,p+'out'))
         hidden=norm(x,w,'ln_f')
-        logits=mb.matmul(x=hidden,y=w['tok.weight'],transpose_y=True)
+        logits=mb.matmul(x=hidden,y=w['tok.weight'],transpose_y=True,name='vocab_projection')
         log_probs=mb.sub(x=logits,y=mb.reduce_log_sum_exp(x=logits,axes=[-1],keep_dims=True))
         selected=mb.gather_along_axis(x=log_probs,indices=mb.expand_dims(x=targets,axes=[-1]),axis=-1)
         logp=mb.squeeze(x=selected,axes=[-1])
@@ -108,7 +108,7 @@ def export(root,build_only=False):
             # Keep probability normalization and final reductions in float32;
             # half normalization drift must not change sentence ranking.
             compute_precision=ct.transform.FP16ComputePrecision(op_selector=lambda op: op.op_type not in
-                {'reduce_log_sum_exp','sub','gather_along_axis','squeeze','reduce_sum','real_div'} and op.name!='score_masked_logp'),
+                {'layer_norm','softmax','reduce_log_sum_exp','sub','gather_along_axis','squeeze','reduce_sum','real_div'} and op.name not in {'score_masked_logp','vocab_projection'}),
             outputs=[ct.TensorType(name=value,dtype=np.float32) for value in names],skip_model_load=True)
         for key,value in metadata.items():model.user_defined_metadata[key]=value
         model.user_defined_metadata['source_sha256']=SOURCE_SHA
