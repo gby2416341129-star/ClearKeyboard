@@ -31,7 +31,7 @@
 
 namespace clear_sentence {
 #ifdef CLEAR_NATIVE_PROFILE
-inline double matrix_ms=0,gelu_ms=0,softmax_ms=0;
+inline double matrix_ms=0,gelu_ms=0,softmax_ms=0,dequant_ms=0,gemm_ms=0;
 struct NativeCost {
   double &value;std::chrono::steady_clock::time_point start=std::chrono::steady_clock::now();
   NativeCost(double &value):value(value){}
@@ -132,6 +132,44 @@ template<size_t Batch> inline void dot_many(const int8_t *w,const float *const *
 #endif
 }
 
+inline void gelu_many(float *values,int count,std::vector<float> &scratch) {
+  #if defined(CLEAR_NATIVE_FAST_GELU)
+  // Smooth approximation of erf, evaluated in float32. Acceptance uses the
+  // unchanged end-to-end model tolerance, not only this function's error.
+  scratch.resize(count);
+  for(int i=0;i<count;++i) {const float x=values[i]*0.7071067811865475f;scratch[i]=-x*x;}
+  #if defined(__APPLE__)
+  vvexpf(scratch.data(),scratch.data(),&count);
+  #else
+  for(auto &value:scratch)value=std::exp(value);
+  #endif
+  #if defined(__aarch64__)
+  int i=0;
+  for(;i+4<=count;i+=4) {
+    const auto value=vld1q_f32(values+i),x=vmulq_n_f32(value,0.7071067811865475f);
+    const auto t=vdivq_f32(vdupq_n_f32(1),vfmaq_n_f32(vdupq_n_f32(1),vabsq_f32(x),0.3275911f));
+    auto poly=vfmaq_n_f32(vdupq_n_f32(-1.453152027f),t,1.061405429f);
+    poly=vfmaq_f32(vdupq_n_f32(1.421413741f),poly,t);
+    poly=vfmaq_f32(vdupq_n_f32(-0.284496736f),poly,t);
+    poly=vfmaq_f32(vdupq_n_f32(0.254829592f),poly,t);poly=vmulq_f32(poly,t);
+    auto erf=vfmsq_f32(vdupq_n_f32(1),poly,vld1q_f32(scratch.data()+i));
+    erf=vbslq_f32(vcltq_f32(value,vdupq_n_f32(0)),vnegq_f32(erf),erf);
+    vst1q_f32(values+i,vmulq_f32(vmulq_n_f32(value,0.5f),vaddq_f32(vdupq_n_f32(1),erf)));
+  }
+  for(;i<count;++i) {
+  #else
+  for(int i=0;i<count;++i) {
+  #endif
+    const float value=values[i],x=std::abs(value*0.7071067811865475f),t=1/(1+0.3275911f*x);
+    const float poly=(((((1.061405429f*t-1.453152027f)*t)+1.421413741f)*t-0.284496736f)*t+0.254829592f)*t;
+    const float erf=std::copysign(1-poly*scratch[i],value);values[i]=0.5f*value*(1+erf);
+  }
+  #else
+  (void)scratch;
+  for(int i=0;i<count;++i) {auto &value=values[i];value=0.5f*value*(1+std::erf(value*0.7071067811865475f));}
+  #endif
+}
+
 class Model {
   static constexpr int D=448, Layers=8, Heads=8, Vocab=12288, Window=128, CacheLimit=128;
   struct Matrix {
@@ -176,6 +214,10 @@ class Model {
         if(!budget.alive()) return false;
         const int width=std::min(Panel,rows-start),size=width*columns;
         const auto *source=weight+start*columns;
+        {
+        #ifdef CLEAR_NATIVE_PROFILE
+        NativeCost timer(dequant_ms);
+        #endif
         #if defined(__aarch64__)
         for(int i=0;i<size;i+=16) {
           const auto bytes=vld1q_s8(source+i);
@@ -188,7 +230,13 @@ class Model {
         #else
         for(int i=0;i<size;++i) panel[i]=source[i];
         #endif
+        }
+        {
+        #ifdef CLEAR_NATIVE_PROFILE
+        NativeCost timer(gemm_ms);
+        #endif
         cblas_sgemm(CblasRowMajor,CblasNoTrans,CblasTrans,count,width,columns,1,x,columns,panel.data(),columns,0,out+start,rows);
+        }
         for(int input=0;input<count;++input) for(int row=0;row<width;++row)
           out[input*rows+start+row]=out[input*rows+start+row]*scale[start+row]+(bias?bias[start+row]:0);
       }
@@ -617,7 +665,7 @@ public:
     for(int row=0;row<count;++row) {
       int node=row;for(int position=depths[row];position>=0;--position) {ancestors[row][position]=node;node=parents[node];}
     }
-    std::vector<float> x(count*D),y(count*D),qkv(count*3*D),attended(count*D),projected(count*D),expanded(count*4*D),panel;
+    std::vector<float> x(count*D),y(count*D),qkv(count*3*D),attended(count*D),projected(count*D),expanded(count*4*D),panel,gelu_scratch;
     for(int row=0;row<count;++row) for(int i=0;i<D;++i)
       x[row*D+i]=embedding.weight[tokens[row]*D+i]*embedding.scale[tokens[row]]+positions[depths[row]*D+i];
     for(int layer=0;layer<Layers;++layer) {
@@ -651,7 +699,7 @@ public:
         #ifdef CLEAR_NATIVE_PROFILE
         NativeCost timer(gelu_ms);
         #endif
-        for(auto &value:expanded) value=0.5f*value*(1+std::erf(value*0.7071067811865475f));
+        gelu_many(expanded.data(),static_cast<int>(expanded.size()),gelu_scratch);
       }
       if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget)) return false;
       for(size_t i=0;i<x.size();++i) x[i]+=projected[i];

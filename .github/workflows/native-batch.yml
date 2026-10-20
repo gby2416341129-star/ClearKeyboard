@@ -33,14 +33,18 @@ jobs:
           fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
           Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
           PY
-      - name: Profile bounded 128-row weight panels
-        run: |
-          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-size
-          .build/test-native-batch-size Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
       - name: Profile bounded 512-row weight panels
         run: |
-          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -DCLEAR_NATIVE_PANEL=512 -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
+          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -DCLEAR_NATIVE_PANEL=512 -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-size
+          .build/test-native-batch-size Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+      - name: Check optional vector activation with bounded 512-row panels
+        run: |
+          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -DCLEAR_NATIVE_PANEL=512 -DCLEAR_NATIVE_FAST_GELU -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
           .build/test-native-batch-speed Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+      - name: Check the same math using the newer Accelerate interface
+        run: |
+          c++ -O3 -UNDEBUG -DCLEAR_NATIVE_PROFILE -DCLEAR_NATIVE_PANEL=512 -DCLEAR_NATIVE_FAST_GELU -DACCELERATE_NEW_LAPACK -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-new
+          .build/test-native-batch-new Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
       - name: Read the current shipping target optimization settings without running iOS
         run: |
           xcodebuild -project ClearKeyboard.xcodeproj -target ClearKeyboardExtension -configuration Release -sdk iphoneos -showBuildSettings > .build/native-build-settings.txt
