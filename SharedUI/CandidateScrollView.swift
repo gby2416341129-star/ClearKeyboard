@@ -1,12 +1,13 @@
 import UIKit
 
-/// A small, fixed strip of candidates. The whole row is one touch surface;
+/// A paged strip with a bounded pool of visible candidate controls. The whole row is one touch surface;
 /// UIKit owns dragging and momentum, independently of the word under a finger.
 @MainActor final class CandidateScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     private struct Presentation: Equatable {
         let items: [Candidate]
         let context: KeyboardModel.CandidateContext?
         let arithmetic: Bool
+        let hasMore: Bool
     }
     private var presentation: Presentation?
     private var pending: (Presentation, UIColor)?
@@ -15,6 +16,8 @@ import UIKit
     private let selectionTap = UITapGestureRecognizer()
     private var tapStoppedScrolling = false
     private var buttons: [CandidateButton] = []
+    private var frames: [CGRect] = []
+    private var requestedCount = -1
     private var stripWidth: CGFloat = 0
     private var viewportSize = CGSize.zero
     private var interactionActive = false
@@ -23,6 +26,7 @@ import UIKit
     private var fingerActive: Bool { isTracking || isDragging || panGestureRecognizer.state == .began || panGestureRecognizer.state == .changed }
     var holdsCandidateUpdates: Bool { fingerActive || isDecelerating }
     var onInteractionChanged: ((Bool) -> Void)?
+    var onLoadMore: ((KeyboardModel.CandidateContext?) -> Void)?
     var onSelect: ((Candidate, KeyboardModel.CandidateContext?, Bool) -> Void)?
     override var accessibilityValue: String? {
         get { "offset:\(Int(contentOffset.x));count:\(presentation?.items.count ?? 0)" }
@@ -60,15 +64,18 @@ import UIKit
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
-    func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool, accent: UIColor) {
-        let next = Presentation(items: items, context: context, arithmetic: arithmetic)
+    func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool,
+                accent: UIColor, hasMore: Bool = false) {
+        var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore)
         let resolved = accent.resolvedColor(with: traitCollection)
-        let newSpelling = !sameQuery(presentation, next)
-        if !newSpelling, sameQuery(browsed, next) {
-            // A decoder finishing between two opposite flicks must not replace
-            // controls, move the selected target or reset the offset. This lock is
-            // released by the next spelling, not by a timer after finger-up.
-            return
+        if sameQuery(browsed, next), let current = presentation, sameQuery(current, next) {
+            // Keep every visible target at the same x coordinate, while allowing
+            // unseen alternatives to extend the tail during native momentum.
+            var seen = Set(current.items.map(\.text))
+            let appended = current.items + items.filter { seen.insert($0.text).inserted }
+            next = Presentation(items: appended, context: current.context,
+                                arithmetic: arithmetic, hasMore: hasMore)
+            pending = nil; apply(next, accent: resolved); return
         }
         if holdsCandidateUpdates { pending = (next, resolved); return }
         pending = nil; apply(next, accent: resolved)
@@ -91,50 +98,106 @@ import UIKit
     private func apply(_ next: Presentation, accent: UIColor) {
         guard next != presentation || !ink.isEqual(accent) else { return }
         let changedQuery = !sameQuery(presentation, next)
-        if changedQuery { browsed = nil }
-        let changedItems = presentation?.items.map(\.text) != next.items.map(\.text) || !ink.isEqual(accent)
+        let previous = presentation?.items ?? []
+        let changedItems = previous.map(\.text) != next.items.map(\.text)
+        let changedColor = !ink.isEqual(accent)
+        let appendOnly = next.items.count >= previous.count &&
+            zip(previous, next.items).allSatisfy { $0.text == $1.text }
+        if changedQuery { browsed = nil; requestedCount = -1 }
         presentation = next; ink = accent
         if changedItems {
-            // The engine returns at most 24 choices. Keep their controls alive
-            // for this query so a direction change needs no creation or sizing.
-            while buttons.count < next.items.count {
-                let button = CandidateButton()
-                button.addTarget(self, action: #selector(candidateUp(_:)), for: .touchUpInside)
-                strip.addSubview(button); buttons.append(button)
-            }
-            while buttons.count > next.items.count { buttons.removeLast().removeFromSuperview() }
-            var x: CGFloat = 2
-            for (index, candidate) in next.items.enumerated() {
-                let button = buttons[index]
-                let width = button.configure(candidate, first: index == 0, accent: accent)
-                button.tag = index
-                // The trailing spacing scrolls with the row but is not a word tap.
-                button.frame = CGRect(x: x, y: 0, width: width + 12, height: bounds.height)
-                x += width + 12
+            if !appendOnly { frames = [] }
+            var x = frames.last?.maxX ?? 2
+            for index in frames.count..<next.items.count {
+                let width = CandidateButton.width(next.items[index], first: index == 0) + 12
+                frames.append(CGRect(x: x, y: 0, width: width, height: bounds.height))
+                x += width
             }
             stripWidth = x
-            // Preserve individually focusable words without separate touch targets.
-            accessibilityElements = buttons
             updateStripSize()
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
+        updateVisible(force: changedColor || (changedItems && !appendOnly))
+        if changedItems || changedQuery { updateAccessibility() }
+        requestMoreIfNeeded()
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        // A scroll changes bounds.origin every frame. Only a viewport resize
-        // may touch content geometry; ordinary scrolling has no app layout work.
-        guard viewportSize != bounds.size else { return }
-        viewportSize = bounds.size
-        for button in buttons {
-            var frame = button.frame; frame.size.height = bounds.height
-            button.frame = frame
-        }
-        updateStripSize()
+        if viewportSize != bounds.size {
+            viewportSize = bounds.size
+            for index in frames.indices { frames[index].size.height = bounds.height }
+            updateStripSize()
+            updateVisible(force: true)
+        } else { updateVisible() }
     }
     private func updateStripSize() {
         let size = CGSize(width: max(bounds.width, stripWidth), height: bounds.height)
         if strip.frame.size != size { strip.frame = CGRect(origin: .zero, size: size) }
         if contentSize != size { contentSize = size }
+    }
+    private func firstIndex(at x: CGFloat) -> Int {
+        var low = 0, high = frames.count
+        while low < high {
+            let middle = (low + high) / 2
+            if frames[middle].maxX < x { low = middle + 1 } else { high = middle }
+        }
+        return low
+    }
+    private func updateVisible(force: Bool = false) {
+        guard let current = presentation else { return }
+        let small = frames.count <= 32
+        let first = small ? 0 : firstIndex(at: max(0, contentOffset.x - bounds.width))
+        var end = first
+        while end < frames.count && (small || frames[end].minX <= contentOffset.x + bounds.width * 2) { end += 1 }
+        let needed = min(frames.count, max(32, end - first))
+        while buttons.count < needed {
+            let button = CandidateButton()
+            button.tag = -1
+            button.addTarget(self, action: #selector(candidateUp(_:)), for: .touchUpInside)
+            strip.addSubview(button); buttons.append(button)
+        }
+        while buttons.count > needed { buttons.removeLast().removeFromSuperview() }
+        for (slot, button) in buttons.enumerated() {
+            let index = first + slot
+            let visible = index < end
+            button.isHidden = !visible
+            guard visible else { continue }
+            if force || button.tag != index {
+                button.configure(current.items[index], first: index == 0, accent: ink)
+                button.tag = index; button.frame = frames[index]
+            }
+            button.isAccessibilityElement = small
+        }
+    }
+    private func updateAccessibility() {
+        if frames.count <= 32 {
+            accessibilityElements = buttons
+        } else {
+            accessibilityElements = frames.indices.map { index in
+                CandidateAccessibility(owner: self, index: index, text: presentation!.items[index].text)
+            }
+        }
+    }
+    fileprivate func accessibilityFrame(at index: Int) -> CGRect {
+        guard frames.indices.contains(index) else { return .zero }
+        return UIAccessibility.convertToScreenCoordinates(frames[index], in: strip)
+    }
+    fileprivate func focusCandidate(_ index: Int) {
+        guard frames.indices.contains(index) else { return }
+        beginBrowsing(); scrollRectToVisible(frames[index], animated: false)
+        requestMoreIfNeeded(); scheduleIdle()
+    }
+    private func requestMoreIfNeeded() {
+        guard let current = presentation, current.hasMore, !current.arithmetic,
+              sameQuery(browsed, current),
+              current.context?.raw.isEmpty == false, bounds.width > 0,
+              contentOffset.x + bounds.width * 3 >= stripWidth,
+              requestedCount != current.items.count else { return }
+        requestedCount = current.items.count
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.sameQuery(self.presentation, current) else { return }
+            self.onLoadMore?(current.context)
+        }
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === selectionTap else { return true }
@@ -156,11 +219,10 @@ import UIKit
     func selectCandidate(at point: CGPoint) {
         guard !isDragging, !isDecelerating, bounds.contains(point) else { return }
         let local = strip.convert(point, from: self)
-        guard let index = buttons.firstIndex(where: {
-            var face = $0.frame
-            face.size.width = max(0, face.width - 12)
-            return face.contains(local)
-        }) else { return }
+        let index = firstIndex(at: local.x)
+        guard frames.indices.contains(index) else { return }
+        var face = frames[index]; face.size.width = max(0, face.width - 12)
+        guard face.contains(local) else { return }
         activate(index)
     }
     @objc private func candidateUp(_ sender: CandidateButton) {
@@ -176,7 +238,7 @@ import UIKit
         super.touchesCancelled(touches, with: event)
         scheduleIdle()
     }
-    private func activate(_ index: Int) {
+    fileprivate func activate(_ index: Int) {
         guard let current = presentation, current.items.indices.contains(index) else { return }
         onSelect?(current.items[index], current.context, current.arithmetic)
     }
@@ -186,8 +248,13 @@ import UIKit
     }
     private func beginBrowsing() {
         browsed = presentation
-        if let next = pending?.0, sameQuery(browsed, next) { pending = nil }
         setInteraction(true)
+        if let (next, color) = pending, sameQuery(browsed, next) {
+            pending = nil
+            update(next.items, context: next.context, arithmetic: next.arithmetic,
+                   accent: color, hasMore: next.hasMore)
+        }
+        requestedCount = -1; requestMoreIfNeeded()
     }
     private func scheduleIdle() {
         guard !idleScheduled else { return }; idleScheduled = true
@@ -201,12 +268,16 @@ import UIKit
                 if let (next, color) = self.pending {
                     self.pending = nil
                     // Recheck the browsing lock after finger-up as well.
-                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color)
+                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore)
                 }
             }
         }
     }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateVisible()
+        requestMoreIfNeeded()
+    }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         beginBrowsing()
     }
@@ -239,15 +310,37 @@ import UIKit
         plate.frame = CGRect(x: 0, y: 0, width: max(0, bounds.width - 12), height: bounds.height)
         label.frame = plate.bounds.insetBy(dx: 10, dy: 0)
     }
-    func configure(_ candidate: Candidate, first: Bool, accent: UIColor) -> CGFloat {
+    static func width(_ candidate: Candidate, first: Bool) -> CGFloat {
+        let font = UIFont.systemFont(ofSize: 19, weight: first ? .medium : .regular)
+        return max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
+    }
+    func configure(_ candidate: Candidate, first: Bool, accent: UIColor) {
         let font = UIFont.systemFont(ofSize: 19, weight: first ? .medium : .regular)
         label.font = font
         label.text = candidate.text; label.textColor = first ? accent : .label
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
-        return max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
     }
     override func accessibilityActivate() -> Bool {
         sendActions(for: .touchUpInside); return true
     }
+}
+
+
+@MainActor private final class CandidateAccessibility: UIAccessibilityElement {
+    private weak var owner: CandidateScrollView?
+    private let index: Int
+    init(owner: CandidateScrollView, index: Int, text: String) {
+        self.owner = owner; self.index = index
+        super.init(accessibilityContainer: owner)
+        accessibilityLabel = "候选：" + text
+        accessibilityIdentifier = "candidate." + text
+        accessibilityTraits = .button
+    }
+    override var accessibilityFrame: CGRect {
+        get { owner?.accessibilityFrame(at: index) ?? .zero }
+        set {}
+    }
+    override func accessibilityElementDidBecomeFocused() { owner?.focusCandidate(index) }
+    override func accessibilityActivate() -> Bool { owner?.activate(index); return owner != nil }
 }

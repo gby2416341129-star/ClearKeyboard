@@ -5,6 +5,31 @@ final class MatureEngineTests: XCTestCase {
     private var engine: InputEngine!
     override func setUpWithError() throws { engine = try .bundled() }
     func testProductionUsesRimeAndWanxiang() { XCTAssertEqual(engine.chineseBackend, "rime-wanxiang") }
+    func testShorthandAliasRetainsCommonAlternativesAndSupportsMoreThan24Choices() {
+        let small = engine.candidates("hd", limit: 24, correction: false)
+        let larger = engine.candidates("hd", limit: 96, correction: false)
+        XCTAssertEqual(small.first?.text, "好的")
+        XCTAssertGreaterThan(larger.count, 24)
+        XCTAssertLessThanOrEqual(larger.count, 96)
+        for text in ["好的", "很多", "回答", "hd"] {
+            XCTAssertTrue(larger.contains { $0.text == text }, text)
+        }
+        XCTAssertTrue(larger.allSatisfy { $0.consumed > 0 && $0.consumed <= 2 })
+        XCTAssertEqual(Set(larger.map(\.text)).count, larger.count)
+    }
+    func testShortExactPhraseListDoesNotHideOtherDecoderChoices() {
+        let values = engine.candidates("djdj", limit: 64, correction: false)
+        XCTAssertGreaterThan(values.count, 8)
+        XCTAssertTrue(values.contains { $0.text == "道教典籍" })
+        XCTAssertTrue(values.allSatisfy { $0.consumed > 0 && $0.consumed <= 4 })
+        let chosen = values.first { $0.consumed < 4 }
+        if let chosen {
+            var composition = Composition()
+            _ = composition.append("djdj")
+            composition.consume(chosen.consumed)
+            XCTAssertEqual(composition.raw, String("djdj".dropFirst(chosen.consumed)))
+        }
+    }
     func testImmediateWordsUseCurrentSpellingWithoutSentenceDecoding() {
         for (input, expected) in ["nihao": "你好", "shaod": "稍等", "chif": "吃饭", "laop": "老婆", "shangh": "上海", "iphone": "iphone"] {
             let values = engine.immediateCandidates(input)

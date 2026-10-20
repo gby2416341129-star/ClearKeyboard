@@ -66,6 +66,14 @@ public final class InputEngine {
         if english && exact.isEmpty {
             output.append(Candidate(text: raw, reading: raw, consumed: input.count))
         } else {
+            // Production short-initial rows are already ranked and bounded.
+            // Prefer them to the small compatibility dictionary, which otherwise
+            // changes the first word when the native decoder catches up.
+            if !raw.contains("'"), input.count <= 4,
+               input.allSatisfy({ Self.initials.contains($0) }) {
+                output += (associations?.lookup("i:" + input, limit: 8) ?? [])
+                    .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
+            }
             output += initialCompletions(input)
             let entries = exact + chinese.lookup("a:" + input, limit: 8)
                 .filter { abbreviation($0.reading) == input }
@@ -82,11 +90,14 @@ public final class InputEngine {
                     .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
             }
         }
+        if preferred.isEmpty, let alias = Self.conversational[input], let index = output.firstIndex(where: { $0.text == alias }) {
+            output.insert(output.remove(at: index), at: 0)
+        }
         var seen = Set<String>()
         return Array(output.filter { seen.insert($0.text).inserted }.prefix(8))
     }
 
-    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], limit: Int = 16, compose: Bool = true, correction: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
+    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
         if !compose, matureDecoder != nil, input.count >= 3,
@@ -96,18 +107,13 @@ public final class InputEngine {
         }
         if compose, let matureDecoder {
             if cancelled() { return [] }
-            // Explicit shorthand aliases retain their established meaning on
-            // repeated input; the general sentence decoder is no longer involved.
-            if input.count >= 2, input.count % 2 == 0, input == String(repeating: "hd", count: input.count / 2) {
-                return [Candidate(text: String(repeating: "好的", count: input.count / 2), reading: String(repeating: "hao de ", count: input.count / 2).trimmingCharacters(in: .whitespaces), consumed: raw.count, score: 120)]
-            }
             let result = matureDecoder.candidates(raw.lowercased(), limit: limit, correction: correction, cancelled: cancelled)
             if cancelled() { return [] }
             var output = result.sorted {
                 $0.score + min(2, log(Double(learned[$0.text] ?? 0) + 1)) >
                 $1.score + min(2, log(Double(learned[$1.text] ?? 0) + 1))
             }
-            let literal = Candidate(text: raw, reading: raw, consumed: raw.count, score: 80)
+            let literal = Candidate(text: raw, reading: raw, consumed: input.count, score: 80)
             let isEnglishWord = input.count >= 3 && associations?.lookup("e:" + input, limit: 1).isEmpty == false
             if isEnglishWord {
                 // Ambiguous complete pinyin words (e.g. women/我们) keep the Chinese
@@ -136,9 +142,16 @@ public final class InputEngine {
                 }
             }
             if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }
+            // An alias is a preferred choice, never an exclusive result.
+            if input.count >= 2, input.count % 2 == 0,
+               input == String(repeating: "hd", count: input.count / 2) {
+                output.insert(Candidate(text: String(repeating: "好的", count: input.count / 2),
+                    reading: String(repeating: "hao de ", count: input.count / 2).trimmingCharacters(in: .whitespaces),
+                    consumed: input.count, score: 120), at: 0)
+            }
             output.insert(contentsOf: preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }, at: 0)
-            if !output.contains(where: { $0.text == raw }) { output.append(literal) }
-            var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(24))
+            if !output.contains(where: { $0.text == raw }) { output.insert(literal, at: min(8, output.count)) }
+            var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))))
         }
         var choices: [Candidate] = []
         let explicit = raw.contains("'") ? raw.lowercased().split(separator: "'").map(String.init) : []
@@ -175,7 +188,7 @@ public final class InputEngine {
         }
         var seen = Set<String>()
         return choices.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
-            .filter { seen.insert($0.text).inserted }.prefix(24).map { $0 }
+            .filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))).map { $0 }
     }
 
     private func sentences(_ input: String, cancelled: () -> Bool) -> [Candidate] {

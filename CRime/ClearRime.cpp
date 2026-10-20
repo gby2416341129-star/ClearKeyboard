@@ -5,6 +5,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -35,7 +36,8 @@ void collect(uintptr_t id, const std::string &input, int limit, std::vector<Item
              cr_cancelled cancelled, void *context) {
   RimeCandidateListIterator it = {};
   if (!api->candidate_list_begin(id, &it)) return;
-  while (items.size() < static_cast<size_t>(std::clamp(limit, 1, 24)) &&
+  std::unordered_set<std::string> seen;
+  while (items.size() < static_cast<size_t>(std::clamp(limit, 1, 4096)) &&
          !(cancelled && cancelled(context)) && api->candidate_list_next(&it)) {
     std::string comment = it.candidate.comment ? it.candidate.comment : "";
     auto separator = comment.rfind('\t');
@@ -46,44 +48,54 @@ void collect(uintptr_t id, const std::string &input, int limit, std::vector<Item
     }
     if (end > 0 && end <= static_cast<int>(input.size())) {
       while (end < static_cast<int>(input.size()) && input[end] == '\'') ++end;
-      items.push_back({it.candidate.text ? it.candidate.text : "", comment,
-                       static_cast<int>(letters(input.substr(0, end)).size())});
+      std::string text = it.candidate.text ? it.candidate.text : "";
+      if (!text.empty() && seen.insert(text).second) {
+        items.push_back({std::move(text), comment,
+                         static_cast<int>(letters(input.substr(0, end)).size())});
+      }
     }
   }
   api->candidate_list_end(&it);
 }
-std::vector<Item> strict_candidates(const std::string &input, const std::vector<Item> &conversation,
-                                    const std::vector<Item> &literal, int limit) {
+// Merge real decoder choices, retaining each candidate's consumed prefix.
+// A handful of exact phrases must not hide sentence alternatives or prevent
+// word-by-word selection. The caller only asks for the next bounded page.
+std::vector<Item> merge_candidates(const std::string &input, const std::vector<Item> &conversation,
+                                   const std::vector<Item> &literal, const std::vector<Item> &fluent,
+                                   int limit) {
   const auto spelling = letters(input);
   const auto length = static_cast<int>(spelling.size());
-  const auto capacity = static_cast<size_t>(std::clamp(limit, 1, 24));
+  const auto capacity = static_cast<size_t>(std::clamp(limit, 1, 4096));
   std::vector<Item> result;
-  auto append = [&result, capacity](const Item &item) {
-    if (result.size() < capacity && std::none_of(result.begin(), result.end(),
-        [&item](const Item &old) { return old.text == item.text; })) result.push_back(item);
+  std::unordered_set<std::string> seen;
+  auto append = [&](const Item &item) {
+    if (result.size() < capacity && item.consumed > 0 && item.consumed <= length &&
+        !item.text.empty() && seen.insert(item.text).second) result.push_back(item);
   };
-  // Complete spellings are alternatives to the whole composition. A prefix
-  // returned by a different dictionary is not another whole-sentence choice.
   for (const auto &item : conversation) if (item.consumed == length) append(item);
   for (const auto &item : literal) if (item.consumed == length) append(item);
-  if (result.empty()) return result;
-
-  // Preserve deliberate word-by-word selection at a fully typed syllable
-  // boundary, but only for the longest phrase prefix supported by a complete
-  // candidate. Do not fill a mixed-initial sentence's tail with shorter,
-  // unrelated homophones (or with abbreviated fragments of the sentence).
-  auto useful_prefix = [&result, &spelling, length](const Item &item) {
+  const bool has_exact_phrase = !result.empty();
+  auto useful_prefix = [&](const Item &item) {
     if (item.consumed <= 0 || item.consumed >= length || item.reading.find(' ') == std::string::npos) return false;
     const auto reading = letters(item.reading);
     return static_cast<int>(reading.size()) == item.consumed &&
            spelling.compare(0, item.consumed, reading) == 0 &&
-           std::any_of(result.begin(), result.end(), [&item](const Item &full) {
-             return full.text.compare(0, item.text.size(), item.text) == 0;
+           std::any_of(result.begin(), result.end(), [&](const Item &full) {
+             return full.consumed == length && full.text.compare(0, item.text.size(), item.text) == 0;
            });
   };
   int longest = 0;
   for (const auto &item : literal) if (useful_prefix(item)) longest = std::max(longest, item.consumed);
   for (const auto &item : literal) if (item.consumed == longest && useful_prefix(item)) append(item);
+  for (const auto &item : fluent) if (item.consumed == length) append(item);
+  // Short initials support ordinary word-by-word selection. An exact longer
+  // phrase keeps its established whole-phrase alternatives and deliberate
+  // fully spelled prefix, rather than filling the tail with short homophones.
+  if (length <= 4 || !has_exact_phrase) {
+    for (const auto &item : conversation) append(item);
+    for (const auto &item : literal) append(item);
+    for (const auto &item : fluent) append(item);
+  }
   return result;
 }
 }
@@ -152,19 +164,23 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   if (query.exact_input != input) { api->set_input(query.exact, input); query.exact_input = input; }
   collect(query.exact, input, limit, query.items, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
-  query.items = strict_candidates(input, conversational, query.items, limit);
-  if (!query.items.empty()) return static_cast<int>(query.items.size());
-  query.items.clear();
-  // set_input updates the existing composition. Clearing it first discards the
-  // decoder's reusable prefix on every keystroke, even for the very same query.
-  // The first pass uses the same dictionary and language model, but without
-  // expanding every nearby-key correction through an unfinished long sentence.
-  // Full correction remains a separate, cancellable enrichment after typing.
-  auto channel = correction ? id : query.fluent;
-  auto &previous = correction ? query.input : query.fluent_input;
-  if (previous != input) { api->set_input(channel, input); previous = input; }
+  auto literal = std::move(query.items);
+  std::vector<Item> fluent;
+  // Plenty of whole dictionary words require no language-model work. If the
+  // dictionaries only have a few, also expose the fluent decoder's alternatives.
+  const auto length = static_cast<int>(letters(input).size());
+  std::unordered_set<std::string> full;
+  for (const auto &item : conversational) if (item.consumed == length) full.insert(item.text);
+  for (const auto &item : literal) if (item.consumed == length) full.insert(item.text);
+  if (full.size() < static_cast<size_t>(std::clamp(limit, 1, 4096))) {
+    auto channel = correction ? id : query.fluent;
+    auto &previous = correction ? query.input : query.fluent_input;
+    if (previous != input) { api->set_input(channel, input); previous = input; }
+    if (cancelled && cancelled(context)) return 0;
+    collect(channel, previous, limit, fluent, cancelled, context);
+  }
   if (cancelled && cancelled(context)) return 0;
-  collect(channel, previous, limit, query.items, cancelled, context);
+  query.items = merge_candidates(input, conversational, literal, fluent, limit);
   return static_cast<int>(query.items.size());
 }
 int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context) {

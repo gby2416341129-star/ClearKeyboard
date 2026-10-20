@@ -59,6 +59,7 @@ import ImageIO
         candidateScroll.showsHorizontalScrollIndicator = false
         candidateScroll.delaysContentTouches = false; candidateScroll.canCancelContentTouches = true
         candidateScroll.onInteractionChanged = { [weak model] active in model?.candidateInteractionChanged(active) }
+        candidateScroll.onLoadMore = { [weak model] context in model?.loadMoreCandidates(context: context) }
         candidateScroll.onSelect = { [weak model] candidate, context, arithmetic in
             if arithmetic { model?.chooseArithmetic(candidate.text) }
             else { model?.chooseDisplayed(candidate, context: context) }
@@ -81,6 +82,7 @@ import ImageIO
         // A result belongs to the collection, not to the whole remote keyboard's
         // layout. Native scrolling and key geometry need no layout invalidation.
         model.onCandidatesChange = { [weak self] in self?.renderCandidates() }
+        model.onInputChange = { [weak self] in self?.renderInput() }
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.appearanceSignature = ""; self?.render() }
@@ -204,6 +206,21 @@ import ImageIO
             setNeedsLayout()
         }
     }
+    private func renderInput() {
+        let raw = model.composition.raw
+        if requestedSpelling != raw {
+            requestedSpelling = raw; candidateScroll.inputChanged()
+        }
+        // A Chinese letter edit changes the row and, at most, the confirm key.
+        // It does not rebuild style signatures or visit every key/glass layer.
+        let title = raw.isEmpty ? (model.document?.enterTitle ?? "换行") : "确认"
+        if let old = keyPresentation, old.enter != title {
+            keyPresentation = KeyPresentation(uppercase: old.uppercase, chinese: old.chinese,
+                shifted: old.shifted, capsLocked: old.capsLocked, enter: title)
+            keys.first(where: { $0.0.key.action == .enter })?.0.updateTitle(title)
+        }
+        renderCandidates()
+    }
     private func renderCandidates() {
         guard initialized else { return }
         let height = candidateHeight
@@ -216,7 +233,7 @@ import ImageIO
         // A result can arrive before the first host layout. Do not ask a zero-
         // sized flow layout to lay out 44-point cells; layout will pull the latest.
         if height > 0, candidateScroll.bounds.width > 0 {
-            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor)
+            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates)
         }
         toolbar.isHidden = panelKind == .clipboard || candidateHeight > 0
         candidateScroll.isHidden = panelKind == .clipboard || movingCursor || candidateHeight == 0

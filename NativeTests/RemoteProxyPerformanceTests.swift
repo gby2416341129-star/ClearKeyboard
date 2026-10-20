@@ -195,7 +195,10 @@ import UIKit
         ribbon.update([Candidate(text: "新的结果", consumed: 3)], context: context, arithmetic: false, accent: .systemTeal)
         ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: false)
         await Task.yield()
-        XCTAssertEqual(descendants(ribbon).compactMap { $0 as? UIButton }, controls)
+        let appendedControls = descendants(ribbon).compactMap { $0 as? UIButton }
+        XCTAssertEqual(Array(appendedControls.prefix(controls.count)), controls)
+        XCTAssertEqual(appendedControls.count, 25, "New choices may extend the tail without replacing existing targets")
+        XCTAssertEqual(controls.map(\.frame), frames)
         XCTAssertEqual(ribbon.contentOffset.x, 70, accuracy: 0.1)
         var selection: String?
         ribbon.onSelect = { candidate, _, _ in selection = candidate.text }
@@ -461,6 +464,95 @@ import UIKit
         XCTAssertTrue(model.candidatesAreCurrent, "No worker or main-queue turn is needed for a settled cached spelling")
         XCTAssertEqual(model.candidates.first?.text, "你好")
         XCTAssertEqual(model.candidateContext?.before, document.before)
+    }
+    func testEnterCommitsRawSpellingWithoutWaitingForCandidates() async throws {
+        let document = WordLookupDocument()
+        var settings = KeyboardSettings()
+        settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
+        let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
+            if raw == "hd" { Thread.sleep(forTimeInterval: 0.2) }
+            return engine.immediateCandidates(raw, preferred: preferred)
+        }
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for letter in "hd" { model.handle(.text(String(letter))) }
+        let start = ProcessInfo.processInfo.systemUptime
+        model.handle(.enter)
+        XCTAssertEqual(document.before, "hd")
+        XCTAssertTrue(document.marked.isEmpty)
+        XCTAssertTrue(model.composition.isEmpty, "Confirm must not queue behind the Chinese decoder")
+        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - start) * 1_000, 30)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(document.before, "hd", "A late result cannot convert committed raw letters")
+        model.handle(.enter)
+        XCTAssertEqual(document.before, "hd\n", "An empty composition retains the editor's return behavior")
+    }
+    func testSpaceStillSelectsChineseAndBrowsingLoadsMoreWithoutReordering() async throws {
+        let document = WordLookupDocument()
+        var settings = KeyboardSettings()
+        settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
+        let model = KeyboardModel(document: document, settings: settings)
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for letter in "hd" { model.handle(.text(String(letter))) }
+        try await waitFor { model.candidatesAreCurrent }
+        let firstPage = model.candidates, context = model.candidateContext
+        XCTAssertEqual(firstPage.first?.text, "好的")
+        model.candidateInteractionChanged(true)
+        model.loadMoreCandidates(context: context)
+        try await waitFor { model.candidates.count > firstPage.count }
+        XCTAssertEqual(Array(model.candidates.prefix(firstPage.count)), firstPage)
+        model.loadMoreCandidates(context: context)
+        try await waitFor { model.candidates.count > 24 }
+        XCTAssertTrue(model.candidates.contains { $0.text == "很多" })
+        XCTAssertTrue(model.candidates.contains { $0.text == "回答" })
+        model.candidateInteractionChanged(false)
+        model.handle(.space)
+        XCTAssertEqual(document.before, "好的")
+        XCTAssertTrue(model.composition.isEmpty)
+        model.loadMoreCandidates(context: context)
+        XCTAssertEqual(document.before, "好的", "A stale page request cannot re-open the composition")
+    }
+    func testWarmedLetterUpdatesOnlyInputAndHasCandidatesInTheSameTurn() async throws {
+        let document = WordLookupDocument()
+        var settings = KeyboardSettings()
+        settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
+        let model = KeyboardModel(document: document, settings: settings)
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" && model.candidatesAreCurrent }
+        var fullRenders = 0, inputRenders = 0
+        model.onChange = { fullRenders += 1 }
+        model.onInputChange = { inputRenders += 1 }
+        model.handle(.text("d"))
+        XCTAssertEqual(fullRenders, 0)
+        XCTAssertEqual(inputRenders, 1)
+        XCTAssertEqual(model.candidates.first?.text, "的")
+        XCTAssertTrue(model.candidatesAreCurrent, "A warmed row requires no worker or UI queue turn at release")
+        XCTAssertEqual(document.before, "d")
+    }
+    func testThousandsOfCandidatesKeepABoundedViewPoolAndAccessibleTail() throws {
+        let ribbon = CandidateScrollView()
+        ribbon.frame = CGRect(x: 0, y: 0, width: 390, height: 44)
+        let context = KeyboardModel.CandidateContext(raw: "hd", before: "hd", after: "", document: "field", language: .chinese)
+        let items = (0..<4_000).map { Candidate(text: "候选\($0)", consumed: 2) }
+        ribbon.update(items, context: context, arithmetic: false, accent: .systemTeal)
+        ribbon.layoutIfNeeded()
+        XCTAssertEqual(ribbon.accessibilityElements?.count, 4_000)
+        var selected: String?
+        ribbon.onSelect = { candidate, _, _ in selected = candidate.text }
+        for fraction: CGFloat in [0, 0.75, 0.25, 1, 0] {
+            ribbon.contentOffset.x = (ribbon.contentSize.width - ribbon.bounds.width) * fraction
+            ribbon.layoutIfNeeded()
+            let controls = descendants(ribbon).compactMap { $0 as? UIButton }
+            XCTAssertLessThanOrEqual(controls.count, 64)
+            let visible = try XCTUnwrap(controls.first { !$0.isHidden && $0.frame.contains(CGPoint(x: ribbon.bounds.midX, y: 22)) })
+            visible.sendActions(for: .touchUpInside)
+            XCTAssertEqual(selected, items[visible.tag].text)
+            XCTAssertTrue(ribbon.hitTest(CGPoint(x: ribbon.bounds.midX, y: 22), with: nil) === ribbon)
+        }
+        let tail = try XCTUnwrap(ribbon.accessibilityElements?.last as? UIAccessibilityElement)
+        XCTAssertTrue(tail.accessibilityActivate())
+        XCTAssertEqual(selected, "候选3999")
     }
     func testKeyCellMarginsHaveRenderedCoverageWithoutOverlappingHitAreas() throws {
         let key = try XCTUnwrap(KeyboardLayout.rows(page: .letters, uppercase: true, globe: false)
