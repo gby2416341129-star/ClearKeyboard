@@ -192,6 +192,8 @@ final class KeyButton: UIButton {
         pressWash.layer.removeAnimation(forKey: "keyRelease")
         if opacity > 0, !UIAccessibility.isReduceMotionEnabled {
             let release = CABasicAnimation(keyPath: "opacity")
+            let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
+            release.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
             release.fromValue = opacity; release.toValue = 0; release.duration = 0.06
             release.timingFunction = CAMediaTimingFunction(name: .easeOut)
             pressWash.layer.add(release, forKey: "keyRelease")
