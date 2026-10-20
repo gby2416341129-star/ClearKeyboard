@@ -254,7 +254,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             }
             return
         }
-        markedFrame.schedule(maximumFramesPerSecond: rate) { [weak self] in
+        markedFrame.schedule(in: view, maximumFramesPerSecond: rate) { [weak self] in
             guard let self else { return }
             self.flushMarkedText()
             if self.needsHostRefresh { self.scheduleHostRefresh() }

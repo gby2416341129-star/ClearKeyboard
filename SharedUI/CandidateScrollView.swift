@@ -21,9 +21,11 @@ import os
     private let selectionTap = UITapGestureRecognizer()
     private var tapStoppedScrolling = false
     private var buttons: [CandidateButton] = []
-    private var frames: [CGRect] = []
+    private var geometry = CandidateStripLayout()
+    private var frames: [CGRect] { geometry.frames }
+    private var extendingLayout = false
     private var requestedCount = -1
-    private var stripWidth: CGFloat = 0
+    private var stripWidth: CGFloat { geometry.width }
     private var viewportSize = CGSize.zero
     private var visibleRange: Range<Int> = 0..<0
     private var accessibleItems: [Any]?
@@ -92,8 +94,11 @@ import os
     private func schedule(_ next: Presentation, accent: UIColor) {
         // Word lookup and sentence decoding can both finish within one frame.
         // Measure, lay out and paint only their latest valid row, not both rows.
+        if next == presentation, ink.isEqual(accent) {
+            frameValue.discard(); displayFrame.cancel(); return
+        }
         frameValue.replace(with: (next, accent))
-        displayFrame.schedule(maximumFramesPerSecond: window?.screen.maximumFramesPerSecond ?? 60) { [weak self] in
+        displayFrame.schedule(in: self, maximumFramesPerSecond: window?.screen.maximumFramesPerSecond ?? 60) { [weak self] in
             guard let self, let (next, color) = self.frameValue.take() else { return }
             // A finger may have landed after submission but before this frame.
             // Preserve its visible targets; only appending the same query is safe.
@@ -144,15 +149,8 @@ import os
         if changedQuery { browsed = nil; requestedCount = -1 }
         presentation = next; ink = accent
         if changedItems || changedFont {
-            if !appendOnly || changedFont { frames = [] }
-            var x = frames.last?.maxX ?? 0
-            for index in frames.count..<next.items.count {
-                let width = CandidateButton.width(next.items[index], font: index == 0 ? firstFont : normalFont) + 4
-                frames.append(CGRect(x: x, y: 0, width: width, height: bounds.height))
-                x += width
-            }
-            stripWidth = x
-            updateStripSize()
+            if !appendOnly || changedFont { geometry.reset() }
+            extendLayout(offset: changedQuery ? 0 : contentOffset.x)
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
         updateVisible(force: changedColor || changedFont || (changedItems && !appendOnly))
@@ -163,7 +161,8 @@ import os
         super.layoutSubviews()
         if viewportSize != bounds.size {
             viewportSize = bounds.size
-            for index in frames.indices { frames[index].size.height = bounds.height }
+            geometry.resize(height: bounds.height)
+            extendLayout()
             updateStripSize()
             updateVisible(force: true)
         } else { updateVisible() }
@@ -173,13 +172,20 @@ import os
         if strip.frame.size != size { strip.frame = CGRect(origin: .zero, size: size) }
         if contentSize != size { contentSize = size }
     }
+    private func extendLayout(offset: CGFloat? = nil, through index: Int? = nil) {
+        guard !extendingLayout, let current = presentation else { return }
+        extendingLayout = true
+        defer { extendingLayout = false }
+        let measured = geometry.extend(count: current.items.count,
+            viewport: CGRect(x: offset ?? contentOffset.x, y: 0, width: bounds.width, height: bounds.height),
+            through: index) { candidateIndex in
+                CandidateButton.width(current.items[candidateIndex],
+                    font: candidateIndex == 0 ? firstFont : normalFont) + 4
+            }
+        if measured > 0 || geometry.frames.isEmpty { updateStripSize() }
+    }
     private func firstIndex(at x: CGFloat) -> Int {
-        var low = 0, high = frames.count
-        while low < high {
-            let middle = (low + high) / 2
-            if frames[middle].maxX < x { low = middle + 1 } else { high = middle }
-        }
-        return low
+        geometry.firstIndex(at: x)
     }
     private func updateVisible(force: Bool = false) {
         guard let current = presentation else { return }
@@ -230,16 +236,23 @@ import os
         set { accessibleItems = newValue }
     }
     fileprivate func accessibilityFrame(at index: Int) -> CGRect {
+        // VoiceOver may explicitly query a distant candidate. Resolve its exact
+        // frame on demand, rather than paying for all words on every key press.
+        if let current = presentation, current.items.indices.contains(index), !frames.indices.contains(index) {
+            extendLayout(through: index)
+        }
         guard frames.indices.contains(index) else { return .zero }
         return UIAccessibility.convertToScreenCoordinates(frames[index], in: strip)
     }
     fileprivate func focusCandidate(_ index: Int) {
+        if let current = presentation, current.items.indices.contains(index) { extendLayout(through: index) }
         guard frames.indices.contains(index) else { return }
         beginBrowsing(); scrollRectToVisible(frames[index], animated: false)
         requestMoreIfNeeded(); scheduleIdle()
     }
     private func requestMoreIfNeeded() {
         guard let current = presentation, current.hasMore, !current.arithmetic,
+              frames.count == current.items.count,
               sameQuery(browsed, current),
               current.context?.raw.isEmpty == false, bounds.width > 0,
               contentOffset.x + bounds.width * 3 >= stripWidth,
@@ -326,6 +339,7 @@ import os
     }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        extendLayout()
         updateVisible()
         requestMoreIfNeeded()
     }

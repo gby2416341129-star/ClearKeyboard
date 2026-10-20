@@ -64,6 +64,8 @@ jobs:
           .build/test-input-core
           swiftc -O -parse-as-library Core/LatestValue.swift Core/HostTextState.swift Scripts/test_frame_delivery.swift -o .build/test-frame-delivery
           .build/test-frame-delivery
+          swiftc -O -parse-as-library Core/CandidateStripLayout.swift Scripts/test_candidate_layout.swift -o .build/test-candidate-layout
+          .build/test-candidate-layout
           swiftc -O -parse-as-library Core/Candidate.swift Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/RepetitionModel.swift Scripts/test_repetition.swift -o .build/test-repetition
           .build/test-repetition Core/Resources/Rime/repetition-priors.tsv
           python3 Scripts/test_fast_engine.py
@@ -75,8 +77,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.32')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 35')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.33')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 36')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

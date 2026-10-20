@@ -1,22 +1,23 @@
 import UIKit
+import os
 
-/// One latest-value task at the screen's next display opportunity. A weak
-/// target avoids retaining a keyboard/view through the run loop's display link.
+/// Consume the latest value before UIKit commits this update's layers. A result
+/// delivered after CADisplayLink dispatch can still join the current update;
+/// restarting a paused display link would make it wait for another update.
 @MainActor final class DisplayFrameTask {
-    @MainActor private final class Target: NSObject {
-        weak var owner: DisplayFrameTask?
-        @objc func tick(_ link: CADisplayLink) { owner?.fire() }
-    }
-    private let target = Target()
-    private var link: CADisplayLink?
+    private weak var view: UIView?
+    private var link: UIUpdateLink?
     private var frameRate = 0
     private var action: (() -> Void)?
-    func schedule(maximumFramesPerSecond: Int, _ action: @escaping () -> Void) {
+    private let log = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
+    func schedule(in view: UIView, maximumFramesPerSecond: Int, _ action: @escaping () -> Void) {
         self.action = action
-        if link == nil {
-            target.owner = self
-            let next = CADisplayLink(target: target, selector: #selector(Target.tick(_:)))
-            next.add(to: .main, forMode: .common); link = next
+        if self.view !== view || link == nil {
+            link?.isEnabled = false
+            self.view = view; frameRate = 0
+            let next = UIUpdateLink(view: view)
+            next.addAction(to: .beforeCATransactionCommit) { [weak self] _, info in self?.fire(info) }
+            link = next
         }
         let rate = max(1, maximumFramesPerSecond)
         if frameRate != rate {
@@ -24,12 +25,22 @@ import UIKit
             let maximum = Float(rate)
             link?.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
         }
-        link?.isPaused = false
+        // Also wake an otherwise idle UI when a worker supplies new words.
+        // The request ends as soon as this latest-value task is consumed.
+        link?.requiresContinuousUpdates = true
+        link?.isEnabled = true
     }
-    func cancel() { action = nil; link?.isPaused = true }
-    private func fire() {
-        let next = action; action = nil; link?.isPaused = true
+    func cancel() { action = nil; link?.requiresContinuousUpdates = false; link?.isEnabled = false }
+    private func fire(_ info: UIUpdateInfo) {
+        let next = action; cancel()
+        let start = CACurrentMediaTime()
         next?()
+        // Numeric timing only. A submission deadline is not a measurement of
+        // presented FPS; these events let an on-device trace find main-thread
+        // overruns without recording the user's spelling or candidate text.
+        let end = CACurrentMediaTime()
+        os_signpost(.event, log: log, name: "KeyboardSubmission",
+            "work_ms=%.3f deadline_remaining_ms=%.3f", (end - start) * 1000, (info.completionDeadlineTime - end) * 1000)
     }
-    deinit { link?.invalidate() }
 }
+
