@@ -66,6 +66,15 @@ public final class InputEngine {
         }
         return Array(values.prefix(8))
     }
+    private func repeatedHead(_ repeated: [Candidate], raw: String, length: Int, preferred: [Candidate]) -> [Candidate] {
+        var seen = Set<String>()
+        var values = (preferred.filter { $0.consumed > 0 && $0.consumed <= length } + repeated)
+            .filter { seen.insert($0.text).inserted }
+        if !seen.contains(raw) {
+            values.insert(Candidate(text: raw, reading: raw, consumed: length, score: 80), at: min(8, values.count))
+        }
+        return values
+    }
 
     /// Bounded, read-only word lookup for the current spelling. This never enters
     /// Rime or its lock; sentence decoding continues on the candidate worker.
@@ -152,12 +161,7 @@ public final class InputEngine {
         let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
         guard !cancelled() else { return [] }
         if compose, !repeated.isEmpty, limit <= 9 {
-            var seen = Set<String>()
-            var values = (preferred + repeated).filter { seen.insert($0.text).inserted }
-            if !seen.contains(raw) {
-                values.insert(Candidate(text: raw, reading: raw, consumed: input.count, score: 80), at: min(8, values.count))
-            }
-            return Array(values.prefix(max(1, limit)))
+            return Array(repeatedHead(repeated, raw: raw, length: input.count, preferred: preferred).prefix(max(1, limit)))
         }
         if !compose, matureDecoder != nil, input.count >= 3,
            associations?.lookup("e:" + input, limit: 1).isEmpty == false,
@@ -232,7 +236,9 @@ public final class InputEngine {
                     reading: String(repeating: "hao de ", count: input.count / 2).trimmingCharacters(in: .whitespaces),
                     consumed: input.count, score: 120), at: 0)
             }
-            if !repeated.isEmpty { output.insert(contentsOf: repeated, at: 0) }
+            if !repeated.isEmpty {
+                output.insert(contentsOf: repeatedHead(repeated, raw: raw, length: input.count, preferred: preferred), at: 0)
+            }
             output.insert(contentsOf: preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }, at: 0)
             if !output.contains(where: { $0.text == raw }) { output.insert(literal, at: min(8, output.count)) }
             var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))))

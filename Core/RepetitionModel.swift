@@ -22,7 +22,13 @@ final class RepetitionModel {
         }
         guard count > 100 else { throw LexiconError.invalidFormat }
         for key in groups.keys {
-            groups[key]!.sort { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+            var words = groups[key]!
+            words.sort {
+                if $0.score != $1.score { return $0.score > $1.score }
+                return $0.text == $1.text ? $0.reading < $1.reading : $0.text < $1.text
+            }
+            var unique = Set<String>()
+            groups[key] = words.filter { unique.insert($0.text).inserted }
         }
     }
     private func pattern(_ input: String) -> (String, Int)? {
