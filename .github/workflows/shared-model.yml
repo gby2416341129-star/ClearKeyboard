@@ -1,0 +1,31 @@
+name: Evaluate shared offline language model
+on:
+  push:
+    branches: [codex/ime-score-batch-20261021]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: shared-language-model-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  model:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned model conversion dependencies
+        run: python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
+      - name: Verify the existing model and retain attribution
+        run: python3 Scripts/prepare_ime_model.py
+      - name: Export shared-weight step and scoring functions
+        run: python3 Scripts/export_ime_shared.py
+      - name: Verify numerical equivalence, padding and cold batch cost
+        run: python3 Scripts/validate_ime_shared.py
+      - name: Verify existing Swift state code with the new default function
+        run: |
+          swiftc -O -parse-as-library Core/CoreMLPrefixState.swift Scripts/test_coreml_prefix.swift -o .rime-cache/shared25m/test-prefix
+          .rime-cache/shared25m/test-prefix .rime-cache/shared25m/resources

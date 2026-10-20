@@ -1,0 +1,38 @@
+{
+  "sourceSHA256": "0a6ecba69bf1d39c7eb49549c716477dd6c03fdf05757773e1f50435262fb469",
+  "scope": "Numerical reference from the independently verified native int8 model. No training or semantic ground truth.",
+  "rows": [
+    {
+      "text": "袛羞茭倩璂郫汰栨剛叅梫璩欬袁孩",
+      "score": -10.6227
+    },
+    {
+      "text": "蔿焙削易锈竇蹄珝堨抒禾请豁麾燒",
+      "score": -10.9791
+    },
+    {
+      "text": "须遶疽噺嵃祮杓窦荆阿矙坪湻片哂",
+      "score": -10.4359
+    },
+    {
+      "text": "秮汝此摑绉骃嚿敽蕉踽哖獪箷簯穷",
+      "score": -10.5542
+    },
+    {
+      "text": "氲厲怀職底賞湔底阁緫痦階聡墰嬃",
+      "score": -10.3852
+    },
+    {
+      "text": "孛岿殞店咅嵂暻剝雝儡鵏吃哿徃脗",
+      "score": -10.5942
+    },
+    {
+      "text": "珝挭也弑懈胆锺徇汴掕峨婅啹揺晦",
+      "score": -10.3833
+    },
+    {
+      "text": "穮娼胂儖勭习困獌葡狀狍膊纤貊萼",
+      "score": -10.6056
+    }
+  ]
+}
