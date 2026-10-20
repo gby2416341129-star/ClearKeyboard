@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
   echo "IPA compilation requires macOS and Xcode 26+." >&2
   exit 1
 fi
-if [[ ! -f Core/Resources/Rime/build/clear_pinyin.table.bin || ! -f Core/Resources/Rime/clear-sentence.clm ]]; then python3 Scripts/prepare_rime.py; fi
+if [[ ! -f Core/Resources/Rime/build/clear_pinyin.table.bin || ! -f Core/Resources/Rime/clear-sentence.clm || ! -f Core/Resources/Rime/repetition-priors.tsv ]]; then python3 Scripts/prepare_rime.py; fi
 if [[ ! -d Core/Resources/Rime/ClearSentence25M.mlmodelc ]]; then python3 Scripts/export_ime_incremental.py; fi
 command -v xcodebuild >/dev/null
 command -v python3 >/dev/null

@@ -210,10 +210,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
             return query
         }
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
+        let immediateComposition = engine.hasImmediateComposition(raw)
         let lookup = wordLookup, cache = hotWords, warm = warmsWords
         let cachedWords = warm ? cache.value(raw) : nil
         if let cachedWords, !cachedWords.isEmpty {
-            query.publish(Self.preferredWords(preferred, cachedWords), stage: 0)
+            query.publish(Self.preferredWords(preferred, cachedWords), stage: immediateComposition ? 1 : 0)
         }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             guard !query.token.isCancelled else { return }
@@ -221,7 +222,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if warm { cache.put(raw, words) }
             query.wordLookupCompleted(empty: words.isEmpty)
             guard !query.token.isCancelled else { return }
-            if !words.isEmpty { query.publish(Self.preferredWords(preferred, words), stage: 0) }
+            if !words.isEmpty { query.publish(Self.preferredWords(preferred, words), stage: immediateComposition ? 1 : 0) }
             DispatchQueue.main.async {
                 guard let self, !query.token.isCancelled else { return }
                 if self.preparedCandidates === query, self.activeCandidates !== query {
@@ -240,7 +241,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 
         }
         wordQueue.async(execute: job)
-        if raw.utf8.count >= 3, raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) }) {
+        if !immediateComposition, raw.utf8.count >= 3, raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) }) {
             // Start the semantic row at contact-down. It can finish while the
             // key is still held, without changing the uncommitted UI spelling.
             scheduleDecoder(query, delay: 0)

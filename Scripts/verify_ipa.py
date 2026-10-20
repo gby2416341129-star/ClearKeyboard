@@ -102,6 +102,12 @@ def verify(path):
                 'Missing incremental on-device model validation')
         phonetic=archive.read(app+'Rime/clear-phonetic.tsv')
         require(len(phonetic.splitlines())>10000 and b'CC BY 4.0' in phonetic[:1024], 'Missing attributed phonetic graph')
+        repeated=archive.read(app+'Rime/repetition-priors.tsv')
+        repetition=json.loads(archive.read(app+'Rime/repetition-model.json'))
+        require(repetition.get('format')=='clear-repeat-v1' and repetition.get('source_model_sha256')==NATIVE_SHA256,
+                'Repetition prior source mismatch')
+        require(hashlib.sha256(repeated).hexdigest()==repetition.get('sha256') and repeated.startswith(b'# clear-repeat-v1;'),
+                'Repetition prior checksum mismatch')
         require(not any('ClearSentence4M.mlmodelc/' in name or name.endswith('IME-4M-LICENSE.txt') for name in names), 'Obsolete 4M resources duplicated')
         for prefix in (app,extension):
             for name in ('IME-25M-LICENSE.txt','IME-25M-NOTICE.txt'):

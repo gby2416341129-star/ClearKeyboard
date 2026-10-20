@@ -210,6 +210,12 @@ def main():
     # participate only in literal full-pinyin/initial matching.
     (source/'clear_conversation.dict.yaml').write_text('# ClearKeyboard first-party conversational vocabulary.\n---\nname: clear_conversation\nversion: "'+conversation_version+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in sorted(conversational)),encoding='utf-8')
     output=ROOT/'Core/Resources/Rime';output.mkdir(exist_ok=True)
+    repetition = ROOT/'Data/Rime/repetition-priors.tsv'
+    repetition_manifest = json.loads((ROOT/'Data/Rime/repetition-model.json').read_text())
+    if hashlib.sha256(repetition.read_bytes()).hexdigest() != repetition_manifest['sha256']:
+        raise RuntimeError('Repetition prior checksum mismatch')
+    shutil.copyfile(repetition, output/repetition.name)
+    shutil.copyfile(ROOT/'Data/Rime/repetition-model.json', output/'repetition-model.json')
     phonetic_index(rows, output/'clear-phonetic.tsv')
     shutil.copyfile(ROOT/'Data/Rime/clear_pinyin.schema.yaml',source/'clear_pinyin.schema.yaml')
     shutil.copyfile(ROOT/'Data/Rime/clear_exact.schema.yaml',source/'clear_exact.schema.yaml')

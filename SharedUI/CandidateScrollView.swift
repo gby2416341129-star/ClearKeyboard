@@ -1,4 +1,5 @@
 import UIKit
+import os
 
 /// A paged strip with a bounded pool of visible candidate controls. The whole row is one touch surface;
 /// UIKit owns dragging and momentum, independently of the word under a finger.
@@ -12,6 +13,9 @@ import UIKit
     }
     private var presentation: Presentation?
     private var pending: (Presentation, UIColor)?
+    private var frameValue = LatestValue<(Presentation, UIColor)>()
+    private let displayFrame = DisplayFrameTask()
+    private let frameLog = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
     private var ink: UIColor = .systemTeal
     private let strip = UIView()
     private let selectionTap = UITapGestureRecognizer()
@@ -80,10 +84,31 @@ import UIKit
             let appended = current.items + items.filter { seen.insert($0.text).inserted }
             next = Presentation(items: appended, context: current.context,
                                 arithmetic: arithmetic, hasMore: hasMore, textSize: textSize)
-            pending = nil; apply(next, accent: resolved); return
+            pending = nil; schedule(next, accent: resolved); return
         }
         if holdsCandidateUpdates { pending = (next, resolved); return }
-        pending = nil; apply(next, accent: resolved)
+        pending = nil; schedule(next, accent: resolved)
+    }
+    private func schedule(_ next: Presentation, accent: UIColor) {
+        // Word lookup and sentence decoding can both finish within one frame.
+        // Measure, lay out and paint only their latest valid row, not both rows.
+        frameValue.replace(with: (next, accent))
+        displayFrame.schedule(maximumFramesPerSecond: window?.screen.maximumFramesPerSecond ?? 60) { [weak self] in
+            guard let self, let (next, color) = self.frameValue.take() else { return }
+            // A finger may have landed after submission but before this frame.
+            // Preserve its visible targets; only appending the same query is safe.
+            if self.holdsCandidateUpdates && !self.sameQuery(self.browsed, next) {
+                self.pending = (next, color); return
+            }
+            // Browsing can also start between submission and this callback.
+            // Recheck the append-only rule at the actual presentation boundary.
+            if self.sameQuery(self.browsed, next), let current = self.presentation, self.sameQuery(current, next) {
+                var seen = Set(current.items.map(\.text))
+                let merged = current.items + next.items.filter { seen.insert($0.text).inserted }
+                self.apply(Presentation(items: merged, context: current.context, arithmetic: next.arithmetic,
+                    hasMore: next.hasMore, textSize: next.textSize), accent: color)
+            } else { self.apply(next, accent: color) }
+        }
     }
     func inputChanged() {
         // Only an actual edit may interrupt a coasting row. A decoder result
@@ -102,6 +127,9 @@ import UIKit
     }
     private func apply(_ next: Presentation, accent: UIColor) {
         guard next != presentation || !ink.isEqual(accent) else { return }
+        let event = OSSignpostID(log: frameLog)
+        os_signpost(.begin, log: frameLog, name: "CandidateFrame", signpostID: event, "count=%d", next.items.count)
+        defer { os_signpost(.end, log: frameLog, name: "CandidateFrame", signpostID: event) }
         let changedQuery = !sameQuery(presentation, next)
         let previous = presentation?.items ?? []
         let changedItems = previous.map(\.text) != next.items.map(\.text)
@@ -310,11 +338,17 @@ import UIKit
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scheduleIdle() }
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window == nil { pending = nil; browsed = nil; setInteraction(false) }
+        if window == nil {
+            displayFrame.cancel(); frameValue.discard()
+            pending = nil; browsed = nil; setInteraction(false)
+        }
     }
 }
 
 @MainActor private final class CandidateButton: UIButton {
+    private static let measuredWidths: NSCache<NSString, NSNumber> = {
+        let cache = NSCache<NSString, NSNumber>(); cache.countLimit = 512; return cache
+    }()
     private let plate = UIView()
     private let label = UILabel()
     override init(frame: CGRect) {
@@ -334,11 +368,16 @@ import UIKit
         label.frame = plate.bounds.insetBy(dx: 10, dy: 0)
     }
     static func width(_ candidate: Candidate, font: UIFont) -> CGFloat {
-        return max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
+        let key = "\(font.fontName):\(font.pointSize):\(candidate.text)" as NSString
+        if let value = measuredWidths.object(forKey: key) { return CGFloat(value.doubleValue) }
+        let width = max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
+        measuredWidths.setObject(NSNumber(value: Double(width)), forKey: key)
+        return width
     }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont) {
-        label.font = font
-        label.text = candidate.text; label.textColor = first ? accent : .label
+        if label.font != font { label.font = font }
+        if label.text != candidate.text { label.text = candidate.text }
+        label.textColor = first ? accent : .label
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
     }

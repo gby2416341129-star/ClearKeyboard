@@ -1,15 +1,5 @@
 import Foundation
 
-public struct Candidate: Equatable {
-    public let text: String
-    public let reading: String
-    public let consumed: Int
-    public let score: Double
-    public init(text: String, reading: String = "", consumed: Int, score: Double = 0) {
-        self.text = text; self.reading = reading; self.consumed = consumed; self.score = score
-    }
-}
-
 /// Call from a serial user-initiated queue. Immutable dictionaries allow a bounded fast lookup at commit time.
 public final class InputEngine {
     private struct Path {
@@ -41,6 +31,7 @@ public final class InputEngine {
     public let english: Lexicon
     private var matureDecoder: RimeDecoder?
     private var associations: Lexicon?
+    private var repetition: RepetitionModel?
     public var chineseBackend: String { matureDecoder == nil ? "fallback" : "rime-wanxiang" }
     public init(chinese: Lexicon, english: Lexicon) {
         self.chinese = chinese; self.english = english
@@ -51,7 +42,29 @@ public final class InputEngine {
         guard engine.correctionIndex != nil else { throw LexiconError.invalidFormat }
         engine.matureDecoder = try RimeDecoder.bundled()
         engine.associations = try .bundled("associations")
+        if let directory = RimeDecoder.resourceDirectory(),
+           let data = try? Data(contentsOf: directory.appendingPathComponent("repetition-priors.tsv")) {
+            engine.repetition = try RepetitionModel(data: data)
+        }
         return engine
+    }
+    public func hasImmediateComposition(_ raw: String) -> Bool {
+        !raw.contains("'") && repetition?.recognizes(FuzzyPinyin.normalize(raw)) == true
+    }
+    private func repeatedCandidates(_ input: String) -> [Candidate] {
+        var values = repetition?.candidates(input) ?? []
+        guard !values.isEmpty else { return [] }
+        let unit = String(input.prefix(2)), count = input.utf8.count / 2
+        // Repeating a short preferred acknowledgement preserves its existing
+        // preference (including the user's familiar short-code defaults).
+        if let alias = Self.conversational[unit],
+           let word = chinese.lookup("a:" + unit, limit: 64).first(where: { $0.text == alias && abbreviation($0.reading) == unit }) {
+            let text = String(repeating: word.text, count: count)
+            values.removeAll { $0.text == text }
+            values.insert(Candidate(text: text, reading: Array(repeating: word.reading, count: count).joined(separator: " "),
+                consumed: count * 2), at: 0)
+        }
+        return Array(values.prefix(8))
     }
 
     /// Bounded, read-only word lookup for the current spelling. This never enters
@@ -61,6 +74,12 @@ public final class InputEngine {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
         var output = preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }
+        let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
+        if !repeated.isEmpty {
+            var seen = Set(output.map(\.text))
+            output += repeated.filter { seen.insert($0.text).inserted }
+            return Array(output.prefix(8))
+        }
         let exact = chinese.lookup("e:" + input, limit: 8)
         let english = input.count >= 3 && associations?.contains("e:" + input) == true
         if english && exact.isEmpty {
@@ -130,6 +149,16 @@ public final class InputEngine {
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], recentCorrections: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
+        let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
+        guard !cancelled() else { return [] }
+        if compose, !repeated.isEmpty, limit <= 9 {
+            var seen = Set<String>()
+            var values = (preferred + repeated).filter { seen.insert($0.text).inserted }
+            if !seen.contains(raw) {
+                values.insert(Candidate(text: raw, reading: raw, consumed: input.count, score: 80), at: min(8, values.count))
+            }
+            return Array(values.prefix(max(1, limit)))
+        }
         if !compose, matureDecoder != nil, input.count >= 3,
            associations?.lookup("e:" + input, limit: 1).isEmpty == false,
            chinese.lookup("e:" + input, limit: 1).isEmpty {
@@ -203,6 +232,7 @@ public final class InputEngine {
                     reading: String(repeating: "hao de ", count: input.count / 2).trimmingCharacters(in: .whitespaces),
                     consumed: input.count, score: 120), at: 0)
             }
+            if !repeated.isEmpty { output.insert(contentsOf: repeated, at: 0) }
             output.insert(contentsOf: preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }, at: 0)
             if !output.contains(where: { $0.text == raw }) { output.insert(literal, at: min(8, output.count)) }
             var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))))

@@ -13,7 +13,7 @@ final class RimeDecoder {
         let check: () -> Bool
         init(_ check: @escaping () -> Bool) { self.check = check }
     }
-    static func bundled() throws -> RimeDecoder {
+    static func resourceDirectory() -> URL? {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
         #else
@@ -27,7 +27,10 @@ final class RimeDecoder {
             if containingApp.pathExtension == "app", FileManager.default.fileExists(atPath: candidate.path) { shared = candidate }
         }
         #endif
-        guard let shared else { throw LexiconError.invalidFormat }
+        return shared
+    }
+    static func bundled() throws -> RimeDecoder {
+        guard let shared = resourceDirectory() else { throw LexiconError.invalidFormat }
         let user = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("ClearRime-v1", isDirectory: true)
         try FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
         guard cr_initialize(shared.path, user.path) != 0 else { throw LexiconError.invalidFormat }

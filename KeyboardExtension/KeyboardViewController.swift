@@ -14,8 +14,11 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostPrefersEnglish = false
     private var hostNeedsGlobe = true
     private var hostRefresh: Timer?
-    private var pendingMarkedText: String?
-    private var markedFlushScheduled = false
+    private var pendingMarkedText = LatestValue<String>()
+    private let markedFrame = DisplayFrameTask()
+    private var markedCadence = FrameWriteCadence()
+    private var markedWriteGeneration = 0
+    private var markedImmediateScheduled = false
     private var hostRefreshGeneration = 0
     private var activeKeys = 0
     private var hostActive = true
@@ -186,7 +189,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             }
         }
         if case .externalEdit = outcome {
-            pendingMarkedText = nil
+            markedFrame.cancel(); pendingMarkedText.discard()
+            markedWriteGeneration += 1; markedImmediateScheduled = false
             surface?.closePanel(); model?.cursorChanged()
         }
     }
@@ -232,26 +236,41 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     func setMarkedText(_ text: String) {
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
         hostState.setMarked(text)
-        pendingMarkedText = text
-        // Several queued touch events can arrive in one main-loop turn. Send
-        // their latest spelling once, instead of synchronously sending every
-        // obsolete intermediate string across the process boundary.
-        guard !markedFlushScheduled else { return }
-        markedFlushScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        pendingMarkedText.replace(with: text)
+        // UIKit's host proxy crosses a process boundary. Queue turns can run
+        // many times before one frame is presented; send the latest spelling
+        // once per display opportunity, while keeping the local ledger current.
+        guard !markedImmediateScheduled else { return }
+        let rate = view.window?.screen.maximumFramesPerSecond ?? 60
+        if markedCadence.canWriteImmediately(now: ProcessInfo.processInfo.systemUptime, maximumFramesPerSecond: rate) {
+            // Normal single taps retain next-main-turn delivery. Only a burst
+            // needs pacing; an idle key must not acquire a full extra frame.
+            markedImmediateScheduled = true
+            let revision = markedWriteGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.markedWriteGeneration == revision else { return }
+                self.flushMarkedText()
+                if self.needsHostRefresh { self.scheduleHostRefresh() }
+            }
+            return
+        }
+        markedFrame.schedule(maximumFramesPerSecond: rate) { [weak self] in
             guard let self else { return }
-            self.markedFlushScheduled = false
             self.flushMarkedText()
             if self.needsHostRefresh { self.scheduleHostRefresh() }
         }
     }
     private func flushMarkedText() {
-        guard let text = pendingMarkedText else { return }
-        pendingMarkedText = nil
+        // Commit, deletion, cursor movement and unmark are ordered barriers.
+        // No pending spelling frame may run after those edits.
+        markedFrame.cancel()
+        markedImmediateScheduled = false; markedWriteGeneration += 1
+        guard let text = pendingMarkedText.take() else { return }
         let event = OSSignpostID(log: hostLog)
         os_signpost(.begin, log: hostLog, name: "MarkedTextWrite", signpostID: event, "utf16=%d", text.utf16.count)
         defer { os_signpost(.end, log: hostLog, name: "MarkedTextWrite", signpostID: event) }
         textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+        markedCadence.didWrite(now: ProcessInfo.processInfo.systemUptime)
     }
     func unmarkText() { performHostEdit { hostState.unmark(); textDocumentProxy.unmarkText() } }
     func deleteBackward() { performHostEdit { hostState.deleteBackward(); textDocumentProxy.deleteBackward() } }
