@@ -38,7 +38,9 @@ import Foundation
             state.interruptTapSequence()
             state.tap(now: start + 3)
             check(!state.shifted && !state.capsLocked, "Shift could not cancel automatic capitalization")
-            checks += 9
+            state.tap(now: start + 3.1)
+            check(state.shifted && state.capsLocked, "An English auto-capitalized first letter broke double-tap caps lock")
+            checks += 10
         }
         print("KEYBOARD_SHIFT_CHECKS passed checks=\(checks); single literal, consecutive double tap, unlock, intervening letter, reset, automatic case")
     }

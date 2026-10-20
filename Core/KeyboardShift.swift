@@ -10,8 +10,8 @@ struct KeyboardShift {
         if capsLocked {
             reset(); return
         }
-        if shifted, now - lastTap >= 0, now - lastTap < 0.3 {
-            capsLocked = true
+        if now - lastTap >= 0, now - lastTap < 0.3 {
+            shifted = true; capsLocked = true
         } else {
             shifted.toggle(); capsLocked = false
         }
