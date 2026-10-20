@@ -103,8 +103,9 @@ def export(root,build_only=False):
     target=root/'.rime-cache/shared25m';target.mkdir(parents=True,exist_ok=True)
     paths={}
     for name,program in [('step',step),('score',score)]:
+        names=['log_probs','new_k','new_v'] if name=='step' else ['mean_scores']
         model=ct.convert(program,convert_to='mlprogram',minimum_deployment_target=ct.target.iOS18,
-            compute_precision=ct.precision.FLOAT32,skip_model_load=True)
+            compute_precision=ct.precision.FLOAT16,outputs=[ct.TensorType(name=value,dtype=np.float32) for value in names],skip_model_load=True)
         for key,value in metadata.items():model.user_defined_metadata[key]=value
         model.user_defined_metadata['source_sha256']=SOURCE_SHA
         model.user_defined_metadata['state_format']='clear-kv-v1: layers,batch,time,hidden -> batch,layers,hidden'
@@ -120,6 +121,7 @@ def export(root,build_only=False):
     merged.user_defined_metadata['source_sha256']=SOURCE_SHA
     merged.user_defined_metadata['state_format']='clear-kv-v1: layers,batch,time,hidden -> batch,layers,hidden'
     merged.user_defined_metadata['score_format']='clear-score-v1: 4x16 tokens,targets,valid_mask -> 4 means'
+    merged.user_defined_metadata['compute_precision']='float16; original int8 weights; float32 interface'
     merged.license=metadata['license']
     final=target/'ClearSentence25M.mlpackage';merged.save(str(final))
     size=lambda path:sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
@@ -127,7 +129,7 @@ def export(root,build_only=False):
     sizes={name:size(path) for name,path in paths.items()};sizes['combined']=size(final)
     blob_bytes={name:weights(path) for name,path in paths.items()};blob_bytes['combined']=weights(final)
     assert blob_bytes['combined']<max(blob_bytes['step'],blob_bytes['score'])*1.03+262144,blob_bytes
-    result={'status':'exported','source_sha256':SOURCE_SHA,'sizes':sizes,'weightBlobBytes':blob_bytes,'ops':counts,'model':str(final)}
+    result={'status':'exported','source_sha256':SOURCE_SHA,'computePrecision':'float16','sizes':sizes,'weightBlobBytes':blob_bytes,'ops':counts,'model':str(final)}
     (target/'export-result.json').write_text(json.dumps(result,indent=2),encoding='utf8');print(json.dumps(result),flush=True)
     resources=root/'Core/Resources/Rime';resources.mkdir(parents=True,exist_ok=True)
     subprocess.run(['xcrun','coremlcompiler','compile',str(final),str(resources)],check=True)
