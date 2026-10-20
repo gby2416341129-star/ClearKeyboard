@@ -29,18 +29,19 @@ final class CoreMLSentence {
     private struct ScoreAttempt {
         let scorer: CoreMLCandidateScorer?
         let timings: [Double]
-        let numericalValidation: Bool
+        let numericalValidation: Bool, withinBudget: Bool
+        let function: String
         var enabled: Bool { scorer != nil }
     }
     @available(macOS 15.0, iOS 18.0, *)
-    private func checkedScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits) throws -> ScoreAttempt? {
+    private func checkedScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits, function: String = "score", retain: Bool = true) throws -> ScoreAttempt? {
         try autoreleasepool {
             let bytes = try Data(contentsOf: directory.appendingPathComponent("CoreML25M-score-validation.json"))
             guard let reference = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
                   reference["sourceSHA256"] as? String == metadata["source_sha256"],
                   let rows = reference["rows"] as? [[String: Any]], rows.count == 8,
                   metadata["score_format"] == "clear-score-v1: 4x16 tokens,targets,valid_mask -> 4 means" else { return nil }
-            let configuration = MLModelConfiguration(); configuration.computeUnits = units; configuration.functionName = "score"
+            let configuration = MLModelConfiguration(); configuration.computeUnits = units; configuration.functionName = function
             let model = try MLModel(contentsOf: directory.appendingPathComponent("ClearSentence25M.mlmodelc"), configuration: configuration)
             let scorer = try CoreMLCandidateScorer(model: model, vocabulary: vocabulary)
             var timings: [Double] = []
@@ -49,7 +50,7 @@ final class CoreMLSentence {
                 guard texts.count == 4, let scores = try scorer.score(texts, abandoned: { false }) else { return nil }
                 for row in 0..<4 {
                     guard let expected = slice[row]["score"] as? Double, abs(Double(scores[row]) - expected) < 0.025 else {
-                        return ScoreAttempt(scorer: nil, timings: [], numericalValidation: false)
+                        return ScoreAttempt(scorer: nil, timings: [], numericalValidation: false, withinBudget: false, function: function)
                     }
                 }
             }
@@ -59,8 +60,20 @@ final class CoreMLSentence {
                 timings.append(scorer.lastPredictionMilliseconds)
             }
             let enabled = timings.count == 3 && timings.allSatisfy { $0 < 10 }
-            return ScoreAttempt(scorer: enabled ? scorer : nil, timings: timings, numericalValidation: true)
+            return ScoreAttempt(scorer: enabled && retain ? scorer : nil, timings: timings, numericalValidation: true, withinBudget: enabled, function: function)
         }
+    }
+    @available(macOS 15.0, iOS 18.0, *)
+    private func chooseScorer(directory: URL, vocabulary: [String], metadata: [String: String], units: MLComputeUnits) -> ScoreAttempt? {
+        // Probe and release each model before loading the next. Shared files do
+        // not justify keeping several runtime weight allocations alive.
+        let probes = ["score", "score_f32"].compactMap {
+            try? checkedScorer(directory: directory, vocabulary: vocabulary, metadata: metadata, units: units, function: $0, retain: false)
+        }
+        guard let best = probes.filter({ $0.numericalValidation && $0.withinBudget }).min(by: {
+            ($0.timings.max() ?? .infinity) < ($1.timings.max() ?? .infinity)
+        }) else { return nil }
+        return try? checkedScorer(directory: directory, vocabulary: vocabulary, metadata: metadata, units: units, function: best.function)
     }
     @available(macOS 15.0, iOS 18.0, *)
     private func checkedPrefix(directory: URL, function: String, sequences: [String], expected: [[String: Any]], units: MLComputeUnits) throws -> PrefixAttempt? {
@@ -132,12 +145,13 @@ final class CoreMLSentence {
                 let state = selected.state, vocab = selected.vocabulary, metadata = selected.metadata
                 let enabled = selected.enabled, timings = selected.timings
                 let scoring = os_proc_available_memory() >= 64 * 1_024 * 1_024
-                    ? (try? checkedScorer(directory: directory, vocabulary: vocab, metadata: metadata, units: .cpuAndNeuralEngine)) : nil
+                    ? chooseScorer(directory: directory, vocabulary: vocab, metadata: metadata, units: .cpuAndNeuralEngine) : nil
                 let scorer = scoring?.scorer, scoreEnabled = scoring?.enabled ?? false, scoreTimings = scoring?.timings ?? []
                 let diagnostics: [String: Any] = ["model": "25M", "stateFormat": "clear-kv-v1", "predictionMS": timings,
                     "numericalValidation": selected.numericalValidation ? "passed" : "prefix_not_enabled", "enabled": enabled, "scoreEnabled": scoreEnabled,
                     "scoreNumericalValidation": scoring?.numericalValidation ?? false,
                     "scorePredictionMS": scoreTimings, "scoreCandidateLimit": 4,
+                    "scoreFunction": scoring?.function ?? "none",
                     "prefixFunction": selected.function, "fastPrefixEnabled": fast?.enabled ?? false,
                     "prefixNumericalValidation": selected.numericalValidation, "maximumPrefixError": selected.maximumError,
                     "actualANEPlacementVerified": false, "energyMeasured": false]

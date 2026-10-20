@@ -27,6 +27,13 @@ func cr_trim_sentence_cache() {}
         let faster = try worker.checkedPrefix(directory: directory, function: "step_fast", sequences: validationSequences, expected: numerical, units: .cpuOnly)
         let checkedScore = try worker.checkedScorer(directory: directory, vocabulary: vocabulary, metadata: checked!.metadata, units: .cpuOnly)
         expect(checkedScore?.numericalValidation == true, "Whole-sentence selector failed source verification")
+        let preciseScore = try worker.checkedScorer(directory: directory, vocabulary: vocabulary, metadata: checked!.metadata, units: .cpuOnly, function: "score_f32")
+        expect(preciseScore?.numericalValidation == true, "Float32 sentence fallback failed source verification")
+        let selectedScore = worker.chooseScorer(directory: directory, vocabulary: vocabulary, metadata: checked!.metadata, units: .cpuOnly)
+        if let selectedScore {
+            expect(selectedScore.numericalValidation && selectedScore.withinBudget && selectedScore.enabled,
+                "Selection retained a slow or inaccurate scoring function")
+        }
         worker.prefixState = try CoreMLPrefixState(model: model, vocabulary: vocabulary)
         worker.ready = true
         let sequences = ["我们明天再讨论", "你今天吃饭了吗", "他们已经回家了", "她正在准备晚饭"]
@@ -113,6 +120,7 @@ func cr_trim_sentence_cache() {}
             "highPrecisionSelectorPassed": true, "numericalFailureCannotEnableBackend": true,
             "fastPrefixNumericalValidation": faster?.numericalValidation ?? false,
             "fastPrefixMaximumError": faster?.maximumError ?? -1,
+            "scoringFunctionSelectedOnCPU": selectedScore?.function ?? "none_within_budget",
             "scope": "macOS real Core ML CPU_ONLY and the production worker method; no iOS runtime, ANE or phone latency"]
         print(String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
     }
