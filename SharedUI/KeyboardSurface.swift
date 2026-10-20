@@ -254,6 +254,7 @@ import ImageIO
     }
     private func renderCandidates() {
         guard initialized else { return }
+        let panelOpen = panel != nil
         let height = candidateHeight
         if presentedHeaderHeight != height {
             presentedHeaderHeight = height
@@ -263,12 +264,12 @@ import ImageIO
         let displayed = model.arithmetic?.candidates.map { Candidate(text: $0, consumed: 0) } ?? model.candidates
         // A result can arrive before the first host layout. Do not ask a zero-
         // sized flow layout to lay out 44-point cells; layout will pull the latest.
-        if height > 0, candidateScroll.bounds.width > 0 {
+        if !panelOpen, height > 0, candidateScroll.bounds.width > 0 {
             candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize)
         }
-        toolbar.isHidden = panelKind == .clipboard || candidateHeight > 0
-        candidateScroll.isHidden = panelKind == .clipboard || movingCursor || candidateHeight == 0
-        hint.isHidden = !movingCursor; hint.text = movingCursor ? "滑动键盘，移动光标" : nil
+        toolbar.isHidden = panelKind == .clipboard || (!panelOpen && candidateHeight > 0)
+        candidateScroll.isHidden = panelOpen || movingCursor || candidateHeight == 0
+        hint.isHidden = panelOpen || !movingCursor; hint.text = movingCursor ? "滑动键盘，移动光标" : nil
         // Candidate updates only touch the header, never the keys or glass layers.
         // The collection lays out in UIKit's normal pass, never synchronously
         // from a key event or a decoder completion.
@@ -423,10 +424,11 @@ import ImageIO
         container.accessibilityLabel = title
         container.accessibilityContainerType = .semanticGroup
         addSubview(container); panel = container; keyGlassGroup.isHidden = true
-        let scroll = UIScrollView(); scroll.translatesAutoresizingMaskIntoConstraints = false; container.addSubview(scroll)
+        let scroll = KeyboardPanelScrollView(); scroll.translatesAutoresizingMaskIntoConstraints = false; container.addSubview(scroll)
+        scroll.accessibilityIdentifier = "keyboard.panelScroll"
         NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor), scroll.topAnchor.constraint(equalTo: container.topAnchor), scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor)])
-        let stack = UIStackView(); stack.axis = .vertical; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = false; scroll.addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 12), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -12), stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 10), stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12), stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -24)])
+        let stack = UIStackView(); stack.axis = .vertical; stack.spacing = 10; stack.translatesAutoresizingMaskIntoConstraints = false; scroll.addSubview(stack)
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 12), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -12), stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 8), stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -12), stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -24)])
         return stack
     }
     private func showToolbox() {
@@ -442,7 +444,6 @@ import ImageIO
     private func showToolbarEditor() {
         closePanel(); toolbarEditing = true; toolboxVisible = true
         let stack = panelStack(title: "定制工具栏")
-        stack.addArrangedSubview(note("点按添加或移除 · 按住上方图标拖动排序"))
         let items: [(String, String, () -> Void)] = ToolbarTool.allCases.filter { $0 != .language }.map { tool in
             let selected = model.settings.toolbar.contains(tool)
             return ((selected ? "− " : "+ ") + tool.title, tool.symbol, { [weak self] in self?.setToolPinned(tool, pinned: !selected) })
@@ -530,7 +531,7 @@ import ImageIO
                 }, for: .valueChanged); row.addArrangedSubview(slider); stack.addArrangedSubview(row)
             }
         }
-        setNeedsLayout()
+        render(); setNeedsLayout()
     }
     private func actionButton(_ title: String, symbol: String? = nil, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system); button.setTitle(title, for: .normal)
@@ -559,7 +560,6 @@ import ImageIO
             stickers.addArrangedSubview(actionButton(title) { [weak self] in self?.copySticker(title, emoji: emoji) })
         }
         stack.addArrangedSubview(stickers)
-        stack.addArrangedSubview(note("文字表情直接输入；文字贴纸点按复制，再到消息框粘贴。"))
     }
     private func copySticker(_ title: String, emoji: String) {
         guard model.document?.fullAccess == true else {

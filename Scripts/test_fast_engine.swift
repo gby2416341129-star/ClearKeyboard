@@ -52,6 +52,10 @@ import Foundation
             exactRows += 1
         }
         require(exactRows > 20, "The generic short-initial check did not exercise enough dictionary rows")
+        for raw in ["djdj", "wmdj", "nmdz", "hd", "nnnd", "cqm", "nnn", "jtzg"] {
+            let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 96)
+            require(Array(page.prefix(head.count)) == head, "Short-initial paging reordered the first screen: \(raw)")
+        }
         for raw in ["jtzgsm", "lzqnmd", "busuanchadla", "wogeimam", "mamncfm", "nnnd"] {
             let values=engine.candidates(raw,limit:9)
             if raw=="busuanchadla" { require(values.first?.text=="不算差的啦", "Literal repair failed in the real engine: \(values)") }

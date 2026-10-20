@@ -24,6 +24,7 @@ import os
     private var geometry = CandidateStripLayout()
     private var frames: [CGRect] { geometry.frames }
     private var extendingLayout = false
+    private var applyingPresentation = false
     private var requestedCount = -1
     private var stripWidth: CGFloat { geometry.width }
     private var viewportSize = CGSize.zero
@@ -139,6 +140,8 @@ import os
     }
     private func apply(_ next: Presentation, accent: UIColor) {
         guard next != presentation || !ink.isEqual(accent) else { return }
+        applyingPresentation = true
+        defer { applyingPresentation = false }
         let event = OSSignpostID(log: frameLog)
         os_signpost(.begin, log: frameLog, name: "CandidateFrame", signpostID: event, "count=%d", next.items.count)
         defer { os_signpost(.end, log: frameLog, name: "CandidateFrame", signpostID: event) }
@@ -351,6 +354,7 @@ import os
     }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard !applyingPresentation else { return }
         extendLayout()
         updateVisible()
         requestMoreIfNeeded()

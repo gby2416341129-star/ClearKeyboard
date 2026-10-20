@@ -48,12 +48,12 @@ import ImageIO
         for button in [back, more] {
             button.backgroundColor = .tertiarySystemFill; button.layer.cornerRadius = 17
         }
-        table.backgroundColor = .clear; table.separatorStyle = .none
+        table.prepareForKeyboardPanel(); table.separatorStyle = .none
         table.dataSource = self; table.delegate = self; table.estimatedRowHeight = 66; table.rowHeight = UITableView.automaticDimension
         table.register(ClipboardCardCell.self, forCellReuseIdentifier: "clip")
         table.showsVerticalScrollIndicator = false; table.delaysContentTouches = false
         empty.textAlignment = .center; empty.textColor = .tertiaryLabel; empty.font = .systemFont(ofSize: 13)
-        words.backgroundColor = .clear; words.dataSource = self; words.delegate = self
+        words.prepareForKeyboardPanel(); words.dataSource = self; words.delegate = self
         words.register(ClipboardTokenCell.self, forCellWithReuseIdentifier: "token")
         if let flow = words.collectionViewLayout as? UICollectionViewFlowLayout {
             flow.minimumInteritemSpacing = 6; flow.minimumLineSpacing = 7
