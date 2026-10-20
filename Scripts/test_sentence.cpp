@@ -42,6 +42,9 @@ int main(int argc,char **argv) {
   std::vector<clear_sentence::PhoneticSearch::Candidate> result;
   assert(phonetic.decode("jtzgsm",model,result,budget()));assert(result.front().text==u8"今天在干什么");
   const auto saved=result.front().text;assert(!phonetic.decode("jtzgsm",model,result,expired) && result.front().text==saved);
+  model.clear_cache();
+  assert(phonetic.decode("busuanchadla",model,result,budget(),u8"不算差的恋爱","bu suan cha de lian ai"));
+  assert(result.front().text==u8"不算差的啦" && result.front().reading=="bu suan cha de la");
   std::ifstream source(argv[1],std::ios::binary);std::vector<char> bytes((std::istreambuf_iterator<char>(source)),{});bytes.back()^=1;
   {std::ofstream destination(argv[3],std::ios::binary);destination.write(bytes.data(),bytes.size());}
   assert(!model.load(argv[3]) && !model.ready());

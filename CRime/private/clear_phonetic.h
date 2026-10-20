@@ -110,9 +110,33 @@ public:
       }
     return minimum.front()>=3 && minimum.front()<=16 && initial_count.front()>0 && initial_count.front()<10000;
   }
-  bool decode(const std::string &input,Model &model,std::vector<Candidate> &result,const Budget &budget) const {
+  bool decode(const std::string &input,Model &model,std::vector<Candidate> &result,const Budget &budget,
+              const std::string &seed_text="",const std::string &seed_reading="") const {
     const auto edges=graph(input);if (edges.empty() || !budget.alive()) return false;
-    std::vector<std::vector<Candidate>> states(input.size()+1);states.front().push_back({});
+    std::vector<std::vector<Candidate>> states(input.size()+1);
+    Candidate seed;size_t seed_end=0;
+    std::vector<int> seed_tokens;
+    if (!seed_text.empty() && model.encode(seed_text,seed_tokens)) {
+      std::istringstream reading(seed_reading);std::string syllable;
+      for (int token:seed_tokens) {
+        if (!(reading>>syllable) || input.compare(seed_end,syllable.size(),syllable)!=0) break;
+        const auto bucket=full.find(syllable);
+        if (bucket==full.end() || std::none_of(bucket->second.begin(),bucket->second.end(),
+            [&](const Choice &choice){return choice.token==token;})) break;
+        seed_end+=syllable.size();seed.text+=model.text(token);++seed.count;
+        if (!seed.reading.empty()) seed.reading+=' ';seed.reading+=syllable;
+      }
+    }
+    // When a decoder completed a different vowel syllable, reuse its fully
+    // spelled prefix and repair only the remaining phonetic suffix. Each seed
+    // character is verified against the same pronunciation graph, never a
+    // phrase-specific shortcut. This avoids re-searching obvious full syllables.
+    const bool seeded=seed.count>=2 && seed_end<input.size() && !edges[seed_end].empty();
+    const size_t beam=seeded?2:Beam;
+    if (seeded) {
+      float mean=0;if (!model.mean_logprob(seed.text,mean,budget)) return false;
+      seed.logprob=mean*seed.count;states[seed_end].push_back(std::move(seed));
+    } else states.front().push_back({});
     auto value=[](const Candidate &c){return (c.logprob-0.8*c.abbreviated)/std::pow(std::max(1,c.count),0.7);};
     auto trim=[&](std::vector<Candidate> &items,size_t maximum) {
       std::stable_sort(items.begin(),items.end(),[&](const Candidate &a,const Candidate &b){return value(a)>value(b);});
@@ -122,7 +146,7 @@ public:
     };
     for (size_t offset=0;offset<input.size();++offset) {
       if (edges[offset].empty() || states[offset].empty()) continue;
-      trim(states[offset],Beam);
+      trim(states[offset],beam);
       std::vector<std::string> prefixes;
       for (const auto &candidate:states[offset]) prefixes.push_back(candidate.text);
       std::vector<std::vector<float>> probabilities;
@@ -133,8 +157,8 @@ public:
           std::vector<const Choice*> best;
           for (const auto &choice:*edge.choices) {
             auto point=std::lower_bound(best.begin(),best.end(),choice.token,[&](const Choice *a,int token){return probabilities[row][a->token]>probabilities[row][token];});
-            if (point==best.end() && best.size()>=Beam) continue;
-            best.insert(point,&choice);if (best.size()>Beam) best.pop_back();
+            if (point==best.end() && best.size()>=beam) continue;
+            best.insert(point,&choice);if (best.size()>beam) best.pop_back();
           }
           for (const auto *choice:best) {
             Candidate candidate=previous;
@@ -145,7 +169,7 @@ public:
             ++candidate.count;candidate.abbreviated+=edge.abbreviated;
             states[edge.end].push_back(std::move(candidate));
           }
-          if (states[edge.end].size()>Beam*8) trim(states[edge.end],Beam*4);
+          if (states[edge.end].size()>beam*8) trim(states[edge.end],beam*4);
         }
       }
       states[offset].clear();

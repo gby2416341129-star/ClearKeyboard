@@ -87,18 +87,26 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
     if (query.items.size()>capacity) query.items.resize(capacity);
     query.head_items=query.items;query.rank_decided=true;
   };
+  const bool complete=!query.items.empty() && query.items.front().consumed==length;
+  const int abbreviations=complete ? clear_sentence::PhoneticSearch::matches(input,syllables(query.items.front().reading)) : -1;
+  const bool literal=abbreviations>=0;
+  // The semantic model repairs an ambiguous sentence, not every unfinished
+  // suffix of an otherwise literal word. Keep complete full/mixed readings
+  // with at most two initials on the fast
+  // path. Incompatible vowel completions still enter constrained search.
   if (protected_dictionary || !sentence_model || !sentence_model->can_search() ||
+      (literal && abbreviations<=2) ||
       !phonetic_search.abbreviated_input(input)) { finish();return; }
   const auto now=clear_sentence::Budget::Clock::now();
   const auto deadline=started+std::chrono::milliseconds(35);
   if (now>=deadline) { finish();return; }
   clear_sentence::Budget budget{deadline,cancelled,context};
   std::vector<clear_sentence::PhoneticSearch::Candidate> generated;
-  if (!phonetic_search.decode(input,*sentence_model,generated,budget)) {
+  const auto seed_text=!literal && complete ? query.items.front().text : "";
+  const auto seed_reading=!literal && complete ? syllables(query.items.front().reading) : "";
+  if (!phonetic_search.decode(input,*sentence_model,generated,budget,seed_text,seed_reading)) {
     if (!(cancelled && cancelled(context))) finish();return;
   }
-  const bool complete=!query.items.empty() && query.items.front().consumed==length;
-  const bool literal=complete && clear_sentence::PhoneticSearch::matches(input,syllables(query.items.front().reading))>=0;
   float incumbent=0;
   if (complete && !sentence_model->mean_logprob(query.items.front().text,incumbent,budget)) {
     if (!(cancelled && cancelled(context))) finish();return;
