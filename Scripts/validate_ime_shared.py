@@ -43,6 +43,15 @@ def validate():
         partial['tokens'][row,row+1:]=ids['我'];partial['targets'][row,row+1:]=ids['你']
     altered=scorer.predict(partial)['mean_scores'];assert np.max(np.abs(original-altered))<0.0001
     zero=inputs([]);empty=scorer.predict(zero)['mean_scores'];assert np.isfinite(empty).all() and np.max(np.abs(empty))<0.0001
+    paired_path=ROOT/'Tests/Evaluation/candidate-score-parity.json'
+    paired=json.loads(paired_path.read_text(encoding='utf8'));paired_scores={};paired_error=0.0
+    assert paired['sourceSHA256']==references['sourceSHA256']
+    for start in range(0,len(paired['rows']),4):
+        group=paired['rows'][start:start+4]
+        predicted=scorer.predict(inputs([row['text'] for row in group]))['mean_scores']
+        for row,score in zip(group,predicted):
+            paired_scores[row['text']]=float(score);paired_error=max(paired_error,abs(float(score)-row['nativeMean']))
+    assert paired_error<0.025,paired_error
 
     # Compare a complete cold candidate batch against causal state filling.
     # Same candidate-length workload and weights; existing step has eight lanes,
@@ -61,6 +70,7 @@ def validate():
     report={'status':'passed','scope':'macOS real Core ML CPU_ONLY; no iOS runtime, physical phone, ANE placement or end-to-end input latency',
         'stepSamples':len(errors),'maximumStepError':max(errors),'scoreRows':4,'incrementalRows':8,'maximumScoreError':score_error,
         'rowPermutationIndependent':True,'causalPaddingInvariant':True,'zeroMaskFinite':True,
+        'pairedScoreRows':len(paired_scores),'maximumPairedScoreError':paired_error,'pairedScores':paired_scores,
         'scoreFunctionCalls':1,'incrementalFunctionCalls':15,'scoreMS':score_ms,'causalMS':causal_ms,
         'predictionMedianSpeedup':statistics.median(causal_ms)/statistics.median(score_ms),
         'export':json.loads((directory/'export-result.json').read_text(encoding='utf8'))}
