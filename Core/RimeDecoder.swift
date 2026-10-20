@@ -68,7 +68,12 @@ final class RimeDecoder {
         }
         if !cancelled() {
             if cache[key] == nil { cacheOrder.append(key) }
-            cache[key] = (limit, result)
+            // Paging may expose thousands of choices for one spelling. Retain
+            // only the useful leading page across spellings; the live native
+            // session already owns its candidate iterator. Otherwise 32 browsed
+            // queries would retain 32 entire long lists in the keyboard process.
+            let retained = min(limit, 64)
+            cache[key] = (retained, Array(result.prefix(retained)))
             if cacheOrder.count > 32 { cache.removeValue(forKey: cacheOrder.removeFirst()) }
         }
         return result

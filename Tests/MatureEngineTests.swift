@@ -16,6 +16,8 @@ final class MatureEngineTests: XCTestCase {
         }
         XCTAssertTrue(larger.allSatisfy { $0.consumed > 0 && $0.consumed <= 2 })
         XCTAssertEqual(Set(larger.map(\.text)).count, larger.count)
+        XCTAssertEqual(engine.candidates("hd", limit: 24, correction: false), small,
+                       "Reusing the bounded cache after browsing must preserve the leading choices")
     }
     func testShortExactPhraseListDoesNotHideOtherDecoderChoices() {
         let values = engine.candidates("djdj", limit: 64, correction: false)
