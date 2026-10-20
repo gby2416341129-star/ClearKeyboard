@@ -53,6 +53,7 @@ def verify(path):
             info = plistlib.loads(archive.read(prefix + "Info.plist"))
             require(info.get("CFBundlePackageType") == kind, "Incorrect bundle type")
             require("iPhoneOS" in info.get("CFBundleSupportedPlatforms", []), "Bundle is not for iPhoneOS")
+            require(info.get("CADisableMinimumFrameDurationOnPhone") is True, "High-refresh display timing is not enabled")
             identifier = info["CFBundleIdentifier"]
             executable = info["CFBundleExecutable"]
             require("/" not in executable and executable not in ("", ".", ".."), "Invalid executable name")
