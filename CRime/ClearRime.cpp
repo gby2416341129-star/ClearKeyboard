@@ -1,6 +1,7 @@
 #include "include/ClearRime.h"
 #include "private/rime_api.h"
 #include "private/clear_phonetic.h"
+#include "private/clear_initial.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -22,6 +23,7 @@ RimeApi *api = nullptr;
 std::string shared_path, user_path, prebuilt_path;
 std::unique_ptr<clear_sentence::Model> sentence_model;
 clear_sentence::PhoneticSearch phonetic_search;
+clear_initial::Index initial_index;
 cr_sentence_predictor platform_predictor = nullptr;
 void *platform_predictor_context = nullptr;
 cr_sentence_scorer platform_scorer = nullptr;
@@ -386,6 +388,7 @@ int cr_initialize(const char *shared, const char *user) {
   traits.distribution_version = "0.1.17"; traits.min_log_level = 3; traits.log_dir = "";
   static const char *modules[] = {"default", "lua", "octagram", nullptr}; traits.modules = modules;
   api = rime_get_api(); api->setup(&traits); api->initialize(&traits);
+  initial_index.load(shared_path+"/clear-initials.idx");
   auto model=std::make_unique<clear_sentence::Model>();
   if (model->load(shared_path+"/clear-sentence.clm") &&
       phonetic_search.load(shared_path+"/clear-phonetic.tsv",*model)) {
@@ -454,7 +457,12 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   // Share the large table with a correction-free prism and no grammar model.
   // Only a complete dictionary phrase can bypass sentence correction; partial
   // words must not hide a genuinely mistyped sentence.
-  collect(query.exact, input, limit, query.exact_cache, cancelled, context);
+  // Keep all exact partial words while avoiding sentence work beyond the
+  // longest complete word prefix. Unknown/unsupported input keeps the full
+  // query, and explicit paging still queries the complete spelling.
+  const std::string raw(input);
+  const auto prefix=leading_row && correction?initial_index.exact_prefix_size(raw):raw.size();
+  collect(query.exact, raw.substr(0,prefix), limit, query.exact_cache, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
   const auto &literal = query.exact_cache.items;
   std::vector<Item> fluent;bool repaired=false;

@@ -74,6 +74,10 @@ jobs:
           fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
           Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
           PY
+          python3 Scripts/test_exact_initials.py
+          c++ -O3 -UNDEBUG -std=c++17 Scripts/test_exact_initials.cpp -o .build/test-exact-initials
+          .build/test-exact-initials Core/Resources/Rime/clear-initials.idx .rime-cache/source/clear_pinyin.dict.yaml .build/corrupt-initials.tmp
+          python3 Scripts/test_exact_channels.py
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch
           .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_integer.cpp -o .build/test-native-integer
@@ -105,8 +109,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.39')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 42')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.40')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 43')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

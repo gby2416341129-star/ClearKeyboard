@@ -11,6 +11,7 @@ import struct
 import zipfile
 from pathlib import Path
 from prepare_ime_model import ASSETS, NATIVE_SHA256
+from exact_initials import inspect_index
 
 
 def require(condition, message):
@@ -88,6 +89,11 @@ def verify(path):
             bundles.append({"bundleIdentifier": identifier, **binary})
         with archive.open(app + "Rime/wanxiang-lts-zh-hans.gram") as stream:
             require(hashlib.file_digest(stream, "sha256").hexdigest() == "1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488", "Context model checksum mismatch")
+        with archive.open(app+'Rime/build/clear_pinyin.table.bin') as stream:
+            dictionary_digest=hashlib.file_digest(stream,'sha256').hexdigest()
+        initial_index=inspect_index(archive.read(app+'Rime/clear-initials.idx'),dictionary_digest)
+        require(initial_index['dictionaryReadings']>500000 and initial_index['uniqueCodes']>100000,
+                'Incomplete exact initial membership index')
         model=archive.read(app+'Rime/clear-sentence.clm')
         require(hashlib.sha256(model).hexdigest()==NATIVE_SHA256, '25M sentence model checksum mismatch')
         require(not any(name.startswith(extension+'Rime/') for name in names), 'Language models duplicated in keyboard bundle')
@@ -125,6 +131,7 @@ def verify(path):
         "status": "passed",
         "checks": "ZIP integrity, bundle metadata, extension registration, executable permissions, arm64 iOS load commands, offline dictionaries, spelling-correction index and source checksum, pinned 25M model and attribution, phonetic graph, single shared model resources, privacy manifests",
         "bundles": bundles,
+        "exactInitialIndex": initial_index,
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "signing": "unsigned build; no signing verification performed",
         "installableAsDelivered": False,

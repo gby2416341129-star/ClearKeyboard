@@ -3,6 +3,7 @@
 import argparse, concurrent.futures, hashlib, heapq, json, os, platform, shutil, struct
 import subprocess, unicodedata, urllib.request, zipfile
 from prepare_ime_model import prepare as prepare_sentence_model
+from exact_initials import write_index
 from collections import defaultdict
 from itertools import product
 from pathlib import Path
@@ -246,6 +247,10 @@ def main():
     for name in ['clear_pinyin.schema.yaml','clear_pinyin.table.bin','clear_pinyin.prism.bin','clear_exact.schema.yaml','clear_exact.prism.bin','clear_conversation.schema.yaml','clear_conversation.prism.bin','clear_conversation.table.bin']:
         shutil.copyfile(source/'build'/name,build/name)
     (build/'clear_fluent.schema.yaml').write_text(fluent_schema((build/'clear_pinyin.schema.yaml').read_text(encoding='utf-8')),encoding='utf-8')
+    with (build/'clear_pinyin.table.bin').open('rb') as dictionary:
+        dictionary_digest=hashlib.file_digest(dictionary,'sha256').hexdigest()
+    initial_record=write_index(rows,output/'clear-initials.idx',dictionary_digest)
+    print('Derived exact initial membership: '+json.dumps(initial_record,sort_keys=True),flush=True)
     for path in output.rglob('*'):
         if path.is_file(): print(path.relative_to(ROOT),path.stat().st_size)
 
