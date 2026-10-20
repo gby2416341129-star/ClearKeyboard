@@ -640,6 +640,16 @@ public:
   // Temporary float weights are bounded to one panel, never the whole model.
   bool native_full(const std::vector<std::string> &sentences,std::vector<float> &scores,const Budget &budget) {
     if(!loaded || sentences.empty() || sentences.size()>4 || !budget.alive()) return false;
+    #if defined(__APPLE__) && defined(CLEAR_NATIVE_SINGLE_THREAD)
+    struct ThreadScope {
+      BLAS_THREADING previous;
+      bool changed=false;
+      ThreadScope() {
+        if(__builtin_available(macOS 15.0,iOS 18.0,*)) {previous=BLASGetThreading();changed=BLASSetThreading(BLAS_THREADING_SINGLE_THREADED)==0;}
+      }
+      ~ThreadScope() {if(changed) {if(__builtin_available(macOS 15.0,iOS 18.0,*))BLASSetThreading(previous);}}
+    } threading;
+    #endif
     struct Use {int node,token;};
     std::vector<std::vector<Use>> uses;
     std::vector<int> tokens={2},parents={-1},depths={0};
