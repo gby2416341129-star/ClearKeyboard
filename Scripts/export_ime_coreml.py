@@ -90,6 +90,9 @@ def build(source,output):
                     if descriptor.message_type.GetOptions().map_entry:continue
                     for child in value:compress(child)
                 else:compress(value)
+        if message.DESCRIPTOR.full_name.endswith('.BatchedMatMulLayerParams') and message.weights.float16Value and message.hasBias:
+            message.bias.float16Value=np.array(message.bias.floatValue,dtype='<f2').tobytes()
+            message.bias.ClearField('floatValue')
     compress(spec)
     output.write_bytes(spec.SerializeToString(deterministic=True))
     print(json.dumps(dict(path=str(output),bytes=output.stat().st_size,layers=len(spec.neuralNetwork.layers),sha256=hashlib.sha256(output.read_bytes()).hexdigest())))
@@ -109,3 +112,4 @@ if __name__=='__main__':
     if not files:raise RuntimeError('Core ML compilation produced no assets')
     manifest=dict(source_sha256=spec.description.metadata.userDefined['source_sha256'],model_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),files=files)
     (resources/'CoreML4M-manifest.json').write_text(json.dumps(manifest,sort_keys=True),encoding='utf-8')
+
