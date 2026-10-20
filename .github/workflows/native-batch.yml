@@ -1,4 +1,4 @@
-name: Validate experimental int16 native kernel
+name: Validate cached causal whole scoring
 on:
   push:
     branches: [codex/ime-native-batch-20261021]
@@ -19,53 +19,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Restore unchanged weights and pinned shipping F32 reference
+      - name: Restore unchanged pinned weights and shipping build41 reference
         run: |
           python3 Scripts/prepare_ime_model.py
           mkdir -p .build
           python3 - <<'PY'
-          import hashlib,urllib.request,json
+          import hashlib,urllib.request
           from pathlib import Path
-          data=urllib.request.urlopen('https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/1832b8ac6bb6e3fd8ed3b0318fad54781377f91b/CRime/private/clear_sentence.h',timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()=='d774e6ed81315e3b665249da09ba674df0ef667ca19ff83b39ae13c41dde0678'
-          Path('.build/native-reference.h').write_bytes(data)
-          fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
-          Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
+          data=urllib.request.urlopen('https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/c0f36661b34567af19d7ff52fa9562531eae6cdc/CRime/private/clear_sentence.h',timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()=='696c07cdc5aaa2982b570e9fc6abebdd54d1cf6620e6698576f6f062bd3e1652'
+          Path('.build/whole-reference.h').write_bytes(data)
           PY
-      - name: Check strict shipping F32 path
+      - name: Compare complete probabilities, cache eviction, cancellation and incremental CPU cost
         run: |
-          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch
-          .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
-      - name: Check optional integer kernel against strict F32
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_whole_cache.cpp -o .build/test-whole-cache
+          .build/test-whole-cache Core/Resources/Rime/clear-sentence.clm
+      - name: Compile cached scorer for the actual generic iPhone target
         run: |
-          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_integer.cpp -o .build/test-native-integer
-          .build/test-native-integer Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
-      - name: Check pronunciation probabilities and candidate policy
-        run: |
-          python3 - <<'PY'
-          import sys,json,unicodedata,hashlib
-          from pathlib import Path
-          sys.path.insert(0,'Scripts')
-          import prepare_rime as p
-          hashes=json.loads((p.ROOT/'Data/Rime/sources.json').read_text())['hashes'];words={}
-          p.CACHE.mkdir(exist_ok=True)
-          for name in ['zi','jichu','duoyin']:
-              p.fetch((name+'.yaml',(f'https://raw.githubusercontent.com/amzxyz/rime-wanxiang/{p.REV}/dicts/{name}.dict.yaml',hashes[name+'.yaml'])))
-              for line in (p.CACHE/(name+'.yaml')).read_text(encoding='utf-8-sig').splitlines():
-                  fields=line.split('\t')
-                  if len(fields)<3 or len(fields[0])!=1 or not fields[2].isdigit():continue
-                  text,reading=fields[:2];reading=reading.translate(str.maketrans('üǖǘǚǜ','vvvvv'))
-                  reading=''.join(c for c in unicodedata.normalize('NFD',reading) if not unicodedata.combining(c)).lower()
-                  if not all('\u3400'<=c<='\u9fff' for c in text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading) or len(reading.split())!=1:continue
-                  words[text,reading]=max(words.get((text,reading),0),int(fields[2]))
-          destination=Path('Core/Resources/Rime/clear-phonetic.tsv')
-          p.phonetic_index([(t,r,f) for (t,r),f in sorted(words.items())],destination)
-          assert hashlib.sha256(destination.read_bytes()).hexdigest()=='f06035ea8b148148c1202b38b6c5af0bedd083e75031f36bef11919d297f1278'
-          PY
-          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_sentence.cpp -o .build/test-sentence
-          .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
-          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_candidate_ranking.cpp -o .build/test-candidate-ranking
-          .build/test-candidate-ranking Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
-      - name: Compile the generic iPhone CPU target without running iOS
-        run: |
-          c++ -O3 -UNDEBUG -std=c++17 -target arm64-apple-ios16.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -fsyntax-only Scripts/test_native_integer.cpp
+          xcrun --sdk iphoneos clang++ -O3 -std=c++17 -arch arm64 -miphoneos-version-min=18.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -x c++ -c CRime/private/clear_sentence_cached.h -o .build/cached-scorer-iphone.o
