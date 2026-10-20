@@ -487,6 +487,25 @@ import UIKit
         model.handle(.enter)
         XCTAssertEqual(document.before, "hd\n", "An empty composition retains the editor's return behavior")
     }
+    func testPreparingSpaceOrCancellingALetterCannotStrandAnUnfinishedSentence() async throws {
+        let document = WordLookupDocument()
+        var settings = KeyboardSettings()
+        settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
+        let model = KeyboardModel(document: document, settings: settings)
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for cancelLetter in [false, true] {
+            for letter in "nichifankm" { model.handle(.text(String(letter))) }
+            if cancelLetter {
+                model.prepare(.text("a"))
+                model.cancelPreparation()
+            }
+            model.prepare(.space); model.handle(.space); model.cancelPreparation()
+            try await waitFor { model.composition.isEmpty }
+            XCTAssertTrue(document.before.hasSuffix("你吃饭了吗"))
+            XCTAssertFalse(document.before.hasSuffix("a"))
+        }
+    }
     func testSpaceStillSelectsChineseAndBrowsingLoadsMoreWithoutReordering() async throws {
         let document = WordLookupDocument()
         var settings = KeyboardSettings()

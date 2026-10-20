@@ -84,6 +84,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var warmCancellation = QueryCancellation()
     private var work: DispatchWorkItem?
     private var preparedCandidates: PreparedCandidates?
+    private var interruptedCandidates: PreparedCandidates?
     private var activeCandidates: PreparedCandidates?
     private var presentedRevision = 0
     private var candidateCache: [String: PreparedCandidates.Result] = [:]
@@ -126,8 +127,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
     // Begin work during the contact, without changing the document or the row.
     // A cancelled key is still cancelled; only handle(_:) commits the spelling.
     func prepare(_ action: KeyAction) {
-        refinementCancellation.cancel(); refinementWork?.cancel()
-        loadingMoreCandidates = false
         guard !awaitingCommit, !isMovingCursor, settings.language == .chinese,
               page == .letters else { return }
         var next = composition
@@ -140,9 +139,22 @@ struct DeletedInput { let text: String; let selection: NSRange }
             next.deleteBackward()
         default: return
         }
+        // Only a possible spelling edit interrupts enrichment. In particular,
+        // touching Space must leave the result it is about to commit running.
+        interruptedCandidates = activeCandidates
+        refinementCancellation.cancel(); refinementWork?.cancel()
+        loadingMoreCandidates = false
         if !next.isEmpty { _ = prepareCandidates(for: next.raw) }
     }
-    func cancelPreparation() { discardPreparedCandidates() }
+    func cancelPreparation() {
+        let interrupted = interruptedCandidates; interruptedCandidates = nil
+        discardPreparedCandidates()
+        // Sliding off a key cancels the edit, not the current composition's
+        // ability to finish. A successful release has adopted a different query.
+        if let interrupted, activeCandidates === interrupted, !candidatesAreCurrent {
+            scheduleDecoder(interrupted, delay: 0)
+        }
+    }
 
     private func discardPreparedCandidates() {
         if preparedCandidates !== activeCandidates { preparedCandidates?.token.cancel() }
@@ -181,6 +193,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             DispatchQueue.main.async {
                 guard let self, self.activeCandidates === query, !query.token.isCancelled else { return }
                 self.presentCandidates(query)
+                guard self.activeCandidates === query, !query.token.isCancelled else { return }
                 if !words.isEmpty, Self.isShortInitialism(raw), query.result?.stage == 0,
                    self.browsedContext == nil, !self.loadingMoreCandidates {
                     self.refinementCancellation.cancel(); self.refinementWork?.cancel()
