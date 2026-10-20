@@ -66,7 +66,7 @@ int main(int argc,char **argv) {
   assert(!phonetic.pronunciation_score("ni",u8"你","ni hao",model,a) && a==123);
   {
     std::ifstream source(argv[2]);std::string bytes((std::istreambuf_iterator<char>(source)),{}),row;
-    std::istringstream lines(bytes);while(std::getline(lines,row))if(!row.empty() && row.front()!='#')break;
+    std::istringstream lines(bytes);while(std::getline(lines,row))if(row.find(u8"不\tfou\t")==0)break;
     assert(!row.empty());{std::ofstream duplicate(argv[3]);duplicate<<bytes<<'\n'<<row<<'\n';}
     clear_sentence::PhoneticSearch repeated;assert(repeated.load(argv[3],model));
     assert(repeated.pronunciation_score("fou",u8"不","fou",model,a) && std::abs(a-rare)<1e-12);
@@ -95,5 +95,5 @@ int main(int argc,char **argv) {
   assert(!model.load(argv[3]) && !model.ready());
   {std::ofstream destination(argv[3],std::ios::binary);destination.write(bytes.data(),40);}
   assert(!model.load(argv[3]) && !model.ready());assert(model.load(argv[1]));std::remove(argv[3]);
-  std::cout<<"PASS: 25M numerical parity, bounded leaf cache, phonetic search, deadlines, cancellation, OOV/UTF8, corrupt-model fallback\n";
+  std::cout<<"PASS: 25M F32 parity, pronunciation likelihood, duplicate invariance, seeded priors, bounded leaf cache, phonetic search, deadlines, cancellation, OOV/UTF8, corrupt-model fallback\n";
 }

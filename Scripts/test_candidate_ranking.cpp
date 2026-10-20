@@ -62,6 +62,7 @@ int main(int argc,char **argv) {
   const auto scalar_calls=control.calls;
   assert(sentence_model->mean_logprob(u8"学习资料",whole_mean,budget) && control.calls==scalar_calls);
   sentence_model->set_scorer(nullptr,nullptr);sentence_model->set_native_enabled(true);
+  sentence_model->set_native_integer_enabled(false); // Strict F32 parity; approximate mode is checked separately.
   const std::vector<std::string> texts={u8"这份材料收到了",u8"我们明天再讨论"};
   std::vector<float> actual={123},reference,unbounded;
   budget.deadline=clear_sentence::Budget::Clock::now()+std::chrono::seconds(5);

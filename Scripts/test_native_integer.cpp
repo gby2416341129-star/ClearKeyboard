@@ -17,6 +17,11 @@ int cancel_count(void *context){return --*static_cast<int*>(context)<=0;}
 int main(int argc,char **argv){
   assert(argc==2 || argc==3);reference_sentence::Model before;clear_sentence::Model after;
   assert(before.load(argv[1]) && after.load(argv[1]));const int calibrated_limit=after.native_score_limit();const bool integer_calibrated=after.native_integer_ready();
+  const bool prefix_calibrated=after.native_ready();
+  const auto probe=after.native_integer_calibration();
+  std::cout<<"{\"probeAvailable\":"<<probe.available<<",\"probeValidated\":"<<probe.validated<<",\"probeComparisons\":"<<probe.comparisons
+    <<",\"probeMaximumError\":"<<probe.maximumError<<",\"prefixCalibrated\":"<<prefix_calibrated<<",\"probeMS\":[";
+  for(int i=0;i<3;++i)std::cout<<(i?",":"")<<"["<<probe.exactMS[i]<<","<<probe.integerMS[i]<<"]";std::cout<<"]}\n";
   before.set_native_integer_enabled(false);after.set_native_integer_enabled(true);
   before.set_native_enabled(true);after.set_native_enabled(true);
   

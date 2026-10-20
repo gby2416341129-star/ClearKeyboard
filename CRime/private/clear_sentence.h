@@ -255,6 +255,12 @@ template<size_t Batch> inline void dot16_many(const int8_t *weight,const Input16
   #endif
 }
 
+struct IntegerKernelCalibration {
+  std::array<double,3> exactMS{},integerMS{};
+  double maximumError=0;
+  int comparisons=0;
+  bool available=false,validated=false;
+};
 class Model {
   static constexpr int D=448, Layers=8, Heads=8, Vocab=12288, Window=128, CacheLimit=128;
   struct Matrix {
@@ -388,6 +394,7 @@ private:
   bool loaded=false;
   bool native_enabled=false;
   bool native_integer=false;
+  IntegerKernelCalibration integer_calibration;
   int native_score_positions=0;
   const uint8_t *mapped=nullptr;
   size_t mapped_size=0;
@@ -667,6 +674,7 @@ public:
   bool can_search() const { return loaded && (native_enabled || predictor); }
   bool native_ready() const { return native_enabled; }
   bool native_integer_ready() const { return loaded && native_integer; }
+  const IntegerKernelCalibration &native_integer_calibration() const { return integer_calibration; }
   // A precision change invalidates all hidden states, distributions and means.
   // Standalone tests can select either path without weakening F32 references.
   void set_native_integer_enabled(bool enabled) {
@@ -899,7 +907,7 @@ public:
   void clear_cache() { cache.clear(); cache_index.clear(); distributions.clear(); means.clear(); clock=0; }
   bool load(const std::string &path) {
     // A failed reload must never retain partially replaced weights.
-    loaded=false; native_enabled=false; native_score_positions=0; set_native_integer_enabled(false); vocabulary.clear();
+    loaded=false; native_enabled=false; native_score_positions=0; set_native_integer_enabled(false); integer_calibration={}; vocabulary.clear();
     release_mapping();
     #if defined(__APPLE__)
     // Borrow immutable tensors from a read-only mapping. Copying int8 weights
@@ -973,8 +981,9 @@ public:
     if (loaded) {
       #if defined(__aarch64__)
       if(dot_product_supported()) {
+        integer_calibration.available=true;
         const std::vector<std::string> probes={"",characters[400]};
-        double slow_best=std::numeric_limits<double>::infinity(),fast_worst=0;
+        std::array<double,3> ratios{};
         bool accepted=true;
         for(int repetition=0;repetition<3 && accepted;++repetition) {
           std::vector<std::vector<float>> exact,approximate;
@@ -988,18 +997,26 @@ public:
           if(repetition%2)accepted=measure(true,approximate,fast) && measure(false,exact,slow);
           else accepted=measure(false,exact,slow) && measure(true,approximate,fast);
           if(!accepted)break;
+          integer_calibration.exactMS[repetition]=slow;integer_calibration.integerMS[repetition]=fast;
           for(size_t row=0;row<exact.size();++row) {
             if(exact[row].size()!=approximate[row].size() ||
                 std::max_element(exact[row].begin(),exact[row].end())-exact[row].begin()!=
                 std::max_element(approximate[row].begin(),approximate[row].end())-approximate[row].begin()) {accepted=false;break;}
-            for(size_t token=0;token<exact[row].size();++token)
-              if(!std::isfinite(approximate[row][token]) || std::abs(exact[row][token]-approximate[row][token])>=0.01f) {accepted=false;break;}
+            for(size_t token=0;token<exact[row].size();++token) {
+              const auto difference=std::abs(exact[row][token]-approximate[row][token]);
+              if(!std::isfinite(approximate[row][token]) || difference>=0.01f) {accepted=false;break;}
+              integer_calibration.maximumError=std::max(integer_calibration.maximumError,double(difference));
+            }
           }
-          slow_best=std::min(slow_best,slow);fast_worst=std::max(fast_worst,fast);
+          if(slow<=0) {accepted=false;break;}
+          ratios[repetition]=fast/slow;++integer_calibration.comparisons;
         }
-        // Keep F32 unless every probe agrees and even the slowest integer
-        // run beats the fastest F32 run by at least ten percent.
-        set_native_integer_enabled(accepted && fast_worst<slow_best*0.9);
+        integer_calibration.validated=accepted && integer_calibration.comparisons==3;
+        // Compare paired runs in alternating order. A scheduler outlier must
+        // not pick the kernel; require a ten-percent median gain. Every run
+        // still has the same five-millisecond limit and numerical checks.
+        std::sort(ratios.begin(),ratios.end());
+        set_native_integer_enabled(integer_calibration.validated && ratios[1]<0.9);
       }
       #endif
 
