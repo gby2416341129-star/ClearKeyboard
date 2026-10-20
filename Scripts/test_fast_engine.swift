@@ -24,6 +24,16 @@ import Foundation
                 rows.append(["unit": unit, "repeats": count, "first": head.first!.text, "ms": ms])
             }
         }
+        for raw in ["blblbl", "jdjdjdj"] {
+            let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 40)
+            require(Array(page.prefix(head.count)) == head, "A short or unfinished repeat page moved its literal candidate")
+            if raw == "jdjdjdj" { require(head.first?.consumed == 6, "A partial repeat consumed its next initial") }
+        }
+        let personal = Candidate(text: "激动激动激动", reading: "ji dong ji dong ji dong", consumed: 6)
+        let personalized = engine.candidates("jdjdjd", preferred: [personal], limit: 9)
+        let personalizedPage = engine.candidates("jdjdjd", preferred: [personal], limit: 40)
+        require(personalized.first == personal && Array(personalizedPage.prefix(personalized.count)) == personalized,
+                "A preferred word outside the model's short row changed on paging")
         for raw in ["jtzgsm", "lzqnmd", "busuanchadla", "wogeimam", "mamncfm"] {
             rows.append(["input": raw, "head": engine.candidates(raw, limit: 9).map(\.text)])
         }

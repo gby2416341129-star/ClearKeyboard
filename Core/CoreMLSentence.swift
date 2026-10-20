@@ -39,7 +39,7 @@ final class CoreMLSentence {
             }
             DispatchQueue.global(qos: .utility).async { cr_trim_sentence_cache() }
         }
-        #if canImport(CoreML)
+        #if canImport(CoreML) && os(iOS)
         queue.async { [self] in
             do {
                 // Check the extension's remaining allowance, not total phone RAM.
