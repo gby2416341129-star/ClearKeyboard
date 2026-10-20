@@ -18,7 +18,9 @@ public final class InputEngine {
     private var matchOrder: [String] = []
     private var nextEviction = 0
     private static let cacheLimit = 2_048
-    private static let conversational = ["hd": "好的", "nh": "你好", "wm": "我们", "xx": "谢谢", "zj": "再见"]
+    private static let conversationalReadings = ["hd": ("好的", "hao de"), "nh": ("你好", "ni hao"),
+        "wm": ("我们", "wo men"), "xx": ("谢谢", "xie xie"), "zj": ("再见", "zai jian")]
+    private static let conversational = conversationalReadings.mapValues { $0.0 }
     private var previousSentence = ""
     private var previousPaths: [[Path]] = []
     private let correctionIndex: PinyinCorrectionIndex?
@@ -57,11 +59,10 @@ public final class InputEngine {
         let unit = String(input.prefix(2)), count = input.utf8.count / 2
         // Repeating a short preferred acknowledgement preserves its existing
         // preference (including the user's familiar short-code defaults).
-        if let alias = Self.conversational[unit],
-           let word = chinese.lookup("a:" + unit, limit: 64).first(where: { $0.text == alias && abbreviation($0.reading) == unit }) {
-            let text = String(repeating: word.text, count: count)
+        if let (word, reading) = Self.conversationalReadings[unit] {
+            let text = String(repeating: word, count: count)
             values.removeAll { $0.text == text }
-            values.insert(Candidate(text: text, reading: Array(repeating: word.reading, count: count).joined(separator: " "),
+            values.insert(Candidate(text: text, reading: Array(repeating: reading, count: count).joined(separator: " "),
                 consumed: count * 2), at: 0)
         }
         return Array(values.prefix(8))
