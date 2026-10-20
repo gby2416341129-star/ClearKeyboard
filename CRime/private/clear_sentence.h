@@ -405,7 +405,10 @@ public:
       const int root=state("",2,-1,budget);
       std::vector<float> logits(Vocab);
       native_enabled=root>=0 && embedding.apply(cache[root].hidden.data(),logits.data(),budget) &&
-          std::chrono::duration<double,std::milli>(Budget::Clock::now()-started).count()<4.0;
+          // A beam needs many prefix positions. A single multi-millisecond
+          // probe passed the old gate but then exhausted every typing budget.
+          // Leave that device on Rime until a fast platform predictor is ready.
+          std::chrono::duration<double,std::milli>(Budget::Clock::now()-started).count()<0.6;
     }
     return loaded;
   }
