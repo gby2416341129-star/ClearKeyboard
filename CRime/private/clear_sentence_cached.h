@@ -690,7 +690,7 @@ public:
   bool native_ready() const { return native_enabled; }
   bool native_integer_ready() const { return loaded && native_integer; }
   bool native_whole_integer_ready() const { return loaded && native_whole_integer; }
-  void set_native_whole_integer_enabled(bool enabled) { native_whole_integer=enabled;means.clear();whole_cache.clear(); }
+  void set_native_whole_integer_enabled(bool enabled) { if(native_whole_integer==enabled)return;native_whole_integer=enabled;means.clear();whole_cache.clear(); }
   const IntegerKernelCalibration &native_integer_calibration() const { return integer_calibration; }
   // A precision change invalidates all hidden states, distributions and means.
   // Standalone tests can select either path without weakening F32 references.
@@ -912,6 +912,29 @@ public:
     if(!budget.alive())return false;
     scores=std::move(completed);return true;
   }
+
+  bool whole_pool_fits(const std::vector<std::string> &sentences) const {
+    if(!loaded || sentences.empty() || sentences.size()>4)return false;
+    std::vector<std::string> missing;
+    for(const auto &sentence:sentences) {
+      std::vector<int> ids;if(!encode(sentence,ids) || ids.size()>16)return false;
+      if(!means.count(sentence))missing.push_back(sentence);
+    }
+    if(missing.empty() || scorer)return true;
+    if(native_score_positions<=0)return false;
+    std::unordered_set<std::string> prefixes={""};
+    for(const auto &sentence:missing) {
+      std::vector<int> ids;encode(sentence,ids);std::string key;
+      for(size_t i=0;i+1<ids.size();++i) {
+        key+=static_cast<char>(ids[i]&255);key+=static_cast<char>(ids[i]>>8);prefixes.insert(key);
+      }
+    }
+    size_t count=0;for(const auto &prefix:prefixes)count+=!whole_cache.count(prefix);
+    return prefixes.size()<=61 && count<=static_cast<size_t>(native_score_positions);
+  }
+  #ifdef CLEAR_SENTENCE_TESTING
+  void test_native_whole_limit(int positions) {native_score_positions=positions;}
+  #endif
 
   bool mean_logprob(const std::string &value,float &score,const Budget &budget) {
     // The dedicated full-sequence function also handles an incumbent/seed in

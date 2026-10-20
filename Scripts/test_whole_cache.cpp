@@ -1,3 +1,4 @@
+#define CLEAR_SENTENCE_TESTING
 #define clear_sentence reference_sentence
 #include "../.build/whole-reference.h"
 #undef clear_sentence
@@ -34,7 +35,10 @@ int main(int argc,char **argv){
     // an uncached graph is still rejected by the same measured work cap.
     const auto batch=std::vector<std::string>{u8"我们明天再讨论",u8"我们明天再说吧"};
     check(batch);std::vector<float> output={123};assert(after.native_full(batch,output,allowance<clear_sentence::Budget>(),1));
+    after.test_native_whole_limit(1);assert(after.whole_pool_fits(batch));
+    assert(!after.whole_pool_fits({""}) && !after.whole_pool_fits({u8"🦄"}));
     after.clear_whole_cache();output={123};assert(!after.native_full(batch,output,allowance<clear_sentence::Budget>(),1) && output==std::vector<float>{123});
+    assert(!after.whole_pool_fits(batch));after.test_native_whole_limit(61);
     check(batch);
     for(int remaining:{1,20,100,400,1000}){
       after.clear_cache();int counter=remaining;auto budget=allowance<clear_sentence::Budget>();budget.cancelled=stop;budget.context=&counter;
