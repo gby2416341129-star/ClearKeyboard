@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <unistd.h>
 #endif
 #if defined(__aarch64__)
@@ -166,15 +167,21 @@ inline void gelu_many(float *values,int count,std::vector<float> &scratch) {
 
 struct Input16 {
   std::array<int16_t,1792> values;
+  #if defined(__aarch64__)
+  std::array<int8_t,1792> low,high;
+  #endif
   float step=1;
   Input16(const float *x,int count) {
     float maximum=0;for(int i=0;i<count;++i) maximum=std::max(maximum,std::abs(x[i]));
-    const float gain=maximum>0?32760/maximum:1;step=1/gain;
+    const float gain=maximum>0?32639/maximum:1;step=1/gain;
     #if defined(__aarch64__)
     for(int i=0;i<count;i+=8) {
       const auto a=vcvtnq_s32_f32(vmulq_n_f32(vld1q_f32(x+i),gain));
       const auto b=vcvtnq_s32_f32(vmulq_n_f32(vld1q_f32(x+i+4),gain));
-      vst1q_s16(values.data()+i,vcombine_s16(vqmovn_s32(a),vqmovn_s32(b)));
+      const auto q=vcombine_s16(vqmovn_s32(a),vqmovn_s32(b));
+      vst1q_s16(values.data()+i,q);
+      vst1_s8(low.data()+i,vmovn_s16(q));
+      vst1_s8(high.data()+i,vmovn_s16(vshrq_n_s16(vaddq_s16(q,vdupq_n_s16(128)),8)));
     }
     #elif defined(__AVX2__)
     const auto multiplier=_mm256_set1_ps(gain);
@@ -187,10 +194,39 @@ struct Input16 {
     #endif
   }
 };
+#if defined(__aarch64__)
+inline bool dot_product_supported() {
+  #if defined(__APPLE__)
+  static const bool supported=[] {int value=0;size_t size=sizeof(value);return sysctlbyname("hw.optional.arm.FEAT_DotProd",&value,&size,nullptr,0)==0 && value==1;}();
+  return supported;
+  #elif defined(__ARM_FEATURE_DOTPROD)
+  return true;
+  #else
+  return false;
+  #endif
+}
+// q = high * 256 + low, with BOTH bytes signed. Restrict |q| to 32639
+// so that the rounding carry cannot overflow high. Each 8-bit dot sum
+// fits int32 at K<=1792; combine the high contribution in int64 only.
+template<size_t Batch> __attribute__((target("dotprod")))
+inline void dot16_sdot(const int8_t *weight,const Input16 *const *inputs,int count,int64_t *out) {
+  std::array<int32x4_t,Batch> high,low;
+  for(size_t row=0;row<Batch;++row)high[row]=low[row]=vdupq_n_s32(0);
+  for(int i=0;i<count;i+=16) {
+    const auto w=vld1q_s8(weight+i);
+    for(size_t row=0;row<Batch;++row) {
+      high[row]=vdotq_s32(high[row],w,vld1q_s8(inputs[row]->high.data()+i));
+      low[row]=vdotq_s32(low[row],w,vld1q_s8(inputs[row]->low.data()+i));
+    }
+  }
+  for(size_t row=0;row<Batch;++row)out[row]=vaddlvq_s32(high[row])*256+vaddlvq_s32(low[row]);
+}
+#endif
 // At K <= 1792 each int32 lane contains at most 112 pair products:
 // 112 * 2 * 128 * 32760 < 2^31. Only the final reduction needs int64.
 template<size_t Batch> inline void dot16_many(const int8_t *weight,const Input16 *const *inputs,int count,int64_t *out) {
   #if defined(__aarch64__)
+  if(dot_product_supported()){dot16_sdot<Batch>(weight,inputs,count,out);return;}
   std::array<int32x4_t,Batch> a,b;
   for(size_t row=0;row<Batch;++row)a[row]=b[row]=vdupq_n_s32(0);
   for(int i=0;i<count;i+=8) {

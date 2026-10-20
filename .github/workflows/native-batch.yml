@@ -36,3 +36,6 @@ jobs:
         run: |
           c++ -O3 -UNDEBUG -DACCELERATE_NEW_LAPACK -std=c++17 -framework Accelerate Scripts/test_native_int16.cpp -o .build/test-native-int16
           .build/test-native-int16 Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+      - name: Compile the generic iPhone CPU target without running iOS
+        run: |
+          c++ -O3 -UNDEBUG -std=c++17 -target arm64-apple-ios16.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -fsyntax-only Scripts/test_native_int16.cpp
