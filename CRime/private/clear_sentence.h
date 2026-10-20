@@ -17,6 +17,7 @@
 #include <unordered_set>
 #include <vector>
 #if defined(__APPLE__)
+#include <Accelerate/Accelerate.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -152,6 +153,37 @@ class Model {
         case 4:return apply_group<4>(x,out,budget);
         default:return false;
       }
+    }
+    bool apply_bulk(const float *x,float *out,int count,std::vector<float> &panel,const Budget &budget) const {
+      #if defined(__APPLE__)
+      static constexpr int Panel=128;
+      panel.resize(Panel*columns);
+      for(int start=0;start<rows;start+=Panel) {
+        if(!budget.alive()) return false;
+        const int width=std::min(Panel,rows-start),size=width*columns;
+        const auto *source=weight+start*columns;
+        #if defined(__aarch64__)
+        for(int i=0;i<size;i+=16) {
+          const auto bytes=vld1q_s8(source+i);
+          const auto lo=vmovl_s8(vget_low_s8(bytes)),hi=vmovl_s8(vget_high_s8(bytes));
+          vst1q_f32(panel.data()+i,vcvtq_f32_s32(vmovl_s16(vget_low_s16(lo))));
+          vst1q_f32(panel.data()+i+4,vcvtq_f32_s32(vmovl_s16(vget_high_s16(lo))));
+          vst1q_f32(panel.data()+i+8,vcvtq_f32_s32(vmovl_s16(vget_low_s16(hi))));
+          vst1q_f32(panel.data()+i+12,vcvtq_f32_s32(vmovl_s16(vget_high_s16(hi))));
+        }
+        #else
+        for(int i=0;i<size;++i) panel[i]=source[i];
+        #endif
+        cblas_sgemm(CblasRowMajor,CblasNoTrans,CblasTrans,count,width,columns,1,x,columns,panel.data(),columns,0,out+start,rows);
+        for(int input=0;input<count;++input) for(int row=0;row<width;++row)
+          out[input*rows+start+row]=out[input*rows+start+row]*scale[start+row]+(bias?bias[start+row]:0);
+      }
+      return budget.alive();
+      #else
+      (void)panel;
+      for(int row=0;row<count;++row) if(!apply(x+row*columns,out+row*rows,budget)) return false;
+      return budget.alive();
+      #endif
     }
     float at(int row, const float *x) const {
       return dot(weight+row*columns, x, columns)*scale[row];
@@ -540,6 +572,87 @@ public:
       completed.push_back(score);
     }
     if (!budget.alive()) return false;scores=std::move(completed);return true;
+  }
+  // Teacher-forced causal scoring: evaluate independent prefix positions by
+  // layer, sharing each weight panel. Attention still sees ancestors only.
+  // Temporary float weights are bounded to one panel, never the whole model.
+  bool native_full(const std::vector<std::string> &sentences,std::vector<float> &scores,const Budget &budget) {
+    if(!loaded || sentences.empty() || sentences.size()>4 || !budget.alive()) return false;
+    struct Use {int node,token;};
+    std::vector<std::vector<Use>> uses;
+    std::vector<int> tokens={2},parents={-1},depths={0};
+    std::unordered_map<std::string,int> index={{"",0}};
+    for(const auto &sentence:sentences) {
+      std::vector<int> ids;if(!encode(sentence,ids) || ids.empty() || ids.size()>16) return false;
+      std::vector<Use> path;std::string key;int parent=0;
+      for(size_t depth=0;depth<ids.size();++depth) {
+        path.push_back({parent,ids[depth]});
+        if(depth+1==ids.size()) break;
+        key+=static_cast<char>(ids[depth]&255);key+=static_cast<char>(ids[depth]>>8);
+        const auto found=index.find(key);
+        if(found!=index.end()) parent=found->second;
+        else {
+          const auto child=static_cast<int>(tokens.size());index.emplace(key,child);
+          tokens.push_back(ids[depth]);parents.push_back(parent);depths.push_back(static_cast<int>(depth+1));parent=child;
+        }
+      }
+      uses.push_back(std::move(path));
+    }
+    const int count=static_cast<int>(tokens.size());
+    std::vector<std::array<int,16>> ancestors(count);
+    for(int row=0;row<count;++row) {
+      int node=row;for(int position=depths[row];position>=0;--position) {ancestors[row][position]=node;node=parents[node];}
+    }
+    std::vector<float> x(count*D),y(count*D),qkv(count*3*D),attended(count*D),projected(count*D),expanded(count*4*D),panel;
+    for(int row=0;row<count;++row) for(int i=0;i<D;++i)
+      x[row*D+i]=embedding.weight[tokens[row]*D+i]*embedding.scale[tokens[row]]+positions[depths[row]*D+i];
+    for(int layer=0;layer<Layers;++layer) {
+      const auto &block=blocks[layer];
+      for(int row=0;row<count;++row) norm(x.data()+row*D,block.ln1w,block.ln1b,y.data()+row*D);
+      if(!block.qkv.apply_bulk(y.data(),qkv.data(),count,panel,budget)) return false;
+      for(int row=0;row<count;++row) {
+        if(!budget.alive()) return false;
+        for(int head=0;head<Heads;++head) {
+          std::array<float,16> weights{};float maximum=-std::numeric_limits<float>::infinity(),total=0;
+          for(int position=0;position<=depths[row];++position) {
+            float score=0;const auto *key=qkv.data()+ancestors[row][position]*3*D+D+head*(D/Heads);
+            for(int j=0;j<D/Heads;++j) score+=qkv[row*3*D+head*(D/Heads)+j]*key[j];
+            weights[position]=score/std::sqrt(float(D/Heads));maximum=std::max(maximum,weights[position]);
+          }
+          for(int position=0;position<=depths[row];++position) {weights[position]=std::exp(weights[position]-maximum);total+=weights[position];}
+          for(int j=0;j<D/Heads;++j) {
+            float value=0;for(int position=0;position<=depths[row];++position)
+              value+=weights[position]/total*qkv[ancestors[row][position]*3*D+2*D+head*(D/Heads)+j];
+            attended[row*D+head*(D/Heads)+j]=value;
+          }
+        }
+      }
+      if(!block.proj.apply_bulk(attended.data(),projected.data(),count,panel,budget)) return false;
+      for(int row=0;row<count;++row) {
+        for(int i=0;i<D;++i) x[row*D+i]+=projected[row*D+i];
+        norm(x.data()+row*D,block.ln2w,block.ln2b,y.data()+row*D);
+      }
+      if(!block.fc.apply_bulk(y.data(),expanded.data(),count,panel,budget)) return false;
+      for(auto &value:expanded) value=0.5f*value*(1+std::erf(value*0.7071067811865475f));
+      if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget)) return false;
+      for(size_t i=0;i<x.size();++i) x[i]+=projected[i];
+    }
+    for(int row=0;row<count;++row) norm(x.data()+row*D,finalw,finalb,y.data()+row*D);
+    std::vector<float> logits(count*Vocab),normalizers(count);
+    if(!embedding.apply_bulk(y.data(),logits.data(),count,panel,budget)) return false;
+    for(int row=0;row<count;++row) {
+      if(!budget.alive()) return false;
+      const auto begin=logits.data()+row*Vocab;const float maximum=*std::max_element(begin,begin+Vocab);double total=0;
+      for(int token=0;token<Vocab;++token) total+=std::exp(begin[token]-maximum);
+      normalizers[row]=maximum+static_cast<float>(std::log(total));if(!std::isfinite(normalizers[row])) return false;
+    }
+    std::vector<float> completed;
+    for(const auto &path:uses) {
+      double total=0;for(const auto &use:path) total+=logits[use.node*Vocab+use.token]-normalizers[use.node];
+      const auto value=static_cast<float>(total/path.size());if(!std::isfinite(value) || value>0) return false;
+      completed.push_back(value);
+    }
+    if(!budget.alive()) return false;scores=std::move(completed);return true;
   }
   bool mean_logprob(const std::string &value,float &score,const Budget &budget) {
     // The dedicated full-sequence function also handles an incumbent/seed in

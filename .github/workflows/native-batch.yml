@@ -24,21 +24,23 @@ jobs:
           python3 Scripts/prepare_ime_model.py
           mkdir -p .build
           python3 - <<'PY'
-          import hashlib,urllib.request
+          import hashlib,urllib.request,json
           from pathlib import Path
           url='https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/5aa07f314dca525b990da1f8a65071ec17779eec/CRime/private/clear_sentence.h'
           data=urllib.request.urlopen(url,timeout=60).read()
           assert hashlib.sha256(data).hexdigest()=='3726b2b3eed6fca9c3eaff7bed37c3f50cd01cf74f5cb08a2f25ec402b14b9d6'
           Path('.build/native-reference.h').write_bytes(data)
+          fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
+          Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
           PY
       - name: Compare every value, eviction, cancellation and workload at size optimization
         run: |
-          c++ -Os -UNDEBUG -std=c++17 Scripts/test_native_batch.cpp -o .build/test-native-batch-size
-          .build/test-native-batch-size Core/Resources/Rime/clear-sentence.clm
+          c++ -Os -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-size
+          .build/test-native-batch-size Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
       - name: Compare the identical workload at performance optimization
         run: |
-          c++ -O3 -UNDEBUG -std=c++17 Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
-          .build/test-native-batch-speed Core/Resources/Rime/clear-sentence.clm
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch-speed
+          .build/test-native-batch-speed Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
       - name: Read the current shipping target optimization settings without running iOS
         run: |
           xcodebuild -project ClearKeyboard.xcodeproj -target ClearKeyboardExtension -configuration Release -sdk iphoneos -showBuildSettings > .build/native-build-settings.txt

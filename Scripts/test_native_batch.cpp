@@ -14,6 +14,7 @@
 #include <cassert>
 #include <iostream>
 #include <numeric>
+#include <sstream>
 #ifdef NDEBUG
 #error Differential native model checks need assertions
 #endif
@@ -22,7 +23,7 @@ template<class B> B budget(double milliseconds=10000) {
 }
 int cancel_count(void *context){return --*static_cast<int*>(context)<=0;}
 int main(int argc,char **argv){
-  assert(argc==2);reference_sentence::Model before;clear_sentence::Model after;
+  assert(argc==2 || argc==3);reference_sentence::Model before;clear_sentence::Model after;
   assert(before.load(argv[1]) && after.load(argv[1]));before.set_native_enabled(true);after.set_native_enabled(true);
   size_t compared=0;double maximum=0;
   auto check=[&](const std::vector<std::string> &values,bool cold){
@@ -72,6 +73,49 @@ int main(int argc,char **argv){
   assert(!after.next({u8"我们"},unchanged,expired) && unchanged==std::vector<std::vector<float>>{{123}});
   assert(!after.next({u8"我们",u8"🦄"},unchanged,budget<clear_sentence::Budget>()) && unchanged==std::vector<std::vector<float>>{{123}});
   std::vector<std::string> sentences={u8"我们明天再讨论",u8"我们明天见",u8"你今天吃饭了吗",u8"这份材料收到了"};
+  size_t full_compared=0;double full_error=0;
+  auto check_full=[&](const std::vector<std::string> &values) {
+    before.clear_cache();std::vector<float> expected,actual;
+    assert(before.mean_logprobs(values,expected,budget<reference_sentence::Budget>()));
+    const auto cache_count=after.cached_positions();
+    assert(after.native_full(values,actual,budget<clear_sentence::Budget>()));
+    assert(after.cached_positions()==cache_count && actual.size()==values.size());
+    for(size_t row=0;row<values.size();++row) {
+      full_error=std::max(full_error,double(std::abs(expected[row]-actual[row])));++full_compared;
+    }
+    assert(full_error<0.0001);
+  };
+  check_full(sentences);
+  for(int depth=1;depth<16;++depth) {
+    std::vector<std::string> values;
+    for(int row=0;row<4;++row) values.push_back(paths[row].substr(0,std::min<size_t>(depth*3,paths[row].size())));
+    check_full(values);
+  }
+  check_full({u8"我",u8"我们",u8"我们明天",u8"我们明天"});
+  for(int allowance:{1,20,100,400}) {
+    int remaining=allowance;auto stopped=budget<clear_sentence::Budget>();stopped.cancelled=cancel_count;stopped.context=&remaining;
+    std::vector<float> output={123};assert(!after.native_full(sentences,output,stopped) && output==std::vector<float>{123});
+    check_full(sentences);
+  }
+  std::vector<float> output={123};
+  assert(!after.native_full({u8"🦄"},output,budget<clear_sentence::Budget>()) && output==std::vector<float>{123});
+  assert(!after.native_full({""},output,budget<clear_sentence::Budget>()) && output==std::vector<float>{123});
+  assert(!after.native_full(std::vector<std::string>(5,u8"我们"),output,budget<clear_sentence::Budget>()) && output==std::vector<float>{123});
+  assert(!after.native_full(sentences,output,budget<clear_sentence::Budget>(0)) && output==std::vector<float>{123});
+  if(argc==3) {
+    std::ifstream fixture(argv[2]);assert(fixture);std::string line;std::vector<std::string> texts;std::vector<float> expected;
+    auto verify=[&]{
+      std::vector<float> actual;assert(after.native_full(texts,actual,budget<clear_sentence::Budget>()));
+      for(size_t row=0;row<actual.size();++row) {full_error=std::max(full_error,double(std::abs(expected[row]-actual[row])));++full_compared;}
+      assert(full_error<0.0001);texts.clear();expected.clear();
+    };
+    while(std::getline(fixture,line)) {
+      const auto separator=line.find('\t');assert(separator!=std::string::npos);
+      texts.push_back(line.substr(0,separator));expected.push_back(std::stof(line.substr(separator+1)));
+      if(texts.size()==4)verify();
+    }
+    if(!texts.empty())verify();
+  }
   std::vector<double> baseline_ms,batched_ms;
   for(int repetition=0;repetition<13;++repetition){
     auto run_before=[&]{before.clear_cache();std::vector<float> scores;const auto start=std::chrono::steady_clock::now();assert(before.mean_logprobs(sentences,scores,budget<reference_sentence::Budget>()));return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
@@ -81,6 +125,15 @@ int main(int argc,char **argv){
     if(repetition){baseline_ms.push_back(old_ms);batched_ms.push_back(new_ms);}
   }
   auto median=[](std::vector<double> values){std::sort(values.begin(),values.end());return(values[values.size()/2-1]+values[values.size()/2])/2;};
+  std::vector<double> full_ms;
+  for(int repetition=0;repetition<13;++repetition) {
+    std::vector<float> actual;const auto start=std::chrono::steady_clock::now();
+    assert(after.native_full(sentences,actual,budget<clear_sentence::Budget>()));
+    const auto cost=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+    if(repetition)full_ms.push_back(cost);
+  }
+  std::cout<<"{\"fullSequenceCompared\":"<<full_compared<<",\"fullSequenceMaximumError\":"<<full_error<<",\"fullSequenceMedianMS\":"<<median(full_ms)<<",\"fullSequenceMS\":[";
+  for(size_t i=0;i<full_ms.size();++i)std::cout<<(i?",":"")<<full_ms[i];std::cout<<"]}\n";
   std::cout<<"{\"status\":\"passed\",\"scope\":\"Native CPU numeric, cache, cancellation and cold four-sentence workload; not phone or UI latency\",\"comparedValues\":"<<compared<<",\"maximumError\":"<<maximum<<",\"beforeMedianMS\":"<<median(baseline_ms)<<",\"afterMedianMS\":"<<median(batched_ms)<<",\"speedup\":"<<median(baseline_ms)/median(batched_ms)<<",\"afterCachePositions\":"<<after.cached_positions()<<",\"beforeMS\":[";
   for(size_t i=0;i<baseline_ms.size();++i)std::cout<<(i?",":"")<<baseline_ms[i];std::cout<<"],\"afterMS\":[";
   for(size_t i=0;i<batched_ms.size();++i)std::cout<<(i?",":"")<<batched_ms[i];std::cout<<"]}\n";
