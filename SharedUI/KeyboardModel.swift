@@ -464,7 +464,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
         var inputOnly = false
         switch action {
         case .text(let text):
-            let possibleOperator = composition.isEmpty && text.count == 1 && "xX+-*/×÷().".contains(text)
+            let possibleOperator = composition.isEmpty && text.count == 1 && "xX+-*/×÷().".contains(text) &&
+                !(shifted && page == .letters && text.first?.isLetter == true)
             let mathCharacter = possibleOperator && document?.contextBefore.last.map({ $0.isNumber || $0 == ")" }) == true
             if mathCharacter {
                 commitComposition(); document?.insert(text)
