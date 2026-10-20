@@ -62,6 +62,12 @@ import os
         // Vertical drift must not lock out the next horizontal reversal.
         isDirectionalLockEnabled = false; decelerationRate = .normal
         contentInsetAdjustmentBehavior = .never
+        // The system keyboard's outer material is rounded, but does not always
+        // clip a remote extension's child layers. Match the header's inset curve
+        // locally, without masking or resizing the key grid or glass sheet.
+        layer.cornerCurve = .continuous; layer.cornerRadius = 20
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        clipsToBounds = true
         scrollsToTop = false
         accessibilityIdentifier = "clear.candidates"
         selectionTap.addTarget(self, action: #selector(candidateTapped(_:)))
@@ -378,19 +384,21 @@ import os
         backgroundColor = .clear
         label.isUserInteractionEnabled = false; label.isAccessibilityElement = false
         label.numberOfLines = 1; label.lineBreakMode = .byClipping
-        plate.layer.cornerRadius = 8; plate.clipsToBounds = true
+        plate.layer.cornerRadius = 8; plate.layer.cornerCurve = .continuous; plate.clipsToBounds = true
         isAccessibilityElement = true; accessibilityTraits = .button
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        plate.frame = CGRect(x: 0, y: 4, width: max(0, bounds.width - 4), height: max(0, bounds.height - 8))
-        label.frame = plate.bounds.insetBy(dx: 10, dy: 0)
+        let height = max(0, min(bounds.height - 8, max(28, ceil(label.font.lineHeight) + 8)))
+        plate.frame = CGRect(x: 0, y: (bounds.height - height) / 2,
+                             width: max(0, bounds.width - 4), height: height)
+        label.frame = plate.bounds.insetBy(dx: 8, dy: 0)
     }
     static func width(_ candidate: Candidate, font: UIFont) -> CGFloat {
         let key = "\(font.fontName):\(font.pointSize):\(candidate.text)" as NSString
         if let value = measuredWidths.object(forKey: key) { return CGFloat(value.doubleValue) }
-        let width = max(42, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 20)
+        let width = max(36, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 16)
         measuredWidths.setObject(NSNumber(value: Double(width)), forKey: key)
         return width
     }

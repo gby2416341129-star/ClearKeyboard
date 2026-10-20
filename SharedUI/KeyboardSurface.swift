@@ -136,9 +136,9 @@ import ImageIO
             sideRail.isHidden = settings.hand == .full
             sideRail.frame = layout.sideRail
         }
-        // Candidate content uses its own small inset; toolbar margins should
-        // not push the first candidate 16 points away from the keyboard edge.
-        var header = layout.header.insetBy(dx: -12, dy: 0); header.size.height = candidateHeight
+        // Eight points retain compact left alignment while keeping the first
+        // highlight inside the keyboard shell's rounded top corners.
+        var header = layout.header.insetBy(dx: -8, dy: 0); header.size.height = candidateHeight
         if candidateScroll.frame != header { candidateScroll.frame = header }
         hint.frame = header
         renderCandidates()

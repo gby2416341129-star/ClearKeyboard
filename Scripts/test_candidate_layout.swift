@@ -10,7 +10,7 @@ import CoreText
         for viewportWidth in [CGFloat(320), 390, 440, 1024] {
             for height in [CGFloat(44), 52] {
                 var layout = CandidateStripLayout()
-                let widths = (0..<4095).map { CGFloat(46 + ($0 * 47) % 460) }
+                let widths = (0..<4095).map { CGFloat(40 + ($0 * 47) % 460) }
                 var calls = 0
                 func measure(_ index: Int) -> CGFloat { calls += 1; return widths[index] }
                 let first = layout.extend(count: widths.count,
@@ -47,11 +47,11 @@ import CoreText
         }
         for points in [CGFloat(16), 19, 22, 25] {
             let font = CTFontCreateUIFontForLanguage(.system, points, nil)!
-            let text = (0..<4095).map { "候选词\($0)" + ($0 % 9 == 0 ? String(repeating: "连续输入与候选词", count: 8) : "") }
+            let text = (0..<4095).map { "候选词\($0)" + ($0 % 9 == 8 ? String(repeating: "连续输入与候选词", count: 8) : "") }
             func width(_ index: Int) -> CGFloat {
                 let attributes = [NSAttributedString.Key(kCTFontAttributeName as String): font]
                 let line = CTLineCreateWithAttributedString(NSAttributedString(string: text[index], attributes: attributes) as CFAttributedString)
-                return max(42, ceil(CTLineGetTypographicBounds(line, nil, nil, nil)) + 20) + 4
+                return max(36, ceil(CTLineGetTypographicBounds(line, nil, nil, nil)) + 16) + 4
             }
             // Warm the font once for each comparison. This measures real text
             // shaping cost on macOS, not UIKit, GPU rendering, or iPhone FPS.
