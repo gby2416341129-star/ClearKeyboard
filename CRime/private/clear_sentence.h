@@ -113,9 +113,14 @@ class Model {
   uint64_t clock=0;
 public:
   using Predictor = int (*)(const char *const *,int,float *,int,double,Cancelled,void *,void *);
+  using Scorer = int (*)(const char *const *,int,float *,double,Cancelled,void *,void *);
 private:
   Predictor predictor=nullptr;
   void *predictor_context=nullptr;
+  Scorer scorer=nullptr;
+  void *scorer_context=nullptr;
+  struct Mean { float value; uint64_t touched; };
+  std::unordered_map<std::string,Mean> means;
   bool loaded=false;
   bool native_enabled=false;
   const uint8_t *mapped=nullptr;
@@ -240,6 +245,10 @@ public:
   ~Model() { release_mapping(); }
   static constexpr int vocabulary_size=Vocab;
   void set_predictor(Predictor value,void *context) { predictor=value;predictor_context=context; }
+  void set_scorer(Scorer value,void *context) { scorer=value;scorer_context=context;means.clear(); }
+  // Prefix calibration is not a speed guarantee for four complete sentences.
+  // Live reranking requires the separately validated one-call backend.
+  bool has_scorer() const { return loaded && scorer; }
   bool can_search() const { return loaded && (native_enabled || predictor); }
   bool native_ready() const { return native_enabled; }
   void set_native_enabled(bool value) { native_enabled=value; }
@@ -334,16 +343,49 @@ public:
     if (!budget.alive()) return false;scores=std::move(completed);return true;
   }
   bool mean_logprob(const std::string &value,float &score,const Budget &budget) {
-    // Each accelerator request has a short allowance. Do not bundle several
-    // uncached causal depths into a single request: they require sequential
-    // predictions even when presented as one batch of prefixes.
+    // The dedicated full-sequence function also handles an incumbent/seed in
+    // one call. Without it, keep causal requests separated by depth.
     std::vector<float> scores;
-    if (!mean_logprobs({value},scores,budget)) return false;
+    if (!(scorer ? compare({value},scores,budget) : mean_logprobs({value},scores,budget))) return false;
     score=scores.front();return true;
+  }
+  // Use the full causal graph for a small candidate pool. Cache only complete
+  // finite means, independently of a spelling or its candidate ordering.
+  bool compare(const std::vector<std::string> &sentences,std::vector<float> &scores,const Budget &budget) {
+    if (!loaded || sentences.empty() || sentences.size()>4 || !budget.alive()) return false;
+    std::vector<std::string> missing;
+    for (const auto &sentence:sentences) {
+      std::vector<int> ids;
+      if (!encode(sentence,ids) || ids.empty() || ids.size()>16) return false;
+      if (!means.count(sentence) && std::find(missing.begin(),missing.end(),sentence)==missing.end()) missing.push_back(sentence);
+    }
+    if (!missing.empty()) {
+      std::vector<float> values(missing.size(),std::numeric_limits<float>::quiet_NaN());bool complete=false;
+      if (scorer) {
+        std::vector<const char*> pointers;for (const auto &text:missing) pointers.push_back(text.c_str());
+        const auto allowance=std::chrono::duration<double,std::milli>(budget.deadline-Budget::Clock::now()).count();
+        complete=allowance>0 && scorer(pointers.data(),static_cast<int>(pointers.size()),values.data(),allowance,
+            budget.cancelled,budget.context,scorer_context)>0;
+      } else if (native_enabled) complete=mean_logprobs(missing,values,budget);
+      if (!complete || !budget.alive() || values.size()!=missing.size() ||
+          !std::all_of(values.begin(),values.end(),[](float value){return std::isfinite(value) && value<=0;})) return false;
+      for (size_t row=0;row<missing.size();++row) {
+        if (means.size()>=128) {
+          auto oldest=std::min_element(means.begin(),means.end(),[](const auto &a,const auto &b){return a.second.touched<b.second.touched;});
+          means.erase(oldest);
+        }
+        means[missing[row]]={values[row],++clock};
+      }
+    }
+    if (!budget.alive()) return false;
+    std::vector<float> completed;for (const auto &sentence:sentences) {
+      auto &mean=means.at(sentence);mean.touched=++clock;completed.push_back(mean.value);
+    }
+    scores=std::move(completed);return true;
   }
   bool ready() const { return loaded; }
   size_t cached_positions() const { return cache.size(); }
-  void clear_cache() { cache.clear(); cache_index.clear(); distributions.clear(); clock=0; }
+  void clear_cache() { cache.clear(); cache_index.clear(); distributions.clear(); means.clear(); clock=0; }
   bool load(const std::string &path) {
     // A failed reload must never retain partially replaced weights.
     loaded=false; native_enabled=false; clear_cache(); vocabulary.clear();

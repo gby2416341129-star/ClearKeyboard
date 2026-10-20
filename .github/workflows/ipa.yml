@@ -20,7 +20,9 @@ concurrency:
 
 jobs:
   ipa:
-    runs-on: macos-26
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -48,11 +50,13 @@ jobs:
       - name: Compile the pinned Core ML model for the Apple accelerator
         run: |
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
-          python3 Scripts/export_ime_incremental.py
-          python3 Scripts/validate_ime_incremental.py
+          python3 Scripts/export_ime_shared.py
+          python3 Scripts/validate_ime_shared.py
           python3 Scripts/test_ime_model.py
           swiftc -O -parse-as-library Core/CoreMLPrefixState.swift Scripts/test_coreml_prefix.swift -o .rime-cache/test-coreml-prefix
           .rime-cache/test-coreml-prefix Core/Resources/Rime
+          swiftc -O -target "$(uname -m)-apple-macos15.0" -parse-as-library Core/CoreMLCandidateScorer.swift Scripts/test_coreml_scorer.swift -o .rime-cache/test-coreml-scorer
+          .rime-cache/test-coreml-scorer Core/Resources/Rime
           python3 Scripts/test_coreml_worker.py
       - name: Check native model, phonetic search and input state
         run: |
@@ -61,6 +65,8 @@ jobs:
           .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
           c++ -O2 -UNDEBUG -std=c++17 Scripts/test_native_bridge.cpp -o .build/test-bridge
           .build/test-bridge Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
+          c++ -O2 -UNDEBUG -std=c++17 Scripts/test_candidate_ranking.cpp -o .build/test-candidate-ranking
+          .build/test-candidate-ranking Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
           swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
           .build/test-input-core
           swiftc -O -parse-as-library Core/LatestValue.swift Core/HostTextState.swift Scripts/test_frame_delivery.swift -o .build/test-frame-delivery
@@ -80,8 +86,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.34')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 37')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.35')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 38')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

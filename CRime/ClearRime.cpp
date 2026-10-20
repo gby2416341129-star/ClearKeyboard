@@ -24,6 +24,8 @@ std::unique_ptr<clear_sentence::Model> sentence_model;
 clear_sentence::PhoneticSearch phonetic_search;
 cr_sentence_predictor platform_predictor = nullptr;
 void *platform_predictor_context = nullptr;
+cr_sentence_scorer platform_scorer = nullptr;
+void *platform_scorer_context = nullptr;
 struct Item {
   std::string text, reading;
   int consumed;
@@ -90,17 +92,41 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
   const bool complete=!query.items.empty() && query.items.front().consumed==length;
   const int abbreviations=complete ? clear_sentence::PhoneticSearch::matches(input,syllables(query.items.front().reading)) : -1;
   const bool literal=abbreviations>=0;
-  // The semantic model repairs an ambiguous sentence, not every unfinished
-  // suffix of an otherwise literal word. Keep complete full/mixed readings
-  // with at most two initials on the fast
-  // path. Incompatible vowel completions still enter constrained search.
-  if (protected_dictionary || !sentence_model || !sentence_model->can_search() ||
+  if (protected_dictionary || !sentence_model) { finish();return; }
+  const auto deadline=started+std::chrono::milliseconds(35);
+  clear_sentence::Budget budget{deadline,cancelled,context};
+  float compared_mean=0;bool compared=false;
+  if (literal && sentence_model->has_scorer() && budget.alive()) {
+    std::vector<int> tokens;
+    if (sentence_model->encode(query.items.front().text,tokens) && tokens.size()>=4 && tokens.size()<=16) {
+      std::vector<size_t> indices;std::vector<std::string> texts;
+      for (size_t index=0;index<query.items.size() && texts.size()<4;++index) {
+        const auto &item=query.items[index];if (item.consumed!=length) continue;
+        const int initials=clear_sentence::PhoneticSearch::matches(input,syllables(item.reading));
+        // A semantic preference cannot invent more initials inside full pinyin.
+        if (initials<0 || initials>abbreviations || !sentence_model->encode(item.text,tokens) || tokens.size()<4 || tokens.size()>16) continue;
+        indices.push_back(index);texts.push_back(item.text);
+      }
+      std::vector<float> scores;
+      if (texts.size()>=2 && indices.front()==0 && sentence_model->compare(texts,scores,budget)) {
+        const auto best=static_cast<size_t>(std::max_element(scores.begin(),scores.end())-scores.begin());
+        compared=true;compared_mean=scores.front();
+        if (best && scores[best]-scores.front()>=0.15f) {
+          const auto item=query.items[indices[best]];compared_mean=scores[best];query.ranked_choice=item.text;
+          query.items.erase(query.items.begin()+indices[best]);query.items.insert(query.items.begin(),item);
+        }
+      }
+    }
+  }
+  if (cancelled && cancelled(context)) return;
+  // After comparing existing alternatives, character search is reserved for
+  // ambiguous composition. Incompatible vowel completions still enter search;
+  // a literal full/mixed spelling with <= two initials needs no new character beam.
+  if (!sentence_model->can_search() ||
       (literal && abbreviations<=2) ||
       !phonetic_search.abbreviated_input(input)) { finish();return; }
   const auto now=clear_sentence::Budget::Clock::now();
-  const auto deadline=started+std::chrono::milliseconds(35);
   if (now>=deadline) { finish();return; }
-  clear_sentence::Budget budget{deadline,cancelled,context};
   std::vector<clear_sentence::PhoneticSearch::Candidate> generated;
   const auto seed_text=!literal && complete ? query.items.front().text : "";
   const auto seed_reading=!literal && complete ? syllables(query.items.front().reading) : "";
@@ -108,7 +134,8 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
     if (!(cancelled && cancelled(context))) finish();return;
   }
   float incumbent=0;
-  if (complete && !sentence_model->mean_logprob(query.items.front().text,incumbent,budget)) {
+  if (compared) incumbent=compared_mean;
+  if (complete && !compared && !sentence_model->mean_logprob(query.items.front().text,incumbent,budget)) {
     if (!(cancelled && cancelled(context))) finish();return;
   }
   std::vector<Item> additions;
@@ -320,9 +347,13 @@ void cr_set_sentence_predictor(cr_sentence_predictor predictor, void *context) {
   std::lock_guard<std::recursive_mutex> lock(gate);
   platform_predictor=predictor;platform_predictor_context=context;
   if (sentence_model) sentence_model->set_predictor(predictor,context);
-  for (auto &entry:queries) {
-    entry.second.rank_decided=false;entry.second.head_items.clear();entry.second.ranked_choice.clear();
-  }
+  // Loading an accelerator cannot move a head already displayed or browsed.
+  // New spelling starts its own decision through ranked_input as usual.
+}
+void cr_set_sentence_scorer(cr_sentence_scorer scorer, void *context) {
+  std::lock_guard<std::recursive_mutex> lock(gate);
+  platform_scorer=scorer;platform_scorer_context=context;
+  if (sentence_model) sentence_model->set_scorer(scorer,context);
 }
 int cr_initialize(const char *shared, const char *user) {
   std::lock_guard<std::recursive_mutex> lock(gate);
@@ -340,7 +371,8 @@ int cr_initialize(const char *shared, const char *user) {
   auto model=std::make_unique<clear_sentence::Model>();
   if (model->load(shared_path+"/clear-sentence.clm") &&
       phonetic_search.load(shared_path+"/clear-phonetic.tsv",*model)) {
-    model->set_predictor(platform_predictor,platform_predictor_context);sentence_model=std::move(model);
+    model->set_predictor(platform_predictor,platform_predictor_context);
+    model->set_scorer(platform_scorer,platform_scorer_context);sentence_model=std::move(model);
   }
   return 1;
 }

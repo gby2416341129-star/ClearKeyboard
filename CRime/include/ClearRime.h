@@ -15,6 +15,12 @@ typedef int (*cr_sentence_predictor)(const char *const *prefixes, int count, flo
                                     int vocabulary_size, double milliseconds, cr_cancelled cancelled,
                                     void *cancel_context, void *context);
 void cr_set_sentence_predictor(cr_sentence_predictor predictor, void *context);
+// Whole first-screen comparisons use one bounded model call. A successful
+// return contains every requested mean; partial/deadline results are ignored.
+typedef int (*cr_sentence_scorer)(const char *const *sentences, int count, float *mean_scores,
+                                double milliseconds, cr_cancelled cancelled,
+                                void *cancel_context, void *context);
+void cr_set_sentence_scorer(cr_sentence_scorer scorer, void *context);
 void cr_trim_sentence_cache(void);
 int cr_query(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
 int cr_query_fast(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);

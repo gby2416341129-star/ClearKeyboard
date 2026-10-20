@@ -94,6 +94,8 @@ def verify(path):
         coreml=json.loads(archive.read(app+'Rime/CoreML25M-manifest.json'))
         require(coreml.get('source_sha256')==ASSETS['sentence-model.safetensors'], 'Core ML source mismatch')
         require(coreml.get('state_format')=='clear-kv-v1', 'Core ML incremental state contract missing')
+        require(coreml.get('score_format')=='clear-score-v1', 'Whole-candidate scoring contract missing')
+        require(coreml.get('functions')==['step','step_fast','score','score_f32'], 'Adaptive precision functions missing')
         require(bool(coreml.get('files')), 'Missing compiled Core ML graph')
         for name,digest in coreml['files'].items():
             require(name.startswith('ClearSentence25M.mlmodelc/') and '..' not in name.split('/'), 'Invalid Core ML resource path')
@@ -101,6 +103,12 @@ def verify(path):
         validation=json.loads(archive.read(app+'Rime/CoreML25M-validation.json'))
         require(validation.get('format')=='clear-kv-v1' and len(validation.get('expected',[]))>=200,
                 'Missing incremental on-device model validation')
+        score_validation=json.loads(archive.read(app+'Rime/CoreML25M-score-validation.json'))
+        require(score_validation.get('sourceSHA256')==ASSETS['sentence-model.safetensors'] and
+                len(score_validation.get('rows',[]))==8 and
+                all(len(row.get('text',''))==15 and isinstance(row.get('score'),(int,float)) and
+                    -100 < row['score'] < 0 for row in score_validation['rows']),
+                'Missing whole-candidate numerical reference')
         phonetic=archive.read(app+'Rime/clear-phonetic.tsv')
         require(len(phonetic.splitlines())>10000 and b'CC BY 4.0' in phonetic[:1024], 'Missing attributed phonetic graph')
         repeated=archive.read(app+'Rime/repetition-priors.tsv')

@@ -9,7 +9,18 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 if [[ ! -f Core/Resources/Rime/build/clear_pinyin.table.bin || ! -f Core/Resources/Rime/clear-sentence.clm || ! -f Core/Resources/Rime/repetition-priors.tsv ]]; then python3 Scripts/prepare_rime.py; fi
-if [[ ! -d Core/Resources/Rime/ClearSentence25M.mlmodelc ]]; then python3 Scripts/export_ime_incremental.py; fi
+if ! python3 - <<'PY'
+import json,sys
+from pathlib import Path
+root=Path('Core/Resources/Rime')
+try:
+    manifest=json.loads((root/'CoreML25M-manifest.json').read_text())
+    valid=manifest.get('functions')==['step','step_fast','score','score_f32'] and (root/'CoreML25M-score-validation.json').is_file() and (root/'ClearSentence25M.mlmodelc').is_dir()
+except (OSError,ValueError):
+    valid=False
+sys.exit(0 if valid else 1)
+PY
+then python3 Scripts/export_ime_shared.py; fi
 command -v xcodebuild >/dev/null
 command -v python3 >/dev/null
 xcodebuild -version

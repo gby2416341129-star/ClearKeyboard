@@ -88,16 +88,22 @@ public:
     while (stream>>syllable) {
       std::vector<int> next(input.size()+1,10000);
       for (size_t offset=0;offset<input.size();++offset) if (positions[offset]<10000) {
-        if (input.compare(offset,syllable.size(),syllable)==0)
-          next[offset+syllable.size()]=std::min(next[offset+syllable.size()],positions[offset]);
-        if (syllable.size()>1 && consonant(syllable.front()) && input[offset]==syllable.front())
-          next[offset+1]=std::min(next[offset+1],positions[offset]+1);
-        if (syllable.size()>2 && (syllable.compare(0,2,"zh")==0 || syllable.compare(0,2,"ch")==0 || syllable.compare(0,2,"sh")==0) && input.compare(offset,2,syllable,0,2)==0)
-          next[offset+2]=std::min(next[offset+2],positions[offset]+1);
+        // An apostrophe is an explicit syllable boundary. Skip it only between
+        // complete reading units; never remove it from inside a full syllable.
+        size_t start=offset;while (start<input.size() && input[start]=='\'') ++start;
+        if (start==input.size()) continue;
+        if (input.compare(start,syllable.size(),syllable)==0)
+          next[start+syllable.size()]=std::min(next[start+syllable.size()],positions[offset]);
+        if (syllable.size()>1 && consonant(syllable.front()) && input[start]==syllable.front())
+          next[start+1]=std::min(next[start+1],positions[offset]+1);
+        if (syllable.size()>2 && (syllable.compare(0,2,"zh")==0 || syllable.compare(0,2,"ch")==0 || syllable.compare(0,2,"sh")==0) && input.compare(start,2,syllable,0,2)==0)
+          next[start+2]=std::min(next[start+2],positions[offset]+1);
       }
       positions=std::move(next);
     }
-    return positions.back()<10000?positions.back():-1;
+    int best=positions.back();size_t end=input.size();
+    while (end && input[end-1]=='\'') best=std::min(best,positions[--end]);
+    return best<10000?best:-1;
   }
   bool literal_repair(const std::string &input,const std::string &reading,std::string &expanded) const {
     if (input.size()<6 || input.size()>64 || matches(input,reading)>=0 || full.empty()) return false;
