@@ -257,9 +257,13 @@ template<size_t Batch> inline void dot16_many(const int8_t *weight,const Input16
 
 struct IntegerKernelCalibration {
   std::array<double,3> exactMS{},integerMS{};
+  std::array<double,2> numericalWarmMS{};
   double maximumError=0;
   int comparisons=0;
   bool available=false,validated=false;
+  std::array<double,3> wholeExactMS{},wholeIntegerMS{};
+  double wholeMaximumError=0;
+  bool wholeValidated=false,wholeReferenceAvailable=false;
 };
 class Model {
   static constexpr int D=448, Layers=8, Heads=8, Vocab=12288, Window=128, CacheLimit=128;
@@ -280,13 +284,24 @@ class Model {
       }
       return budget.alive();
     }
-    bool apply(const float *x, float *out, const Budget &budget) const {
-      if(integer)return apply_quantized<1>(&x,&out,budget);
+    bool apply_float(const float *x,float *out,const Budget &budget) const {
       for (int row=0; row<rows; ++row) {
         if (!(row%64) && !budget.alive()) return false;
         out[row] = dot(weight+row*columns, x, columns)*scale[row] + (bias?bias[row]:0);
       }
       return true;
+    }
+    bool apply(const float *x,float *out,const Budget &budget) const {
+      return integer?apply_quantized<1>(&x,&out,budget):apply_float(x,out,budget);
+    }
+    bool apply_integer_many(const float *const *x,float *const *out,int count,const Budget &budget) const {
+      switch(count) {
+        case 1:return apply_quantized<1>(x,out,budget);
+        case 2:return apply_quantized<2>(x,out,budget);
+        case 3:return apply_quantized<3>(x,out,budget);
+        case 4:return apply_quantized<4>(x,out,budget);
+        default:return false;
+      }
     }
     template<size_t Batch> bool apply_group(const float *const *x,float *const *out,const Budget &budget) const {
       for(int row=0;row<rows;++row) {
@@ -297,13 +312,7 @@ class Model {
       return true;
     }
     bool apply_many(const float *const *x,float *const *out,int count,const Budget &budget) const {
-      if(integer) switch(count) {
-        case 1:return apply_quantized<1>(x,out,budget);
-        case 2:return apply_quantized<2>(x,out,budget);
-        case 3:return apply_quantized<3>(x,out,budget);
-        case 4:return apply_quantized<4>(x,out,budget);
-        default:return false;
-      }
+      if(integer)return apply_integer_many(x,out,count,budget);
       switch(count) {
         case 1:return apply(x[0],out[0],budget);
         case 2:return apply_group<2>(x,out,budget);
@@ -312,12 +321,12 @@ class Model {
         default:return false;
       }
     }
-    bool apply_bulk(const float *x,float *out,int count,std::vector<float> &panel,const Budget &budget) const {
-      if(integer) {
+    bool apply_bulk(const float *x,float *out,int count,std::vector<float> &panel,const Budget &budget,bool integer_mode) const {
+      if(integer_mode) {
         for(int start=0;start<count;start+=4) {
           const int width=std::min(4,count-start);std::array<const float*,4> inputs{};std::array<float*,4> outputs{};
           for(int i=0;i<width;++i){inputs[i]=x+(start+i)*columns;outputs[i]=out+(start+i)*rows;}
-          if(!apply_many(inputs.data(),outputs.data(),width,budget))return false;
+          if(!apply_integer_many(inputs.data(),outputs.data(),width,budget))return false;
         }
         return budget.alive();
       }
@@ -351,7 +360,7 @@ class Model {
       return budget.alive();
       #else
       (void)panel;
-      for(int row=0;row<count;++row) if(!apply(x+row*columns,out+row*rows,budget)) return false;
+      for(int row=0;row<count;++row) if(!apply_float(x+row*columns,out+row*rows,budget)) return false;
       return budget.alive();
       #endif
     }
@@ -393,7 +402,7 @@ private:
   std::unordered_map<std::string,Mean> means;
   bool loaded=false;
   bool native_enabled=false;
-  bool native_integer=false;
+  bool native_integer=false,native_whole_integer=false;
   IntegerKernelCalibration integer_calibration;
   int native_score_positions=0;
   const uint8_t *mapped=nullptr;
@@ -674,11 +683,13 @@ public:
   bool can_search() const { return loaded && (native_enabled || predictor); }
   bool native_ready() const { return native_enabled; }
   bool native_integer_ready() const { return loaded && native_integer; }
+  bool native_whole_integer_ready() const { return loaded && native_whole_integer; }
+  void set_native_whole_integer_enabled(bool enabled) { native_whole_integer=enabled;means.clear(); }
   const IntegerKernelCalibration &native_integer_calibration() const { return integer_calibration; }
   // A precision change invalidates all hidden states, distributions and means.
   // Standalone tests can select either path without weakening F32 references.
   void set_native_integer_enabled(bool enabled) {
-    native_integer=enabled;embedding.integer=enabled;
+    native_integer=native_whole_integer=enabled;embedding.integer=enabled;
     for(auto &block:blocks)block.qkv.integer=block.proj.integer=block.fc.integer=block.out.integer=enabled;
     clear_cache();
   }
@@ -811,7 +822,7 @@ public:
     for(int layer=0;layer<Layers;++layer) {
       const auto &block=blocks[layer];
       for(int row=0;row<count;++row) norm(x.data()+row*D,block.ln1w,block.ln1b,y.data()+row*D);
-      if(!block.qkv.apply_bulk(y.data(),qkv.data(),count,panel,budget)) return false;
+      if(!block.qkv.apply_bulk(y.data(),qkv.data(),count,panel,budget,native_whole_integer)) return false;
       for(int row=0;row<count;++row) {
         if(!budget.alive()) return false;
         for(int head=0;head<Heads;++head) {
@@ -829,21 +840,21 @@ public:
           }
         }
       }
-      if(!block.proj.apply_bulk(attended.data(),projected.data(),count,panel,budget)) return false;
+      if(!block.proj.apply_bulk(attended.data(),projected.data(),count,panel,budget,native_whole_integer)) return false;
       for(int row=0;row<count;++row) {
         for(int i=0;i<D;++i) x[row*D+i]+=projected[row*D+i];
         norm(x.data()+row*D,block.ln2w,block.ln2b,y.data()+row*D);
       }
-      if(!block.fc.apply_bulk(y.data(),expanded.data(),count,panel,budget)) return false;
+      if(!block.fc.apply_bulk(y.data(),expanded.data(),count,panel,budget,native_whole_integer)) return false;
       {
         gelu_many(expanded.data(),static_cast<int>(expanded.size()),gelu_scratch);
       }
-      if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget)) return false;
+      if(!block.out.apply_bulk(expanded.data(),projected.data(),count,panel,budget,native_whole_integer)) return false;
       for(size_t i=0;i<x.size();++i) x[i]+=projected[i];
     }
     for(int row=0;row<count;++row) norm(x.data()+row*D,finalw,finalb,y.data()+row*D);
     std::vector<float> logits(count*Vocab),normalizers(count);
-    if(!embedding.apply_bulk(y.data(),logits.data(),count,panel,budget)) return false;
+    if(!embedding.apply_bulk(y.data(),logits.data(),count,panel,budget,native_whole_integer)) return false;
     for(int row=0;row<count;++row) {
       if(!budget.alive()) return false;
       const auto begin=logits.data()+row*Vocab;const float maximum=*std::max_element(begin,begin+Vocab);double total=0;
@@ -987,39 +998,47 @@ public:
         // checked separately against the pinned model in the release tests.
         const std::vector<std::string> probes={""};
         std::array<double,3> ratios{};
-        bool accepted=true;
-        for(int repetition=0;repetition<3 && accepted;++repetition) {
-          std::vector<std::vector<float>> exact,approximate;
-          auto measure=[&](bool integer,std::vector<std::vector<float>> &values,double &cost) {
-            set_native_integer_enabled(integer);const auto start=Budget::Clock::now();
-            Budget probe{start+std::chrono::milliseconds(5),nullptr,nullptr};
-            const bool complete=native_many(probes,values,probe);
-            cost=std::chrono::duration<double,std::milli>(Budget::Clock::now()-start).count();return complete;
-          };
-          double slow=0,fast=0;
-          if(repetition%2)accepted=measure(true,approximate,fast) && measure(false,exact,slow);
-          else accepted=measure(false,exact,slow) && measure(true,approximate,fast);
-          integer_calibration.exactMS[repetition]=slow;integer_calibration.integerMS[repetition]=fast;
-          if(!accepted)break;
+        auto measure=[&](bool integer,std::vector<std::vector<float>> &values,double &cost,int milliseconds) {
+          set_native_integer_enabled(integer);const auto start=Budget::Clock::now();
+          Budget probe{start+std::chrono::milliseconds(milliseconds),nullptr,nullptr};
+          const bool complete=native_many(probes,values,probe);
+          cost=std::chrono::duration<double,std::milli>(Budget::Clock::now()-start).count();return complete;
+        };
+        auto agree=[&](const std::vector<std::vector<float>> &exact,const std::vector<std::vector<float>> &approximate) {
+          if(exact.size()!=probes.size() || approximate.size()!=exact.size())return false;
           for(size_t row=0;row<exact.size();++row) {
-            if(exact[row].size()!=approximate[row].size() ||
+            if(exact[row].size()!=Vocab || exact[row].size()!=approximate[row].size() ||
                 std::max_element(exact[row].begin(),exact[row].end())-exact[row].begin()!=
-                std::max_element(approximate[row].begin(),approximate[row].end())-approximate[row].begin()) {accepted=false;break;}
+                std::max_element(approximate[row].begin(),approximate[row].end())-approximate[row].begin())return false;
             for(size_t token=0;token<exact[row].size();++token) {
               const auto difference=std::abs(exact[row][token]-approximate[row][token]);
-              if(!std::isfinite(approximate[row][token]) || difference>=0.01f) {accepted=false;break;}
+              if(!std::isfinite(approximate[row][token]) || difference>=0.01f)return false;
               integer_calibration.maximumError=std::max(integer_calibration.maximumError,double(difference));
             }
           }
+          return true;
+        };
+        // Numerical validation and steady-state speed are different checks.
+        // Bound cold initialization separately so a lazy library/page warm-up
+        // cannot be misreported as an arithmetic mismatch in the whole kernel.
+        std::vector<std::vector<float>> warm_exact,warm_integer;
+        integer_calibration.validated=measure(false,warm_exact,integer_calibration.numericalWarmMS[0],20) &&
+            measure(true,warm_integer,integer_calibration.numericalWarmMS[1],20) && agree(warm_exact,warm_integer);
+        bool accepted=integer_calibration.validated;
+        for(int repetition=0;repetition<3 && accepted;++repetition) {
+          std::vector<std::vector<float>> exact,approximate;double slow=0,fast=0;
+          if(repetition%2)accepted=measure(true,approximate,fast,5) && measure(false,exact,slow,5);
+          else accepted=measure(false,exact,slow,5) && measure(true,approximate,fast,5);
+          integer_calibration.exactMS[repetition]=slow;integer_calibration.integerMS[repetition]=fast;
+          if(!accepted)break;
+          if(!agree(exact,approximate)) {accepted=false;integer_calibration.validated=false;break;}
           if(slow<=0) {accepted=false;break;}
           ratios[repetition]=fast/slow;++integer_calibration.comparisons;
         }
-        integer_calibration.validated=accepted && integer_calibration.comparisons==3;
-        // Compare paired runs in alternating order. A scheduler outlier must
-        // not pick the kernel; require a ten-percent median gain. Every run
-        // still has the same five-millisecond limit and numerical checks.
+        // Three paired, alternating runs must show a ten-percent median gain.
+        // The existing live prefix and whole-score gates are independent.
         std::sort(ratios.begin(),ratios.end());
-        set_native_integer_enabled(integer_calibration.validated && ratios[1]<0.9);
+        set_native_integer_enabled(integer_calibration.validated && accepted && integer_calibration.comparisons==3 && ratios[1]<0.9);
       }
       #endif
 
@@ -1044,16 +1063,50 @@ public:
       // authoritative even if the device later slows down.
       std::vector<std::string> probes(2);
       for(int row=0;row<2;++row) for(int depth=0;depth<4;++depth) probes[row]+=characters[400+row*4+depth];
-      std::vector<float> ignored;
+      // Prefix and whole scoring have different matrix shapes. Validate and
+      // time the whole kernel independently; a rejected prefix speed probe
+      // must not close an otherwise timely whole scorer.
+      std::vector<float> reference_scores,ignored;
+      set_native_whole_integer_enabled(false);
       Budget warm{Budget::Clock::now()+std::chrono::milliseconds(20),nullptr,nullptr};
-      if(native_full(probes,ignored,warm)) {
-        double worst=0;bool fast=true;
+      const bool reference_valid=native_full(probes,reference_scores,warm);
+      integer_calibration.wholeReferenceAvailable=reference_valid;
+      auto timed=[&](bool integer,std::array<double,3> &costs,double &worst) {
+        set_native_whole_integer_enabled(integer);worst=0;
         for(int repetition=0;repetition<3;++repetition) {
           const auto begin=Budget::Clock::now();Budget probe{begin+std::chrono::milliseconds(8),nullptr,nullptr};
-          if(!native_full(probes,ignored,probe)) {fast=false;break;}
-          worst=std::max(worst,std::chrono::duration<double,std::milli>(Budget::Clock::now()-begin).count());
+          const bool complete=native_full(probes,ignored,probe);
+          costs[repetition]=std::chrono::duration<double,std::milli>(Budget::Clock::now()-begin).count();
+          if(!complete)return false;worst=std::max(worst,costs[repetition]);
         }
-        if(fast && worst>0 && worst<8) native_score_positions=std::clamp(static_cast<int>(7*8/worst),7,61);
+        return worst>0 && worst<8;
+      };
+      double exact_worst=0,integer_worst=0;
+      const bool exact_fast=reference_valid && timed(false,integer_calibration.wholeExactMS,exact_worst);
+      bool integer_valid=false,integer_fast=false;
+      // The compiled integer graph is covered by full-sequence release tests.
+      // Its runtime arithmetic also passed the complete-vocabulary root check.
+      // A slow F32 warm-up is not a numerical rejection of that independent
+      // kernel. Compare whole means too whenever the reference is available.
+      if(integer_calibration.validated) {
+        set_native_whole_integer_enabled(true);
+        Budget integer_warm{Budget::Clock::now()+std::chrono::milliseconds(20),nullptr,nullptr};
+        if(native_full(probes,ignored,integer_warm) && ignored.size()==probes.size()) {
+          integer_valid=true;
+          if(reference_valid)for(size_t row=0;row<ignored.size();++row) {
+            const auto difference=std::abs(ignored[row]-reference_scores[row]);
+            if(!std::isfinite(ignored[row]) || difference>=0.025f)integer_valid=false;
+            integer_calibration.wholeMaximumError=std::max(integer_calibration.wholeMaximumError,double(difference));
+          }
+        }
+        integer_fast=integer_valid && timed(true,integer_calibration.wholeIntegerMS,integer_worst);
+      }
+      integer_calibration.wholeValidated=integer_valid && reference_valid;
+      const bool choose_integer=integer_fast && (!exact_fast || integer_worst<exact_worst*0.9);
+      set_native_whole_integer_enabled(choose_integer);
+      if(choose_integer || exact_fast) {
+        const auto worst=choose_integer?integer_worst:exact_worst;
+        native_score_positions=std::clamp(static_cast<int>(7*8/worst),7,61);
       }
       #endif
     }
