@@ -15,14 +15,16 @@ func cr_trim_sentence_cache() {}
         let metadata = model.modelDescription.metadata[.creatorDefinedKey] as! [String: String]
         let vocabulary = try JSONSerialization.jsonObject(with: metadata["vocab"]!.data(using: .utf8)!) as! [String]
         let worker = CoreMLSentence()
+        let fixture = try JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("CoreML25M-validation.json"))) as! [String: Any]
+        let validationSequences = fixture["sequences"] as! [String]
         let numerical = fixture["expected"] as! [[String: Any]]
-        let checked = try worker.checkedPrefix(directory: directory, function: "step", sequences: sequences, expected: numerical, units: .cpuOnly)
+        let checked = try worker.checkedPrefix(directory: directory, function: "step", sequences: validationSequences, expected: numerical, units: .cpuOnly)
         expect(checked?.numericalValidation == true, "High-precision fallback did not pass the production selector")
         let incorrect = numerical.map { row -> [String: Any] in var changed = row; changed["value"] = (row["value"] as! Double) + 1; return changed }
-        let rejected = try worker.checkedPrefix(directory: directory, function: "step", sequences: sequences, expected: incorrect, units: .cpuOnly)
+        let rejected = try worker.checkedPrefix(directory: directory, function: "step", sequences: validationSequences, expected: incorrect, units: .cpuOnly)
         expect(rejected?.numericalValidation == false && rejected?.enabled == false,
             "Production selector enabled a backend that failed numerical validation")
-        let faster = try worker.checkedPrefix(directory: directory, function: "step_fast", sequences: sequences, expected: numerical, units: .cpuOnly)
+        let faster = try worker.checkedPrefix(directory: directory, function: "step_fast", sequences: validationSequences, expected: numerical, units: .cpuOnly)
         let checkedScore = try worker.checkedScorer(directory: directory, vocabulary: vocabulary, metadata: checked!.metadata, units: .cpuOnly)
         expect(checkedScore?.numericalValidation == true, "Whole-sentence selector failed source verification")
         worker.prefixState = try CoreMLPrefixState(model: model, vocabulary: vocabulary)
