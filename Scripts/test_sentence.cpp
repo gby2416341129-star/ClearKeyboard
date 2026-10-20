@@ -39,6 +39,12 @@ int main(int argc,char **argv) {
   clear_sentence::PhoneticSearch phonetic;assert(phonetic.load(argv[2],model));
   assert(phonetic.abbreviated_input("jtzgsm"));assert(phonetic.abbreviated_input("busuanchadla"));
   assert(!phonetic.abbreviated_input("jintianzaiganshenme"));assert(!phonetic.abbreviated_input("not-a-spelling"));
+  std::string expanded;
+  assert(phonetic.literal_repair("busuanchadla","bu suan cha de lian ai",expanded));
+  assert(expanded=="bu suan cha de la");
+  assert(!phonetic.literal_repair("woaini","wo ai ni",expanded));
+  assert(!phonetic.literal_repair("wqah","wo qu an hui",expanded));
+  assert(phonetic.literal_repair("xianla","xi an lian ai",expanded) && expanded=="xi an la");
   std::vector<clear_sentence::PhoneticSearch::Candidate> result;
   assert(phonetic.decode("jtzgsm",model,result,budget()));assert(result.front().text==u8"今天在干什么");
   const auto saved=result.front().text;assert(!phonetic.decode("jtzgsm",model,result,expired) && result.front().text==saved);

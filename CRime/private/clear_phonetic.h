@@ -99,6 +99,51 @@ public:
     }
     return positions.back()<10000?positions.back():-1;
   }
+  bool literal_repair(const std::string &input,const std::string &reading,std::string &expanded) const {
+    if (input.size()<6 || input.size()>64 || matches(input,reading)>=0 || full.empty()) return false;
+    std::istringstream stream(reading);std::vector<std::string> syllables;std::string word;
+    while (stream>>word) syllables.push_back(word);
+    if (syllables.size()<4 || syllables.size()>64) return false;
+    const auto width=input.size()+1;
+    std::vector<std::vector<int>> cost(syllables.size()+1,std::vector<int>(width,10000));
+    std::vector<std::vector<int>> parent(syllables.size()+1,std::vector<int>(width,-1));cost[0][0]=0;
+    for (size_t row=0;row<syllables.size();++row) {
+      const auto &syllable=syllables[row];if (syllable.empty()) return false;
+      std::vector<std::pair<std::string,int>> forms={{syllable,0}};
+      // Recognize the old decoder's vowel-initial interpretation solely to
+      // locate its spans. Such a form is never emitted by the repaired reading.
+      if (syllable.size()>1) forms.push_back({syllable.substr(0,1),1});
+      if (syllable.size()>2 && (syllable.compare(0,2,"zh")==0 || syllable.compare(0,2,"ch")==0 || syllable.compare(0,2,"sh")==0))
+        forms.push_back({syllable.substr(0,2),1});
+      for (size_t start=0;start<input.size();++start) if (cost[row][start]<10000)
+        for (const auto &form:forms) if (input.compare(start,form.first.size(),form.first)==0) {
+          const auto end=start+form.first.size();const auto value=cost[row][start]+form.second;
+          if (value<cost[row+1][end]) { cost[row+1][end]=value;parent[row+1][end]=static_cast<int>(start); }
+        }
+    }
+    if (parent.back().back()<0) return false;
+    std::vector<size_t> starts(syllables.size()+1);starts.back()=input.size();
+    for (size_t row=syllables.size();row>0;--row) starts[row-1]=parent[row][starts[row]];
+    size_t prefix=0;
+    while (prefix<syllables.size() && input.substr(starts[prefix],starts[prefix+1]-starts[prefix])==syllables[prefix]) ++prefix;
+    if (prefix<2) return false;
+    bool repaired=false;std::string replacement;
+    for (size_t row=0;row<syllables.size();) {
+      size_t chosen=row+1;std::string spelling=syllables[row];bool invalid_vowel=false;
+      if (row>=prefix) for (size_t end=row;end<syllables.size();++end) {
+        const auto part=input.substr(starts[end],starts[end+1]-starts[end]);
+        if (part==syllables[end] || starts[end+1]-starts[row]>6) break;
+        invalid_vowel=invalid_vowel || matches(part,syllables[end])<0;
+        const auto merged=input.substr(starts[row],starts[end+1]-starts[row]);
+        if (end>row && invalid_vowel && full.count(merged)) { chosen=end+1;spelling=merged; }
+      }
+      if (chosen==row+1 && matches(input.substr(starts[row],starts[row+1]-starts[row]),spelling)<0) return false;
+      if (chosen>row+1) repaired=true;
+      if (!replacement.empty()) replacement+=' ';replacement+=spelling;row=chosen;
+    }
+    if (!repaired || matches(input,replacement)<0) return false;
+    expanded=std::move(replacement);return true;
+  }
   bool abbreviated_input(const std::string &input) const {
     const auto edges=graph(input);if (edges.empty()) return false;
     std::vector<int> minimum(input.size()+1,10000),initial_count(input.size()+1,10000);

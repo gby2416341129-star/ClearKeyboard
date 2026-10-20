@@ -37,8 +37,8 @@ struct ChannelCache {
   bool initialized = false, exhausted = false;
 };
 struct Query {
-  uintptr_t exact = 0, conversation = 0, fluent = 0;
-  ChannelCache exact_cache, conversation_cache, fluent_cache, correction_cache;
+  uintptr_t exact = 0, conversation = 0, fluent = 0, repair = 0;
+  ChannelCache exact_cache, conversation_cache, fluent_cache, correction_cache, repair_cache;
   std::vector<Item> items;
   // Rerank at most once per spelling. Paging reuses the chosen text; it must
   // never move the leading row again after the user starts browsing.
@@ -343,6 +343,7 @@ void cr_destroy(uintptr_t id) {
     if (query != queries.end() && query->second.exact) api->destroy_session(query->second.exact);
     if (query != queries.end() && query->second.conversation) api->destroy_session(query->second.conversation);
     if (query != queries.end() && query->second.fluent) api->destroy_session(query->second.fluent);
+    if (query != queries.end() && query->second.repair) api->destroy_session(query->second.repair);
     api->destroy_session(id); queries.erase(id);
   }
 }
@@ -399,7 +400,31 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   }
   if (cancelled && cancelled(context)) return 0;
   query.items = merge_candidates(input, conversational, literal, fluent, limit);
-  rank_sentence(query,input,length,leading_row,correction,false,started,cancelled,context,limit);
+  bool repaired=false;
+  if (leading_row && correction && !query.items.empty() && query.items.front().consumed==length) {
+    std::string reading;
+    if (phonetic_search.literal_repair(input,syllables(query.items.front().reading),reading) &&
+        clear_sentence::Budget::Clock::now()-started<std::chrono::milliseconds(20)) {
+      // Repair a contradictory spelling with the existing context decoder.
+      // This works even when the optional 25M predictor is too slow or disabled.
+      // A separate lazy session cannot invalidate a live candidate iterator.
+      if (!query.repair && api->create_session && api->select_schema) {
+        const auto extra=api->create_session();
+        if (extra && api->select_schema(extra,"clear_fluent")) query.repair=extra;
+        else if (extra) api->destroy_session(extra);
+      }
+      const auto expanded=letters(reading);
+      if (query.repair) {
+        collect(query.repair,expanded,4,query.repair_cache,cancelled,context);
+        for (const auto &item:query.repair_cache.items) if (item.consumed==static_cast<int>(expanded.size()) &&
+            clear_sentence::PhoneticSearch::matches(input,syllables(item.reading))>=0) {
+          query.items.erase(std::remove_if(query.items.begin(),query.items.end(),[&](const Item &old){return old.text==item.text;}),query.items.end());
+          query.items.insert(query.items.begin(),{item.text,item.reading,length,item.weight});repaired=true;break;
+        }
+      }
+    }
+  }
+  rank_sentence(query,input,length,leading_row,correction,repaired,started,cancelled,context,limit);
   if (cancelled && cancelled(context)) return 0;
   return static_cast<int>(query.items.size());
 }
