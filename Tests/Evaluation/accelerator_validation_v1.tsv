@@ -1,0 +1,33 @@
+# Locked after selecting the near-tie prior guard; evaluation only, never vocabulary.
+a01	holdout	word	打印纸	da yin zhi
+a02	holdout	word	充电宝	chong dian bao
+a03	holdout	word	电动牙刷	dian dong ya shua
+a04	holdout	word	无线耳机	wu xian er ji
+a05	holdout	day	明天出门记得带上雨伞	ming tian chu men ji de dai shang yu san
+a06	holdout	day	这双鞋子走远路会不会累	zhe shuang xie zi zou yuan lu hui bu hui lei
+a07	holdout	day	煮面的时候最后再放青菜	zhu mian de shi hou zui hou zai fang qing cai
+a08	holdout	day	快到站的时候提醒我一下	kuai dao zhan de shi hou ti xing wo yi xia
+a09	holdout	day	我的耳机忘在会议室里面	wo de er ji wang zai hui yi shi li mian
+a10	holdout	day	周末有空陪我去修自行车	zhou mo you kong pei wo qu xiu zi xing che
+a11	holdout	day	这个药要在吃完晚饭以后服用	zhe ge yao yao zai chi wan wan fan yi hou fu yong
+a12	holdout	day	窗户关好以后屋里就安静了	chuang hu guan hao yi hou wu li jiu an jing le
+a13	holdout	work	会议链接发给新来的同事	hui yi lian jie fa gei xin lai de tong shi
+a14	holdout	work	有人把我的水杯拿错了	you ren ba wo de shui bei na cuo le
+a15	holdout	work	把屏幕上的照片保存到相册	ba ping mu shang de zhao pian bao cun dao xiang ce
+a16	holdout	day	我打算明年开始学习游泳	wo da suan ming nian kai shi xue xi you yong
+a17	holdout	day	这个座位旁边还有插座吗	zhe ge zuo wei pang bian hai you cha zuo ma
+a18	holdout	day	今天的水果比昨天便宜一些	jin tian de shui guo bi zuo tian pian yi yi xie
+a19	holdout	day	请把车窗打开一点透透气	qing ba che chuang da kai yi dian tou tou qi
+a20	holdout	day	我们约在书店门口见面	wo men yue zai shu dian men kou jian mian
+a21	holdout	day	先把订好的饭菜送到楼下	xian ba ding hao de fan cai song dao lou xia
+a22	holdout	day	你说的地点我还没有找到	ni shuo de di dian wo hai mei you zhao dao
+a23	holdout	day	那个盒子里面放的是螺丝	na ge he zi li mian fang de shi luo si
+a24	holdout	day	我把昨天拍的视频剪短了	wo ba zuo tian pai de shi pin jian duan le
+a25	holdout	day	下班以后去超市买点鸡蛋	xia ban yi hou qu chao shi mai dian ji dan
+a26	holdout	day	上次借的书还没有看完	shang ci jie de shu hai mei you kan wan
+a27	holdout	work	这个接口只能连接显示器	zhe ge jie kou zhi neng lian jie xian shi qi
+a28	holdout	work	他刚才说的消息已经证实了	ta gang cai shuo de xiao xi yi jing zheng shi le
+a29	holdout	long	我准备先把行李送到酒店然后再去车站接你如果路上堵车我会提前告诉你	wo zhun bei xian ba xing li song dao jiu dian ran hou zai qu che zhan jie ni ru guo lu shang du che wo hui ti qian gao su ni
+a30	holdout	long	这份文件修改完以后先发给项目负责人确认没有问题以后再发送给其他同事	zhe fen wen jian xiu gai wan yi hou xian fa gei xiang mu fu ze ren que ren mei you wen ti yi hou zai fa song gei qi ta tong shi
+a31	holdout	long	如果明天上午还是下雨我们就把原来计划好的户外活动改到下个星期再举行	ru guo ming tian shang wu hai shi xia yu wo men jiu ba yuan lai ji hua hao de hu wai huo dong gai dao xia ge xing qi zai ju xing
+a32	holdout	long	我刚刚检查了一遍电脑和手机上的文件发现有几张照片没有同步过来需要重新传一下	wo gang gang jian cha le yi bian dian nao he shou ji shang de wen jian fa xian you ji zhang zhao pian mei you tong bu guo lai xu yao chong xin chuan yi xia

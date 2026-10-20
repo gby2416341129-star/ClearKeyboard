@@ -9,6 +9,12 @@ int cr_initialize(const char *shared_directory, const char *user_directory);
 uintptr_t cr_session(void);
 void cr_destroy(uintptr_t session);
 typedef int (*cr_cancelled)(void *context);
+// Optional platform accelerator. Called only on the candidate worker. It must
+// return by its allowance and never retain output pointers or cancellation data.
+typedef int (*cr_sentence_scorer)(const char *const *texts, int count, float *scores,
+                                double milliseconds, cr_cancelled cancelled,
+                                void *cancel_context, void *context);
+void cr_set_sentence_scorer(cr_sentence_scorer scorer, void *context);
 int cr_query(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
 int cr_query_fast(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
 int cr_candidate(uintptr_t session, int index, char *text, size_t capacity,

@@ -31,6 +31,19 @@ final class RimeDecoder {
         let user = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("ClearRime-v1", isDirectory: true)
         try FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
         guard cr_initialize(shared.path, user.path) != 0 else { throw LexiconError.invalidFormat }
+        CoreMLSentence.shared.start(directory: shared)
+        cr_set_sentence_scorer({ pointers, count, output, milliseconds, cancelled, cancelContext, _ in
+            guard let pointers, let output, count > 1, count <= 9 else { return 0 }
+            var texts: [String] = []
+            for i in 0..<Int(count) {
+                guard let pointer = pointers[i] else { return 0 }
+                texts.append(String(cString: pointer))
+            }
+            guard let scores = CoreMLSentence.shared.score(texts, milliseconds: milliseconds,
+                cancelled: { (cancelled?(cancelContext) ?? 0) != 0 }), scores.count == Int(count) else { return 0 }
+            for i in scores.indices { output[i] = scores[i] }
+            return 1
+        }, nil)
         return try RimeDecoder()
     }
     private init() throws {

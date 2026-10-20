@@ -2,7 +2,7 @@ name: Build unsigned iPhone IPA
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/ime-coreml-eval-20261020]
     paths-ignore:
       - 'UITests/**'
       - 'Scripts/test-candidates-ui.sh'
@@ -24,6 +24,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Restore pinned language model cache
         id: language-model
         uses: actions/cache/restore@v4
@@ -42,6 +45,11 @@ jobs:
           key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
       - name: Prepare verified offline Chinese engine and language model
         run: python3 Scripts/prepare_rime.py
+      - name: Compile the pinned Core ML model for the Apple accelerator
+        run: |
+          python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
+          python3 Scripts/export_ime_coreml.py
+          python3 Scripts/test_ime_model.py
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
           python3 - <<'PY'
@@ -50,8 +58,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.28')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 31')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.29')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 32')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

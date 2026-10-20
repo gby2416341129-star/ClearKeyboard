@@ -2,6 +2,7 @@
 """Pin, verify and compile the offline Rime/Wanxiang data at build time."""
 import argparse, concurrent.futures, hashlib, heapq, json, os, platform, shutil, struct
 import subprocess, unicodedata, urllib.request, zipfile
+from prepare_ime_model import prepare as prepare_sentence_model
 from collections import defaultdict
 from itertools import product
 from pathlib import Path
@@ -149,6 +150,7 @@ def fluent_schema(compiled):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--download-only',action='store_true');args=parser.parse_args()
     CACHE.mkdir(exist_ok=True)
+    prepare_sentence_model()
     assets=dict(ASSETS)
     for name in ['zi', 'jichu', 'duoyin', 'en']:
         assets[name+'.yaml']=(f'https://raw.githubusercontent.com/amzxyz/rime-wanxiang/{REV}/dicts/{name}.dict.yaml', json.loads((ROOT/'Data/Rime/sources.json').read_text())['hashes'][name+'.yaml'])

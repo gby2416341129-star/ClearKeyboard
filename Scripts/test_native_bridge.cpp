@@ -1,6 +1,7 @@
 #include "../CRime/ClearRime.cpp"
 #include <cassert>
 #include <iostream>
+#include <thread>
 
 void rime_require_module_octagram() {}
 void rime_require_module_lua() {}
@@ -28,7 +29,14 @@ int from_index(RimeSessionId id, RimeCandidateListIterator *it, int index) {
 void end_list(RimeCandidateListIterator *) { ended++; }
 int set_input_mock(RimeSessionId, const char *) { return 1; }
 int cancelled_now(void *) { return 1; }
-int main() {
+int model_calls=0;
+int platform_score_mock(const char *const *,int count,float *scores,double,cr_cancelled,void*,void *context) {
+  ++model_calls;
+  for (int i=0; i<count; ++i) scores[i]=float(i);
+  if (context) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  return 1;
+}
+int main(int argc, char **argv) {
   RimeApi mock = {};
   mock.candidate_list_begin = begin_list; mock.candidate_list_next = next_item;
   mock.candidate_list_end = end_list; mock.set_input = set_input_mock;
@@ -105,5 +113,41 @@ int main() {
   assert(starts[2] == prior_exact && starts[4] == prior_fluent && starts[1] == prior_corrected);
   assert(cr_query_fast(1, "mamncfm", 96, nullptr, nullptr) == 2);
   assert(q.items[0].text == "question" && q.items[1].text == "other");
+  assert(syllables("wo  gei ma ma ")=="wo gei ma ma");
+  assert(syllables("xi an")!=syllables("xian"));
+  assert(syllables("wo gei ~ma").empty());
+  // A recorded decision is reused on paging, including the fast API. A new
+  // spelling cannot inherit it, and protected dictionary rows never invoke it.
+  q.ranked_input="abcdefgh"; q.rank_decided=true; q.ranked_choice="chosen";
+  q.items={{"incumbent","a b c d",8},{"chosen","a b c d",8},{"tail","a b c d",8}};
+  rank_sentence(q,"abcdefgh",8,false,false,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
+  assert(q.items[0].text=="chosen" && q.items[1].text=="incumbent" && q.items[2].text=="tail");
+  rank_sentence(q,"abcdefghx",9,true,true,true,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
+  assert(q.ranked_choice.empty());
+  if (argc>1) {
+    sentence_model=std::make_unique<clear_sentence::Model>();
+    assert(sentence_model->load(argv[1]));
+    platform_scorer=platform_score_mock;
+    auto row=[] {
+      Query result;
+      result.items={{u8"我给妈妈","wo gei ma ma",8,-10}, {u8"我哥妈妈","wo ge ma ma",8,-10.1},
+                    {u8"我给马马","wo gei ma ma",8,-10.2}, {u8"我给","wo gei",5,-5}};
+      return result;
+    };
+    auto generated=row();
+    rank_sentence(generated,"wogeimam",8,true,true,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
+    assert(model_calls==1 && generated.items.front().text==u8"我给马马");
+    assert(generated.items[1].text==u8"我给妈妈");
+    auto trusted=row();
+    rank_sentence(trusted,"wogeimam",8,true,true,true,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
+    assert(model_calls==1 && trusted.items.front().text==u8"我给妈妈");
+    auto strong=row(); strong.items[2].weight=-12;
+    rank_sentence(strong,"wogeimam",8,true,true,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
+    assert(model_calls==1 && strong.items.front().text==u8"我给妈妈");
+    auto late=row(); platform_scorer_context=&late;
+    rank_sentence(late,"wogeimam",8,true,true,false,clear_sentence::Budget::Clock::now(),nullptr,nullptr);
+    assert(model_calls==2 && late.items.front().text==u8"我给妈妈");
+    platform_scorer=nullptr; platform_scorer_context=nullptr;
+  }
   std::cout << "PASS: bounded unique paging, incremental cursor, confidence gate, literal retention, cancellation, iterator cleanup\n";
 }
