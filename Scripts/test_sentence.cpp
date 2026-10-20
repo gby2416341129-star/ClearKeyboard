@@ -11,7 +11,7 @@ int cancel_now(void *) { return 1; }
 int cancel_during(void *p) { return ++*static_cast<int *>(p)>24; }
 int main(int argc,char **argv) {
   assert(argc==4); // model, phonetic metadata, scratch filename
-  clear_sentence::Model model;assert(model.load(argv[1]));
+  clear_sentence::Model model;assert(model.load(argv[1]));model.set_native_integer_enabled(false);
   model.set_native_enabled(true); // Numerical tests explicitly bypass the device speed gate.
   auto budget=[] { return clear_sentence::Budget{clear_sentence::Budget::Clock::now()+std::chrono::seconds(5),nullptr,nullptr}; };
   float score=0;
@@ -52,6 +52,26 @@ int main(int argc,char **argv) {
   assert(model.cached_positions()==128); // Leaf recycling, not periodic whole-cache flushes.
   assert(model.mean_logprob(u8"这班公交车不到医院",score,budget()) && std::abs(score+4.4460439682f)<0.0001);
   clear_sentence::PhoneticSearch phonetic;assert(phonetic.load(argv[2],model));
+  // A rare character reading remains legal, but cannot borrow the frequency
+  // of its common pronunciation. Same-initial readings form ONE event.
+  double common=0,rare=0,a=0,b=0;
+  assert(phonetic.pronunciation_score("bu",u8"不","bu",model,common));
+  assert(phonetic.pronunciation_score("fou",u8"不","fou",model,rare));
+  assert(std::isfinite(rare) && common-rare>4);
+  assert(phonetic.pronunciation_score("f",u8"不","fou",model,a) && std::abs(a-rare)<1e-12);
+  assert(phonetic.pronunciation_score("d",u8"地","di",model,a));
+  assert(phonetic.pronunciation_score("d",u8"地","de",model,b) && std::abs(a-b)<1e-12 && a<=0);
+  assert(phonetic.pronunciation_score("xi'an",u8"西安","xi an",model,a));
+  a=123;assert(!phonetic.pronunciation_score("x'ian",u8"先","xian",model,a) && a==123);
+  assert(!phonetic.pronunciation_score("ni",u8"你","ni hao",model,a) && a==123);
+  {
+    std::ifstream source(argv[2]);std::string bytes((std::istreambuf_iterator<char>(source)),{}),row;
+    std::istringstream lines(bytes);while(std::getline(lines,row))if(!row.empty() && row.front()!='#')break;
+    assert(!row.empty());{std::ofstream duplicate(argv[3]);duplicate<<bytes<<'\n'<<row<<'\n';}
+    clear_sentence::PhoneticSearch repeated;assert(repeated.load(argv[3],model));
+    assert(repeated.pronunciation_score("fou",u8"不","fou",model,a) && std::abs(a-rare)<1e-12);
+    std::remove(argv[3]);
+  }
   assert(phonetic.abbreviated_input("jtzgsm"));assert(phonetic.abbreviated_input("busuanchadla"));
   assert(!phonetic.abbreviated_input("jintianzaiganshenme"));assert(!phonetic.abbreviated_input("not-a-spelling"));
   std::string expanded;
@@ -66,6 +86,10 @@ int main(int argc,char **argv) {
   model.clear_cache();
   assert(phonetic.decode("busuanchadla",model,result,budget(),u8"不算差的恋爱","bu suan cha de lian ai"));
   assert(result.front().text==u8"不算差的啦" && result.front().reading=="bu suan cha de la");
+  for(const auto &candidate:result) {
+    double channel=0;assert(phonetic.pronunciation_score("busuanchadla",candidate.text,candidate.reading,model,channel));
+    assert(std::abs(channel-candidate.phonetic)<1e-10); // Includes the verified seed prefix.
+  }
   std::ifstream source(argv[1],std::ios::binary);std::vector<char> bytes((std::istreambuf_iterator<char>(source)),{});bytes.back()^=1;
   {std::ofstream destination(argv[3],std::ios::binary);destination.write(bytes.data(),bytes.size());}
   assert(!model.load(argv[3]) && !model.ready());

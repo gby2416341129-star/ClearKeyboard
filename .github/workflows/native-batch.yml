@@ -32,10 +32,40 @@ jobs:
           fixture=json.loads(Path('Tests/Evaluation/candidate-score-parity.json').read_text())
           Path('.build/native-means.tsv').write_text(''.join(row['text']+'\t'+str(row['nativeMean'])+'\n' for row in fixture['rows']))
           PY
-      - name: Check approximate int16 arithmetic, cache, cancellation and ARM cost
+      - name: Check strict shipping F32 path
         run: |
-          c++ -O3 -UNDEBUG -DACCELERATE_NEW_LAPACK -std=c++17 -framework Accelerate Scripts/test_native_int16.cpp -o .build/test-native-int16
-          .build/test-native-int16 Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch
+          .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+      - name: Check optional integer kernel against strict F32
+        run: |
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_integer.cpp -o .build/test-native-integer
+          .build/test-native-integer Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+      - name: Check pronunciation probabilities and candidate policy
+        run: |
+          python3 - <<'PY'
+          import sys,json,unicodedata,hashlib
+          from pathlib import Path
+          sys.path.insert(0,'Scripts')
+          import prepare_rime as p
+          hashes=json.loads((p.ROOT/'Data/Rime/sources.json').read_text())['hashes'];words={}
+          p.CACHE.mkdir(exist_ok=True)
+          for name in ['zi','jichu','duoyin']:
+              p.fetch((name+'.yaml',(f'https://raw.githubusercontent.com/amzxyz/rime-wanxiang/{p.REV}/dicts/{name}.dict.yaml',hashes[name+'.yaml'])))
+              for line in (p.CACHE/(name+'.yaml')).read_text(encoding='utf-8-sig').splitlines():
+                  fields=line.split('\t')
+                  if len(fields)<3 or len(fields[0])!=1 or not fields[2].isdigit():continue
+                  text,reading=fields[:2];reading=reading.translate(str.maketrans('üǖǘǚǜ','vvvvv'))
+                  reading=''.join(c for c in unicodedata.normalize('NFD',reading) if not unicodedata.combining(c)).lower()
+                  if not all('\u3400'<=c<='\u9fff' for c in text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading) or len(reading.split())!=1:continue
+                  words[text,reading]=max(words.get((text,reading),0),int(fields[2]))
+          destination=Path('Core/Resources/Rime/clear-phonetic.tsv')
+          p.phonetic_index([(t,r,f) for (t,r),f in sorted(words.items())],destination)
+          assert hashlib.sha256(destination.read_bytes()).hexdigest()=='f06035ea8b148148c1202b38b6c5af0bedd083e75031f36bef11919d297f1278'
+          PY
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_sentence.cpp -o .build/test-sentence
+          .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_candidate_ranking.cpp -o .build/test-candidate-ranking
+          .build/test-candidate-ranking Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
       - name: Compile the generic iPhone CPU target without running iOS
         run: |
-          c++ -O3 -UNDEBUG -std=c++17 -target arm64-apple-ios16.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -fsyntax-only Scripts/test_native_int16.cpp
+          c++ -O3 -UNDEBUG -std=c++17 -target arm64-apple-ios16.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -fsyntax-only Scripts/test_native_integer.cpp

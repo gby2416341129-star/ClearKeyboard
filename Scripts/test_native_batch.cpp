@@ -24,7 +24,7 @@ template<class B> B budget(double milliseconds=10000) {
 int cancel_count(void *context){return --*static_cast<int*>(context)<=0;}
 int main(int argc,char **argv){
   assert(argc==2 || argc==3);reference_sentence::Model before;clear_sentence::Model after;
-  assert(before.load(argv[1]) && after.load(argv[1]));const int calibrated_limit=after.native_score_limit();
+  assert(before.load(argv[1]) && after.load(argv[1]));after.set_native_integer_enabled(false); // Keep the exact F32 reference test strict.const int calibrated_limit=after.native_score_limit();
   before.set_native_enabled(true);after.set_native_enabled(true);
   size_t compared=0;double maximum=0;
   auto check=[&](const std::vector<std::string> &values,bool cold){

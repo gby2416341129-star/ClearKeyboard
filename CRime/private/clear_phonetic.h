@@ -10,7 +10,7 @@ namespace clear_sentence {
 // an arbitrary Latin string or supplies its own pronunciation.
 class PhoneticSearch {
   static constexpr size_t Beam=8;
-  struct Choice { int token; std::string reading; uint32_t frequency; };
+  struct Choice { int token; std::string reading; uint32_t frequency; double pronunciation=0; };
   std::unordered_map<std::string,std::vector<Choice>> full, initials;
   struct Edge { size_t end; const std::vector<Choice> *choices; bool abbreviated; };
   using Graph=std::vector<std::vector<Edge>>;
@@ -41,7 +41,7 @@ class PhoneticSearch {
     return result;
   }
 public:
-  struct Candidate { std::string text, reading; double logprob=0; int count=0, abbreviated=0; };
+  struct Candidate { std::string text, reading; double logprob=0; int count=0, abbreviated=0; double phonetic=0; };
   bool load(const std::string &path,const Model &model) {
     full.clear();initials.clear();
     std::ifstream source(path);if (!source) return false;
@@ -60,26 +60,74 @@ public:
       try { size_t used=0;auto value=std::stoul(line.substr(second+1),&used);if (used!=line.size()-second-1 || value>UINT32_MAX) return false;frequency=static_cast<uint32_t>(value); }
       catch (...) { return false; }
       Choice choice{tokens.front(),reading,frequency};
-      if (reading!="m" && reading!="n" && reading!="ng") entries[reading][choice.token]=choice;
-      if (consonant(reading.front())) {
-        for (const auto &key:std::vector<std::string>{reading.substr(0,1),reading.substr(0,2)}) {
-          if (key.size()>1 && key!="zh" && key!="ch" && key!="sh") continue;
-          auto &bucket=shortened[key];auto found=bucket.find(choice.token);
-          if (found==bucket.end() || choice.frequency>found->second.frequency ||
-              (choice.frequency==found->second.frequency && choice.reading<found->second.reading)) bucket[choice.token]=choice;
-        }
+      // Deduplicate before estimating any pronunciation probability. Repeated
+      // metadata rows must not make a reading more likely or change the model.
+      auto &bucket=entries[reading];auto found=bucket.find(choice.token);
+      if(found==bucket.end() || choice.frequency>found->second.frequency) bucket[choice.token]=choice;
+    }
+    std::vector<double> totals(Model::vocabulary_size,0);
+    std::unordered_map<std::string,std::unordered_map<int,double>> abbreviated_totals;
+    for(const auto &spelling:entries) for(const auto &entry:spelling.second) {
+      const auto &choice=entry.second;totals[choice.token]+=double(choice.frequency)+1;
+      if(!consonant(choice.reading.front()))continue;
+      std::vector<std::string> keys={choice.reading.substr(0,1)};
+      if(choice.reading.size()>1 && (choice.reading.substr(0,2)=="zh" || choice.reading.substr(0,2)=="ch" || choice.reading.substr(0,2)=="sh"))keys.push_back(choice.reading.substr(0,2));
+      for(const auto &key:keys) {
+        abbreviated_totals[key][choice.token]+=double(choice.frequency)+1;
+        auto &bucket=shortened[key];auto found=bucket.find(choice.token);
+        if(found==bucket.end() || choice.frequency>found->second.frequency ||
+            (choice.frequency==found->second.frequency && choice.reading<found->second.reading))bucket[choice.token]=choice;
       }
     }
     for (auto *pair:{&entries,&shortened}) {
       auto &destination=pair==&entries?full:initials;
       for (auto &bucket:*pair) {
+        if(pair==&entries && (bucket.first=="m" || bucket.first=="n" || bucket.first=="ng"))continue;
         auto &values=destination[bucket.first];
-        for (auto &entry:bucket.second) values.push_back(std::move(entry.second));
+        for (auto &entry:bucket.second) {
+          auto &choice=entry.second;
+          const double matching=pair==&entries?double(choice.frequency)+1:abbreviated_totals.at(bucket.first).at(choice.token);
+          choice.pronunciation=std::log(matching/totals[choice.token]);
+          values.push_back(std::move(choice));
+        }
         std::sort(values.begin(),values.end(),[](const Choice &a,const Choice &b){return a.token<b.token;});
       }
     }
-    return records>100 && full.size()>300 && initials.size()>20;
+    const bool good=records>100 && full.size()>300 && initials.size()>20;
+    return good;
   }
+  bool pronunciation_score(const std::string &input,const std::string &text,const std::string &reading,const Model &model,double &score) const {
+    std::vector<int> tokens;if(input.empty() || input.size()>64 || !model.encode(text,tokens))return false;
+    std::istringstream parts(reading);std::string syllable;
+    std::vector<double> positions(input.size()+1,-std::numeric_limits<double>::infinity());positions[0]=0;
+    auto prior=[&](const auto &dictionary,const std::string &key,int token,double &value){
+      const auto bucket=dictionary.find(key);if(bucket==dictionary.end())return false;
+      const auto &choices=bucket->second;
+      const auto found=std::lower_bound(choices.begin(),choices.end(),token,[](const Choice &choice,int id){return choice.token<id;});
+      if(found==choices.end() || found->token!=token)return false;value=found->pronunciation;return true;
+    };
+    for(int token:tokens) {
+      if(!(parts>>syllable))return false;
+      std::vector<double> next(input.size()+1,-std::numeric_limits<double>::infinity());
+      for(size_t offset=0;offset<input.size();++offset)if(std::isfinite(positions[offset])) {
+        size_t start=offset;while(start<input.size() && input[start]=='\'')++start;
+        if(start>=input.size())continue;
+        double p=0;
+        if(input.compare(start,syllable.size(),syllable)==0 && prior(full,syllable,token,p))
+          next[start+syllable.size()]=std::max(next[start+syllable.size()],positions[offset]+p);
+        if(syllable.size()>1 && consonant(syllable.front()) && input[start]==syllable.front() && prior(initials,syllable.substr(0,1),token,p))
+          next[start+1]=std::max(next[start+1],positions[offset]+p);
+        if(syllable.size()>2 && (syllable.substr(0,2)=="zh" || syllable.substr(0,2)=="ch" || syllable.substr(0,2)=="sh") &&
+           input.compare(start,2,syllable,0,2)==0 && prior(initials,syllable.substr(0,2),token,p))
+          next[start+2]=std::max(next[start+2],positions[offset]+p);
+      }
+      positions=std::move(next);
+    }
+    if(parts>>syllable)return false;
+    double best=positions.back();size_t end=input.size();while(end && input[end-1]=='\'')best=std::max(best,positions[--end]);
+    if(!std::isfinite(best))return false;score=best;return true;
+  }
+
   // Number of intentional initial abbreviations in a complete reading, or -1.
   // Vowels are full syllables, never initials for a different vowel syllable.
   static int matches(const std::string &input,const std::string &reading) {
@@ -172,8 +220,10 @@ public:
       for (int token:seed_tokens) {
         if (!(reading>>syllable) || input.compare(seed_end,syllable.size(),syllable)!=0) break;
         const auto bucket=full.find(syllable);
-        if (bucket==full.end() || std::none_of(bucket->second.begin(),bucket->second.end(),
-            [&](const Choice &choice){return choice.token==token;})) break;
+        if(bucket==full.end())break;
+        const auto found=std::lower_bound(bucket->second.begin(),bucket->second.end(),token,[](const Choice &choice,int id){return choice.token<id;});
+        if(found==bucket->second.end() || found->token!=token)break;
+        seed.phonetic+=found->pronunciation;
         seed_end+=syllable.size();seed.text+=model.text(token);++seed.count;
         if (!seed.reading.empty()) seed.reading+=' ';seed.reading+=syllable;
       }
@@ -188,7 +238,7 @@ public:
       float mean=0;if (!model.mean_logprob(seed.text,mean,budget)) return false;
       seed.logprob=mean*seed.count;states[seed_end].push_back(std::move(seed));
     } else states.front().push_back({});
-    auto value=[](const Candidate &c){return (c.logprob-0.8*c.abbreviated)/std::pow(std::max(1,c.count),0.7);};
+    auto value=[](const Candidate &c){return (c.logprob+c.phonetic-0.8*c.abbreviated)/std::pow(std::max(1,c.count),0.7);};
     auto trim=[&](std::vector<Candidate> &items,size_t maximum) {
       std::stable_sort(items.begin(),items.end(),[&](const Candidate &a,const Candidate &b){return value(a)>value(b);});
       std::unordered_set<std::string> seen;
@@ -207,7 +257,7 @@ public:
         for (const auto &edge:edges[offset]) {
           std::vector<const Choice*> best;
           for (const auto &choice:*edge.choices) {
-            auto point=std::lower_bound(best.begin(),best.end(),choice.token,[&](const Choice *a,int token){return probabilities[row][a->token]>probabilities[row][token];});
+            auto point=std::lower_bound(best.begin(),best.end(),choice.token,[&](const Choice *a,int token){return probabilities[row][a->token]+a->pronunciation>probabilities[row][token]+choice.pronunciation;});
             if (point==best.end() && best.size()>=beam) continue;
             best.insert(point,&choice);if (best.size()>beam) best.pop_back();
           }
@@ -216,7 +266,7 @@ public:
             candidate.text+=model.text(choice->token);
             if (!candidate.reading.empty()) candidate.reading+=' ';
             candidate.reading+=choice->reading;
-            candidate.logprob+=probabilities[row][choice->token];
+            candidate.logprob+=probabilities[row][choice->token];candidate.phonetic+=choice->pronunciation;
             ++candidate.count;candidate.abbreviated+=edge.abbreviated;
             states[edge.end].push_back(std::move(candidate));
           }
