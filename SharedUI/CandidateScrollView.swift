@@ -36,7 +36,11 @@ import UIKit
         // Word faces and their spacing are presentation only. Every contact,
         // including one in a gap, reaches this same scroll view and native pan.
         strip.isUserInteractionEnabled = false
-        backgroundColor = .clear; isOpaque = false
+        // Remote keyboard hosts can discard a contact on fully clear pixels
+        // before UIKit hit testing. Paint the entire receiving viewport, including
+        // word gaps and exposed edges during bounce. Keep the view itself at
+        // full alpha so text stays crisp; only this neutral backing is translucent.
+        backgroundColor = UIColor(white: 0.5, alpha: 0.01); isOpaque = false
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         delaysContentTouches = false; canCancelContentTouches = true
         alwaysBounceHorizontal = true; alwaysBounceVertical = false

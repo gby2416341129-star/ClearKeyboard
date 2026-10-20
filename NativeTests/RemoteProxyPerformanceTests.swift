@@ -239,6 +239,33 @@ import UIKit
         XCTAssertNil(ribbon.hitTest(CGPoint(x: -1, y: 22), with: nil))
         XCTAssertNil(ribbon.hitTest(CGPoint(x: 120, y: 45), with: nil))
     }
+    func testCandidateViewportHasNoTransparentHolesForTheKeyboardHost() throws {
+        let ribbon = CandidateScrollView()
+        ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
+        // A normal UIKit hit test alone cannot detect clear-pixel rejection.
+        // Verify rendered coverage separately; extension-host gesture delivery still
+        // needs a physical device check.
+        for style: UIUserInterfaceStyle in [.light, .dark] {
+            ribbon.overrideUserInterfaceStyle = style
+            for items: [Candidate] in [[], [Candidate(text: "看了", consumed: 0),
+                                           Candidate(text: "教大家", consumed: 0)]] {
+                ribbon.update(items, context: nil, arithmetic: false, accent: .systemTeal)
+                ribbon.layoutIfNeeded()
+                let width = 320, height = 44
+                var pixels = [UInt8](repeating: 0, count: width * height * 4)
+                try pixels.withUnsafeMutableBytes { storage in
+                    let context = try XCTUnwrap(CGContext(data: storage.baseAddress,
+                        width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                    ribbon.layer.render(in: context)
+                }
+                let transparentPixels = stride(from: 3, to: pixels.count, by: 4).filter { pixels[$0] == 0 }.count
+                XCTAssertEqual(transparentPixels, 0,
+                    "Glyphs, word gaps, leading/trailing space and empty results all need rendered coverage")
+            }
+        }
+    }
     func testCandidateRowTapsExcludeGapsAndKeepAccessibilityActivation() throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
