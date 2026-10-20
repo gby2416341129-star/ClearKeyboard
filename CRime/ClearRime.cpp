@@ -109,6 +109,12 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
       }
       std::vector<float> scores;
       if (texts.size()>=2 && indices.front()==0 && sentence_model->compare(texts,scores,budget)) {
+        for(size_t row=0;row<indices.size();++row) {
+          const auto &item=query.items[indices[row]];double pronunciation=0;std::vector<int> characters;
+          if(sentence_model->encode(item.text,characters) &&
+              phonetic_search.pronunciation_score(input,item.text,syllables(item.reading),*sentence_model,pronunciation))
+            scores[row]+=static_cast<float>(pronunciation/characters.size());
+        }
         const auto best=static_cast<size_t>(std::max_element(scores.begin(),scores.end())-scores.begin());
         compared=true;compared_mean=scores.front();
         if (best && scores[best]-scores.front()>=0.15f) {
@@ -138,9 +144,15 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
   if (complete && !compared && !sentence_model->mean_logprob(query.items.front().text,incumbent,budget)) {
     if (!(cancelled && cancelled(context))) finish();return;
   }
+  if(complete && !compared) {
+    double pronunciation=0;std::vector<int> characters;
+    if(sentence_model->encode(query.items.front().text,characters) &&
+        phonetic_search.pronunciation_score(input,query.items.front().text,syllables(query.items.front().reading),*sentence_model,pronunciation))
+      incumbent+=static_cast<float>(pronunciation/characters.size());
+  }
   std::vector<Item> additions;
   for (const auto &item:generated) {
-    const double mean=item.logprob/item.count;
+    const double mean=(item.logprob+item.phonetic)/item.count;
     // A larger LM cannot overrule the spelling. Strong language evidence is
     // required to replace a legal interpretation. If Rime completed a different
     // vowel syllable, a literal mixed spelling gets a modest preference instead.

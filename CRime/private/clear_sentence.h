@@ -28,6 +28,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <unistd.h>
 #endif
 #if defined(__aarch64__)
@@ -164,13 +165,123 @@ inline void gelu_many(float *values,int count,std::vector<float> &scratch) {
   }
 }
 
+struct Input16 {
+  std::array<int16_t,1792> values;
+  #if defined(__aarch64__)
+  std::array<int8_t,1792> low,high;
+  #endif
+  float step=1;
+  Input16(const float *x,int count) {
+    float maximum=0;for(int i=0;i<count;++i) maximum=std::max(maximum,std::abs(x[i]));
+    const float gain=maximum>0?32639/maximum:1;step=1/gain;
+    #if defined(__aarch64__)
+    for(int i=0;i<count;i+=8) {
+      const auto a=vcvtnq_s32_f32(vmulq_n_f32(vld1q_f32(x+i),gain));
+      const auto b=vcvtnq_s32_f32(vmulq_n_f32(vld1q_f32(x+i+4),gain));
+      const auto q=vcombine_s16(vqmovn_s32(a),vqmovn_s32(b));
+      vst1q_s16(values.data()+i,q);
+      vst1_s8(low.data()+i,vmovn_s16(q));
+      vst1_s8(high.data()+i,vmovn_s16(vshrq_n_s16(vaddq_s16(q,vdupq_n_s16(128)),8)));
+    }
+    #elif defined(__AVX2__)
+    const auto multiplier=_mm256_set1_ps(gain);
+    for(int i=0;i<count;i+=8) {
+      const auto q=_mm256_cvtps_epi32(_mm256_mul_ps(_mm256_loadu_ps(x+i),multiplier));
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(values.data()+i),_mm_packs_epi32(_mm256_castsi256_si128(q),_mm256_extracti128_si256(q,1)));
+    }
+    #else
+    for(int i=0;i<count;++i) values[i]=static_cast<int16_t>(std::nearbyint(x[i]*gain));
+    #endif
+  }
+};
+#if defined(__aarch64__)
+inline bool dot_product_supported() {
+  #if defined(__APPLE__)
+  static const bool supported=[] {int value=0;size_t size=sizeof(value);return sysctlbyname("hw.optional.arm.FEAT_DotProd",&value,&size,nullptr,0)==0 && value==1;}();
+  return supported;
+  #elif defined(__ARM_FEATURE_DOTPROD)
+  return true;
+  #else
+  return false;
+  #endif
+}
+// q = high * 256 + low, with BOTH bytes signed. Restrict |q| to 32639
+// so that the rounding carry cannot overflow high. Each 8-bit dot sum
+// fits int32 at K<=1792; combine the high contribution in int64 only.
+template<size_t Batch> __attribute__((target("dotprod")))
+inline void dot16_sdot(const int8_t *weight,const Input16 *const *inputs,int count,int64_t *out) {
+  std::array<int32x4_t,Batch> high,low;
+  for(size_t row=0;row<Batch;++row)high[row]=low[row]=vdupq_n_s32(0);
+  for(int i=0;i<count;i+=16) {
+    const auto w=vld1q_s8(weight+i);
+    for(size_t row=0;row<Batch;++row) {
+      high[row]=vdotq_s32(high[row],w,vld1q_s8(inputs[row]->high.data()+i));
+      low[row]=vdotq_s32(low[row],w,vld1q_s8(inputs[row]->low.data()+i));
+    }
+  }
+  for(size_t row=0;row<Batch;++row)out[row]=vaddlvq_s32(high[row])*256+vaddlvq_s32(low[row]);
+}
+#endif
+// At K <= 1792 each int32 lane contains at most 112 pair products:
+// 112 * 2 * 128 * 32760 < 2^31. Only the final reduction needs int64.
+template<size_t Batch> inline void dot16_many(const int8_t *weight,const Input16 *const *inputs,int count,int64_t *out) {
+  #if defined(__aarch64__)
+  if(dot_product_supported()){dot16_sdot<Batch>(weight,inputs,count,out);return;}
+  std::array<int32x4_t,Batch> a,b;
+  for(size_t row=0;row<Batch;++row)a[row]=b[row]=vdupq_n_s32(0);
+  for(int i=0;i<count;i+=8) {
+    const auto w=vmovl_s8(vld1_s8(weight+i));
+    for(size_t row=0;row<Batch;++row) {
+      const auto x=vld1q_s16(inputs[row]->values.data()+i);
+      a[row]=vmlal_s16(a[row],vget_low_s16(w),vget_low_s16(x));
+      b[row]=vmlal_s16(b[row],vget_high_s16(w),vget_high_s16(x));
+    }
+  }
+  for(size_t row=0;row<Batch;++row)out[row]=vaddlvq_s32(a[row])+vaddlvq_s32(b[row]);
+  #elif defined(__AVX2__)
+  std::array<__m256i,Batch> a;for(auto &value:a)value=_mm256_setzero_si256();
+  for(int i=0;i<count;i+=16) {
+    const auto w=_mm256_cvtepi8_epi16(_mm_loadu_si128(reinterpret_cast<const __m128i*>(weight+i)));
+    for(size_t row=0;row<Batch;++row)a[row]=_mm256_add_epi32(a[row],_mm256_madd_epi16(w,_mm256_loadu_si256(reinterpret_cast<const __m256i*>(inputs[row]->values.data()+i))));
+  }
+  for(size_t row=0;row<Batch;++row) {
+    alignas(32) int32_t lanes[8];_mm256_store_si256(reinterpret_cast<__m256i*>(lanes),a[row]);out[row]=0;
+    for(auto value:lanes)out[row]+=value;
+  }
+  #else
+  for(size_t row=0;row<Batch;++row) {
+    int64_t total=0;for(int i=0;i<count;++i)total+=int32_t(weight[i])*inputs[row]->values[i];out[row]=total;
+  }
+  #endif
+}
+
+struct IntegerKernelCalibration {
+  std::array<double,3> exactMS{},integerMS{};
+  double maximumError=0;
+  int comparisons=0;
+  bool available=false,validated=false;
+};
 class Model {
   static constexpr int D=448, Layers=8, Heads=8, Vocab=12288, Window=128, CacheLimit=128;
   struct Matrix {
     int rows=0, columns=0;
     const int8_t *weight=nullptr;
     const float *scale=nullptr, *bias=nullptr;
+    bool integer=false;
+    template<size_t Batch> bool apply_quantized(const float *const *x,float *const *out,const Budget &budget) const {
+      std::vector<Input16> prepared;prepared.reserve(Batch);
+      std::array<const Input16*,Batch> inputs{};
+      for(size_t column=0;column<Batch;++column){prepared.emplace_back(x[column],columns);inputs[column]=&prepared.back();}
+      for(int row=0;row<rows;++row) {
+        if(!(row%64) && !budget.alive()) return false;
+        std::array<int64_t,Batch> values;dot16_many<Batch>(weight+row*columns,inputs.data(),columns,values.data());
+        for(size_t column=0;column<Batch;++column)
+          out[column][row]=static_cast<float>(double(values[column])*inputs[column]->step)*scale[row]+(bias?bias[row]:0);
+      }
+      return budget.alive();
+    }
     bool apply(const float *x, float *out, const Budget &budget) const {
+      if(integer)return apply_quantized<1>(&x,&out,budget);
       for (int row=0; row<rows; ++row) {
         if (!(row%64) && !budget.alive()) return false;
         out[row] = dot(weight+row*columns, x, columns)*scale[row] + (bias?bias[row]:0);
@@ -186,6 +297,13 @@ class Model {
       return true;
     }
     bool apply_many(const float *const *x,float *const *out,int count,const Budget &budget) const {
+      if(integer) switch(count) {
+        case 1:return apply_quantized<1>(x,out,budget);
+        case 2:return apply_quantized<2>(x,out,budget);
+        case 3:return apply_quantized<3>(x,out,budget);
+        case 4:return apply_quantized<4>(x,out,budget);
+        default:return false;
+      }
       switch(count) {
         case 1:return apply(x[0],out[0],budget);
         case 2:return apply_group<2>(x,out,budget);
@@ -195,6 +313,14 @@ class Model {
       }
     }
     bool apply_bulk(const float *x,float *out,int count,std::vector<float> &panel,const Budget &budget) const {
+      if(integer) {
+        for(int start=0;start<count;start+=4) {
+          const int width=std::min(4,count-start);std::array<const float*,4> inputs{};std::array<float*,4> outputs{};
+          for(int i=0;i<width;++i){inputs[i]=x+(start+i)*columns;outputs[i]=out+(start+i)*rows;}
+          if(!apply_many(inputs.data(),outputs.data(),width,budget))return false;
+        }
+        return budget.alive();
+      }
       #if defined(__APPLE__)
       static constexpr int Panel=512;
       panel.resize(Panel*columns);
@@ -267,6 +393,8 @@ private:
   std::unordered_map<std::string,Mean> means;
   bool loaded=false;
   bool native_enabled=false;
+  bool native_integer=false;
+  IntegerKernelCalibration integer_calibration;
   int native_score_positions=0;
   const uint8_t *mapped=nullptr;
   size_t mapped_size=0;
@@ -545,6 +673,15 @@ public:
   bool has_scorer() const { return loaded && (scorer || native_score_positions>0); }
   bool can_search() const { return loaded && (native_enabled || predictor); }
   bool native_ready() const { return native_enabled; }
+  bool native_integer_ready() const { return loaded && native_integer; }
+  const IntegerKernelCalibration &native_integer_calibration() const { return integer_calibration; }
+  // A precision change invalidates all hidden states, distributions and means.
+  // Standalone tests can select either path without weakening F32 references.
+  void set_native_integer_enabled(bool enabled) {
+    native_integer=enabled;embedding.integer=enabled;
+    for(auto &block:blocks)block.qkv.integer=block.proj.integer=block.fc.integer=block.out.integer=enabled;
+    clear_cache();
+  }
   // Explicit override used by standalone numerical tests and memory trimming.
   // Normal loading assigns the independently calibrated limits instead.
   void set_native_enabled(bool value) { native_enabled=value;native_score_positions=value?61:0; }
@@ -770,7 +907,7 @@ public:
   void clear_cache() { cache.clear(); cache_index.clear(); distributions.clear(); means.clear(); clock=0; }
   bool load(const std::string &path) {
     // A failed reload must never retain partially replaced weights.
-    loaded=false; native_enabled=false; native_score_positions=0; clear_cache(); vocabulary.clear();
+    loaded=false; native_enabled=false; native_score_positions=0; set_native_integer_enabled(false); integer_calibration={}; vocabulary.clear();
     release_mapping();
     #if defined(__APPLE__)
     // Borrow immutable tensors from a read-only mapping. Copying int8 weights
@@ -842,6 +979,50 @@ public:
     }
     loaded=floats(finalw,D) && floats(finalb,D) && offset==mapped_size;
     if (loaded) {
+      #if defined(__aarch64__)
+      if(dot_product_supported()) {
+        integer_calibration.available=true;
+        // The fixed BOS distribution exercises every layer and the complete
+        // vocabulary within one position. Multi-position numerical coverage is
+        // checked separately against the pinned model in the release tests.
+        const std::vector<std::string> probes={""};
+        std::array<double,3> ratios{};
+        bool accepted=true;
+        for(int repetition=0;repetition<3 && accepted;++repetition) {
+          std::vector<std::vector<float>> exact,approximate;
+          auto measure=[&](bool integer,std::vector<std::vector<float>> &values,double &cost) {
+            set_native_integer_enabled(integer);const auto start=Budget::Clock::now();
+            Budget probe{start+std::chrono::milliseconds(5),nullptr,nullptr};
+            const bool complete=native_many(probes,values,probe);
+            cost=std::chrono::duration<double,std::milli>(Budget::Clock::now()-start).count();return complete;
+          };
+          double slow=0,fast=0;
+          if(repetition%2)accepted=measure(true,approximate,fast) && measure(false,exact,slow);
+          else accepted=measure(false,exact,slow) && measure(true,approximate,fast);
+          integer_calibration.exactMS[repetition]=slow;integer_calibration.integerMS[repetition]=fast;
+          if(!accepted)break;
+          for(size_t row=0;row<exact.size();++row) {
+            if(exact[row].size()!=approximate[row].size() ||
+                std::max_element(exact[row].begin(),exact[row].end())-exact[row].begin()!=
+                std::max_element(approximate[row].begin(),approximate[row].end())-approximate[row].begin()) {accepted=false;break;}
+            for(size_t token=0;token<exact[row].size();++token) {
+              const auto difference=std::abs(exact[row][token]-approximate[row][token]);
+              if(!std::isfinite(approximate[row][token]) || difference>=0.01f) {accepted=false;break;}
+              integer_calibration.maximumError=std::max(integer_calibration.maximumError,double(difference));
+            }
+          }
+          if(slow<=0) {accepted=false;break;}
+          ratios[repetition]=fast/slow;++integer_calibration.comparisons;
+        }
+        integer_calibration.validated=accepted && integer_calibration.comparisons==3;
+        // Compare paired runs in alternating order. A scheduler outlier must
+        // not pick the kernel; require a ten-percent median gain. Every run
+        // still has the same five-millisecond limit and numerical checks.
+        std::sort(ratios.begin(),ratios.end());
+        set_native_integer_enabled(integer_calibration.validated && ratios[1]<0.9);
+      }
+      #endif
+
       // Calibrate one actual position on this device, including the vocabulary
       // projection. Slow CPUs retain Rime immediately rather than paying the
       // full neural budget at every incomplete spelling. An optional accelerator

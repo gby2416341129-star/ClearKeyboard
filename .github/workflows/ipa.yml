@@ -73,6 +73,8 @@ jobs:
           PY
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch
           .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
+          c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_integer.cpp -o .build/test-native-integer
+          .build/test-native-integer Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_sentence.cpp -o .build/test-sentence
           .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_bridge.cpp -o .build/test-bridge
@@ -98,8 +100,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.36')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 39')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.37')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 40')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist
