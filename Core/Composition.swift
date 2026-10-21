@@ -18,10 +18,11 @@ public struct Composition: Equatable {
     }
     /// A long draft stays intact while the decoder offers selectable prefixes.
     /// Leave lookahead so the cut normally falls at a complete syllable.
-    static func queryPrefix(_ raw: String, normalized: String) -> String {
-        guard normalized.utf8.count > maximumQueryLength else { return raw }
+    static func queryPrefix(_ raw: String, normalized: String, allowInitialWindow: Bool = true) -> String {
         let probe = String(normalized.prefix(maximumQueryLength))
-        let count = PinyinSpelling.prefixBoundary(probe, noLaterThan: maximumQueryLength / 2)
+        let initialBoundary = allowInitialWindow ? PinyinSpelling.abbreviatedWindowBoundary(probe) : nil
+        guard initialBoundary != nil || normalized.utf8.count > maximumQueryLength else { return raw }
+        let count = initialBoundary ?? PinyinSpelling.prefixBoundary(probe, noLaterThan: maximumQueryLength / 2)
         var remainder = Composition(); remainder.raw = raw; remainder.normalized = normalized
         remainder.asciiRaw = raw.utf8.allSatisfy { $0 < 128 }
         remainder.consume(count)

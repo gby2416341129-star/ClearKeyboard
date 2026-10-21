@@ -75,7 +75,8 @@ private struct LifestyleCorpus: Decodable {
                             let rank = page.firstIndex { $0.text == sample.text && $0.consumed == raw.count }.map { $0 + 1 } ?? 0
                             rows.append(["article": article.id, "paragraph": paragraph.id, "kind": kind, "variant": variant,
                                 "input": raw, "expected": sample.text, "first": head.first?.text ?? "", "rank64": rank,
-                                "editDistance": edits(head.first?.text ?? "", sample.text), "milliseconds": ms])
+                                "editDistance": edits(head.first?.text ?? "", sample.text), "milliseconds": ms,
+                                "windowed": head.allSatisfy { $0.consumed < raw.count }])
                         }
                         context += sample.text
                     }
@@ -93,11 +94,19 @@ private struct LifestyleCorpus: Decodable {
         for key in Set(rows.map { ($0["kind"] as! String) + "/" + ($0["variant"] as! String) }) {
             let group = rows.filter { ($0["kind"] as! String) + "/" + ($0["variant"] as! String) == key }
             let characters = group.reduce(0) { $0 + ($1["expected"] as! String).count }
+            let unwindowed = group.filter { $0["windowed"] as! Bool == false }
+            let unwindowedCharacters = unwindowed.reduce(0) { $0 + ($1["expected"] as! String).count }
+            var unwindowedRate: Any = NSNull()
+            if unwindowedCharacters > 0 {
+                unwindowedRate = Double(unwindowed.reduce(0) { $0 + ($1["editDistance"] as! Int) }) / Double(unwindowedCharacters)
+            }
             let times = group.map { $0["milliseconds"] as! Double }.sorted()
             groups[key] = ["cases": group.count, "characters": characters,
                 "top1": group.filter { $0["rank64"] as! Int == 1 }.count,
                 "top9": group.filter { let rank = $0["rank64"] as! Int; return rank > 0 && rank <= 9 }.count,
                 "top64": group.filter { $0["rank64"] as! Int > 0 }.count,
+                "windowedQueries": group.count - unwindowed.count, "unwindowedCases": unwindowed.count,
+                "unwindowedCharacterEditRate": unwindowedRate,
                 "characterEditRate": Double(group.reduce(0) { $0 + ($1["editDistance"] as! Int) }) / Double(characters),
                 "queryP50MS": times[times.count / 2], "queryP95MS": times[max(0, Int(ceil(Double(times.count) * 0.95)) - 1)]]
         }

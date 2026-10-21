@@ -87,6 +87,16 @@ import Foundation
             rows.append(["input": raw, "head": head.map(\.text), "kind": "shared-prefix-initialism"])
         }
         var contextualRows: [[String: Any]] = []
+        var initialWindows: [[String: Any]] = []
+        for raw in [String(repeating: "wmjtqcf", count: 20), String(repeating: "nijtchiflm", count: 20)] {
+            let started = ProcessInfo.processInfo.systemUptime
+            let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 64)
+            let milliseconds = (ProcessInfo.processInfo.systemUptime - started) * 1_000
+            require(!head.isEmpty && head.allSatisfy { $0.consumed > 0 && $0.consumed <= 64 && $0.consumed < raw.count },
+                    "A long initialism bypassed its bounded selectable prefix")
+            require(Array(page.prefix(head.count)) == head, "An ambiguity window moved its visible candidate row")
+            initialWindows.append(["letters": raw.count, "maximumConsumed": head.map(\.consumed).max()!, "headAndPageMS": milliseconds])
+        }
         for (raw, preceding, expected) in [
             ("buguixianzaishi", "", "不过现在是"), ("buguoxianzaishi", "", "不过现在是"),
             ("nichifankm", "", "你吃饭了吗"), ("nichifanlm", "", "你吃饭了吗"),
@@ -116,7 +126,7 @@ import Foundation
             require(Array(page.prefix(head.count)) == head, "Word alternatives moved on paging: \(raw)")
             rows.append(["input": raw, "head": head.map(\.text), "prefixSelectable": "重置", "prefixConsumed": consumed])
         }
-        print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows, "exactInitialRowsChecked": exactRows, "contextualRows": contextualRows,
+        print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows, "exactInitialRowsChecked": exactRows, "contextualRows": contextualRows, "initialWindows": initialWindows,
             "scope": "macOS release, real Swift InputEngine and Rime; excludes UIKit, physical phone and display frame rate"], options: [.sortedKeys]), encoding: .utf8)!)
     }
 }

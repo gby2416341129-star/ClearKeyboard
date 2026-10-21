@@ -85,12 +85,12 @@ public final class InputEngine {
     public func immediateCandidates(_ raw: String, preferred: [Candidate] = []) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty else { return [] }
-        if input.utf8.count > Composition.maximumQueryLength {
-            let prefix = Composition.queryPrefix(raw, normalized: input)
+        let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
+        let prefix = decodingPrefix(raw, normalized: input, repeated: !repeated.isEmpty)
+        if prefix != raw {
             return expandedPrefix(immediateCandidates(prefix, preferred: preferred), window: prefix, whole: input)
         }
         var output = preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }
-        let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
         if !repeated.isEmpty {
             var seen = Set(output.map(\.text))
             output += repeated.filter { seen.insert($0.text).inserted }
@@ -144,6 +144,13 @@ public final class InputEngine {
             return Candidate(text: value.text, reading: value.reading, consumed: count, score: value.score)
         }
     }
+    private func decodingPrefix(_ raw: String, normalized input: String, repeated: Bool) -> String {
+        guard input.utf8.count > 16 else { return raw }
+        // Keep established repeated acknowledgements and real English words on
+        // their existing fast path; the ambiguity window is for Chinese search.
+        let englishWord = associations?.contains("e:" + input) == true && !chinese.contains("e:" + input)
+        return Composition.queryPrefix(raw, normalized: input, allowInitialWindow: !repeated && !englishWord)
+    }
     /// Recognize mixed full syllables and initials before considering an English
     /// suffix. For example wo + gei + ma + m is a Chinese spelling, even though
     /// the last four letters also happen to be an English dictionary entry.
@@ -176,14 +183,14 @@ public final class InputEngine {
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], recentCorrections: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, context: String = "", cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, !cancelled() else { return [] }
-        if input.utf8.count > Composition.maximumQueryLength {
-            let prefix = Composition.queryPrefix(raw, normalized: input)
+        let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
+        let prefix = decodingPrefix(raw, normalized: input, repeated: !repeated.isEmpty)
+        if prefix != raw {
             let values = candidates(prefix, fuzzy: fuzzy, learned: learned, preferred: preferred,
                 recentCorrections: recentCorrections, limit: limit, compose: compose, correction: correction,
                 context: context, cancelled: cancelled)
             return cancelled() ? [] : expandedPrefix(values, window: prefix, whole: input)
         }
-        let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
         guard !cancelled() else { return [] }
         if compose, !repeated.isEmpty, limit <= 9 {
             return Array(repeatedHead(repeated, raw: raw, length: input.count, preferred: preferred).prefix(max(1, limit)))

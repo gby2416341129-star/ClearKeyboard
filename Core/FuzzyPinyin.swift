@@ -83,6 +83,36 @@ enum PinyinSpelling {
         // bounded correction channel available instead of returning an empty row.
         return end >= limit - 6 ? end : min(limit, count)
     }
+    /// Initialisms can represent many more syllables than equally long full
+    /// pinyin. Bound that ambiguity before entering Rime's synchronous search.
+    /// Full spelling and short mixed input retain their entire sentence.
+    static func abbreviatedWindowBoundary(_ input: String, syllableLimit: Int = 16) -> Int? {
+        let letters = Array(input), count = letters.count
+        guard count > syllableLimit else { return nil }
+        let initials = Set("bpmfdtnlgkhjqxrzcsyw"), vowels = Set("aeiouv")
+        var units = [Int](repeating: Int.max, count: count + 1)
+        var abbreviated = [Int](repeating: Int.max, count: count + 1)
+        var parent = [Int](repeating: -1, count: count + 1)
+        units[0] = 0; abbreviated[0] = 0
+        for start in 0..<count where units[start] != Int.max {
+            func advance(_ end: Int, initial: Bool) {
+                let nextUnits = units[start] + 1, nextInitials = abbreviated[start] + (initial ? 1 : 0)
+                if nextUnits < units[end] || (nextUnits == units[end] && nextInitials < abbreviated[end]) {
+                    units[end] = nextUnits; abbreviated[end] = nextInitials; parent[end] = start
+                }
+            }
+            for end in (start + 1)...min(count, start + 6) {
+                let token = String(letters[start..<end])
+                if syllables.contains(token) { advance(end, initial: !token.contains(where: vowels.contains)) }
+                if ["zh", "ch", "sh"].contains(token) { advance(end, initial: true) }
+            }
+            if initials.contains(letters[start]) { advance(start + 1, initial: true) }
+        }
+        guard units[count] != Int.max, units[count] > syllableLimit, abbreviated[count] >= 8 else { return nil }
+        var end = count
+        while units[end] > syllableLimit, parent[end] >= 0 { end = parent[end] }
+        return end > 0 && end < count ? end : nil
+    }
     private static let keyPositions: [UInt8: CGPoint] = {
         var positions: [UInt8: CGPoint] = [:]
         for (row, value) in ["qwertyuiop", "asdfghjkl", "zxcvbnm"].enumerated() {

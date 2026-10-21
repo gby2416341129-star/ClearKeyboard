@@ -63,6 +63,8 @@ jobs:
           .build/test-edit-transactions
           swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_long_draft.swift -o .build/test-long-draft
           .build/test-long-draft
+          swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
+          .build/test-input-core
       - name: Restore pinned language model cache
         id: language-model
         uses: actions/cache/restore@v4
@@ -135,8 +137,6 @@ jobs:
           .build/test-sentence Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv .build/corrupt-model.tmp
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_candidate_ranking.cpp -o .build/test-candidate-ranking
           .build/test-candidate-ranking Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
-          swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
-          .build/test-input-core
           swiftc -O -parse-as-library Core/LatestValue.swift Core/HostTextState.swift Scripts/test_frame_delivery.swift -o .build/test-frame-delivery
           .build/test-frame-delivery
           swiftc -O -parse-as-library Core/CandidateStripLayout.swift Scripts/test_candidate_layout.swift -o .build/test-candidate-layout

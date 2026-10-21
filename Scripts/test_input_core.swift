@@ -43,6 +43,17 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
             expect(prefix + remainder.raw == value, "Taking a bounded query window lost source letters")
         }
         var host = HostTextState(HostTextSnapshot(before: "前文", document: "field"))
+        for raw in [String(repeating: "wmjtqcf", count: 20), String(repeating: "nijtchiflm", count: 20),
+                    String(repeating: "ni'jt'chi'flm'", count: 20)] {
+            let normalized = FuzzyPinyin.normalize(raw)
+            let prefix = Composition.queryPrefix(raw, normalized: normalized)
+            expect(prefix.count < raw.count && prefix.count <= 64, "A long initialism still enters an unbounded Rime query")
+            var remainder = Composition(); remainder.append(raw); remainder.consume(FuzzyPinyin.normalize(prefix).count)
+            expect(prefix + remainder.raw == raw, "An ambiguity window swallowed the remaining spelling")
+        }
+        for raw in ["wcfl", "nijtchiflm", "birunijintianzaiganshenmo", String(repeating: "nichifanlema", count: 10)] {
+            expect(Composition.queryPrefix(raw, normalized: raw) == raw, "Short mixed input or full pinyin was shortened")
+        }
         let raw = String(repeating: "nichifanlema", count: 16)
         host.setMarked(raw, now: 1)
         var unavailable = host.snapshot; unavailable.available = false
