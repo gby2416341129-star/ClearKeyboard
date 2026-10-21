@@ -8,11 +8,29 @@ import os
     private weak var view: UIView?
     private var link: UIUpdateLink?
     private var frameRate = 0
+    private var fallbackScheduled = false
+    private var generation = 0
     private var action: (() -> Void)?
     private let log = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
     func schedule(in view: UIView, maximumFramesPerSecond: Int, _ action: @escaping () -> Void) {
+        if self.view !== view {
+            cancel(); link = nil; frameRate = 0; self.view = view
+        }
         self.action = action
-        if self.view !== view || link == nil {
+        // A keyboard can be detached while its host replaces or resizes the
+        // remote view. No display update is promised without a window; keep
+        // document writes and the latest presentation live on the main queue.
+        if view.window == nil {
+            link?.requiresContinuousUpdates = false; link?.isEnabled = false
+            guard !fallbackScheduled else { return }
+            fallbackScheduled = true; let revision = generation
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == revision else { return }
+                let next = self.action; self.cancel(); next?()
+            }
+            return
+        }
+        if link == nil {
             link?.isEnabled = false
             self.view = view; frameRate = 0
             let next = UIUpdateLink(view: view)
@@ -30,7 +48,7 @@ import os
         link?.requiresContinuousUpdates = true
         link?.isEnabled = true
     }
-    func cancel() { action = nil; link?.requiresContinuousUpdates = false; link?.isEnabled = false }
+    func cancel() { generation += 1; fallbackScheduled = false; action = nil; link?.requiresContinuousUpdates = false; link?.isEnabled = false }
     private func fire(_ info: UIUpdateInfo) {
         let next = action; cancel()
         let start = CACurrentMediaTime()
@@ -43,4 +61,3 @@ import os
             "work_ms=%.3f deadline_remaining_ms=%.3f", (end - start) * 1000, (info.completionDeadlineTime - end) * 1000)
     }
 }
-

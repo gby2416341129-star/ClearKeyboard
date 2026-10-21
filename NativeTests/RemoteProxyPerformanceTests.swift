@@ -2,6 +2,60 @@ import XCTest
 import UIKit
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
+    func testRapidTypingAfterAnExternalClearKeepsTheNewComposition() async throws {
+        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "你好" } }
+        model.chooseDisplayed(try XCTUnwrap(model.candidates.first { $0.text == "你好" }), context: model.candidateContext)
+        proxy.textView.text = ""; proxy.textView.selectedRange = NSRange(location: 0, length: 0)
+        controller.textDidChange(nil)
+        for character in "zaigansha" { model.handle(.text(String(character))) }
+        try await waitFor { proxy.textView.text == "zaigansha" }
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(controller.contextBefore, "zaigansha")
+        XCTAssertEqual(model.composition.raw, "zaigansha", "A changed committed prefix must not turn new pinyin into literal text")
+        try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "在干啥" } }
+        model.chooseDisplayed(try XCTUnwrap(model.candidates.first { $0.text == "在干啥" }), context: model.candidateContext)
+        XCTAssertEqual(proxy.textView.text, "在干啥")
+        XCTAssertTrue(model.composition.isEmpty)
+        print("RAPID_CLEAR_AND_RETYPE actualUITextView=true newSpellingRetained=true clearedChineseNotRestored=true")
+    }
+    func testDetachedViewDeliversLatestFrameTaskAndCancellation() async throws {
+        let view = UIView(), frame = DisplayFrameTask()
+        XCTAssertNil(view.window)
+        var delivered: [Int] = []
+        frame.schedule(in: view, maximumFramesPerSecond: 120) { delivered.append(1) }
+        frame.schedule(in: view, maximumFramesPerSecond: 120) { delivered.append(2) }
+        XCTAssertTrue(delivered.isEmpty)
+        try await waitFor { delivered == [2] }
+        frame.schedule(in: view, maximumFramesPerSecond: 120) { delivered.append(3) }
+        frame.cancel()
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(delivered, [2])
+        print("DETACHED_FRAME_TASK latestOnly=true cancelledWorkRejected=true")
+    }
+    func testAmbiguousCommittedAcknowledgementIsRecheckedUntilItSettles() throws {
+        let empty = HostTextSnapshot(before: "", document: "field")
+        var state = HostTextState(empty)
+        state.insert("办公", now: 1)
+        XCTAssertEqual(state.reconcile(empty, now: 1.1), .ownEdit)
+        XCTAssertTrue(state.shouldRecheck(empty, now: 1.1))
+        XCTAssertEqual(state.reconcile(empty, now: 2.2), .externalEdit)
+        XCTAssertEqual(state.snapshot.before, "")
+        XCTAssertFalse(state.shouldRecheck(empty, now: 2.2))
+        state.setMarked("nihao", now: 3)
+        XCTAssertEqual(state.reconcile(empty, now: 3.1), .ownEdit)
+        XCTAssertFalse(state.shouldRecheck(empty, now: 3.1), "An omitted active marked range must not cause perpetual polling")
+        let changed = HostTextSnapshot(before: "另一段nihao", document: "field")
+        XCTAssertEqual(state.reconcile(changed, now: 3.2), .compositionContextChanged)
+        XCTAssertEqual(state.snapshot.before, changed.before); XCTAssertTrue(state.hasMarkedText)
+        print("COMMITTED_ACK_RECHECK externalClearAdopted=true markedBoundaryDoesNotPoll=true")
+    }
     func testKeysArrivingInsideAHostCommitAreAppliedOnceInOrder() async throws {
         let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()

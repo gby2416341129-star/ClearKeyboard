@@ -37,7 +37,7 @@ public struct HostTextSnapshot: Equatable {
 /// The keyboard's edit ledger. Proxy reads occur at host notifications and commit
 /// validation, not on every getter used by a key or a candidate render.
 public struct HostTextState {
-    public enum Reconciliation: Equatable { case ownEdit, externalEdit, unavailable }
+    public enum Reconciliation: Equatable { case ownEdit, compositionContextChanged, externalEdit, unavailable }
     public private(set) var snapshot: HostTextSnapshot
     private var acknowledged: HostTextSnapshot
     private var pending: [(HostTextSnapshot, Double)] = []
@@ -49,6 +49,10 @@ public struct HostTextState {
         pending.contains { now - $0.1 <= 1 }
     }
     public var hasMarkedText: Bool { !marked.isEmpty }
+    public func shouldRecheck(_ actual: HostTextSnapshot, now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
+        actual.available && actual.document == snapshot.document &&
+        !Self.equivalent(snapshot, actual) && !isMarkedBoundary(actual) && hasPendingEdits(now: now)
+    }
     private mutating func endMarkedSession() {
         marked = ""; markedOrigin = nil; markedHistory.removeAll(keepingCapacity: true)
     }
@@ -135,6 +139,23 @@ public struct HostTextState {
         // its uncommitted spelling. This boundary remains valid after a reading pause.
         if isMarkedBoundary(actual) { acknowledged = actual; return .ownEdit }
         if isMarkedAcknowledgement(actual) { acknowledged = actual; return .ownEdit }
+        if !marked.isEmpty, actual.selected.isEmpty, actual.document == snapshot.document,
+           actual.before.hasSuffix(marked) {
+            var surrounding = snapshot; surrounding.before = actual.before; surrounding.selected = ""
+            let prefix = String(actual.before.dropLast(marked.count))
+            // An old pre-conversion spelling can also end in the remainder.
+            // Never adopt its earlier Latin syllables as committed text.
+            let latinPrefix = prefix.last.map { $0.isASCII && ($0.isLetter || $0 == "'") } ?? false
+            if !latinPrefix, Self.equivalent(surrounding, actual) {
+                // The latest spelling is still at the caret, but committed
+                // text before it changed (for example the app cleared a field
+                // and the user already started the next word). Adopt the real
+                // context without unmarking and committing that new pinyin.
+                snapshot = actual; acknowledged = actual
+                var origin = actual; origin.before.removeLast(marked.count); markedOrigin = origin
+                remember(now: now); return .compositionContextChanged
+            }
+        }
         if actual.document == snapshot.document {
             if let index = pending.lastIndex(where: { Self.equivalent($0.0, actual) }) {
                 acknowledged = actual; pending.removeFirst(index + 1); return .ownEdit

@@ -175,7 +175,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         guard revision == hostRefreshGeneration else {
             needsHostRefresh = true; scheduleHostRefresh(); return
         }
-        let outcome = hostState.reconcile(actual)
+        let now = ProcessInfo.processInfo.systemUptime
+        let outcome = hostState.reconcile(actual, now: now)
         guard outcome != .unavailable else { needsHostRefresh = true; scheduleHostRefresh(); return }
         // Traits belong to the field. Own text acknowledgements must not fetch
         // all of them again after each confirmed word.
@@ -200,6 +201,14 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             markedFrame.cancel(); pendingMarkedText.discard()
             markedWriteGeneration += 1; markedImmediateScheduled = false
             surface?.closePanel(); model?.cursorChanged()
+        }
+        if case .compositionContextChanged = outcome { model?.refreshCandidates() }
+        // A differing snapshot may be an old acknowledgement, but it can also
+        // be an external clear that happens to restore an earlier value. Read
+        // again after the pending edit lease instead of retaining that stale
+        // local text indefinitely. Hosts omitting a live marked range are exempt.
+        if case .ownEdit = outcome, hostState.shouldRecheck(actual, now: now) {
+            needsHostRefresh = true; scheduleHostRefresh()
         }
     }
     func validateCandidate(before: String, after: String, identity: String) -> Bool {
