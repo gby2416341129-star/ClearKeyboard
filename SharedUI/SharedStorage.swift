@@ -1,4 +1,5 @@
 import UIKit
+import Darwin
 
 enum SharedStorage {
     /// Move each process's legacy local data only once for this shared group.
@@ -34,10 +35,49 @@ enum SharedStorage {
         migrateLegacyDefaults(from: .standard, to: defaults, groupIdentifier: group)
         return defaults
     }
+    /// Adopt the complete legacy folder so attachment paths, dates and pins
+    /// remain valid. Exclusive rename never replaces a shared store and never
+    /// falls back to copying attachment bytes on the keyboard's active path.
+    static func adoptLegacyClipboardDirectory(from source: URL, to destination: URL, defaults: UserDefaults, groupIdentifier: String) {
+        guard source.isFileURL, destination.isFileURL else { return }
+        let source = source.standardizedFileURL, destination = destination.standardizedFileURL
+        guard source != destination else { return }
+        // The source defaults domain identifies its owning process. Keep this
+        // stable when iOS changes that process's absolute container location.
+        let marker = "clear.clipboard.migration.v1." + groupIdentifier
+        guard !defaults.bool(forKey: marker) else { return }
+
+        var destinationInfo = stat()
+        if destination.path.withCString({ Darwin.lstat($0, &destinationInfo) }) == 0 {
+            defaults.set(true, forKey: marker)
+            return
+        }
+        var sourceInfo = stat()
+        let sourceResult = source.path.withCString { path -> (Int32, Int32) in
+            let status = Darwin.lstat(path, &sourceInfo)
+            return (status, status == 0 ? 0 : errno)
+        }
+        guard sourceResult.0 == 0 else {
+            if sourceResult.1 == ENOENT { defaults.set(true, forKey: marker) }
+            return
+        }
+        guard (sourceInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else { return }
+        let result = source.path.withCString { sourcePath in
+            destination.path.withCString { destinationPath -> (Int32, Int32) in
+                let status = Darwin.renamex_np(sourcePath, destinationPath, UInt32(RENAME_EXCL))
+                return (status, status == 0 ? 0 : errno)
+            }
+        }
+        if result.0 == 0 || result.1 == EEXIST { defaults.set(true, forKey: marker) }
+    }
     static func clipboardURL(allowShared: Bool) -> URL {
         if allowShared, let group = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String,
            let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) {
-            return root.appendingPathComponent("Private/clipboard.json")
+            let localRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Clear", isDirectory: true)
+            let sharedRoot = root.appendingPathComponent("Private", isDirectory: true)
+            adoptLegacyClipboardDirectory(from: localRoot, to: sharedRoot, defaults: .standard, groupIdentifier: group)
+            return sharedRoot.appendingPathComponent("clipboard.json")
         }
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return root.appendingPathComponent("Clear/clipboard.json")

@@ -106,6 +106,61 @@ import UIKit
             }
         }
     }
+    func testClipboardDirectoryAdoptionPreservesRecordsPhrasesAndAttachmentBytes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("clear.clipboard.migration." + UUID().uuidString)
+        let source = root.appendingPathComponent("Clear"), destination = root.appendingPathComponent("Private")
+        let suite = "clear.clipboard.migration." + UUID().uuidString, defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        let now = Date(timeIntervalSince1970: 10_000)
+        let clips = ClearKeyboard.ClipboardStore(url: source.appendingPathComponent("clipboard.json"))
+        clips.add("pinned", now: now.addingTimeInterval(-1_000)); clips.togglePin(try XCTUnwrap(clips.clips.first).id)
+        clips.add("expired", now: now.addingTimeInterval(-1_000))
+        let bytes = Data([3, 1, 4, 1, 5, 9])
+        XCTAssertTrue(clips.addAttachment(bytes, typeIdentifier: "public.data", name: "attachment", now: now))
+        let phrases = ClearKeyboard.ClipboardStore(url: source.appendingPathComponent("common-phrases.json")); phrases.add("常用语", now: now)
+        let originalJSON = try Data(contentsOf: source.appendingPathComponent("clipboard.json"))
+        let originalPhrases = try Data(contentsOf: source.appendingPathComponent("common-phrases.json"))
+        ClearKeyboard.SharedStorage.adoptLegacyClipboardDirectory(from: source, to: destination, defaults: defaults, groupIdentifier: "group")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("clipboard.json")), originalJSON)
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("common-phrases.json")), originalPhrases)
+        let restored = ClearKeyboard.ClipboardStore(url: destination.appendingPathComponent("clipboard.json"))
+        XCTAssertEqual(restored.clips, clips.clips, "IDs, dates, pinning and attachment metadata must survive without replaying records")
+        XCTAssertEqual(restored.attachmentData(for: try XCTUnwrap(restored.clips.first { $0.attachment != nil })), bytes)
+        restored.prune(lifetime: 60, now: now)
+        XCTAssertEqual(Set(restored.clips.map(\.text)), ["pinned", "attachment"])
+    }
+    func testClipboardAdoptionDoesNotOverwriteExistingOrRestoreClearedSharedHistory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("clear.clipboard.existing." + UUID().uuidString)
+        let source = root.appendingPathComponent("Clear"), destination = root.appendingPathComponent("Private")
+        let suite = "clear.clipboard.existing." + UUID().uuidString, defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let stale = Data("old-records".utf8), cleared = Data("[]".utf8)
+        try stale.write(to: source.appendingPathComponent("clipboard.json")); try cleared.write(to: destination.appendingPathComponent("clipboard.json"))
+        ClearKeyboard.SharedStorage.adoptLegacyClipboardDirectory(from: source, to: destination, defaults: defaults, groupIdentifier: "group")
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("clipboard.json")), cleared)
+        XCTAssertEqual(try Data(contentsOf: source.appendingPathComponent("clipboard.json")), stale)
+        try FileManager.default.removeItem(at: destination)
+        ClearKeyboard.SharedStorage.adoptLegacyClipboardDirectory(from: source, to: destination, defaults: defaults, groupIdentifier: "group")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "A completed migration decision may not resurrect cleared shared history")
+    }
+    func testFailedClipboardAdoptionKeepsLocalDataAndCanRetry() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("clear.clipboard.retry." + UUID().uuidString)
+        let source = root.appendingPathComponent("Clear"), parent = root.appendingPathComponent("not-created-yet"), destination = parent.appendingPathComponent("Private")
+        let suite = "clear.clipboard.retry." + UUID().uuidString, defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { try? FileManager.default.removeItem(at: root); defaults.removePersistentDomain(forName: suite) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let bytes = Data("preserve me".utf8); try bytes.write(to: source.appendingPathComponent("clipboard.json"))
+        ClearKeyboard.SharedStorage.adoptLegacyClipboardDirectory(from: source, to: destination, defaults: defaults, groupIdentifier: "group")
+        XCTAssertEqual(try Data(contentsOf: source.appendingPathComponent("clipboard.json")), bytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        ClearKeyboard.SharedStorage.adoptLegacyClipboardDirectory(from: source, to: destination, defaults: defaults, groupIdentifier: "group")
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("clipboard.json")), bytes)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+    }
     func testLiveCustomizationFormSurvivesRepeatedUpdates() async throws {
         let suite = "clear.form.tests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
