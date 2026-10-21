@@ -24,6 +24,12 @@ std::string shared_path, user_path, prebuilt_path;
 std::unique_ptr<clear_sentence::Model> sentence_model;
 clear_sentence::PhoneticSearch phonetic_search;
 clear_initial::Index initial_index;
+#ifdef CLEAR_INITIAL_TESTING
+bool exact_index_enabled=true;
+size_t exact_reuse_count=0;
+#else
+constexpr bool exact_index_enabled=true;
+#endif
 cr_sentence_predictor platform_predictor = nullptr;
 void *platform_predictor_context = nullptr;
 cr_sentence_scorer platform_scorer = nullptr;
@@ -457,12 +463,22 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   // Share the large table with a correction-free prism and no grammar model.
   // Only a complete dictionary phrase can bypass sentence correction; partial
   // words must not hide a genuinely mistyped sentence.
-  // Keep all exact partial words while avoiding sentence work beyond the
-  // longest complete word prefix. Unknown/unsupported input keeps the full
-  // query, and explicit paging still queries the complete spelling.
+  // Reuse an already complete exact-word snapshot only when the new keys
+  // extend it and the dictionary proves no additional word can have appeared.
+  // Never issue a new shortened query: its terminal search may be more costly
+  // than the original spelling. Paging and all unknown cases keep that path.
   const std::string raw(input);
-  const auto prefix=leading_row && correction?initial_index.exact_prefix_size(raw):raw.size();
-  collect(query.exact, raw.substr(0,prefix), limit, query.exact_cache, cancelled, context);
+  const auto prefix=leading_row && correction && exact_index_enabled?initial_index.exact_prefix_size(raw):raw.size();
+  const auto &previous=query.exact_cache;
+  const bool reuse_exact=prefix<raw.size() && previous.initialized &&
+      prefix<=previous.input.size() && previous.input.size()<raw.size() &&
+      raw.compare(0,previous.input.size(),previous.input)==0 &&
+      (previous.exhausted || previous.items.size()>=static_cast<size_t>(std::clamp(limit,1,4096))) &&
+      std::all_of(previous.items.begin(),previous.items.end(),[&](const Item &item){return item.consumed<=static_cast<int>(prefix);});
+  if(!reuse_exact) collect(query.exact,input,limit,query.exact_cache,cancelled,context);
+#ifdef CLEAR_INITIAL_TESTING
+  else ++exact_reuse_count;
+#endif
   if (cancelled && cancelled(context)) return 0;
   const auto &literal = query.exact_cache.items;
   std::vector<Item> fluent;bool repaired=false;

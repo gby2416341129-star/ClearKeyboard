@@ -15,7 +15,8 @@
 #endif
 namespace clear_initial {
 // Complete first-letter codes from the unchanged phrase dictionary. For a
-// proven miss, the exact channel needs only the longest real phrase prefix.
+// proven miss, the bridge can bound which prior exact snapshots still cover
+// every possible phrase. No shortened query is initiated by this index.
 // One-letter/digraph initials and full ng participate in the same bounded
 // phonetic walk. Unsupported input or overflow keeps the original query.
 // This index never proposes or ranks candidate text.
@@ -72,7 +73,7 @@ public:
     count=n;maximum=m;return true;
   }
   size_t exact_prefix_size(const std::string &input)const {
-    if(!data || input.size()<5 || input.size()>64 ||
+    if(!data || input.size()<3 || input.size()>64 ||
        std::any_of(input.begin(),input.end(),[](char c){return c<'a' || c>'z' || std::strchr("bpmfdtnlgkhjqxrzcsyw",c)==nullptr;}))return input.size();
     uint64_t key=0;
     if(input.size()<=maximum) {
