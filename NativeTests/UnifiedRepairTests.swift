@@ -265,7 +265,8 @@ import UIKit
     }
     func testCustomKeyInkUsesTheTranslucentFaceInsteadOfOnlyTheColorSwatch() throws {
         let button = KeyButton(key: KeyboardKey("A"))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 390, height: 600)
         let root = UIViewController(); window.rootViewController = root
         window.overrideUserInterfaceStyle = .dark; window.makeKeyAndVisible()
         root.view.addSubview(button); button.frame = CGRect(x: 10, y: 10, width: 40, height: 56)
@@ -285,7 +286,8 @@ import UIKit
         XCTAssertEqual(label.textColor.resolvedColor(with: light), reduced ? .white : .black)
     }
     func testGlassStrengthChangesRenderedPixelsWithoutPersistentAnimations() async throws {
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
         let root = UIViewController(); window.rootViewController = root
         window.overrideUserInterfaceStyle = .dark; window.makeKeyAndVisible()
         defer { window.isHidden = true }
