@@ -77,6 +77,7 @@ final class KeyButton: UIButton {
         // touch delivery, including its transparent margins and rounded corners.
         backgroundColor = UIColor(white: 0.5, alpha: 0.01); isOpaque = false
         addSubview(plate); plate.isUserInteractionEnabled = false; plate.layer.cornerRadius = 8
+        plate.accessibilityIdentifier = "key.face"
         plate.layer.cornerCurve = .continuous
         plate.layer.borderWidth = 0.5
         plate.addSubview(pressWash); pressWash.isUserInteractionEnabled = false

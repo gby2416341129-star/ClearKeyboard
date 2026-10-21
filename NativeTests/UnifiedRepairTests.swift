@@ -189,4 +189,44 @@ import UIKit
         settings.candidateTextSize = .extraLarge; preview.apply(settings); preview.layoutIfNeeded()
         XCTAssertTrue(candidateInk.allSatisfy { $0.font.pointSize == 25 })
     }
+    func testRecentClipboardCanPasteAndOpenHistoryWithoutReplacingTypedPinyin() async throws {
+        let value = controller(), model = try XCTUnwrap(value.model)
+        let url = SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true)
+        let original = try? Data(contentsOf: url)
+        defer {
+            model.suspend()
+            if let original { try? original.write(to: url, options: .atomic) }
+            else { try? FileManager.default.removeItem(at: url) }
+        }
+        let text = "剪贴板测试内容 \(UUID().uuidString.prefix(6))"
+        ClipboardStore(url: url).add(text)
+        model.clipboardCapture.onCapture?()
+        value.view.setNeedsLayout(); value.view.layoutIfNeeded()
+        let paste = try XCTUnwrap(views(value.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.paste" })
+        XCTAssertEqual(paste.accessibilityLabel, "粘贴：" + text)
+        XCTAssertFalse(paste.superview?.isHidden ?? true)
+        paste.sendActions(for: .touchUpInside)
+        XCTAssertEqual(value.textView.text, text)
+        XCTAssertTrue(paste.superview?.isHidden ?? false)
+        model.clipboardCapture.onCapture?()
+        for letter in "nihao" { model.handle(.text(String(letter))) }
+        XCTAssertTrue(paste.superview?.isHidden ?? false, "A clipboard tip must not cover live pinyin candidates")
+        XCTAssertEqual(model.composition.raw, "nihao")
+        model.clearInput(); model.clipboardCapture.onCapture?()
+        let history = try XCTUnwrap(views(value.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.history" })
+        history.sendActions(for: .touchUpInside)
+        value.view.setNeedsLayout(); value.view.layoutIfNeeded()
+        let panel = try XCTUnwrap(views(value.view).compactMap { $0 as? ClipboardPanel }.first)
+        panel.setNeedsLayout(); panel.layoutIfNeeded()
+        let table = try XCTUnwrap(views(panel).compactMap { $0 as? UITableView }.first)
+        table.layoutIfNeeded()
+        XCTAssertGreaterThan(table.numberOfRows(inSection: 0), 0)
+        XCTAssertTrue(views(panel).compactMap { $0 as? UIButton }.contains { button in
+            button.menu?.children.contains { $0.title == "复制" } == true
+        }, "History rows need a copy action as well as tap-to-paste")
+        let before = value.textView.text ?? ""
+        panel.tableView(table, didSelectRowAt: IndexPath(row: 0, section: 0))
+        XCTAssertEqual(value.textView.text, before + text)
+        print("CLIPBOARD_RECENT_UIKIT textPaste=true history=true copyMenu=true compositionProtected=true")
+    }
 }

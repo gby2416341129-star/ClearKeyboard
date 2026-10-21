@@ -96,8 +96,10 @@ public final class InputEngine {
     }
     private func repeatedCandidates(_ input: String) -> [Candidate] {
         var values = repetition?.candidates(input) ?? []
-        guard !values.isEmpty else { return [] }
+        guard input.utf8.count >= 4, input.utf8.count <= Composition.maximumQueryLength,
+              input.utf8.count % 2 == 0 else { return values }
         let unit = String(input.prefix(2)), count = input.utf8.count / 2
+        guard input == String(repeating: unit, count: count) else { return values }
         // Repeating a short preferred acknowledgement preserves its existing
         // preference (including the user's familiar short-code defaults).
         if let (word, reading) = Self.conversationalReadings[unit] {
@@ -195,29 +197,34 @@ public final class InputEngine {
     /// suffix. For example wo + gei + ma + m is a Chinese spelling, even though
     /// the last four letters also happen to be an English dictionary entry.
     static func matchesReadingWithInitials(_ input: String, reading: String) -> Bool {
+        readingAbbreviations(input, reading: reading) != nil
+    }
+    static func readingAbbreviations(_ input: String, reading: String) -> Int? {
         let letters = Array(input)
-        var positions: Set<Int> = [0]
+        var positions = [0: 0]
         let syllables = reading.split(separator: " ").map(String.init)
-        guard !syllables.isEmpty else { return false }
+        guard !syllables.isEmpty else { return nil }
         for syllable in syllables {
-            var forms = [syllable]
+            var forms = [(syllable, 0)]
             if let first = syllable.first, initials.contains(first) {
-                forms.append(String(first))
+                forms.append((String(first), 1))
                 if ["zh", "ch", "sh"].contains(String(syllable.prefix(2))) {
-                    forms.append(String(syllable.prefix(2)))
+                    forms.append((String(syllable.prefix(2)), 1))
                 }
             }
-            var next = Set<Int>()
-            for position in positions {
-                for form in forms {
+            var next: [Int: Int] = [:]
+            for (position, cost) in positions {
+                for (form, abbreviated) in forms {
                     let end = position + form.count
-                    if end <= letters.count && letters[position..<end].elementsEqual(form) { next.insert(end) }
+                    if end <= letters.count && letters[position..<end].elementsEqual(form) {
+                        next[end] = min(next[end] ?? Int.max, cost + abbreviated)
+                    }
                 }
             }
             positions = next
-            if positions.isEmpty { return false }
+            if positions.isEmpty { return nil }
         }
-        return positions.contains(letters.count)
+        return positions[letters.count]
     }
 
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], recentCorrections: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, context: String = "", cancelled: () -> Bool = { false }) -> [Candidate] {
@@ -256,10 +263,13 @@ public final class InputEngine {
                 if chinese.lookup("e:" + input, limit: 1).isEmpty { output.insert(literal, at: 0) }
                 else { output.insert(literal, at: min(1, output.count)) }
             } else if correction, input.count >= 6, !raw.contains("'"), !result.contains(where: {
-                $0.consumed == input.count && Self.matchesReadingWithInitials(input, reading: $0.reading)
+                $0.consumed == input.count && (Self.readingAbbreviations(input, reading: $0.reading) ?? Int.max) <= 1
             }) {
                 // Decode a genuine pinyin prefix and preserve a recognized English
                 // suffix as one token, instead of turning every Latin letter into Hanzi.
+                // A mostly fully spelled Chinese reading keeps precedence. A
+                // speculative path using several initials must not block every
+                // recognized English suffix merely because it is representable.
                 for length in stride(from: min(20, input.count - 2), through: 4, by: -1) {
                     if cancelled() { return [] }
                     let suffix = String(input.suffix(length)), prefix = String(input.dropLast(length))

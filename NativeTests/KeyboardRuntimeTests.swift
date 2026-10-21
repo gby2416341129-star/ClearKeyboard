@@ -182,7 +182,7 @@ import SwiftUI
             let q = try XCTUnwrap(keys.first { $0.key.action == .text("q") })
             let a = try XCTUnwrap(keys.first { $0.key.action == .text("a") })
             q.setNeedsLayout(); q.layoutIfNeeded()
-            let face = try XCTUnwrap(q.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+            let face = try XCTUnwrap(q.subviews.first { $0.accessibilityIdentifier == "key.face" })
             XCTAssertEqual(q.bounds.height, 56, accuracy: 0.1)
             XCTAssertEqual(face.bounds.height, 45, accuracy: 0.1)
             XCTAssertEqual(a.convert(a.bounds, to: surface).minY - q.convert(q.bounds, to: surface).minY, 56, accuracy: 0.1)
@@ -199,7 +199,7 @@ import SwiftUI
             let space = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .space })
             let layout = KeyboardGeometry.layout(size: surface.bounds.size, metrics: .init(), hand: hand)
             let hit = space.convert(space.bounds, to: surface)
-            let plate = try XCTUnwrap(space.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+            let plate = try XCTUnwrap(space.subviews.first { $0.accessibilityIdentifier == "key.face" })
             space.layoutIfNeeded()
             XCTAssertEqual(hit.midX, layout.keys.midX, accuracy: 0.1)
             XCTAssertEqual(plate.convert(plate.bounds, to: surface).midX, layout.keys.midX, accuracy: 0.1)
@@ -219,7 +219,7 @@ import SwiftUI
                 let button = KeyButton(key: key); button.overrideUserInterfaceStyle = style
                 var settings = testSettings(); settings.customAccentHex = "#FF00FF"
                 button.apply(settings)
-                let face = try XCTUnwrap(button.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+                let face = try XCTUnwrap(button.subviews.first { $0.accessibilityIdentifier == "key.face" })
                 let color = try XCTUnwrap(face.backgroundColor)
                 var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
                 XCTAssertTrue(color.getRed(&r, green: &g, blue: &b, alpha: &a))

@@ -7,7 +7,7 @@ final class MatureEngineTests: XCTestCase {
     func testProductionUsesRimeAndWanxiang() { XCTAssertEqual(engine.chineseBackend, "rime-wanxiang") }
     func testAddressQuestionsHaveFastMixedSpellingCandidates() {
         let cases = [
-            "mamncfm": "妈妈你吃饭吗", "mamancfm": "妈妈你吃饭吗", "mmncfm": "妈妈你吃饭吗",
+            "mamncfm": "妈妈你吃饭吗", "mamancfm": "妈妈你吃饭吗",
             "babancfm": "爸爸你吃饭吗", "laopncfm": "老婆你吃饭吗", "laogncfm": "老公你吃饭吗",
             "laosncfm": "老师你吃饭吗", "gegncfm": "哥哥你吃饭吗",
             "mamnzgm": "妈妈你在干嘛", "babanxbm": "爸爸你下班没"
@@ -21,6 +21,15 @@ final class MatureEngineTests: XCTestCase {
                 XCTAssertEqual(values.first?.consumed, raw.count, raw)
                 XCTAssertEqual(Array(values.prefix(immediate.count)), immediate, raw)
             }
+        }
+        // mm intentionally abbreviates both 妈妈 and 妹妹. Keep both on the
+        // first screen without inventing an absent full syllable or preference.
+        for limit in [8, 9, 96] {
+            let values = limit == 8 ? engine.immediateCandidates("mmncfm") : engine.candidates("mmncfm", limit: limit)
+            XCTAssertTrue(["妈妈你吃饭吗", "妹妹你吃饭吗"].contains(values.first?.text ?? ""))
+            XCTAssertTrue(values.prefix(3).contains { $0.text == "妈妈你吃饭吗" })
+            XCTAssertTrue(values.prefix(3).contains { $0.text == "妹妹你吃饭吗" })
+            XCTAssertEqual(values.first?.consumed, 6)
         }
         XCTAssertEqual(engine.immediateCandidates("mamcfm").first?.text, "妈妈吃饭没",
                        "Do not silently add a missing pronoun to an exact abbreviation")
@@ -62,6 +71,8 @@ final class MatureEngineTests: XCTestCase {
             XCTAssertFalse(values.contains { $0.text == "我哥imam" || $0.text == "我哥 imam" })
         }
         XCTAssertTrue(InputEngine.matchesReadingWithInitials("wogeimam", reading: "wo gei ma ma"))
+        XCTAssertEqual(InputEngine.readingAbbreviations("wogeimam", reading: "wo gei ma ma"), 1)
+        XCTAssertEqual(InputEngine.readingAbbreviations("wodeiphone", reading: "wo dei ping heng o ne"), 2)
         XCTAssertFalse(InputEngine.matchesReadingWithInitials("wodeiphone", reading: "wo dei ping heng ou nai er"))
         XCTAssertEqual(engine.candidates("wodeiphone", limit: 9).first?.text, "我的iphone")
     }
@@ -161,6 +172,20 @@ final class MatureEngineTests: XCTestCase {
                 XCTAssertEqual(engine.candidates(input).first?.text, expected, input)
             }
         }
+    }
+    func testWholeSentenceChoicesDoNotAppendUnrelatedPartialWords() {
+        for input in ["laopcfm", "lpcfm"] {
+            let values = engine.candidates(input).filter { $0.text != input }
+            XCTAssertEqual(values.first?.text, "老婆吃饭没", input)
+            XCTAssertTrue(values.contains { $0.text == "老婆吃饭吗" }, input)
+            XCTAssertTrue(values.allSatisfy { $0.consumed == input.count }, "Short dictionary prefixes must not pad a sentence's candidate row: \(input)")
+        }
+        let film = engine.candidates("ganghuam")
+        XCTAssertTrue(film.contains { $0.text == "钢化" && $0.consumed == 7 })
+        XCTAssertFalse(film.contains { ["干桂花", "港华", "钢花", "感官"].contains($0.text) })
+        // These consume the complete initials and remain genuine alternatives.
+        XCTAssertTrue(engine.candidates("znl").contains { $0.text == "正能量" })
+        XCTAssertTrue(engine.candidates("zgm").contains { $0.text == "总规模" })
     }
     func testCorrectionsAndMixedInitials() {
         for input in ["nichifankema", "nichifankm", "nichjfankema"] {
