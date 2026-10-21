@@ -134,6 +134,7 @@ import os
         guard let lhs else { return false }
         guard lhs.arithmetic == rhs.arithmetic, lhs.context?.raw == rhs.context?.raw,
               lhs.context?.document == rhs.context?.document,
+              lhs.context?.characters == rhs.context?.characters,
               lhs.context?.language == rhs.context?.language else { return false }
         // Empty-spelling predictions belong to the surrounding text.
         return rhs.context?.raw.isEmpty == false || lhs.context == rhs.context

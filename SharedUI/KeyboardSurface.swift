@@ -126,15 +126,18 @@ import SwiftUI
 
     private func compositionChanged() {
         let raw = model.composition.raw
-        guard requestedSpelling != raw || requestedLiteralRevision != model.literalInputRevision else { return }
+        guard requestedSpelling != raw || requestedLiteralRevision != model.literalInputRevision ||
+              requestedCharacterMode != model.characterSelectionMode else { return }
         requestedSpelling = raw
         requestedLiteralRevision = model.literalInputRevision
+        requestedCharacterMode = model.characterSelectionMode
         // Letters use the lightweight input callback as well. Leaving that
         // path out kept the old row coasting and deferred new words until its
         // momentum ended, even though the new candidate query had completed.
         candidateScroll.inputChanged()
     }
     private var requestedLiteralRevision = 0
+    private var requestedCharacterMode = false
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -330,7 +333,12 @@ import SwiftUI
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
-        config.image = image ?? symbol.map { navigationIcon ? UIImage(systemName: $0, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)) : ToolArtwork.image(symbol: $0, size: 28) }
+        if let image { config.image = image }
+        else if let symbol {
+            config.image = navigationIcon
+                ? UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
+                : ToolArtwork.image(symbol: symbol, size: 28)
+        }
         config.baseForegroundColor = .secondaryLabel
         config.background.backgroundColor = navigationIcon ? .secondarySystemFill : .clear
         config.background.cornerRadius = navigationIcon ? 17 : 0

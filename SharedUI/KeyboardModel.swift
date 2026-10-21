@@ -42,6 +42,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     struct CandidateContext: Equatable {
         let raw: String; let before: String; let after: String
         let document: String; let language: InputLanguage
+        var characters: Bool = false
     }
     private(set) var candidateContext: CandidateContext?
     private var requestedContext: CandidateContext?
@@ -640,7 +641,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private func activeCandidateContext() -> CandidateContext? {
         guard let document else { return nil }
         return CandidateContext(raw: composition.raw, before: document.contextBefore,
-            after: document.contextAfter, document: document.documentIdentity, language: settings.language)
+            after: document.contextAfter, document: document.documentIdentity, language: settings.language,
+            characters: characterSelectionMode)
     }
     func acceptsCandidateContext(_ context: CandidateContext?) -> Bool {
         guard let context, document?.selectedText.isEmpty == true else { return false }
@@ -668,6 +670,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             // the remaining spelling; never apply an old row to another field,
             // another cursor position, or a prediction from an empty composition.
             guard context.language == .chinese, current.language == .chinese,
+                  context.characters == current.characters,
                   !context.raw.isEmpty, current.raw.hasPrefix(context.raw),
                   candidate.consumed > 0, candidate.consumed <= FuzzyPinyin.normalize(context.raw).count,
                   context.document == current.document, context.after == current.after,

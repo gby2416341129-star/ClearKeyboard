@@ -136,6 +136,30 @@ import UIKit
         XCTAssertTrue(separated.allSatisfy { $0.consumed <= 2 })
         XCTAssertTrue(engine.characterCandidates("xian", cancelled: { true }).isEmpty)
     }
+    func testSwitchingFromBrowsedPhrasesToCharactersReplacesTheRowAndResetsItsOffset() async throws {
+        let ribbon = CandidateScrollView()
+        ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
+        let words = KeyboardModel.CandidateContext(raw: "gouboyuan", before: "gouboyuan", after: "",
+                                                   document: "field", language: .chinese)
+        let phrases = (0..<24).map { Candidate(text: "旧词组\($0)", consumed: 9) }
+        ribbon.update(phrases, context: words, arithmetic: false, accent: .systemBlue)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:24" }
+        ribbon.layoutIfNeeded(); ribbon.contentOffset.x = 180
+        ribbon.scrollViewWillBeginDragging(ribbon)
+        var characters = words; characters.characters = true
+        XCTAssertNotEqual(words, characters)
+        ribbon.inputChanged()
+        ribbon.update([Candidate(text: "苟", reading: "gou", consumed: 3)], context: characters,
+                      arithmetic: false, accent: .systemBlue)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:1" }
+        ribbon.layoutIfNeeded()
+        let shown = views(ribbon).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+        XCTAssertEqual(shown.map(\.accessibilityIdentifier), ["candidate.苟"])
+        var selectedContext: KeyboardModel.CandidateContext?
+        ribbon.onSelect = { _, context, _ in selectedContext = context }
+        shown.first?.sendActions(for: .touchUpInside)
+        XCTAssertEqual(selectedContext, characters)
+    }
     func testUnchangedInkKeepsItsFadeThroughALayoutRefresh() throws {
         let button = CandidateButton(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
         let font = UIFont.systemFont(ofSize: 19), word = Candidate(text: "新候选", consumed: 4)
