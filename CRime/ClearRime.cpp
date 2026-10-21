@@ -323,10 +323,10 @@ bool repair_literal(Query &query,const std::string &input,const Item &original,I
   }
   return false;
 }
-bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item> &output,
-    clear_sentence::Budget::Clock::time_point started,cr_cancelled cancelled,void *context) {
+template<class Now>bool repair_blind_spelling_clock(Query &query,const std::string &raw,std::vector<Item> &output,
+    clear_sentence::Budget::Clock::time_point started,cr_cancelled cancelled,void *context,Now now) {
   const auto deadline=started+std::chrono::milliseconds(35);
-  auto stopped=[&]{return (cancelled && cancelled(context)) || clear_sentence::Budget::Clock::now()>=deadline;};
+  auto stopped=[&]{return (cancelled && cancelled(context)) || now()>=deadline;};
   if(!blind_rescue_enabled || stopped())return false;
   const auto variants=clear_blind::repairs(raw,[&](const std::string &s){return phonetic_search.fully_spelled(s);},stopped);
   if(variants.empty() || stopped())return false;
@@ -345,13 +345,13 @@ bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item>
   clear_sentence::Budget::Clock::duration previous_cost{};
   for(const auto &variant:variants){
     if(stopped())break;
-    const auto before=clear_sentence::Budget::Clock::now();
+    const auto before=now();
     // Once a complete candidate is available, avoid starting another Rime
     // query whose recent cost cannot fit. A finished candidate remains valid
     // when the search budget expires; an abandoned input never does.
     if(!results.empty() && before+previous_cost>=deadline)break;
     collect(query.repair,variant.input,1,query.repair_cache,cancelled,context);
-    const auto finished=clear_sentence::Budget::Clock::now();previous_cost=finished-before;
+    const auto finished=now();previous_cost=finished-before;
     if(cancelled && cancelled(context))return false;
     if(finished>=deadline)break;
     if(query.repair_cache.items.empty())continue;
@@ -364,6 +364,11 @@ bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item>
   std::vector<Item> complete;std::unordered_set<std::string> seen;
   for(const auto &item:results)if(seen.insert(item.second.text).second)complete.push_back(item.second);
   if(cancelled && cancelled(context))return false;output=std::move(complete);return true;
+}
+bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item> &output,
+    clear_sentence::Budget::Clock::time_point started,cr_cancelled cancelled,void *context) {
+  return repair_blind_spelling_clock(query,raw,output,started,cancelled,context,
+      []{return clear_sentence::Budget::Clock::now();});
 }
 bool reliable_literal_sentence(const Item &item, const std::string &input) {
   if (item.consumed != static_cast<int>(input.size()) || !std::isfinite(item.weight)) return false;
