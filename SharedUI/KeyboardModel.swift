@@ -284,6 +284,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
                                  correction: Bool = true, delay: Double) {
         guard activeCandidates === query || preparedCandidates === query,
               !query.token.isCancelled, let engine else { return }
+        // A late word callback for the old, still-visible spelling must not
+        // cancel the prospective key's decoder. Cancelling the contact removes
+        // this priority and explicitly resumes the interrupted current query.
+        if let prepared = preparedCandidates, prepared !== query,
+           activeCandidates === query, interruptedCandidates === query { return }
         // A quick-word miss may arrive after the same sentence query started.
         // Keep that work; cancelling and restarting it only adds latency.
         if scheduledQuery === query, scheduledLimit == limit, scheduledStage == stage,

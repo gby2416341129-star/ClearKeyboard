@@ -881,20 +881,28 @@ import UIKit
     }
     func testContextualShortSpellingDoesNotWaitForTheWordLookupWorker() async throws {
         let document = WordLookupDocument(); document.before = "办公"
+        let previousLookupStarted = expectation(description: "Previous word lookup reached j")
         let lookupStarted = expectation(description: "Context-free word lookup reached ji")
+        let releasePreviousLookup = DispatchSemaphore(value: 0)
         let releaseLookup = DispatchSemaphore(value: 0)
         var settings = KeyboardSettings()
         settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
         let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
+            if raw == "j" {
+                previousLookupStarted.fulfill()
+                _ = releasePreviousLookup.wait(timeout: .now() + 5)
+            }
             if raw == "ji" {
                 lookupStarted.fulfill()
                 _ = releaseLookup.wait(timeout: .now() + 5)
             }
             return engine.immediateCandidates(raw, preferred: preferred)
         }
-        defer { releaseLookup.signal(); model.suspend() }
+        defer { releasePreviousLookup.signal(); releaseLookup.signal(); model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
-        model.handle(.text("j")); model.prepare(.text("i"))
+        model.handle(.text("j"))
+        await fulfillment(of: [previousLookupStarted], timeout: 2)
+        model.prepare(.text("i")); releasePreviousLookup.signal()
         await fulfillment(of: [lookupStarted], timeout: 2)
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertEqual(document.before, "办公j", "A held key cannot write the prospective spelling")
