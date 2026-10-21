@@ -115,7 +115,7 @@ import UIKit
             window.layoutIfNeeded()
             XCTAssertNotEqual(preview.accessibilityValue, oldValue, "The observed destination kept stale settings: " + item.rawValue)
             XCTAssertNotEqual(try renderedPixels(preview), oldPixels, "Only the setting value changed; the keyboard pixels did not: " + item.rawValue)
-            XCTAssertEqual(SettingsStore(defaults: defaults).load(), preferences.settings)
+            XCTAssertEqual(ClearKeyboard.SettingsStore(defaults: defaults).load(), preferences.settings)
         }
     }
 }
