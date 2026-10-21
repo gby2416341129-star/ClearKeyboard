@@ -265,15 +265,67 @@ import UIKit
     }
     func testCustomKeyInkUsesTheTranslucentFaceInsteadOfOnlyTheColorSwatch() throws {
         let button = KeyButton(key: KeyboardKey("A"))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        let root = UIViewController(); window.rootViewController = root
+        window.overrideUserInterfaceStyle = .dark; window.makeKeyAndVisible()
+        root.view.addSubview(button); button.frame = CGRect(x: 10, y: 10, width: 40, height: 56)
+        root.view.layoutIfNeeded()
+        defer { window.isHidden = true }
         let label = try XCTUnwrap(views(button).compactMap { $0 as? CenteredKeyLabel }.first)
         var settings = KeyboardSettings(); settings.glass = .clear; settings.keyGlassStrength = 0
-        button.overrideUserInterfaceStyle = .dark; settings.keyColorHex = "#FFFFFF"; button.apply(settings)
-        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .white)
+        settings.keyColorHex = "#FFFFFF"; button.apply(settings)
+        let dark = UITraitCollection(userInterfaceStyle: .dark), light = UITraitCollection(userInterfaceStyle: .light)
+        let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
+        XCTAssertEqual(label.textColor.resolvedColor(with: dark), reduced ? .black : .white)
         settings.glass = .solid; button.apply(settings)
-        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .black)
+        XCTAssertEqual(label.textColor.resolvedColor(with: dark), .black)
         settings.keyColorHex = nil; settings.backgroundColorHex = "#FFFFFF"; button.apply(settings)
-        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .white)
-        button.overrideUserInterfaceStyle = .light; settings.glass = .clear; settings.keyColorHex = "#101010"; button.apply(settings)
-        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .black)
+        XCTAssertEqual(label.textColor.resolvedColor(with: dark), .white)
+        window.overrideUserInterfaceStyle = .light; settings.glass = .clear; settings.keyColorHex = "#101010"; button.apply(settings)
+        XCTAssertEqual(label.textColor.resolvedColor(with: light), reduced ? .white : .black)
+    }
+    func testGlassStrengthChangesRenderedPixelsWithoutPersistentAnimations() async throws {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+        let root = UIViewController(); window.rootViewController = root
+        window.overrideUserInterfaceStyle = .dark; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        for index in 0..<32 {
+            let stripe = UIView(frame: CGRect(x: CGFloat(index) * 10, y: 0, width: 10, height: 240))
+            stripe.backgroundColor = index.isMultiple(of: 2) ? .white : .black
+            root.view.addSubview(stripe)
+        }
+        let background = GlassBackdrop(frame: window.bounds)
+        root.view.addSubview(background)
+        var settings = KeyboardSettings(); settings.glass = .clear
+        settings.backgroundGlassStrength = 0; background.apply(settings); background.layoutIfNeeded()
+        func snapshot() -> Data {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            return UIGraphicsImageRenderer(bounds: window.bounds, format: format).pngData { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let noBackground = snapshot()
+        settings.backgroundGlassStrength = 1; background.apply(settings)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let fullBackground = snapshot()
+        background.removeFromSuperview()
+        let keys = KeyGlassMaterial(effect: nil); keys.frame = window.bounds; root.view.addSubview(keys)
+        keys.setFaces([CGRect(x: 20, y: 20, width: 280, height: 200)])
+        settings.keyGlassStrength = 0; keys.apply(settings)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let noKeys = snapshot()
+        settings.keyGlassStrength = 1; keys.apply(settings)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let fullKeys = snapshot()
+        if !UIAccessibility.isReduceTransparencyEnabled && !ProcessInfo.processInfo.isLowPowerModeEnabled {
+            XCTAssertNotEqual(noBackground, fullBackground, "Background strength must change the visible material")
+            XCTAssertNotEqual(noKeys, fullKeys, "Key strength must change the visible material")
+        }
+        for view in views(background) + views(keys) {
+            XCTAssertTrue(view.layer.animationKeys()?.isEmpty ?? true, "Material intensity must settle instead of leaving a paused animation active")
+        }
+        XCTAssertEqual(keys.alpha, 1)
+        print("GLASS_RENDERED_STRENGTH backgroundPixelsChanged=\(noBackground != fullBackground) keyPixelsChanged=\(noKeys != fullKeys) persistentAnimations=false")
     }
 }

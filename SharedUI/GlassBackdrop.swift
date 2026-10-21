@@ -4,22 +4,36 @@ final class GlassBackdrop: UIView {
     private let material = UIVisualEffectView()
     private let wash = UIView()
     private var effectSignature = ""
-    private var intensity: UIViewPropertyAnimator?
+    private let materialMask = UIView()
+    private var strength: CGFloat = -1
+    private var maskSize = CGSize.zero
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(material); addSubview(wash)
         isUserInteractionEnabled = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() { super.layoutSubviews(); material.frame = bounds; wash.frame = bounds }
+    override func layoutSubviews() {
+        super.layoutSubviews(); material.frame = bounds; wash.frame = bounds
+        updateMaterialMask()
+    }
+    private func updateMaterialMask() {
+        guard materialMask.alpha != strength || maskSize != material.bounds.size || material.mask == nil else { return }
+        maskSize = material.bounds.size
+        UIView.performWithoutAnimation {
+            materialMask.frame = material.bounds; materialMask.backgroundColor = .black
+            materialMask.alpha = max(0, strength)
+            // UIVisualEffectView copies its mask. Reassign it after a size or
+            // strength change so both its effect and content use the new mask.
+            material.mask = nil; material.mask = materialMask
+        }
+    }
     func apply(_ settings: KeyboardSettings, systemBacked: Bool = false) {
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled || settings.glass == .solid
         isOpaque = false; backgroundColor = reduced ? (settings.backgroundTintColor ?? .secondarySystemBackground) : .clear
         let signature = "\(settings.glass)-\(reduced)-\(systemBacked)"
         if signature != effectSignature {
             effectSignature = signature
-            if intensity?.state == .active { intensity?.stopAnimation(true) }
-            intensity = nil; material.effect = nil
             var target: UIVisualEffect?
             if reduced { target = nil }
             else if #available(iOS 26.0, *) {
@@ -27,17 +41,13 @@ final class GlassBackdrop: UIView {
                 glass.isInteractive = false; target = glass
                 material.cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28))
             } else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
-            if let target {
-                let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak material] in material?.effect = target }
-                animator.pausesOnCompletion = true; intensity = animator
-            }
+            UIView.performWithoutAnimation { material.effect = target }
         }
-        // Drive the material transition itself. Fading a visual-effect view's
-        // alpha can disable its backdrop or force additional offscreen passes.
-        intensity?.fractionComplete = settings.resolvedBackgroundGlassStrength
+        // Modulate the effect's own mask, keeping the effect view opaque and
+        // avoiding an indefinitely paused animator that prevents UI quiescence.
+        strength = CGFloat(settings.resolvedBackgroundGlassStrength); updateMaterialMask()
         wash.backgroundColor = settings.backgroundTintColor?.withAlphaComponent(reduced ? 1 : 0.12 + settings.resolvedBackgroundGlassStrength * 0.55)
     }
-    deinit { if intensity?.state == .active { intensity?.stopAnimation(true) } }
 }
 
 final class KeyButton: UIButton {

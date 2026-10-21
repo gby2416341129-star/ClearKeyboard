@@ -4,18 +4,30 @@ import UIKit
 /// when keys move, rather than creating a blur/refraction view for every letter.
 final class KeyGlassMaterial: UIVisualEffectView {
     private let shape = CAShapeLayer()
+    private let effectMask = UIView()
     private var signature = ""
-    private var intensity: UIViewPropertyAnimator?
+    private var faces: [CGRect] = []
+    private var maskSize = CGSize.zero
+    private var strength: CGFloat = -1
     override init(effect: UIVisualEffect?) {
         super.init(effect: effect); isUserInteractionEnabled = false
-        layer.mask = shape
+        effectMask.layer.addSublayer(shape); shape.fillColor = UIColor.black.cgColor
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    func setFaces(_ faces: [CGRect]) {
+    func setFaces(_ value: [CGRect]) {
+        guard faces != value || maskSize != bounds.size || mask == nil else { return }
+        faces = value; updateMask()
+    }
+    private func updateMask() {
+        maskSize = bounds.size
         let path = UIBezierPath()
         for face in faces { path.append(UIBezierPath(roundedRect: face, cornerRadius: 8)) }
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        effectMask.frame = bounds; effectMask.alpha = max(0, strength)
         shape.frame = bounds; shape.path = path.cgPath
+        // Assign the mask to the visual-effect view itself, not a superview.
+        // UIKit then applies it to both the effect and the content.
+        mask = nil; mask = effectMask
         CATransaction.commit()
     }
     func apply(_ settings: KeyboardSettings) {
@@ -23,22 +35,17 @@ final class KeyGlassMaterial: UIVisualEffectView {
         let next = "\(settings.glass)-\(reduced)"
         if next != signature {
             signature = next
-            if intensity?.state == .active { intensity?.stopAnimation(true) }
-            intensity = nil; effect = nil
             var target: UIVisualEffect?
             if reduced { target = nil }
             else if #available(iOS 26.0, *) {
                 let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
                 glass.isInteractive = false; target = glass
             } else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
-            if let target {
-                let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in self?.effect = target }
-                animator.pausesOnCompletion = true; intensity = animator
-            }
+            UIView.performWithoutAnimation { effect = target }
         }
-        intensity?.fractionComplete = settings.resolvedKeyGlassStrength
+        let nextStrength = CGFloat(settings.resolvedKeyGlassStrength)
+        if strength != nextStrength || mask == nil { strength = nextStrength; updateMask() }
     }
-    deinit { if intensity?.state == .active { intensity?.stopAnimation(true) } }
 }
 
 /// The preview uses the production key, text and material views at their final
@@ -51,6 +58,9 @@ final class KeyboardAppearancePreview: UIView {
     private let first = CandidateButton(), second = CandidateButton()
     private var keys: [(KeyButton, Int, Double, Double)] = []
     private var settings = KeyboardSettings()
+    private var appliedSettings: KeyboardSettings?
+    private var appliedStyle = UIUserInterfaceStyle.unspecified
+    private var appliedReducedTransparency: Bool?
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.cornerRadius = 22; layer.cornerCurve = .continuous; clipsToBounds = true
@@ -71,6 +81,10 @@ final class KeyboardAppearancePreview: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func apply(_ value: KeyboardSettings) {
+        let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
+        guard appliedSettings != value || appliedStyle != traitCollection.userInterfaceStyle || appliedReducedTransparency != reduced else { return }
+        appliedSettings = value; appliedStyle = traitCollection.userInterfaceStyle
+        appliedReducedTransparency = reduced
         settings = value; backdrop.apply(value); glass.apply(value)
         for (key, _, _, _) in keys { key.apply(value) }
         let font = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points))
@@ -80,6 +94,10 @@ final class KeyboardAppearancePreview: UIView {
                          font: font, normalColor: value.candidateTintColor)
         accessibilityValue = "background:\(value.resolvedBackgroundGlassStrength);keys:\(value.resolvedKeyGlassStrength);backgroundColor:\(value.backgroundColorHex ?? "auto");keyColor:\(value.keyColorHex ?? "auto");candidateColor:\(value.candidateColorHex ?? "auto");font:\(value.resolvedCandidateTextSize.rawValue)"
         setNeedsLayout()
+    }
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true { apply(settings) }
     }
     override func layoutSubviews() {
         super.layoutSubviews(); scenery.frame = bounds; backdrop.frame = bounds

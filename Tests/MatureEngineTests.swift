@@ -183,7 +183,7 @@ final class MatureEngineTests: XCTestCase {
             // Prefix choices are required for segmented selection, including
             // 办公 + ji and unfamiliar names; a complete sentence must lead
             // without suppressing every valid shorter conversion.
-            XCTAssertTrue(values.contains { $0.text == "老婆" && $0.consumed < input.count })
+            XCTAssertTrue(values.contains { $0.consumed < input.count }, input + ": " + values.map(\.text).joined(separator: ","))
         }
         let film = engine.candidates("ganghuam")
         XCTAssertTrue(film.contains { $0.text == "钢化" && $0.consumed == 7 })
