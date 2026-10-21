@@ -84,6 +84,7 @@ jobs:
           .build/test-candidate-context
           swiftc -O -parse-as-library Core/Clipboard.swift Scripts/test_clipboard_observation.swift -o .build/test-clipboard-observation
           .build/test-clipboard-observation
+          python3 Scripts/test_fast_engine.py
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch
           .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_integer.cpp -o .build/test-native-integer
@@ -106,7 +107,6 @@ jobs:
           .build/test-keyboard-shift
           swiftc -O -parse-as-library Core/Candidate.swift Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/RepetitionModel.swift Scripts/test_repetition.swift -o .build/test-repetition
           .build/test-repetition Core/Resources/Rime/repetition-priors.tsv
-          python3 Scripts/test_fast_engine.py
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
           python3 - <<'PY'

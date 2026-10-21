@@ -31,7 +31,9 @@ int from_index(RimeSessionId id, RimeCandidateListIterator *it, int index) {
 }
 void end_list(RimeCandidateListIterator *) { ended++; }
 RimeSessionId delayed_session=0;
+std::unordered_map<RimeSessionId,int> input_resets;
 int set_input_mock(RimeSessionId id, const char *) {
+  ++input_resets[id];
   if (id==delayed_session) std::this_thread::sleep_for(std::chrono::milliseconds(25));
   return 1;
 }
@@ -117,7 +119,9 @@ int main(int argc, char **argv) {
   lists[1] = {{"corrected", "ni chi fan le ma\t12\t-19.5"}};
   assert(cr_query(1, "nichifankema", 9, nullptr, nullptr) == 2);
   assert(q.items[0].text == "corrected" && q.items[1].text == "weak");
-  assert(starts[1] == 1);
+  // The compatibility gate reads one candidate, then resumes the same menu.
+  // Two iterator starts must still set the input only once.
+  assert(starts[1] == 2 && input_resets[1] == 1);
   lists[3] = {{"question", "ma ma ni chi fan ma\t7\t-12"}};
   lists[2] = {{"other", "ma ma ni chi fan mei\t7\t-13"}};
   lists[4].clear();
@@ -165,9 +169,10 @@ int main(int argc, char **argv) {
   q.rank_decided=false;q.ranked_input.clear();q.head_items.clear();
   lists[4]={{"internal-ambiguity","bu suan cha de lian ai ma\t14\t-24"}};
   lists[1]={{"broad-correction","bu suan cha de la ma\t14\t-20"}};
-  const auto before_internal=starts[1],before_extra=starts[5];
+  const auto before_internal=starts[1],before_extra=starts[5],resets_before_internal=input_resets[1];
   assert(cr_query(1,"busuanchadlama",9,nullptr,nullptr)>0);
-  assert(q.items.front().text=="broad-correction" && starts[1]==before_internal+1 && starts[5]==before_extra);
+  assert(q.items.front().text=="broad-correction" && starts[1]==before_internal+2 &&
+      input_resets[1]==resets_before_internal+1 && starts[5]==before_extra);
   mock.set_input=reset_live;mock.get_input=read_live;mock.process_key=edit_live;
   ChannelCache incremental;
   collect(2,"ni",1,incremental,nullptr,nullptr);
