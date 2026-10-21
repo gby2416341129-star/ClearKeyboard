@@ -120,7 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, pathlib, plistlib, shutil, subprocess, time, uuid
+          import json, os, pathlib, plistlib, shutil, subprocess, sys, time, uuid
           out = pathlib.Path(os.environ['CLEAR_VISUAL_OUT'])
           def run(*args, timeout=60):
               result = subprocess.run(['xcrun', 'simctl', *args], capture_output=True, text=True, timeout=timeout)
@@ -154,10 +154,17 @@ jobs:
               device = run('create', 'ClearKeyboard iOS 27.2 RC Air', air['identifier'], runtime['identifier']).strip()
           uuid.UUID(device)
           (out / 'device-id.txt').write_text(device)
-          subprocess.run(['xcrun', 'simctl', 'boot', device], capture_output=True, text=True, timeout=60)
-          boot = run('bootstatus', device, '-b', timeout=360)
-          (out / 'bootstatus.txt').write_text(boot)
-          assert 'Data Migration Failed' not in boot, boot
+          # A Booted state is not proof of a responsive UI on a freshly installed
+          # runtime. Use the same bounded boot plus live-service probes as the
+          # production CI, locked to this exact runtime with no 27.0 fallback.
+          boot_env = {**os.environ, 'CLEAR_TEST_SIMULATOR_RUNTIME': runtime['identifier'],
+                      'CLEAR_TEST_REQUIRE_RUNTIME': '1', 'CLEAR_TEST_REQUIRED_RUNTIME_MAJOR': ''}
+          with (out / 'boot-readiness.log').open('w') as log:
+              completed = subprocess.run([sys.executable, 'Scripts/boot_test_simulator.py'],
+                  env=boot_env, stdout=log, stderr=subprocess.STDOUT, timeout=570)
+          assert completed.returncode == 0, 'Exact RC UI service readiness failed; inspect boot-readiness.log'
+          device = pathlib.Path('.build/composition-device-id').read_text().strip(); uuid.UUID(device)
+          (out / 'device-id.txt').write_text(device)
           board = run('spawn', device, 'launchctl', 'print', 'system/com.apple.SpringBoard')
           (out / 'springboard.txt').write_text(board)
           assert 'state = running' in board
