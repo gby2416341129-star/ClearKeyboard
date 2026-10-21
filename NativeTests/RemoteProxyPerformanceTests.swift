@@ -2,6 +2,37 @@ import XCTest
 import UIKit
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
+    func testKeysArrivingInsideAHostCommitAreAppliedOnceInOrder() async throws {
+        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        let trials: [([KeyAction], String, String)] = [
+            ([.enter], "你好\n", ""), ([.space], "你好 ", ""), ([.delete], "你", ""),
+            ([.text("a")], "你好a", "a"), ([.enter, .text("h"), .text("d")], "你好\nhd", "hd")
+        ]
+        for (actions, expected, remaining) in trials {
+            model.clearComposition(); proxy.textView.text = ""; proxy.textView.selectedRange = NSRange(location: 0, length: 0)
+            controller.textDidChange(nil)
+            try await waitFor { controller.contextBefore.isEmpty }
+            for character in "nihao" { model.handle(.text(String(character))) }
+            try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "你好" } }
+            let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你好" })
+            proxy.afterInsert = {
+                proxy.afterInsert = nil
+                for action in actions { model.handle(action) }
+            }
+            model.chooseDisplayed(candidate, context: model.candidateContext)
+            try await waitFor { proxy.textView.text == expected }
+            XCTAssertEqual(controller.contextBefore, expected)
+            XCTAssertEqual(model.composition.raw, remaining)
+            await Task.yield()
+            XCTAssertEqual(proxy.textView.text, expected)
+        }
+        print("HOST_COMMIT_REENTRANCY actualUITextView=true scenarios=5 droppedKeys=0 duplicateKeys=0 ordering=preserved")
+    }
     func testRealUIKitEditingConservesEveryChosenWordAndUntouchedContext() async throws {
         let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
@@ -893,6 +924,7 @@ import UIKit
     let documentIdentifier = UUID()
     var markedWrites: [String] = [], insertedTexts: [String] = []
     var unmarkWrites = 0
+    var afterInsert: (() -> Void)?
     override init() {
         super.init(); textView.inputView = UIView(frame: .zero)
         textView.autocorrectionType = .no; textView.spellCheckingType = .no
@@ -906,7 +938,7 @@ import UIKit
     var selectedText: String? { textView.selectedTextRange.flatMap { textView.text(in: $0) } }
     var documentInputMode: UITextInputMode? { nil }
     var hasText: Bool { textView.hasText }
-    func insertText(_ text: String) { insertedTexts.append(text); textView.insertText(text) }
+    func insertText(_ text: String) { insertedTexts.append(text); textView.insertText(text); afterInsert?() }
     func deleteBackward() { textView.deleteBackward() }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
         markedWrites.append(text); textView.setMarkedText(text, selectedRange: selectedRange)

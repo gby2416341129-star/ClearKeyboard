@@ -214,7 +214,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             needsHostRefresh = true; scheduleHostRefresh(); return false
         }
         guard actualIdentity == identity else { refreshHostState(); return false }
-        return true
+        return hostState.snapshot.selected.isEmpty && before == contextBefore &&
+            after == contextAfter && identity == documentIdentity
     }
     private func connectedDocumentIdentifier() -> UUID? {
         // UIKit can return nil before connecting the host, despite its nonoptional Swift UUID declaration.

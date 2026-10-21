@@ -50,6 +50,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var deferredContext: CandidateContext?
     private var deferredActions: [KeyAction] = []
     private var deferredPreview: Composition?
+    private var documentEditDepth = 0
+    private var drainingDocumentKeys = false
+    private var pendingDocumentKeys: [(KeyAction, String)] = []
+    private func beginDocumentEdit() { documentEditDepth += 1 }
+    private func endDocumentEdit() {
+        documentEditDepth -= 1
+        guard documentEditDepth == 0, !drainingDocumentKeys, !pendingDocumentKeys.isEmpty else { return }
+        drainingDocumentKeys = true
+        defer { drainingDocumentKeys = false }
+        while !pendingDocumentKeys.isEmpty {
+            let (action, identity) = pendingDocumentKeys.removeFirst()
+            if document?.documentIdentity == identity { handle(action) }
+        }
+    }
     weak var document: KeyboardDocument?
     var settings: KeyboardSettings { didSet {
         settings.sanitize()
@@ -370,17 +384,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
         refreshCandidates()
     }
     func clearComposition() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         cancelDeferredActions()
         if !composition.raw.isEmpty { document?.setMarkedText(""); document?.unmarkText() }
         composition.clear(); refreshCandidates()
     }
     func cursorChanged() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         guard !isMovingCursor else { return }
         cancelDeferredActions()
         deletionUndo = nil
         if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates()
     }
     func finishCompositionAsTyped() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         cancelDeferredActions()
         if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear()
     }
@@ -394,11 +411,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func stopClipboardCapture() { clipboardActive = false; clipboardCapture.stop() }
     func moveCursor(_ offset: Int) {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         if !isMovingCursor { if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() } }
         document?.moveCursor(offset)
         if !isMovingCursor { refreshCandidates() }
     }
     func beginCursorMovement() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         guard !isMovingCursor else { return }
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         isMovingCursor = true; deletionUndo = nil
@@ -407,9 +426,16 @@ struct DeletedInput { let text: String; let selection: NSRange }
         generation += 1; candidates = []; arithmetic = nil
         document?.beginTrackpad()
     }
-    func trackCursor(translation: CGPoint) { guard isMovingCursor else { return }; document?.trackCursor(translation: translation) }
-    func endCursorMovement() { guard isMovingCursor else { return }; document?.endTrackpad(); isMovingCursor = false; refreshCandidates() }
+    func trackCursor(translation: CGPoint) {
+        beginDocumentEdit(); defer { endDocumentEdit() }
+        guard isMovingCursor else { return }; document?.trackCursor(translation: translation)
+    }
+    func endCursorMovement() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
+        guard isMovingCursor else { return }; document?.endTrackpad(); isMovingCursor = false; refreshCandidates()
+    }
     func clearInput() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document else { return }
         cancelDeferredActions()
         let spelling = composition
@@ -420,6 +446,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         refreshCandidates()
     }
     @discardableResult func undoClearInput() -> Bool {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document, let (deleted, identity, before, after, spelling) = deletionUndo,
               document.documentIdentity == identity, document.contextBefore == before,
               document.contextAfter == after, document.selectedText.isEmpty else { deletionUndo = nil; return false }
@@ -432,11 +459,19 @@ struct DeletedInput { let text: String; let selection: NSRange }
         refreshCandidates(); return restored
     }
     func toggleLanguage() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         settings.language = settings.language == .chinese ? .english : .chinese
         page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
     }
     func handle(_ action: KeyAction) {
+        // Remote editor calls may service another UIKit key callback before
+        // returning. Finish the current edit before applying that later key;
+        // otherwise its spelling can be cleared or consumed by the old choice.
+        if documentEditDepth > 0 {
+            pendingDocumentKeys.append((action, document?.documentIdentity ?? "")); return
+        }
+        beginDocumentEdit(); defer { endDocumentEdit() }
         if awaitingCommit {
             deferredActions.append(action)
             // Keep letters visible while an earlier Space awaits decoding. The
@@ -514,10 +549,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
         return [",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）" ][text] ?? text
     }
     func insertLiteral(_ text: String) {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         document?.insert(text); refreshCandidates()
     }
     func chooseArithmetic(_ text: String) {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document, let arithmetic, arithmetic.candidates.contains(text),
               composition.isEmpty, document.selectedText.isEmpty, document.contextBefore.hasSuffix(arithmetic.expression) else { return }
         for _ in arithmetic.expression { document.deleteBackward() }
@@ -559,10 +596,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
         context != nil && context == requestedContext
     }
     func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?) {
+        guard documentEditDepth == 0 else { return }
         selectionRevision += 1
         chooseDisplayed(candidate, context: context, retry: 0)
     }
     private func chooseDisplayed(_ candidate: Candidate, context: CandidateContext?, retry: Int) {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         guard !awaitingCommit, !isMovingCursor, let context, let current = activeCandidateContext(), let document,
               document.selectedText.isEmpty else { return }
         var selected = candidate
@@ -608,6 +647,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         commitChoice(selected, document: document, learningRaw: learningRaw)
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument, learningRaw: String? = nil) {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         if settings.language == .chinese {
             let spelling = learningRaw ?? composition.raw
             if composition.raw.isEmpty { document.insert(candidate.text) }
@@ -762,7 +802,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         store.defaults.set(learned, forKey: "clear.learned.v1")
         if let data = try? JSONEncoder().encode(personal) { store.defaults.set(data, forKey: "clear.choices.v2") }
     }
-    func suspend() { stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
+    func suspend() { pendingDocumentKeys.removeAll(); stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
 }
 
 /// Workers publish immutable results without waiting for UIKit's event loop.
