@@ -8,7 +8,8 @@ import Foundation
         let engine = try InputEngine.bundled()
         var rows: [[String: Any]] = []
         for (raw, expected) in [("en", "嗯"), ("enen", "嗯嗯"), ("enenen", "嗯嗯嗯"),
-                                ("enhaode", "嗯好的"), ("enenhao", "嗯嗯好")] {
+                                ("enhaode", "嗯好的"), ("enenhao", "嗯嗯好"),
+                                ("shenmo", "什么"), ("zenmo", "怎么")] {
             let quick = engine.immediateCandidates(raw)
             let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 64)
             require(quick.first?.text == expected && head.first?.text == expected,
@@ -78,9 +79,19 @@ import Foundation
             }
             rows.append(["input":raw,"head":values.map(\.text),"readings":values.map(\.reading)])
         }
+        for (raw, expected) in [("wcfl", "我吃饭了"), ("nijtchiflm", "你今天吃饭了吗")] {
+            let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 64)
+            require(head.first?.text == expected && head.first?.consumed == raw.count,
+                    "Shared-prefix initialism comparison missed its spoken alternative: \(raw): \(head)")
+            require(Array(page.prefix(head.count)) == head, "An initialism changed when browsing")
+            rows.append(["input": raw, "head": head.map(\.text), "kind": "shared-prefix-initialism"])
+        }
         var contextualRows: [[String: Any]] = []
         for (raw, preceding, expected) in [
             ("buguixianzaishi", "", "不过现在是"), ("buguoxianzaishi", "", "不过现在是"),
+            ("nichifankm", "", "你吃饭了吗"), ("nichifanlm", "", "你吃饭了吗"),
+            ("nixiabankm", "", "你下班了吗"),
+            ("birunijintianzaiganshenmo", "", "比如你今天在干什么"),
             ("mafangeiwokaiyizhangdianzifapiao", "", "麻烦给我开一张电子发票"),
             ("niqhilema", "", "你吃了吗"), ("woxiangqhifan", "", "我想吃饭"),
             ("shi", "我正在考", "试"), ("shi", "", "是"), ("shi", "我正在考", "试"),

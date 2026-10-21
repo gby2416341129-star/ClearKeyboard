@@ -90,7 +90,7 @@ std::string syllables(const std::string &reading) {
 }
 void rank_sentence(Query &query, const std::string &input, int length, bool leading,
                    bool correction, bool protected_dictionary, clear_sentence::Budget::Clock::time_point started,
-                   cr_cancelled cancelled, void *context, int limit=9) {
+                   cr_cancelled cancelled, void *context, int limit=9, bool dictionary_alternatives=false) {
   const auto capacity=static_cast<size_t>(std::clamp(limit,1,4096));
   if (query.ranked_input!=input) {
     query.ranked_input=input;query.ranked_choice.clear();query.rank_decided=false;query.head_items.clear();
@@ -119,18 +119,36 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
     std::vector<int> tokens;
     if (sentence_model->encode(query.items.front().text,tokens) && tokens.size()>=4 && tokens.size()<=16) {
       std::vector<size_t> indices;std::vector<std::string> texts;
-      for (size_t index=0;index<query.items.size() && texts.size()<4;++index) {
+      for (size_t index=0;index<query.items.size() && texts.size()<(abbreviations>0?8:4);++index) {
         const auto &item=query.items[index];if (item.consumed!=length) continue;
         const int initials=clear_sentence::PhoneticSearch::matches(input,syllables(item.reading));
         // A semantic preference cannot invent more initials inside full pinyin.
         if (initials<0 || initials>abbreviations || !sentence_model->encode(item.text,tokens) || tokens.size()<4 || tokens.size()>16) continue;
         indices.push_back(index);texts.push_back(item.text);
       }
-      // Keep the incumbent and the largest leading legal pool that fits this
-      // device's measured new-position allowance. Never spend a failed full
-      // projection before discovering that the pool was too large.
-      while(texts.size()>=2 && !sentence_model->whole_pool_fits(texts)) {
-        texts.pop_back();indices.pop_back();
+      if (abbreviations>0 && texts.size()>=2) {
+        // The short initialism's intended spoken form can be below several
+        // unrelated dictionary words. Shared prefixes reuse the same causal
+        // states, so compare these alternatives before spending the device's
+        // measured allowance on unrelated prefixes. Retain the incumbent and
+        // at most four legal rows; never exceed the calibrated position budget.
+        std::vector<std::vector<int>> token_rows(texts.size());
+        for(size_t index=0;index<texts.size();++index)sentence_model->encode(texts[index],token_rows[index]);
+        std::vector<size_t> order;for(size_t index=1;index<texts.size();++index)order.push_back(index);
+        auto shared=[&](size_t index) {
+          size_t count=0;while(count<std::min(token_rows[0].size(),token_rows[index].size()) && token_rows[0][count]==token_rows[index][count])++count;
+          return count;
+        };
+        std::stable_sort(order.begin(),order.end(),[&](size_t a,size_t b){return shared(a)>shared(b);});
+        std::vector<size_t> selected_indices={indices[0]};std::vector<std::string> selected_texts={texts[0]};
+        for(const auto index:order) {
+          if(selected_texts.size()==4)break;
+          auto trial=selected_texts;trial.push_back(texts[index]);
+          if(sentence_model->whole_pool_fits(trial)){selected_texts=std::move(trial);selected_indices.push_back(indices[index]);}
+        }
+        texts=std::move(selected_texts);indices=std::move(selected_indices);
+      } else {
+        while(texts.size()>=2 && !sentence_model->whole_pool_fits(texts)) {texts.pop_back();indices.pop_back();}
       }
       std::vector<float> scores;
       if (texts.size()>=2 && indices.front()==0 && sentence_model->compare(texts,scores,budget)) {
@@ -153,7 +171,7 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
   // After comparing existing alternatives, character search is reserved for
   // ambiguous composition. Incompatible vowel completions still enter search;
   // a literal full/mixed spelling with <= two initials needs no new character beam.
-  if (!sentence_model->can_search() ||
+  if (dictionary_alternatives || !sentence_model->can_search() ||
       (literal && abbreviations<=2) ||
       !phonetic_search.abbreviated_input(input)) { finish();return; }
   const auto now=clear_sentence::Budget::Clock::now();
@@ -356,11 +374,15 @@ template<class Now>bool repair_blind_spelling_clock(Query &query,const std::stri
     collect(query.repair,variant.input,1,query.repair_cache,cancelled,context);
     const auto finished=now();previous_cost=finished-before;
     if(cancelled && cancelled(context))return false;
+    if(!query.repair_cache.items.empty()) {
+      const auto &item=query.repair_cache.items.front();
+      if(item.consumed==static_cast<int>(variant.input.size()) && letters(item.reading)==variant.input && std::isfinite(item.weight))
+        results.emplace_back(item.weight-variant.penalty,Item{item.text,item.reading,static_cast<int>(raw.size()),item.weight-variant.penalty});
+    }
+    // Rime itself is a synchronous operation. Once it has completed, crossing
+    // the deadline cannot save that work by discarding its valid result. Stop
+    // additional searches, while still rejecting abandoned input above.
     if(finished>=deadline)break;
-    if(query.repair_cache.items.empty())continue;
-    const auto &item=query.repair_cache.items.front();
-    if(item.consumed!=static_cast<int>(variant.input.size()) || letters(item.reading)!=variant.input || !std::isfinite(item.weight))continue;
-    results.emplace_back(item.weight-variant.penalty,Item{item.text,item.reading,static_cast<int>(raw.size()),item.weight-variant.penalty});
   }
   if(results.empty())return false;
   std::sort(results.begin(),results.end(),[](const auto &a,const auto &b){return a.first!=b.first?a.first>b.first:a.second.text<b.second.text;});
@@ -372,6 +394,53 @@ bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item>
     clear_sentence::Budget::Clock::time_point started,cr_cancelled cancelled,void *context) {
   return repair_blind_spelling_clock(query,raw,output,started,cancelled,context,
       []{return clear_sentence::Budget::Clock::now();});
+}
+bool repair_trailing_initials(Query &query,const std::string &raw,const Item &literal,
+    std::vector<Item> &output,clear_sentence::Budget::Clock::time_point started,cr_cancelled cancelled,void *context) {
+  const std::string consonants="bpmfdtnlgkhjqxrzcsyw";
+  if(raw.size()<6 || raw.size()>32 || raw.find_first_of("aeiouv")==std::string::npos ||
+     consonants.find(raw[raw.size()-1])==std::string::npos || consonants.find(raw[raw.size()-2])==std::string::npos ||
+     letters(literal.reading)==raw) return false;
+  const auto deadline=started+std::chrono::milliseconds(35);
+  auto stopped=[&]{return (cancelled && cancelled(context)) || clear_sentence::Budget::Clock::now()>=deadline;};
+  if(stopped())return false;
+  if(!query.repair && api->create_session && api->select_schema) {
+    const auto extra=api->create_session();
+    if(extra && api->select_schema(extra,"clear_fluent")) {
+      query.repair=extra;
+      if(!query.preceding.empty() && !prime_context(extra,query.preceding)) {api->destroy_session(extra);query.repair=0;}
+    } else if(extra)api->destroy_session(extra);
+  }
+  if(!query.repair)return false;
+  Item best;double best_score=-std::numeric_limits<double>::infinity();
+  for(size_t index=raw.size()-2;index<raw.size() && !stopped();++index) {
+    std::string neighbours;
+    // Horizontal neighbours are the nearest physical contacts. Try them before
+    // diagonal alternatives, so the bounded search does not spend its budget on
+    // less likely keys before reaching a common adjacent-key slip.
+    for(const std::string row:{"qwertyuiop","asdfghjkl","zxcvbnm"}) {
+      const auto position=row.find(raw[index]);if(position==std::string::npos)continue;
+      if(position)neighbours+=row[position-1];if(position+1<row.size())neighbours+=row[position+1];
+    }
+    for(char c='a';c<='z';++c) if(c!=raw[index] && neighbours.find(c)==std::string::npos &&
+        clear_blind::substitution(raw[index],c)<=1.4)neighbours+=c;
+    for(char replacement:neighbours) {
+      if(stopped())break;
+      if(consonants.find(replacement)==std::string::npos)continue;
+      auto changed=raw;changed[index]=replacement;
+      collect(query.repair,changed,1,query.repair_cache,cancelled,context);
+      if(cancelled && cancelled(context))return false;
+      if(query.repair_cache.items.empty())continue;
+      const auto &item=query.repair_cache.items.front();
+      if(item.consumed!=static_cast<int>(raw.size()) ||
+         clear_sentence::PhoneticSearch::matches(changed,syllables(item.reading))<0 || !std::isfinite(item.weight))continue;
+      const auto score=item.weight-std::log(100.0);
+      if(literal.consumed==static_cast<int>(raw.size()) && score<=literal.weight+2.0)continue;
+      if(score>best_score){best_score=score;best={item.text,item.reading,static_cast<int>(raw.size()),score};}
+    }
+  }
+  if(best.text.empty() || (cancelled && cancelled(context)))return false;
+  output={std::move(best)};return true;
 }
 bool same_syllable_initials(const std::string &left,const std::string &right) {
   std::istringstream a(syllables(left)),b(syllables(right));std::string x,y;
@@ -693,6 +762,10 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
       fluent.insert(fluent.begin(),std::move(literal_replacement));
       collect(query.fluent,input,limit,query.fluent_cache,cancelled,context);
       fluent.insert(fluent.end(),query.fluent_cache.items.begin(),query.fluent_cache.items.end());repaired=true;
+    } else if (leading_row && correction && !reliable && !query.fluent_cache.items.empty() &&
+        repair_trailing_initials(query,raw,query.fluent_cache.items.front(),fluent,started,cancelled,context)) {
+      collect(query.fluent,input,limit,query.fluent_cache,cancelled,context);
+      fluent.insert(fluent.end(),query.fluent_cache.items.begin(),query.fluent_cache.items.end());repaired=true;
     } else if (!correction || reliable) {
       collect(query.fluent, input, limit, query.fluent_cache, cancelled, context);
       fluent = query.fluent_cache.items;
@@ -743,7 +816,10 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   // A complete dictionary word must use the same protected path as the
   // dedicated conversation dictionary. Neural continuation search is for
   // ambiguous composition, not a second vote over an already exact phrase.
-  rank_sentence(query,input,length,leading_row,correction,contextual || repaired || !full.empty(),started,cancelled,context,limit);
+  const auto spelled_word=[&](const Item &item){return item.consumed==length && letters(item.reading)==letters(input);};
+  const bool protected_word=std::any_of(conversational.begin(),conversational.end(),spelled_word) ||
+      std::any_of(literal.begin(),literal.end(),spelled_word);
+  rank_sentence(query,input,length,leading_row,correction,contextual || repaired || protected_word,started,cancelled,context,limit,!full.empty());
   if (cancelled && cancelled(context)) return 0;
   return static_cast<int>(query.items.size());
 }

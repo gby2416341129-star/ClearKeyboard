@@ -41,6 +41,17 @@ class ShortInitialIndexTests(unittest.TestCase):
                 path = Path(folder) / 'aliases.tsv'; path.write_text(content, encoding='utf8')
                 with self.assertRaises(ValueError): reading_aliases(words, path)
 
+    def test_typing_aliases_do_not_inflate_an_existing_character_reading(self):
+        words = {('么', 'me'): 153599, ('么', 'mo'): 407, ('什么', 'shen me'): 283934,
+                 ('怎么', 'zen me'): 240869, ('摸', 'mo'): 25000}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'aliases.tsv'; path.write_text('么\tme\tmo\n', encoding='utf8')
+            expanded, _ = reading_aliases(words, path)
+        self.assertEqual(expanded['么', 'mo'], 407)
+        self.assertEqual(expanded['摸', 'mo'], 25000)
+        self.assertEqual(expanded['什么', 'shen mo'], 283934)
+        self.assertEqual(expanded['怎么', 'zen mo'], 240869)
+
     def test_top_words_are_bounded_and_conversation_duplicates_replace(self):
         words = [(f"词{i}", "da jia", i) for i in range(40)]
         values = short_initial_words(words, [("词39", "da jia", 1), ("会话", "da jia", 2)])["dj"]

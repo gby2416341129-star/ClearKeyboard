@@ -117,7 +117,8 @@ private struct LifestyleCorpus: Decodable {
         let summary: [String: Any] = ["status": "measured", "structuralChecks": "passed", "articles": corpus.articles.count,
             "articleCharacters": corpus.articles.reduce(0) { $0 + $1.hanCharacters }, "wholeArticleWindows": windows,
             "groups": groups, "reportedExamples": examples,
-            "scope": "macOS real Swift InputEngine/Rime with production neural configuration and reference preceding context. Exact-sentence accuracy is not character accuracy. Excludes UIKit, physical phone frame rate and WeChat comparisons."]
+            "errorExamples": Array(rows.filter { $0["kind"] as! String == "sentence" && $0["variant"] as! String == "full" && $0["rank64"] as! Int != 1 }.prefix(12)),
+            "scope": "macOS real Swift InputEngine/Rime, calibrated native 25M configuration and reference preceding context. Exact-sentence accuracy is not character accuracy. The iOS-only CoreML path, UIKit, physical phone frame rate and WeChat comparisons are not exercised."]
         let report: [String: Any] = ["summary": summary, "rows": rows]
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: ".build/lifestyle-longform-results.json"))
         print("LONGFORM_ENGINE " + String(data: try JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]), encoding: .utf8)!)

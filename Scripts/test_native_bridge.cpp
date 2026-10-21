@@ -206,6 +206,13 @@ int main(int argc, char **argv) {
       simulated_start,nullptr,nullptr,[]{return simulated_time;}));
   assert(!completed_repairs.empty() && completed_repairs.front().text=="completed-repair" && completed_repairs.front().consumed==9);
   assert(simulated_queries==2 && simulated_time>simulated_start+std::chrono::milliseconds(35));
+  // The first synchronous query can itself finish just beyond the deadline.
+  // Its completed, validated result is still useful; no second query may start.
+  q.repair_cache={};simulated_queries=1;simulated_time={};completed_repairs.clear();
+  assert(repair_blind_spelling_clock(q,"niqhilema",completed_repairs,
+      simulated_start,nullptr,nullptr,[]{return simulated_time;}));
+  assert(completed_repairs.size()==1 && completed_repairs.front().text=="completed-repair");
+  assert(simulated_queries==2 && simulated_time>simulated_start+std::chrono::milliseconds(35));
   simulated_repair_clock=false;
   mock.set_input=reset_live;mock.get_input=read_live;mock.process_key=edit_live;
   ChannelCache incremental;

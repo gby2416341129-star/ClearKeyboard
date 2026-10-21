@@ -262,18 +262,23 @@ import UIKit
         e.sendActions(for: .touchUpInside); l.sendActions(for: .touchCancel)
         XCTAssertEqual(document.before, "lee")
     }
-    func testCandidateFontChangesReflowAndKeepContinuousTouchSurface() throws {
+    func testCandidateFontChangesReflowAndKeepContinuousTouchSurface() async throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 390, height: 44)
         let items = (0..<24).map { Candidate(text: "候选词\($0)", consumed: 2) }
         var widths: [CGFloat] = []
         for size in CandidateTextSize.allCases {
             ribbon.update(items, context: nil, arithmetic: false, accent: .systemTeal, textSize: size)
+            try await waitFor {
+                guard let first = self.descendants(ribbon).compactMap({ $0 as? CandidateButton }).first(where: { $0.tag == 0 }),
+                      let label = self.descendants(first).compactMap({ $0 as? UILabel }).first(where: { $0.text == items[0].text }) else { return false }
+                return label.font.pointSize == CGFloat(size.points)
+            }
             ribbon.layoutIfNeeded()
             widths.append(ribbon.contentSize.width)
             let first = try XCTUnwrap(descendants(ribbon).compactMap { $0 as? UIButton }.first { $0.tag == 0 })
             first.layoutIfNeeded()
-            let label = try XCTUnwrap(descendants(first).compactMap { $0 as? UILabel }.first)
+            let label = try XCTUnwrap(descendants(first).compactMap { $0 as? UILabel }.first { $0.text == items[0].text })
             XCTAssertEqual(label.font.pointSize, CGFloat(size.points))
             XCTAssertTrue(ribbon.hitTest(CGPoint(x: first.frame.maxX - 2, y: 22), with: nil) === ribbon)
         }
@@ -587,12 +592,13 @@ import UIKit
         XCTAssertEqual(ribbon.contentOffset.x, 0, accuracy: 0.1)
         XCTAssertLessThanOrEqual(ribbon.contentSize.height, ribbon.bounds.height)
     }
-    func testCandidateStripReceivesTouchesAcrossWordsGapsAndUnusedSpace() throws {
+    func testCandidateStripReceivesTouchesAcrossWordsGapsAndUnusedSpace() async throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
         let context = KeyboardModel.CandidateContext(raw: "shi", before: "shi", after: "", document: "field", language: .chinese)
         let candidates = (0..<24).map { Candidate(text: "候选\($0)", consumed: 3) }
         ribbon.update(candidates, context: context, arithmetic: false, accent: .systemTeal)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:24" }
         ribbon.layoutIfNeeded()
         for width: CGFloat in [320, 240] {
             ribbon.frame.size.width = width; ribbon.layoutIfNeeded()
@@ -609,6 +615,7 @@ import UIKit
         }
         let next = KeyboardModel.CandidateContext(raw: "shij", before: "shij", after: "", document: "field", language: .chinese)
         ribbon.update([Candidate(text: "时", consumed: 4)], context: next, arithmetic: false, accent: .systemTeal)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:1" }
         ribbon.layoutIfNeeded()
         XCTAssertTrue(ribbon.hitTest(CGPoint(x: 1, y: 22), with: nil) === ribbon)
         XCTAssertTrue(ribbon.hitTest(CGPoint(x: 230, y: 22), with: nil) === ribbon,

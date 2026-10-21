@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build
+python3 Scripts/generate_project.py
 df -h .
 python3 Scripts/boot_test_simulator.py
 TEST_DEVICE="$(cat .build/composition-device-id)"
