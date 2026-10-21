@@ -20,7 +20,7 @@ inline std::string tail(const char *text) {
     if(i+more>size)return {};
     for(int j=0;j<more;++j){const auto b=static_cast<unsigned char>(text[i++]);if((b&0xc0)!=0x80)return {};value=(value<<6)|(b&63);}
     if((more==1 && value<0x80) || (more==2 && value<0x800) || (more==3 && value<0x10000) || value>0x10ffff || (value>=0xd800 && value<=0xdfff))return {};
-    const bool chinese=(value>=0x3400 && value<=0x9fff) || (value>=0x20000 && value<=0x3134f);
+    const bool chinese=(value>=0x3400 && value<=0x9fff) || (value>=0xf900 && value<=0xfaff) || (value>=0x20000 && value<=0x3347f);
     const bool punctuation=(value>=0x3001 && value<=0x303f) || (value>=0xff01 && value<=0xff65);
     if(chinese || punctuation)starts.push_back(start);else starts.clear();
   }

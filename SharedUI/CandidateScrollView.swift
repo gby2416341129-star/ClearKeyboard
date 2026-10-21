@@ -375,7 +375,7 @@ import os
     }
 }
 
-@MainActor private final class CandidateButton: UIButton {
+@MainActor final class CandidateButton: UIButton {
     private static let measuredWidths: NSCache<NSString, NSNumber> = {
         let cache = NSCache<NSString, NSNumber>(); cache.countLimit = 512; return cache
     }()
@@ -408,34 +408,28 @@ import os
     }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false) {
         let oldText = label.text
-        let replacingVisibleText = !isHidden && oldText != nil
-        finishTransition()
         if label.font != font { label.font = font }
         if label.text != candidate.text { label.text = candidate.text }
         label.textColor = first ? accent : .label
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
-        guard animate, oldText != candidate.text, !UIAccessibility.isReduceMotionEnabled else { return }
+        guard oldText != candidate.text else { return }
+        guard animate, !UIAccessibility.isReduceMotionEnabled else { finishTransition(); return }
+        // A second result can replace text during the same visual pulse. Let
+        // that pulse finish on its original clock instead of snapping to full
+        // opacity and restarting an ease-out for every quick/decoded result.
+        guard label.layer.animation(forKey: "candidateText") == nil else { return }
         let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
         let rate = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-        // The new text and hit geometry are already committed. One replaceable
-        // layer animation softens the glyph change; it never queues a result,
-        // springs a cell, delays selection, or animates native scrolling.
-        if replacingVisibleText, (oldText?.utf16.count ?? 0) <= 32, candidate.text.utf16.count <= 32 {
-            let fade = CATransition(); fade.type = .fade; fade.duration = 0.085
-            // Keep the timing request on the animation after the one-shot
-            // submission link goes idle. The system still chooses the rate.
-            fade.preferredFrameRateRange = rate
-            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            label.layer.add(fade, forKey: "candidateText")
-        } else {
-            // Avoid snapshotting a very long offscreen label just to fade it.
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.preferredFrameRateRange = rate
-            fade.fromValue = 0.7; fade.toValue = 1; fade.duration = 0.065
-            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            label.layer.add(fade, forKey: "candidateText")
-        }
+        // Text, geometry and selection update immediately. A small linear ink
+        // pulse needs no old-label snapshot and has the same timing for every
+        // word length. Native scrolling ends it at contact-down.
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.preferredFrameRateRange = rate
+        fade.fromValue = 0.88; fade.toValue = 1; fade.duration = 0.06
+        fade.beginTime = label.layer.convertTime(CACurrentMediaTime(), from: nil)
+        fade.timingFunction = CAMediaTimingFunction(name: .linear)
+        label.layer.add(fade, forKey: "candidateText")
     }
     func finishTransition() { label.layer.removeAnimation(forKey: "candidateText") }
     override func accessibilityActivate() -> Bool {

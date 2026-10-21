@@ -13,6 +13,22 @@ CACHE = ROOT / '.rime-cache'
 REV = 'ed55bd5c7f94dd06d333db0c51a7dbfe50cc9bd2'
 PACK = '1.17.0-pack.10.0.0'
 INITIAL_LIMIT = 32
+
+def han_character(character):
+    # Unicode 17 Han blocks, including compatibility ideographs and ideographic
+    # zero. The old BMP-only filter silently dropped valid source vocabulary.
+    # https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-18/
+    value = ord(character)
+    if 0x4e00 <= value <= 0x9fff or 0x3400 <= value <= 0x4dbf or value == 0x3007:
+        return True
+    if value <= 0xffff: return 0xf900 <= value <= 0xfaff
+    return 0x30000 <= value <= 0x3347f or any(start <= value <= end for start, end in (
+        (0x20000, 0x2a6df), (0x2a700, 0x2b73f), (0x2b740, 0x2b81f),
+        (0x2b820, 0x2ceaf), (0x2ceb0, 0x2ebef), (0x2ebf0, 0x2ee5f),
+        (0x2f800, 0x2fa1f)))
+
+def han_text(text):
+    return bool(text) and all(han_character(c) for c in text)
 ASSETS = {
     'dynamic.zip': (f'https://github.com/ghostflyby/librime-xcframework/releases/download/{PACK}/librime-dynamic.xcframework.zip', '5beaca3b6263e8ddc4a053eaebe4a0de2e33c2fc36056dd7fa0a8b87edb88533'),
     'wanxiang-lts-zh-hans.gram': ('https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram', '1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488'),
@@ -84,7 +100,7 @@ def mixed_spellings(reading):
     # At most 2**8 forms; Rime still handles digraph initials and other input.
     return {''.join(parts) for parts in product(*[(s, s[0]) for s in syllables])}
 
-def associations(words, english, output, conversational=()):
+def associations(words, english, output, conversational=(), full_readings=()):
     # Both continuations and short initialisms are immutable CLX lookups,
     # independent of the serial Rime session and its language-model work.
     initials = short_initial_words(words, conversational)
@@ -120,6 +136,16 @@ def associations(words, english, output, conversational=()):
             bucket = conversation_buckets[code]
             if text not in bucket or rank > bucket[text]:
                 bucket[text] = rank
+    # Character typing aliases are exact full-spelling lookups only. They use
+    # the same small immediate row as the decoder, without runtime rewriting,
+    # treating arbitrary initial codes as whole words, or adding sentence rules.
+    for text, reading, frequency in full_readings:
+        key = (text, reading)
+        if key not in initial_records:
+            initial_records[key] = len(words); words.append((text, reading, frequency))
+        i = initial_records[key]; code = ''.join(reading.split())
+        rank = (frequency, text, reading, i); bucket = conversation_buckets[code]
+        if text not in bucket or rank > bucket[text]: bucket[text] = rank
     for code, bucket in conversation_buckets.items():
         for position, (_, text, reading, i) in enumerate(sorted(bucket.values(), reverse=True)[:INITIAL_LIMIT]):
             buckets['c:'+code].append((INITIAL_LIMIT-position, -i, i))
@@ -162,6 +188,39 @@ def phonetic_index(words, output):
     output.write_text(content, encoding='utf-8')
     return len(characters)
 
+def reading_aliases(words, path):
+    """Expand character typing readings in existing words, preserving originals."""
+    aliases = defaultdict(set)
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if not line or line.startswith('#'): continue
+        fields = line.split('\t')
+        if len(fields) != 3: raise ValueError('Invalid character reading alias')
+        character, source, alias = fields
+        if len(character) != 1 or not han_character(character) or any(
+                not value or not value.isascii() or not value.isalpha() or not value.islower()
+                for value in (source, alias)) or source == alias or (character, source) not in words:
+            raise ValueError('Invalid or unverified character reading alias: ' + line)
+        aliases[(character, source)].add(alias)
+    characters = {c for c, _ in aliases}
+    expanded = dict(words)
+    added = {}
+    for (text, reading), frequency in words.items():
+        if not any(c in text for c in characters): continue
+        syllables = reading.split()
+        if len(syllables) != len(text): raise ValueError('Misaligned alias source reading')
+        choices = [tuple(sorted({syllable} | aliases.get((character, syllable), set())))
+                   for character, syllable in zip(text, syllables)]
+        combinations = 1
+        for values in choices: combinations *= len(values)
+        if combinations > 64: raise ValueError('Character aliases exceed the per-word bound')
+        for parts in product(*choices):
+            key = (text, ' '.join(parts))
+            if key in words: continue
+            expanded[key] = max(expanded.get(key, 0), frequency)
+            added[key] = expanded[key]
+    return expanded, [(t, p, f) for (t, p), f in sorted(added.items())]
+
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--download-only',action='store_true');args=parser.parse_args()
     CACHE.mkdir(exist_ok=True)
@@ -180,9 +239,10 @@ def main():
             # Preserve umlaut-u as v before removing tone marks.
             reading=reading.translate(str.maketrans('üǖǘǚǜ','vvvvv'))
             reading=''.join(c for c in unicodedata.normalize('NFD',reading) if not unicodedata.combining(c)).lower()
-            if not text or not all('\u3400'<=c<='\u9fff' for c in text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading):continue
+            if not han_text(text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading):continue
             if len(text)!=len(reading.split()):continue
             key=(text,reading);words[key]=max(words.get(key,0),int(fields[2]))
+    words, aliased_words = reading_aliases(words, ROOT/'Data/Rime/reading-aliases.tsv')
     conversation=ROOT/'Data/Rime/conversation.tsv'
     conversational=[]
     for line in conversation.read_text(encoding='utf-8').splitlines():
@@ -190,7 +250,7 @@ def main():
         fields=line.split('\t')
         if len(fields)!=3 or not fields[2].isdigit():raise RuntimeError('Invalid conversational vocabulary row')
         text,reading,frequency=fields
-        if len(text)!=len(reading.split()) or not all('\u3400'<=c<='\u9fff' for c in text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading):
+        if len(text)!=len(reading.split()) or not han_text(text) or not all(c in 'abcdefghijklmnopqrstuvwxyz ' for c in reading):
             raise RuntimeError('Invalid conversational reading: '+text)
         conversational.append((text,reading,int(frequency)))
     vocatives_path = ROOT/'Data/Rime/vocatives.tsv'
@@ -206,7 +266,8 @@ def main():
         ''.join(f'{t}\t{p}\t{f}\n' for t,p,f in conversational).encode()).hexdigest()[:12]
     rows=[(t,p,f) for (t,p),f in sorted(words.items())]
     if len(rows)<500_000:raise RuntimeError(f'Incomplete Wanxiang dictionary: {len(rows)}')
-    (source/'clear_pinyin.dict.yaml').write_text('# Derived from Wanxiang; CC BY 4.0, AMZ and contributors.\n---\nname: clear_pinyin\nversion: "'+REV+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in rows),encoding='utf-8')
+    reading_version = REV + '-han17-readings-' + hashlib.sha256((ROOT/'Data/Rime/reading-aliases.tsv').read_bytes()).hexdigest()[:12]
+    (source/'clear_pinyin.dict.yaml').write_text('# Derived from Wanxiang; CC BY 4.0, AMZ and contributors.\n---\nname: clear_pinyin\nversion: "'+reading_version+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in rows),encoding='utf-8')
     # Keep conversational phrase frequencies out of the grammar decoder. They
     # participate only in literal full-pinyin/initial matching.
     (source/'clear_conversation.dict.yaml').write_text('# ClearKeyboard first-party conversational vocabulary.\n---\nname: clear_conversation\nversion: "'+conversation_version+'"\nsort: by_weight\nuse_preset_vocabulary: false\n...\n'+''.join(f'{t}\t{p}\t{f}\n' for t,p,f in sorted(conversational)),encoding='utf-8')
@@ -231,7 +292,7 @@ def main():
         f=line.split('\t')
         if len(f)>=3 and f[2].isdigit() and f[1].isascii() and f[1].isalpha() and len(f[1])>=3:
             key=f[1].lower();english[key]=max(english.get(key,0),int(f[2]))
-    count,contexts=associations(rows,list(sorted(english.items())),ROOT/'Core/Resources/associations.clx',conversational)
+    count,contexts=associations(rows,list(sorted(english.items())),ROOT/'Core/Resources/associations.clx',conversational,aliased_words)
     (CACHE/'sources.json').write_text(json.dumps({'revision':REV,'hashes':hashes,'words':len(rows),'associationWords':count,'associationContexts':contexts},indent=2)+'\n')
     print(f'Verified {len(rows)} Wanxiang readings; {count} association words / {contexts} contexts',flush=True)
     if args.download_only:return

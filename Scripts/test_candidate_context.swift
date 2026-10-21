@@ -5,6 +5,7 @@ import Foundation
         if !condition() { fatalError(message) }
     }
     static func main() {
+        require(CandidateLanguageContext.tail("前文𰻞𫔭〇") == "前文𰻞𫔭〇", "Supplementary Han context was truncated")
         require(CandidateLanguageContext.preceding(before: "我正在考shi", markedDraft: "shi") == "我正在考", "The marked draft entered language context")
         require(CandidateLanguageContext.preceding(before: "我正在考", markedDraft: "") == "我正在考", "A committed Chinese suffix was dropped")
         require(CandidateLanguageContext.preceding(before: "另一个输入框", markedDraft: "shi").isEmpty, "An unrelated editor snapshot became context")

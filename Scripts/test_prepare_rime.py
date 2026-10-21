@@ -4,10 +4,43 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from prepare_rime import INITIAL_LIMIT, associations, short_initial_words
+from prepare_rime import INITIAL_LIMIT, associations, han_character, han_text, reading_aliases, short_initial_words
 
 
 class ShortInitialIndexTests(unittest.TestCase):
+    def test_han_import_includes_zero_and_supplementary_characters(self):
+        for text in ['〇', '𠮷', '𬭁', '𰻞', '𫔭', '𭎂', '你好', '鸡𭎂菌', '\uf900', '\U000323b0']:
+            self.assertTrue(han_text(text), text)
+        for text in ['', 'nihao', '你好!', '😀', '一\ufe00', '\u4dc0', '\U0002f000']:
+            self.assertFalse(han_text(text), text)
+        self.assertTrue(han_character('嗯'))
+
+    def test_character_aliases_expand_existing_words_and_keep_originals(self):
+        words = {('嗯', 'n'): 731821, ('嗯', 'ng'): 434765, ('嗯嗯', 'ng ng'): 1400,
+                 ('嗯好的', 'ng hao de'): 540, ('你说嗯', 'ni shuo n'): 120,
+                 ('恩', 'en'): 31821, ('你好', 'ni hao'): 50000}
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'aliases.tsv'
+            path.write_text('嗯\tn\ten\n嗯\tng\ten\n', encoding='utf8')
+            expanded, added = reading_aliases(words, path)
+        for key, frequency in words.items(): self.assertEqual(expanded[key], frequency)
+        self.assertEqual(expanded['嗯', 'en'], 731821)
+        self.assertEqual(expanded['嗯嗯', 'en en'], 1400)
+        self.assertEqual(expanded['嗯好的', 'en hao de'], 540)
+        self.assertEqual(expanded['你说嗯', 'ni shuo en'], 120)
+        self.assertNotIn(('你好', 'en hao'), expanded)
+        self.assertEqual(len(added), len({(t, p) for t, p, _ in added}))
+        self.assertEqual(len(words), 7, 'Building aliases must not mutate the verified source')
+
+    def test_aliases_reject_unverified_readings_and_unbounded_expansion(self):
+        for content, words in [('字\tzi\ten\n', {('嗯', 'ng'): 1}),
+                               ('嗯\tng\tng\n', {('嗯', 'ng'): 1}),
+                               ('嗯\tng\ten en\n', {('嗯', 'ng'): 1}),
+                               ('嗯\tng\ten\n', {('嗯', 'ng'): 1, ('嗯'*7, ' '.join(['ng']*7)): 1})]:
+            with tempfile.TemporaryDirectory() as folder:
+                path = Path(folder) / 'aliases.tsv'; path.write_text(content, encoding='utf8')
+                with self.assertRaises(ValueError): reading_aliases(words, path)
+
     def test_top_words_are_bounded_and_conversation_duplicates_replace(self):
         words = [(f"词{i}", "da jia", i) for i in range(40)]
         values = short_initial_words(words, [("词39", "da jia", 1), ("会话", "da jia", 2)])["dj"]
@@ -29,7 +62,7 @@ class ShortInitialIndexTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "associations.clx"
             associations([("的", "de", 100), ("道教典籍", "dao jiao dian ji", 50)],
-                         [("iphone", 1000)], path)
+                         [("iphone", 1000)], path, full_readings=[('嗯', 'en', 731821), ('嗯嗯', 'en en', 1400)])
             data = path.read_bytes()
         self.assertEqual(data[:8], b"CLRX0001")
         count, indexes, index_offset, results, strings, size = struct.unpack_from("<6I", data, 8)
@@ -51,6 +84,9 @@ class ShortInitialIndexTests(unittest.TestCase):
         self.assertEqual(values["i:djdj"], [("道教典籍", "dao jiao dian ji")])
         self.assertEqual(values["t:道教"], [("道教典籍", "")])
         self.assertEqual(values["e:iphone"], [("iphone", "")])
+        self.assertEqual(values["c:en"], [('嗯', 'en')])
+        self.assertEqual(values["c:enen"], [('嗯嗯', 'en en')])
+        self.assertNotIn('c:ee', values, 'A full-reading alias must not invent an initial abbreviation')
 
 
 if __name__ == "__main__":

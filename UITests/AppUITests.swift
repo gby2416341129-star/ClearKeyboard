@@ -8,6 +8,23 @@ import XCTest
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<7 { if element.exists && element.isHittable { return }; app.swipeUp() }
     }
+    func testEveryTabCanScrollItsLastControlAboveTheBottomBar() throws {
+        continueAfterFailure = false; clear.launch()
+        for (tab, identifier) in [("home", "home.footer"), ("custom", "custom.toolbarEditor"), ("input", "input.resetLearning")] {
+            clear.buttons["tab." + tab].tap()
+            let last = clear.descendants(matching: .any).matching(identifier: identifier).firstMatch
+            let scroll = clear.scrollViews.firstMatch
+            for _ in 0..<10 {
+                let barTop = clear.buttons["tab.home"].frame.minY
+                if last.exists && last.isHittable && last.frame.maxY <= barTop - 6 { break }
+                scroll.swipeUp()
+            }
+            XCTAssertTrue(last.exists && last.isHittable, "Last content must be reachable in " + tab)
+            XCTAssertLessThanOrEqual(last.frame.maxY, clear.buttons["tab.home"].frame.minY - 6,
+                                     "Last content is covered by the bottom bar in " + tab)
+            print("APP_BOTTOM_REACHABLE tab=\(tab) lastMaxY=\(last.frame.maxY) barMinY=\(clear.buttons["tab.home"].frame.minY)")
+        }
+    }
     func testCandidateRibbonFlicksAndTapCommit() throws {
         continueAfterFailure = false; clear.launch()
         let practice = clear.buttons["home.practice"]; reveal(practice, in: clear); practice.tap()

@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 /// Event-driven capture: there is no timer, background task, or content polling.
 @MainActor final class ClipboardCapture {
+    enum AccessCheck { case empty, contentRead, unavailable }
     private var observer: NSObjectProtocol?
     private var active = false
     private var settings = KeyboardSettings()
@@ -59,6 +60,12 @@ import UniformTypeIdentifiers
         let saved = saveCurrentContent()
         observation.didAttempt(changeCount: changeCount())
         if saved { onCapture?() }; return saved
+    }
+    func checkAccess() -> AccessCheck {
+        // This checks one explicit read, not the system's persistent Ask/Allow/
+        // Deny setting, for which UIKit exposes no authorization-status API.
+        guard hasContent() else { return .empty }
+        return captureManually() ? .contentRead : .unavailable
     }
     func retryAfterPermissionChange() { observation.retry(); captureIfChanged() }
     func acceptText(_ text: String) {

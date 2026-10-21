@@ -10,7 +10,7 @@ enum CandidateLanguageContext {
         var suffix: [Unicode.Scalar] = []
         for scalar in text.unicodeScalars.reversed() {
             let c = scalar.value
-            guard (0x3400...0x9fff).contains(c) || (0x20000...0x3134f).contains(c) ||
+            guard (0x3400...0x9fff).contains(c) || (0xf900...0xfaff).contains(c) || (0x20000...0x3347f).contains(c) ||
                     (0x3001...0x303f).contains(c) || (0xff01...0xff65).contains(c) else { break }
             suffix.append(scalar)
             if suffix.count == 16 { break }

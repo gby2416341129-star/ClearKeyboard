@@ -7,6 +7,16 @@ import Foundation
     static func main() throws {
         let engine = try InputEngine.bundled()
         var rows: [[String: Any]] = []
+        for (raw, expected) in [("en", "嗯"), ("enen", "嗯嗯"), ("enenen", "嗯嗯嗯"),
+                                ("enhaode", "嗯好的"), ("enenhao", "嗯嗯好")] {
+            let quick = engine.immediateCandidates(raw)
+            let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 64)
+            require(quick.first?.text == expected && head.first?.text == expected,
+                    "A character typing reading is missing or changes after decoding: \(raw): \(quick) / \(head)")
+            require(head.first?.consumed == raw.count, "An alias consumed the wrong spelling range")
+            require(Array(page.prefix(head.count)) == head, "Paging changed an alias candidate")
+            rows.append(["input": raw, "first": expected, "kind": "character-typing-reading"])
+        }
         for (unit, expected) in [("jd", "记得"), ("hd", "好的"), ("nh", "你好"), ("xx", "谢谢"), ("zj", "再见")] {
             for count in [3, 8, 64, 128] {
                 let raw = String(repeating: unit, count: count), text = String(repeating: expected, count: count)

@@ -57,7 +57,8 @@ struct RootView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var tab: AppTab = .home
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+          NavigationStack {
             Group {
                 switch tab {
                 case .home: HomeView(selectedTab: $tab)
@@ -66,7 +67,9 @@ struct RootView: View {
                 }
             }
         }.id(tab)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+          // Reserve actual layout height for the bar. A safe-area inset on
+          // the outside of NavigationStack can leave its inner scroll view
+          // using the full height, hiding the last controls behind the bar.
             HStack(spacing: 6) {
                 ForEach(AppTab.allCases, id: \.self) { item in
                     Button { tab = item } label: {
@@ -83,7 +86,7 @@ struct RootView: View {
                 .overlay(RoundedRectangle(cornerRadius: 25).strokeBorder(AppPalette.line, lineWidth: 0.5))
                 .padding(.horizontal, 22).padding(.top, 8).padding(.bottom, 4)
                 .background(AppPalette.canvas)
-        }
+        }.background(AppPalette.canvas.ignoresSafeArea())
         .onAppear { preferences.activate() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in preferences.deactivate() }
@@ -132,7 +135,7 @@ struct HomeView: View {
                 }.buttonStyle(.plain).padding(.horizontal, 4).accessibilityIdentifier("home.practice")
                 HStack(spacing: 6) {
                     Image(systemName: "lock.shield").font(.system(size: 10))
-                    Text("离线输入，选词记忆留在本机。")
+                    Text("离线输入，选词记忆留在本机。").accessibilityIdentifier("home.footer")
                 }.font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 2)
             }.padding(.horizontal, 22).padding(.bottom, 28)
         }.background(AppPalette.canvas.ignoresSafeArea()).toolbar(.hidden, for: .navigationBar)

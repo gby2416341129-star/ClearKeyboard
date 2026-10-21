@@ -23,7 +23,7 @@ jobs:
     runs-on: macos-15
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -63,7 +63,10 @@ jobs:
           path: .rime-cache/wanxiang-lts-zh-hans.gram
           key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
       - name: Prepare verified offline Chinese engine and language model
-        run: python3 Scripts/prepare_rime.py
+        run: |
+          python3 Scripts/test_prepare_rime.py
+          python3 Scripts/test_conversation_index.py
+          python3 Scripts/prepare_rime.py
       - name: Compile the pinned Core ML model for the Apple accelerator
         run: |
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
@@ -104,6 +107,7 @@ jobs:
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_bridge.cpp -o .build/test-bridge
           .build/test-bridge Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
           python3 Scripts/test_fast_engine.py
+          python3 Scripts/test_character_coverage.py
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_batch.cpp -o .build/test-native-batch
           .build/test-native-batch Core/Resources/Rime/clear-sentence.clm .build/native-means.tsv
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_integer.cpp -o .build/test-native-integer

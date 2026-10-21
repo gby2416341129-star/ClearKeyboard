@@ -56,6 +56,47 @@ import UIKit
         XCTAssertTrue(zip(widths, widths.dropFirst()).allSatisfy { $0 < $1 })
     }
     private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap { descendants($0) } }
+    func testExplicitClipboardCheckDistinguishesEmptyUnavailableAndOneSuccessfulRead() throws {
+        let suite = "clear.clipboard.check." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: folder) }
+        var hasContent = false, canRead = false, reads = 0
+        let capture = ClipboardCapture(defaults: defaults, makeStore: { ClipboardStore(url: folder.appendingPathComponent("clips.json")) },
+            changeCount: { 1 }, hasStrings: { true }, hasContent: { hasContent },
+            readText: { reads += 1; return canRead ? "复制的内容" : nil })
+        if case .empty = capture.checkAccess() {} else { XCTFail("An empty clipboard must not claim denied permission") }
+        XCTAssertEqual(reads, 0)
+        hasContent = true
+        if case .unavailable = capture.checkAccess() {} else { XCTFail("An unavailable read must not claim persistent Allow") }
+        XCTAssertEqual(reads, 1)
+        canRead = true
+        if case .contentRead = capture.checkAccess() {} else { XCTFail("An explicit retry must read the same copied item") }
+        XCTAssertEqual(reads, 2)
+        print("CLIPBOARD_EXPLICIT_CHECK emptyNoRead=true unavailableNotMisreported=true explicitRetry=true")
+    }
+    func testCandidateInkDoesNotRestartWhenResultsArriveUnevenly() throws {
+        if UIAccessibility.isReduceMotionEnabled { throw XCTSkip("System Reduce Motion disables candidate fades") }
+        let button = CandidateButton()
+        button.frame = CGRect(x: 0, y: 0, width: 180, height: 44)
+        let font = UIFont.systemFont(ofSize: 19)
+        button.configure(Candidate(text: "在", consumed: 3), first: true, accent: .systemTeal, font: font, animate: true)
+        let label = try XCTUnwrap(descendants(button).compactMap { $0 as? UILabel }.first)
+        let initial = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
+        XCTAssertEqual(initial.keyPath, "opacity"); XCTAssertEqual(initial.duration, 0.06, accuracy: 0.0001)
+        let frame = button.frame
+        for text in ["在干", "在干啥", "在干啥", String(repeating: "候选文字", count: 20)] {
+            button.configure(Candidate(text: text, consumed: 8), first: true, accent: .systemTeal, font: font, animate: true)
+            let current = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
+            XCTAssertEqual(current.beginTime, initial.beginTime, "A newer result must not restart the visible timing curve")
+            XCTAssertEqual(current.duration, initial.duration)
+            XCTAssertEqual(label.text, text); XCTAssertEqual(button.frame, frame)
+        }
+        button.finishTransition()
+        XCTAssertNil(label.layer.animation(forKey: "candidateText"))
+        XCTAssertEqual(label.layer.opacity, 1)
+        print("CANDIDATE_INK_CLOCK replacements=4 restarts=0 textImmediate=true geometryImmediate=true")
+    }
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<200 { if condition() { return }; try await Task.sleep(nanoseconds: 10_000_000) }
         XCTFail("Current candidates did not arrive")

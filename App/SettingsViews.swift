@@ -99,7 +99,7 @@ struct CustomizationView: View {
                     }
                 }.padding(.vertical, 6)
                 Divider()
-                Button { showToolbarEditor = true } label: { AppRow(title: "排列快捷工具", detail: "把常用的放在顺手的位置", symbol: "rectangle.3.group") }.buttonStyle(.plain)
+                Button { showToolbarEditor = true } label: { AppRow(title: "排列快捷工具", detail: "把常用的放在顺手的位置", symbol: "rectangle.3.group") }.buttonStyle(.plain).accessibilityIdentifier("custom.toolbarEditor")
             }
         }.accessibilityIdentifier("custom.page")
             .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView() }
@@ -185,7 +185,7 @@ struct InputSettingsView: View {
             }.buttonStyle(.plain)
             Button { confirmClear = true } label: {
                 HStack { Text("重置选词记忆"); Spacer(); Image(systemName: "arrow.counterclockwise") }.font(.system(size: 13)).foregroundStyle(.secondary)
-            }.padding(.horizontal, 4)
+            }.padding(.horizontal, 4).accessibilityIdentifier("input.resetLearning")
         }.accessibilityIdentifier("input.page")
             .confirmationDialog("清除已记住的选词？", isPresented: $confirmClear, titleVisibility: .visible) {
                 Button("清除选词记忆", role: .destructive) { preferences.clearLearning() }
@@ -212,6 +212,7 @@ private struct FuzzySettingsView: View {
 private struct ClipboardSettingsView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var confirmClear = false
+    @State private var accessMessage = ""
     var body: some View {
         List {
             Section {
@@ -222,9 +223,17 @@ private struct ClipboardSettingsView: View {
                 }
             } footer: { Text("App 或澈键盘打开时自动收录。常用语不会随保留时间过期。") }
             Section("粘贴权限") {
+                Button("检查粘贴访问") {
+                    switch preferences.clipboardCapture.checkAccess() {
+                    case .empty: accessMessage = "当前没有可检查的复制内容。请先在其他 App 复制文字、链接或图片，再回来检查。"
+                    case .contentRead: accessMessage = "本次读取成功。若希望自动收录时不再询问，请在系统设置中选择「允许」。本次成功不代表已开启长期允许。"
+                    case .unavailable: accessMessage = "本次未读取到可保存内容。若系统询问，请按你的意愿选择；也可在系统设置中检查粘贴权限。"
+                    }
+                }.accessibilityIdentifier("clipboard.checkAccess")
+                if !accessMessage.isEmpty { Text(accessMessage).font(.caption).foregroundStyle(.secondary) }
                 Button("打开系统设置") { preferences.openClipboardSettings() }
                 ClipboardSaveControl(capture: preferences.clipboardCapture).frame(height: 38)
-                Text("系统默认询问。你可在「设置 → App → 澈 → 从其他 App 粘贴」选择询问、拒绝或允许。若没有这一项，请先在其他 App 复制内容，再打开澈并回应系统提示。键盘自动收录还需开启完全访问。")
+                Text("「从其他 App 粘贴」由 iOS 管理，首次跨 App 读取前可能还未显示。先复制内容并在此检查、回应系统提示，再前往「设置 → App → 澈」选择询问、拒绝或允许。键盘自动收录还需开启完全访问。下方系统粘贴按钮可手动保存，不等于授权自动收录。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -254,7 +263,7 @@ private struct InputAboutView: View {
             Section("使用手势") {
                 Label("长按空格，滑动定位光标", systemImage: "cursorarrow.motionlines")
                 Label("删除键上滑清空，下滑撤回", systemImage: "delete.left")
-                Text("回车跟随当前 App 的发送、搜索或换行设置。有拼音时先确认候选。")
+                Text("有拼音时，回车原样输入拼音，空格选择候选；没有拼音时，回车跟随当前 App 的发送、搜索或换行设置。")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
         }.navigationTitle("隐私与关于").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
