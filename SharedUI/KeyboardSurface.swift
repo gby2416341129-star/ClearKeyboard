@@ -108,13 +108,15 @@ import ImageIO
 
     private func compositionChanged() {
         let raw = model.composition.raw
-        guard requestedSpelling != raw else { return }
+        guard requestedSpelling != raw || requestedLiteralRevision != model.literalInputRevision else { return }
         requestedSpelling = raw
+        requestedLiteralRevision = model.literalInputRevision
         // Letters use the lightweight input callback as well. Leaving that
         // path out kept the old row coasting and deferred new words until its
         // momentum ended, even though the new candidate query had completed.
         candidateScroll.inputChanged()
     }
+    private var requestedLiteralRevision = 0
 
     override func layoutSubviews() {
         super.layoutSubviews()

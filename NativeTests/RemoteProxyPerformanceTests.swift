@@ -66,6 +66,8 @@ import UIKit
         let model = KeyboardModel(document: controller, settings: settings, defaults: defaults)
         defer { model.suspend(); defaults.removePersistentDomain(forName: suite) }
         model.handle(.page(.numbers))
+        let surface = KeyboardSurface(model: model)
+        surface.frame = CGRect(x: 0, y: 0, width: 390, height: 276); surface.layoutIfNeeded()
         for letter in "19981108" { model.handle(.text(String(letter))) }
         model.handle(.enter)
         for letter in "1998" { model.handle(.text(String(letter))) }
@@ -82,7 +84,9 @@ import UIKit
         XCTAssertEqual(suffix.consumed, 0); XCTAssertEqual(suffix.reading, "19981108")
         XCTAssertEqual(proxy.textView.text, anchor + "1998", "Suggestions must never insert without a choice")
         let context = model.candidateContext, insertions = proxy.insertedTexts.count
-        model.chooseDisplayed(suffix, context: context)
+        try await waitFor { self.descendants(surface).contains { $0 is CandidateButton && $0.accessibilityIdentifier == "candidate.1108" && !$0.isHidden } }
+        let suffixButton = try XCTUnwrap(descendants(surface).compactMap { $0 as? CandidateButton }.first { $0.accessibilityIdentifier == "candidate.1108" && !$0.isHidden })
+        XCTAssertTrue(suffixButton.accessibilityActivate(), "The visible number row must perform the same validated selection as touch")
         XCTAssertEqual(proxy.textView.text, anchor + "19981108")
         XCTAssertEqual(proxy.insertedTexts.count, insertions + 1); XCTAssertEqual(proxy.insertedTexts.last, "1108")
         model.chooseDisplayed(suffix, context: context)
@@ -115,7 +119,11 @@ import UIKit
         reloaded.handle(.delete)
         if let stale { reloaded.chooseDisplayed(stale, context: context) }
         XCTAssertTrue(document.before.hasSuffix("001"))
-        reloaded.settings.learnChoices = false; reloaded.refreshCandidates()
+        let disabledCandidate = reloaded.candidates.first, disabledContext = reloaded.candidateContext, beforeDisabled = document.before
+        reloaded.settings.learnChoices = false
+        if let disabledCandidate { reloaded.chooseDisplayed(disabledCandidate, context: disabledContext) }
+        XCTAssertEqual(document.before, beforeDisabled, "Disabling recall invalidates an old visible numeric suggestion even before the next draw")
+        reloaded.refreshCandidates()
         XCTAssertFalse(reloaded.candidates.contains { $0.text == "34567890" })
         reloaded.settings.learnChoices = true
         reloaded.handle(.enter)

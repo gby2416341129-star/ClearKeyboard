@@ -95,6 +95,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private(set) var composition = Composition()
     private(set) var candidates: [Candidate] = []
     private(set) var arithmetic: ArithmeticResult?
+    private(set) var literalInputRevision = 0
     private(set) var isMovingCursor = false
     private var deletionUndo: (DeletedInput, String, String, String, Composition)?
     var canUndoClearInput: Bool { deletionUndo != nil }
@@ -565,6 +566,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     numericRun.delete(before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
                 } else { numericRun.reset() }
                 document?.deleteBackward()
+                literalInputRevision += 1
             }
         case .space:
             if composition.isEmpty { insertText(" ") } else { commitComposition(flushRemainder: false) }
@@ -683,7 +685,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument, learningRaw: String? = nil) {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        if composition.isEmpty, let prefix = numericPrefix(), numbers.candidates(for: prefix).contains(candidate) {
+        if composition.isEmpty, candidate.consumed == 0, NumericLexicon.isDigits(candidate.reading) {
+            guard settings.learnChoices, let prefix = numericPrefix(), numbers.candidates(for: prefix).contains(candidate) else { return }
             insertText(candidate.text); refreshCandidates(); return
         }
         if settings.language == .chinese {
@@ -838,6 +841,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             numericRun.append(text, before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
         } else { finishNumericRun() }
         document.insert(text)
+        literalInputRevision += 1
     }
     private func finishNumericRun() {
         guard !numericRun.isEmpty else { return }
