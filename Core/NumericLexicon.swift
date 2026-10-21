@@ -11,7 +11,7 @@ public struct NumericLexicon: Codable {
         !value.isEmpty && value.utf8.allSatisfy { (48...57).contains($0) }
     }
     public mutating func record(_ value: String, now: Date = Date()) {
-        guard (6...32).contains(value.utf8.count), Self.isDigits(value) else { return }
+        guard (4...32).contains(value.utf8.count), Self.isDigits(value) else { return }
         let uses = entries.first { $0.value == value }?.uses ?? 0
         entries.removeAll { $0.value == value }
         entries.insert(Entry(value: value, uses: min(10_000, uses + 1), selectedAt: now), at: 0)

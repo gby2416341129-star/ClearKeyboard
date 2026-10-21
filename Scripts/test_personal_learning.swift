@@ -85,6 +85,11 @@ import Foundation
         run.append("123456", before: "99", after: "", document: "f")
         require(run.complete(before: "99123456", after: "", document: "f") == nil, "Starting in an existing number learned a fragment")
         var numbers = NumericLexicon()
+        var limits = NumericLexicon()
+        for value in ["1234", String(repeating: "0", count: 32)] {
+            limits.record(value); limits.record(value)
+            require(limits.candidates(for: String(value.prefix(3))).contains { $0.reading == value && $0.text == String(value.dropFirst(3)) }, "A valid short or long fixed number was truncated")
+        }
         for value in ["12", "１２３４５６", String(repeating: "1", count: 33), "123a456"] {
             numbers.record(value); numbers.record(value)
         }
