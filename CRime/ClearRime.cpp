@@ -585,14 +585,15 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
       collect(query.fluent, input, limit, query.fluent_cache, cancelled, context);
       fluent = query.fluent_cache.items;
     } else {
-      // Preserve an existing complete one-edit conversion. Rescue is for a
-      // partial result or a rewrite that already changed more than one key.
+      // Preserve literal mixed/full input as well as an existing one-edit
+      // conversion. A valid abbreviation must not be reclassified as a typo.
       collect(id,input,1,query.correction_cache,cancelled,context);
       const auto &old=query.correction_cache.items;
-      const bool one_edit=!old.empty() && old.front().consumed==length &&
-          clear_blind::penalty(input,letters(old.front().reading))>=0 &&
-          phonetic_search.fully_spelled(letters(old.front().reading));
-      if(leading_row && correction && !one_edit && repair_blind_spelling(query,input,fluent,started,cancelled,context)) {
+      const bool compatible=!old.empty() && old.front().consumed==length &&
+          (clear_sentence::PhoneticSearch::matches(input,syllables(old.front().reading))>=0 ||
+           (clear_blind::penalty(input,letters(old.front().reading))>=0 &&
+            phonetic_search.fully_spelled(letters(old.front().reading))));
+      if(leading_row && correction && !compatible && repair_blind_spelling(query,input,fluent,started,cancelled,context)) {
         repaired=true;
       } else {
         collect(id, input, limit, query.correction_cache, cancelled, context);
