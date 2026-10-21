@@ -2,6 +2,7 @@ import XCTest
 import UIKit
 
 @MainActor final class CandidateAnimationRuntimeTests: XCTestCase {
+    private weak var previousKeyWindow: UIWindow?
     private func views(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(views) }
     private func ink(_ view: UIView) throws -> UILabel {
         try XCTUnwrap(views(view).compactMap { $0 as? UILabel }.first { $0.accessibilityIdentifier == "candidate.currentInk" })
@@ -18,7 +19,9 @@ import UIKit
     }
     private func row() -> (UIWindow, CandidateScrollView) {
         let window: UIWindow
-        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        if let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first {
+            previousKeyWindow = scene.windows.first { $0.isKeyWindow }
             window = UIWindow(windowScene: scene)
         } else { window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 120)) }
         window.overrideUserInterfaceStyle = .dark
@@ -26,11 +29,50 @@ import UIKit
         window.rootViewController = controller
         let ribbon = CandidateScrollView(); ribbon.frame = CGRect(x: 12, y: 10, width: 350, height: 44)
         controller.view.addSubview(ribbon)
-        window.isHidden = false; controller.view.layoutIfNeeded()
+        window.makeKeyAndVisible(); controller.view.layoutIfNeeded()
+        CATransaction.flush()
         return (window, ribbon)
+    }
+    private func close(_ window: UIWindow) {
+        window.isHidden = true
+        previousKeyWindow?.makeKey()
     }
     private func button(_ row: CandidateScrollView, at index: Int = 0) -> CandidateButton? {
         views(row).compactMap { $0 as? CandidateButton }.first { $0.tag == index && !$0.isHidden }
+    }
+    private func waitForSettledInk(in ribbon: CandidateScrollView, file: StaticString = #filePath, line: UInt = #line) async throws {
+        // A model label changes before its implicit transaction reaches the
+        // render server. Flush this test's transaction, then observe actual CA
+        // removal rather than equating a wall-clock sleep with rendered frames.
+        CATransaction.flush()
+        let started = CACurrentMediaTime(), deadline = started + 2
+        while CACurrentMediaTime() < deadline {
+            let controls = views(ribbon).compactMap { $0 as? CandidateButton }.filter { !$0.isHidden }
+            if !controls.isEmpty, controls.allSatisfy({ control in
+                guard let label = try? ink(control) else { return false }
+                return label.layer.animation(forKey: "candidateText") == nil &&
+                    label.layer.animation(forKey: "candidateTextPosition") == nil
+            }) {
+                print("CANDIDATE_ANIMATION_SETTLED observedRemoval=true wait_ms=\((CACurrentMediaTime() - started) * 1000)")
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        print("CANDIDATE_ANIMATION_CLOCK appState=\(UIApplication.shared.applicationState.rawValue) sceneState=\(ribbon.window?.windowScene?.activationState.rawValue ?? -1) keyWindow=\(ribbon.window?.isKeyWindow == true) hidden=\(ribbon.window?.isHidden ?? true)")
+        for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
+            let label = try ink(control), now = CACurrentMediaTime()
+            for key in ["candidateText", "candidateTextPosition"] {
+                if let animation = label.layer.animation(forKey: key) {
+                    print("CANDIDATE_ANIMATION_CLOCK key=\(key) now=\(now) localNow=\(label.layer.convertTime(now, from: nil)) begin=\(animation.beginTime) duration=\(animation.duration) removedOnCompletion=\(animation.isRemovedOnCompletion) presentationOpacity=\(label.layer.presentation()?.opacity ?? -1)")
+                }
+            }
+            var layer: CALayer? = label.layer
+            while let current = layer {
+                print("CANDIDATE_LAYER_CLOCK speed=\(current.speed) offset=\(current.timeOffset) begin=\(current.beginTime) hidden=\(current.isHidden)")
+                layer = current.superlayer
+            }
+        }
+        XCTFail("Committed candidate animations did not complete in the active window", file: file, line: line)
     }
     func testNewInkIsReadableImmediatelyWithoutOldWordOverprint() throws {
         let button = CandidateButton(frame: CGRect(x: 0, y: 0, width: 240, height: 44))
@@ -87,7 +129,7 @@ import UIKit
         XCTAssertEqual(label.layer.opacity, 1); XCTAssertTrue(CATransform3DIsIdentity(label.layer.transform))
     }
     func testIntermediateEmptyAndSupersededRowsCoalesceWithoutHidingTheCurrentInk() async throws {
-        let (window, ribbon) = row(); defer { window.isHidden = true }
+        let (window, ribbon) = row(); defer { close(window) }
         ribbon.update([Candidate(text: "你", consumed: 2)], context: context(), arithmetic: false, accent: .systemBlue)
         try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你" }
         let original = try XCTUnwrap(button(ribbon)); let currentInk = try ink(original)
@@ -110,7 +152,7 @@ import UIKit
         XCTAssertNil(button(ribbon), "A genuine empty result must still clear obsolete, unselectable words")
     }
     func testAppendingWhileBrowsingKeepsControlPositionsOffsetAndSelectableContext() async throws {
-        let (window, ribbon) = row(); defer { window.isHidden = true }
+        let (window, ribbon) = row(); defer { close(window) }
         let query = context("ni")
         let values = (0..<35).map { Candidate(text: "候选\($0)", consumed: 2) }
         ribbon.update(values, context: query, arithmetic: false, accent: .systemBlue)
@@ -136,7 +178,7 @@ import UIKit
         XCTAssertEqual(selected, values[target.1].text)
     }
     func testCandidateHandoffVisualSamplesAndSettledInk() async throws {
-        let (window, ribbon) = row(); defer { window.isHidden = true }
+        let (window, ribbon) = row(); defer { close(window) }
         var samples: [(String, UIImage)] = []
         func capture(_ title: String) {
             ribbon.layoutIfNeeded()
@@ -155,7 +197,7 @@ import UIKit
         ribbon.update([Candidate(text: "你今天吃饭了吗", consumed: 10), Candidate(text: "你今天", consumed: 6)], context: context("nijtchiflm"), arithmetic: false, accent: .systemBlue)
         try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你今天吃饭了吗" }
         capture("快速输入 / 最新结果立即可选")
-        try await Task.sleep(nanoseconds: 220_000_000)
+        try await waitForSettledInk(in: ribbon)
         capture("收稳 / 字形完整且位置固定")
         for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
             let label = try ink(control)

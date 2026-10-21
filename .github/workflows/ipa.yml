@@ -182,9 +182,12 @@ jobs:
           test "$CORE_TESTS_RESULT" = success
           test "$UI_TESTS_RESULT" = success
       - name: Export synthetic keyboard visual review images
+        id: visual-export
+        if: always() && steps.ui-tests.outcome != 'skipped'
         run: |
           xcrun xcresulttool export attachments --path .build/CompositionResults.xcresult --output-path .build/KeyboardVisualReview
       - name: Return keyboard visual review images
+        if: always() && steps.visual-export.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-keyboard-visual-review
