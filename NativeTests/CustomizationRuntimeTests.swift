@@ -51,6 +51,61 @@ import UIKit
         XCTAssertEqual(preferences.settings.toolbar, [.language, .clipboard, .emoji])
         XCTAssertEqual(ClearKeyboard.SettingsStore(defaults: defaults).load(), preferences.settings)
     }
+    func testAppAndKeyboardUseTheSameAccessibleSharedSettingsGroup() throws {
+        let group = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String)
+        let plugins = try XCTUnwrap(Bundle.main.builtInPlugInsURL)
+        let urls = try FileManager.default.contentsOfDirectory(at: plugins, includingPropertiesForKeys: nil)
+        let extensionURL = try XCTUnwrap(urls.first { $0.pathExtension == "appex" })
+        let keyboard = try XCTUnwrap(Bundle(url: extensionURL))
+        XCTAssertEqual(keyboard.object(forInfoDictionaryKey: "ClearAppGroup") as? String, group)
+        XCTAssertNotNil(FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group))
+        let independentReader = try XCTUnwrap(UserDefaults(suiteName: group))
+        let selected = ClearKeyboard.SharedStorage.defaults(allowShared: true)
+        let key = "clear.shared.integration." + UUID().uuidString
+        defer { selected.removeObject(forKey: key); independentReader.removeObject(forKey: key) }
+        selected.set("from-app", forKey: key)
+        XCTAssertEqual(independentReader.string(forKey: key), "from-app", "App writes must reach the suite used by its keyboard")
+        independentReader.set("from-keyboard", forKey: key)
+        XCTAssertEqual(selected.string(forKey: key), "from-keyboard", "Reloads must read the shared suite rather than process-local preferences")
+    }
+    func testLocalFallbackMigrationPreservesSharedValuesAndRunsOnlyOnce() throws {
+        let oldSuite = "clear.migration.old." + UUID().uuidString, sharedSuite = "clear.migration.shared." + UUID().uuidString
+        let source = try XCTUnwrap(UserDefaults(suiteName: oldSuite)), destination = try XCTUnwrap(UserDefaults(suiteName: sharedSuite))
+        defer { source.removePersistentDomain(forName: oldSuite); destination.removePersistentDomain(forName: sharedSuite) }
+        let learning = ["clear.learned.v1", "clear.choices.v2", "clear.numbers.v1", "clear.learned.epoch"]
+        source.set(Data([1, 2, 3]), forKey: "clear.settings.v1")
+        for key in learning { source.set("legacy-" + key, forKey: key) }
+        destination.set(Data([4, 5]), forKey: "clear.settings.v1")
+        destination.set("shared-numbers", forKey: "clear.numbers.v1")
+        ClearKeyboard.SharedStorage.migrateLegacyDefaults(from: source, to: destination, groupIdentifier: "first")
+        XCTAssertEqual(destination.data(forKey: "clear.settings.v1"), Data([4, 5]))
+        XCTAssertEqual(destination.string(forKey: "clear.numbers.v1"), "shared-numbers")
+        for key in learning where key != "clear.numbers.v1" { XCTAssertEqual(destination.string(forKey: key), "legacy-" + key) }
+        XCTAssertEqual(source.data(forKey: "clear.settings.v1"), Data([1, 2, 3]))
+        for key in learning + ["clear.settings.v1"] { destination.removeObject(forKey: key) }
+        ClearKeyboard.SharedStorage.migrateLegacyDefaults(from: source, to: destination, groupIdentifier: "first")
+        for key in learning + ["clear.settings.v1"] { XCTAssertNil(destination.object(forKey: key), "A reload may not resurrect cleared data") }
+        ClearKeyboard.SharedStorage.migrateLegacyDefaults(from: source, to: destination, groupIdentifier: "second")
+        XCTAssertEqual(destination.data(forKey: "clear.settings.v1"), Data([1, 2, 3]))
+        for key in learning { XCTAssertEqual(destination.string(forKey: key), "legacy-" + key) }
+    }
+    func testMigrationHonorsLearningResetEpochBeforeCopyingOldRecords() throws {
+        for epoch in [nil, "old", "shared"] as [String?] {
+            let oldSuite = "clear.epoch.old." + UUID().uuidString, sharedSuite = "clear.epoch.shared." + UUID().uuidString
+            let source = try XCTUnwrap(UserDefaults(suiteName: oldSuite)), destination = try XCTUnwrap(UserDefaults(suiteName: sharedSuite))
+            defer { source.removePersistentDomain(forName: oldSuite); destination.removePersistentDomain(forName: sharedSuite) }
+            source.set("theme", forKey: "clear.settings.v1")
+            if let epoch { source.set(epoch, forKey: "clear.learned.epoch") }
+            destination.set("shared", forKey: "clear.learned.epoch")
+            for key in ["clear.learned.v1", "clear.choices.v2", "clear.numbers.v1"] { source.set("old-record", forKey: key) }
+            ClearKeyboard.SharedStorage.migrateLegacyDefaults(from: source, to: destination, groupIdentifier: "group")
+            XCTAssertEqual(destination.string(forKey: "clear.settings.v1"), "theme")
+            XCTAssertEqual(destination.string(forKey: "clear.learned.epoch"), "shared")
+            for key in ["clear.learned.v1", "clear.choices.v2", "clear.numbers.v1"] {
+                XCTAssertEqual(destination.string(forKey: key), epoch == "shared" ? "old-record" : nil, "A shared reset must prevent restoring stale learning")
+            }
+        }
+    }
     func testLiveCustomizationFormSurvivesRepeatedUpdates() async throws {
         let suite = "clear.form.tests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -81,21 +136,24 @@ import UIKit
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene); window.overrideUserInterfaceStyle = .dark
         defer { window.isHidden = true }
-        func findPreview(_ view: UIView) -> KeyboardAppearancePreview? {
-            if let result = view as? KeyboardAppearancePreview { return result }
+        func findPreview(_ view: UIView) -> ClearKeyboard.KeyboardAppearancePreview? {
+            if let result = view as? ClearKeyboard.KeyboardAppearancePreview { return result }
             return view.subviews.lazy.compactMap(findPreview).first
         }
         func renderedPixels(_ preview: UIView) throws -> Data {
+            let rect = preview.convert(preview.bounds, to: window).integral.intersection(window.bounds)
+            let valid = !rect.isEmpty && !rect.isNull && rect.minX.isFinite && rect.minY.isFinite && rect.width.isFinite && rect.height.isFinite
+            _ = try XCTUnwrap(valid ? rect : nil, "The preview must be visible before comparing its rendered pixels")
             let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
             let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
-            let rect = preview.convert(preview.bounds, to: window).integral.intersection(window.bounds)
             let crop = try XCTUnwrap(image.cgImage?.cropping(to: rect))
             return try XCTUnwrap(UIImage(cgImage: crop).pngData())
         }
-        for item in AppearanceItem.allCases {
-            let host = UIHostingController(rootView: AppAppearanceDetail(item: item).environmentObject(preferences))
+        for item in ClearKeyboard.AppearanceItem.allCases {
+            print("APPEARANCE_RENDER begin " + item.rawValue)
+            let host = UIHostingController(rootView: ClearKeyboard.AppAppearanceDetail(item: item).environmentObject(preferences))
             window.rootViewController = host; window.makeKeyAndVisible()
             try await Task.sleep(nanoseconds: 120_000_000); window.layoutIfNeeded()
             let preview = try XCTUnwrap(findPreview(host.view), item.rawValue)
@@ -116,6 +174,7 @@ import UIKit
             XCTAssertNotEqual(preview.accessibilityValue, oldValue, "The observed destination kept stale settings: " + item.rawValue)
             XCTAssertNotEqual(try renderedPixels(preview), oldPixels, "Only the setting value changed; the keyboard pixels did not: " + item.rawValue)
             XCTAssertEqual(ClearKeyboard.SettingsStore(defaults: defaults).load(), preferences.settings)
+            print("APPEARANCE_RENDER end " + item.rawValue)
         }
     }
 }

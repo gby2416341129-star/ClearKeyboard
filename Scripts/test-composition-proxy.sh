@@ -55,6 +55,19 @@ TEST_EXIT=$?
 set -e
 xcrun xcresulttool get test-results summary --path .build/CompositionResults.xcresult || true
 xcrun xcresulttool get test-results tests --path .build/CompositionResults.xcresult || true
+if [ "$TEST_EXIT" -ne 0 ]; then
+  xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'CustomizationRuntimeTests/testObservedAppearancePagesUpdateTheirActualRenderedKeyboard()' || true
+  xcrun xcresulttool export diagnostics --path .build/CompositionResults.xcresult --output-path .build/CompositionDiagnostics || true
+  python3 - <<'PY'
+from pathlib import Path
+for p in Path('.build/CompositionDiagnostics').rglob('*'):
+    if p.is_file() and p.suffix in {'.ips', '.crash'}:
+        text = p.read_text(errors='replace')
+        if 'ClearKeyboard' in text:
+            print('NATIVE_CRASH_DIAGNOSTIC', p.name)
+            print(text[:22000])
+PY
+fi
 set +e
 xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \

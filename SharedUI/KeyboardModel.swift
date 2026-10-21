@@ -730,8 +730,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
             guard document.selectedText.isEmpty, document.contextBefore == englishSnapshot else { refreshCandidates(); return }
             let word = EnglishContext.word(in: englishSnapshot)
             let output = EnglishContext.applyingCase(candidate.text, like: word)
-            if candidate.consumed > 0 { for _ in word { document.deleteBackward() } }
-            insertText(output + " ")
+            if candidate.consumed > 0, output == word {
+                // A complete word is already in the host. Space confirms it
+                // without deleting and reinserting the same characters.
+                insertText(" ")
+            } else {
+                if candidate.consumed > 0 { for _ in word { document.deleteBackward() } }
+                insertText(output + " ")
+            }
         }
         refreshCandidates()
     }
@@ -844,7 +850,18 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, learned: settings.learnChoices ? learned : [:], preferred: preferred, correction: false, cancelled: { token.isCancelled })
             } else {
                 let word = EnglishContext.word(in: context)
-                result = word.isEmpty ? (settings.predictions ? engine.englishPredictions(after: context) : []) : engine.englishCandidates(prefix: word)
+                if word.isEmpty {
+                    result = settings.predictions ? engine.englishPredictions(after: context) : []
+                } else {
+                    let completions = engine.englishCandidates(prefix: word)
+                    // Completion intentionally excludes the typed word. Keep a
+                    // recognized whole word first so Space cannot expand what
+                    // into what's (or can into can't) without an explicit tap.
+                    // The mapped dictionary stays on this worker, never a key.
+                    let exact = engine.english.lookup("e:" + FuzzyPinyin.normalize(word), limit: 12)
+                        .contains { $0.text.lowercased() == word.lowercased() }
+                    result = exact ? [Candidate(text: word, consumed: word.count)] + Array(completions.prefix(11)) : completions
+                }
             }
             guard !token.isCancelled else { return }
             DispatchQueue.main.async {

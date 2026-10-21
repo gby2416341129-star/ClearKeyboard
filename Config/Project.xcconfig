@@ -1,6 +1,8 @@
 // Set a unique reverse-domain identifier and your Apple Development Team before device installation.
 CLEAR_BASE_BUNDLE_IDENTIFIER = com.example.clearkeyboard
-CLEAR_APP_GROUP = group.$(CLEAR_BASE_BUNDLE_IDENTIFIER)
+// Match the group retained in the installed App and keyboard's signing entitlements.
+// This is a container identifier, not a signing certificate or private key.
+CLEAR_APP_GROUP = group.9e66ab897d52ea95.1
 DEVELOPMENT_TEAM =
 IPHONEOS_DEPLOYMENT_TARGET = 18.0
 SWIFT_VERSION = 5.0

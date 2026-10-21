@@ -1,10 +1,37 @@
 import UIKit
 
 enum SharedStorage {
+    /// Move each process's legacy local data only once for this shared group.
+    /// A marker in the source domain also prevents a later shared reset from
+    /// bringing back old names or numbers that the user deliberately cleared.
+    static func migrateLegacyDefaults(from source: UserDefaults, to destination: UserDefaults, groupIdentifier: String) {
+        guard source !== destination else { return }
+        let marker = "clear.shared.migration.v1." + groupIdentifier
+        guard !source.bool(forKey: marker) else { return }
+
+        if destination.object(forKey: "clear.settings.v1") == nil,
+           let settings = source.object(forKey: "clear.settings.v1") {
+            destination.set(settings, forKey: "clear.settings.v1")
+        }
+
+        let sourceEpoch = source.string(forKey: "clear.learned.epoch")
+        let sharedEpoch = destination.string(forKey: "clear.learned.epoch")
+        let sharedEpochExists = destination.object(forKey: "clear.learned.epoch") != nil
+        if !sharedEpochExists || (sharedEpoch != nil && sharedEpoch == sourceEpoch) {
+            for key in ["clear.learned.v1", "clear.choices.v2", "clear.numbers.v1", "clear.learned.epoch"] {
+                if destination.object(forKey: key) == nil, let value = source.object(forKey: key) {
+                    destination.set(value, forKey: key)
+                }
+            }
+        }
+        source.set(true, forKey: marker)
+    }
+
     static func defaults(allowShared: Bool) -> UserDefaults {
         guard allowShared, let group = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String,
               FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) != nil,
               let defaults = UserDefaults(suiteName: group) else { return .standard }
+        migrateLegacyDefaults(from: .standard, to: defaults, groupIdentifier: group)
         return defaults
     }
     static func clipboardURL(allowShared: Bool) -> URL {

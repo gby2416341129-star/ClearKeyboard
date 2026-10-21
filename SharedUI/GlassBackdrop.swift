@@ -34,15 +34,11 @@ final class GlassBackdrop: UIView {
         let signature = "\(settings.glass)-\(reduced)-\(systemBacked)"
         if signature != effectSignature {
             effectSignature = signature
-            var target: UIVisualEffect?
-            if reduced { target = nil }
-            else if #available(iOS 26.0, *), !systemBacked {
-                let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
-                glass.isInteractive = false; target = glass
-                material.cornerConfiguration = .corners(radius: .fixed(28))
-            } else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
-            // UIInputView already supplies the keyboard's outer glass. A second
-            // refractive panel here draws a rectangular rim above its rounded shell.
+            let target: UIVisualEffect? = reduced ? nil : UIBlurEffect(style:
+                settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial)
+            // Use the same maskable material in the preview and the keyboard.
+            // On iOS 26, UIGlassEffect ignores the intensity mask here and draws
+            // its own rim. UIInputView already supplies the outer native glass.
             UIView.performWithoutAnimation { material.effect = target }
         }
         // Modulate the effect's own mask, keeping the effect view opaque and

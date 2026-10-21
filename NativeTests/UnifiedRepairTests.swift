@@ -99,10 +99,11 @@ import UIKit
         views(value.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.close" }?.sendActions(for: .touchUpInside)
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
-        for letter in "hell" { model.handle(.text(String(letter))) }
+        for letter in "hel" { model.handle(.text(String(letter))) }
         try await waitFor { model.candidatesAreCurrent && !model.candidates.isEmpty }
         let completion = try XCTUnwrap(model.candidates.first)
-        XCTAssertTrue(completion.text.lowercased().hasPrefix("hell"))
+        XCTAssertTrue(completion.text.lowercased().hasPrefix("hel"))
+        XCTAssertGreaterThan(completion.text.count, 3, "An incomplete prefix must still complete on Space")
         model.handle(.space)
         XCTAssertEqual(value.textView.text, completion.text + " ")
         try await waitFor { model.candidatesAreCurrent }
@@ -116,6 +117,60 @@ import UIKit
         let before = value.textView.text ?? ""; model.handle(.space)
         XCTAssertEqual(value.textView.text, before + " ")
         print("ENGLISH_SPACE_UIKIT prefixReplacedOnce=true visibleChoiceCommitted=true noCandidateNormalSpace=true")
+    }
+    func testEnglishSpacePreservesCompleteWordsAndTheirExactCapitalization() async throws {
+        let value = controller(language: .english), model = try XCTUnwrap(value.model)
+        defer { model.suspend() }
+        model.settings.predictions = false
+        try await waitFor { model.engineState == "离线就绪" }
+        let words = ["what", "What", "WHAT", "who", "how", "there", "can", "do", "it", "you", "we", "hello", "a", "I", "can't"]
+        for word in words {
+            value.textView.text = ""; value.textView.selectedRange = NSRange(location: 0, length: 0)
+            model.cursorChanged()
+            for letter in word { model.handle(.text(String(letter))) }
+            try await waitFor { model.candidatesAreCurrent && !model.candidates.isEmpty }
+            XCTAssertEqual(model.candidates.first?.text, word, "Space must keep the valid word \(word)")
+            model.handle(.space)
+            XCTAssertEqual(value.textView.text, word + " ", "A contraction or longer word must require an explicit choice")
+            XCTAssertEqual(value.textView.selectedRange, NSRange(location: word.utf16.count + 1, length: 0))
+            XCTAssertNil(value.textView.markedTextRange)
+        }
+        // A quick Space before the latest worker reply must also leave the
+        // literal intact; a late prefix completion may not rewrite the host.
+        value.textView.text = ""; value.textView.selectedRange = NSRange(location: 0, length: 0)
+        model.cursorChanged()
+        for letter in "what" { model.handle(.text(String(letter))) }
+        model.handle(.space)
+        try await waitFor { model.candidatesAreCurrent }
+        XCTAssertEqual(value.textView.text, "what ")
+        print("ENGLISH_LITERAL_SPACE_UIKIT validWords=\(words.count) originalCasePreserved=true rapidSpacePreserved=true forcedExpansion=false")
+    }
+    func testEnglishContractionRemainsSelectableWithoutTakingOverSpace() async throws {
+        let value = controller(language: .english), model = try XCTUnwrap(value.model)
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for (word, expected) in [("what", "what's "), ("What", "What's "), ("WHAT", "WHAT'S ")] {
+            value.textView.text = ""; value.textView.selectedRange = NSRange(location: 0, length: 0)
+            model.cursorChanged()
+            for letter in word { model.handle(.text(String(letter))) }
+            try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text.lowercased() == "what's" } }
+            XCTAssertEqual(model.candidates.first?.text, word)
+            let contraction = try XCTUnwrap(model.candidates.first { $0.text.lowercased() == "what's" })
+            model.chooseDisplayed(contraction, context: model.candidateContext)
+            XCTAssertEqual(value.textView.text, expected, "An explicit contraction tap replaces the word once and keeps its case")
+            XCTAssertNil(value.textView.markedTextRange)
+        }
+        // Confirming an unchanged whole word must still refresh the next-word
+        // predictions, rather than leaving the completed word in the strip.
+        value.textView.text = ""; value.textView.selectedRange = NSRange(location: 0, length: 0)
+        model.cursorChanged()
+        for letter in "thank" { model.handle(.text(String(letter))) }
+        try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "thank" }
+        model.handle(.space)
+        try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "you" }
+        model.handle(.space)
+        XCTAssertEqual(value.textView.text, "thank you ")
+        print("ENGLISH_EXPLICIT_COMPLETION_UIKIT contractionCaseVariants=3 nextWordPredictionPreserved=true")
     }
     func testCharacterModeSelectsAWholeNameAndNextInitialsAreImmediateFirstChoice() async throws {
         let value = controller(), model = try XCTUnwrap(value.model)

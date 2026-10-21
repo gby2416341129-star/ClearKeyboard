@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify this hotfix changes only UI and reuses unchanged input and model sources
+      - name: Verify appearance and English Space hotfix scope and unchanged Core model sources
         if: env.CLEAR_UI_HOTFIX == '1'
         run: |
           git fetch --no-tags --depth=1 origin fed2ef08404cd5b0f252a798922e884d4868655b
