@@ -47,7 +47,7 @@ translator:
   max_sentences: 4
   always_show_comments: true
   spelling_hints: 256
-  contextual_suggestions: false
+  contextual_suggestions: true
   max_homophones: 8
 grammar:
   language: wanxiang-lts-zh-hans

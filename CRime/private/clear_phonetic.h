@@ -198,6 +198,14 @@ public:
     if (!repaired || matches(input,replacement)<0) return false;
     expanded=std::move(replacement);return true;
   }
+  bool fully_spelled(const std::string &input) const {
+    if(input.empty() || input.size()>65)return false;
+    std::vector<bool> reach(input.size()+1,false);reach[0]=true;
+    for(size_t start=0;start<input.size();++start)if(reach[start])
+      for(size_t end=start+1;end<=std::min(input.size(),start+6);++end)
+        if(full.count(input.substr(start,end-start)))reach[end]=true;
+    return reach.back();
+  }
   bool abbreviated_input(const std::string &input) const {
     const auto edges=graph(input);if (edges.empty()) return false;
     std::vector<int> minimum(input.size()+1,10000),initial_count(input.size()+1,10000);

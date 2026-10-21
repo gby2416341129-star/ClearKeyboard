@@ -35,8 +35,10 @@ import UIKit
     }
     func clearClipboard() { ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)).clear() }
     func activate() {
-        active = true; clipboardCapture.activate(settings: settings, allowed: true)
-        if returningFromClipboardSettings { returningFromClipboardSettings = false; clipboardCapture.retryAfterPermissionChange() }
+        let retry = returningFromClipboardSettings
+        returningFromClipboardSettings = false
+        active = true
+        clipboardCapture.activate(settings: settings, allowed: true, retryPermission: retry)
     }
     func deactivate() { active = false; clipboardCapture.stop() }
     func openClipboardSettings() {

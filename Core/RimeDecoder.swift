@@ -6,7 +6,7 @@ import CRime
 /// The production Chinese decoder. The C bridge serializes librime across models.
 final class RimeDecoder {
     private let session: UInt
-    private struct CacheKey: Hashable { let raw: String; let correction: Bool; let backend: Int }
+    private struct CacheKey: Hashable { let raw: String; let preceding: String; let correction: Bool; let backend: Int }
     private var cache: [CacheKey: (limit: Int, candidates: [Candidate])] = [:]
     private var cacheOrder: [CacheKey] = []
     private final class CancellationBox {
@@ -42,19 +42,21 @@ final class RimeDecoder {
         guard session != 0 else { throw LexiconError.invalidFormat }
     }
     deinit { cr_destroy(session) }
-    func candidates(_ raw: String, limit: Int = 16, correction: Bool = true, cancelled: () -> Bool) -> [Candidate] {
+    func candidates(_ raw: String, limit: Int = 16, correction: Bool = true, context: String = "", cancelled: () -> Bool) -> [Candidate] {
         let backend = CoreMLSentence.shared.revision
-        let key = CacheKey(raw: raw, correction: correction, backend: backend)
+        let preceding = CandidateLanguageContext.tail(context)
+        let key = CacheKey(raw: raw, preceding: preceding, correction: correction, backend: backend)
         // A previous full result is also a safe fast answer, never vice versa.
-        if let value = cache[CacheKey(raw: raw, correction: true, backend: backend)] ?? cache[key], value.limit >= limit {
+        let previous = cache[CacheKey(raw: raw, preceding: preceding, correction: true, backend: backend)] ?? cache[key]
+        if let value = previous, value.limit >= limit {
             return Array(value.candidates.prefix(limit))
         }
         guard !cancelled() else { return [] }
         let count = withoutActuallyEscaping(cancelled) { check in
             let box = CancellationBox(check)
             return withExtendedLifetime(box) {
-                let query = correction ? cr_query : cr_query_fast
-                return Int(query(session, raw, Int32(limit), { context in
+                let query = correction ? cr_query_context : cr_query_fast_context
+                return Int(query(session, raw, preceding, Int32(limit), { context in
                     guard let context else { return 0 }
                     return Unmanaged<CancellationBox>.fromOpaque(context).takeUnretainedValue().check() ? 1 : 0
                 }, Unmanaged.passUnretained(box).toOpaque()))
@@ -70,6 +72,17 @@ final class RimeDecoder {
             let value = String(cString: text)
             if consumed > 0, !value.isEmpty, seen.insert(value).inserted {
                 result.append(Candidate(text: value, reading: String(cString: reading), consumed: Int(consumed), score: 100 - Double(index)))
+            }
+        }
+        // The native session may have decoded another context since this
+        // spelling was shown. Restoring a Swift cache hit must also preserve
+        // its order when the user later asks that session for a larger page.
+        if let previous {
+            var known = Set(previous.candidates.map(\.text))
+            result = previous.candidates + result.filter { known.insert($0.text).inserted }
+            result = Array(result.prefix(limit)).enumerated().map {
+                Candidate(text: $0.element.text, reading: $0.element.reading,
+                          consumed: $0.element.consumed, score: 100 - Double($0.offset))
             }
         }
         if !cancelled() {

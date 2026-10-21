@@ -224,7 +224,7 @@ private struct ClipboardSettingsView: View {
             Section("粘贴权限") {
                 Button("打开系统设置") { preferences.openClipboardSettings() }
                 ClipboardSaveControl(capture: preferences.clipboardCapture).frame(height: 38)
-                Text("在系统设置的「澈 → 从其他 App 粘贴」选择「允许」，并开启键盘完全访问。")
+                Text("系统默认询问。你可在「设置 → App → 澈 → 从其他 App 粘贴」选择询问、拒绝或允许。若没有这一项，请先在其他 App 复制内容，再打开澈并回应系统提示。键盘自动收录还需开启完全访问。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

@@ -1,6 +1,8 @@
 #include "include/ClearRime.h"
 #include "private/rime_api.h"
 #include "private/clear_phonetic.h"
+#include "private/clear_blind.h"
+#include "private/clear_context.h"
 #include "private/clear_initial.h"
 #include <algorithm>
 #include <cmath>
@@ -24,6 +26,11 @@ std::string shared_path, user_path, prebuilt_path;
 std::unique_ptr<clear_sentence::Model> sentence_model;
 clear_sentence::PhoneticSearch phonetic_search;
 clear_initial::Index initial_index;
+#ifdef CLEAR_BLIND_TESTING
+bool blind_rescue_enabled=true;
+#else
+constexpr bool blind_rescue_enabled=true;
+#endif
 #ifdef CLEAR_INITIAL_TESTING
 bool exact_index_enabled=true;
 size_t exact_reuse_count=0;
@@ -55,6 +62,8 @@ struct Query {
   std::string ranked_input, ranked_choice;
   bool rank_decided = false;
   std::vector<Item> head_items;
+  std::string context_key,preceding;
+  bool context_initialized=true;
 };
 std::unordered_map<uintptr_t, Query> queries;
 void copy(const std::string &value, char *buffer, size_t capacity) {
@@ -247,6 +256,33 @@ void collect(uintptr_t id, const std::string &input, int limit, ChannelCache &ca
   }
   api->candidate_list_end(&it);
 }
+bool prime_context(uintptr_t id,const std::string &text) {
+  if(!api->clear_composition || !api->process_key || !api->set_input || !api->commit_composition || !api->get_commit || !api->free_commit)return false;
+  api->clear_composition(id);api->process_key(id,0xff08,0);
+  // Drain only this hidden decoder session; never send the synthetic commit
+  // through the host proxy or learning store.
+  RIME_STRUCT(RimeCommit,old);
+  if(api->get_commit(id,&old))api->free_commit(&old);
+  if(text.empty())return true;
+  if(!api->set_input(id,text.c_str()) || !api->commit_composition(id))return false;
+  RIME_STRUCT(RimeCommit,commit);if(!api->get_commit(id,&commit))return false;
+  const bool same=commit.text && text==commit.text;api->free_commit(&commit);
+  if(!same){api->clear_composition(id);api->process_key(id,0xff08,0);}
+  return same;
+}
+bool set_context(Query &query,uintptr_t id,const std::string &before,cr_cancelled cancelled,void *context) {
+  if(query.context_initialized && query.context_key==before)return true;
+  query.context_initialized=false;query.fluent_cache={};query.correction_cache={};query.repair_cache={};
+  query.ranked_input.clear();query.ranked_choice.clear();query.rank_decided=false;query.head_items.clear();
+  bool applied=true;
+  for(auto channel:{id,query.fluent,query.repair})if(channel){
+    if(cancelled && cancelled(context))return false;
+    applied=prime_context(channel,before) && applied;
+  }
+  if(cancelled && cancelled(context))return false;
+  if(!applied)for(auto channel:{id,query.fluent,query.repair})if(channel)prime_context(channel,"");
+  query.context_key=before;query.preceding=applied?before:"";query.context_initialized=true;return true;
+}
 bool repair_literal(Query &query,const std::string &input,const Item &original,Item &replacement,
                     cr_cancelled cancelled,void *context,bool terminal_only=false) {
   const auto length=static_cast<int>(letters(input).size());
@@ -269,7 +305,12 @@ bool repair_literal(Query &query,const std::string &input,const Item &original,I
   // whether the same spelling is repaired. At most one small query is needed.
   if (!query.repair && api->create_session && api->select_schema) {
     const auto extra=api->create_session();
-    if (extra && api->select_schema(extra,"clear_fluent")) query.repair=extra;
+    if (extra && api->select_schema(extra,"clear_fluent")) {
+      query.repair=extra;
+      if(!query.preceding.empty() && !prime_context(extra,query.preceding)){
+        api->destroy_session(extra);query.repair=0;
+      }
+    }
     else if (extra) api->destroy_session(extra);
   }
   if (!query.repair || (cancelled && cancelled(context))) return false;
@@ -281,6 +322,40 @@ bool repair_literal(Query &query,const std::string &input,const Item &original,I
     replacement={item.text,item.reading,length,item.weight};return true;
   }
   return false;
+}
+bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item> &output,
+    clear_sentence::Budget::Clock::time_point started,cr_cancelled cancelled,void *context) {
+  const auto deadline=started+std::chrono::milliseconds(35);
+  auto stopped=[&]{return (cancelled && cancelled(context)) || clear_sentence::Budget::Clock::now()>=deadline;};
+  if(!blind_rescue_enabled || stopped())return false;
+  const auto variants=clear_blind::repairs(raw,[&](const std::string &s){return phonetic_search.fully_spelled(s);},stopped);
+  if(variants.empty() || stopped())return false;
+  if(!query.repair && api->create_session && api->select_schema){
+    const auto extra=api->create_session();
+    if(extra && api->select_schema(extra,"clear_fluent")){
+      query.repair=extra;
+      if(!query.preceding.empty() && !prime_context(extra,query.preceding)){
+        api->destroy_session(extra);query.repair=0;
+      }
+    }
+    else if(extra)api->destroy_session(extra);
+  }
+  if(!query.repair)return false;
+  std::vector<std::pair<double,Item>> results;
+  for(const auto &variant:variants){
+    if(stopped())return false;
+    collect(query.repair,variant.input,1,query.repair_cache,cancelled,context);
+    if(stopped())return false;
+    if(query.repair_cache.items.empty())continue;
+    const auto &item=query.repair_cache.items.front();
+    if(item.consumed!=static_cast<int>(variant.input.size()) || letters(item.reading)!=variant.input || !std::isfinite(item.weight))continue;
+    results.emplace_back(item.weight-variant.penalty,Item{item.text,item.reading,static_cast<int>(raw.size()),item.weight-variant.penalty});
+  }
+  if(results.empty())return false;
+  std::sort(results.begin(),results.end(),[](const auto &a,const auto &b){return a.first!=b.first?a.first>b.first:a.second.text<b.second.text;});
+  std::vector<Item> complete;std::unordered_set<std::string> seen;
+  for(const auto &item:results)if(seen.insert(item.second.text).second)complete.push_back(item.second);
+  if(stopped())return false;output=std::move(complete);return true;
 }
 bool reliable_literal_sentence(const Item &item, const std::string &input) {
   if (item.consumed != static_cast<int>(input.size()) || !std::isfinite(item.weight)) return false;
@@ -332,7 +407,7 @@ bool reliable_literal_sentence(const Item &item, const std::string &input) {
 // word-by-word selection. The caller only asks for the next bounded page.
 std::vector<Item> merge_candidates(const std::string &input, const std::vector<Item> &conversation,
                                    const std::vector<Item> &literal, const std::vector<Item> &fluent,
-                                   int limit) {
+                                   int limit,bool contextual=false) {
   const auto spelling = letters(input);
   const auto length = static_cast<int>(spelling.size());
   const auto capacity = static_cast<size_t>(std::clamp(limit, 1, 4096));
@@ -342,6 +417,7 @@ std::vector<Item> merge_candidates(const std::string &input, const std::vector<I
     if (result.size() < capacity && item.consumed > 0 && item.consumed <= length &&
         !item.text.empty() && seen.insert(item.text).second) result.push_back(item);
   };
+  if(contextual)for(const auto &item:fluent)if(item.consumed==length)append(item);
   for (const auto &item : conversation) if (item.consumed == length) append(item);
   for (const auto &item : literal) if (item.consumed == length) append(item);
   const bool has_exact_phrase = !result.empty();
@@ -441,17 +517,19 @@ void cr_destroy(uintptr_t id) {
     api->destroy_session(id); queries.erase(id);
   }
 }
-static int query_candidates(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context, bool correction) {
+static int query_candidates(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context, bool correction,const char *before="") {
   const auto started=clear_sentence::Budget::Clock::now();
   std::lock_guard<std::recursive_mutex> lock(gate);
   if (!api || !queries.count(id) || (cancelled && cancelled(context))) return 0;
   auto &query = queries[id]; query.items.clear();
+  if(!set_context(query,id,clear_context::tail(before),cancelled,context))return 0;
+  const bool contextual=!query.preceding.empty();
   collect(query.conversation, input, limit, query.conversation_cache, cancelled, context);
   if (cancelled && cancelled(context)) return 0;
   const auto &conversational = query.conversation_cache.items;
   const auto length = static_cast<int>(letters(input).size());
   const bool leading_row = limit <= 9;
-  if (leading_row && std::any_of(conversational.begin(), conversational.end(),
+  if (leading_row && !contextual && std::any_of(conversational.begin(), conversational.end(),
       [&](const Item &item) { return item.consumed == length; })) {
     // These are exact dictionary phrases, including mixed full/initial input.
     // Other dictionaries and sentence alternatives are needed only on paging.
@@ -490,7 +568,7 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   // A typing query needs a stable leading row, not every possible alternative.
   // Do not invoke the sentence model just to fill empty slots beside a complete
   // dictionary phrase. Explicit paging can request the larger merged menu.
-  if (full.empty() || (!leading_row && full.size() < static_cast<size_t>(std::clamp(limit, 1, 4096)))) {
+  if (contextual || full.empty() || (!leading_row && full.size() < static_cast<size_t>(std::clamp(limit, 1, 4096)))) {
     collect(query.fluent, input, correction ? 1 : limit, query.fluent_cache, cancelled, context);
     if (cancelled && cancelled(context)) return 0;
     const auto spelling = letters(input);
@@ -507,15 +585,26 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
       collect(query.fluent, input, limit, query.fluent_cache, cancelled, context);
       fluent = query.fluent_cache.items;
     } else {
-      collect(id, input, limit, query.correction_cache, cancelled, context);
-      fluent = query.correction_cache.items;
-      // Retain literal alternatives when correction was needed; never lose the
-      // user's original interpretation solely because a correction scored well.
-      fluent.insert(fluent.end(), query.fluent_cache.items.begin(), query.fluent_cache.items.end());
+      // Preserve an existing complete one-edit conversion. Rescue is for a
+      // partial result or a rewrite that already changed more than one key.
+      collect(id,input,1,query.correction_cache,cancelled,context);
+      const auto &old=query.correction_cache.items;
+      const bool one_edit=!old.empty() && old.front().consumed==length &&
+          clear_blind::penalty(input,letters(old.front().reading))>=0 &&
+          phonetic_search.fully_spelled(letters(old.front().reading));
+      if(leading_row && correction && !one_edit && repair_blind_spelling(query,input,fluent,started,cancelled,context)) {
+        repaired=true;
+      } else {
+        collect(id, input, limit, query.correction_cache, cancelled, context);
+        fluent = query.correction_cache.items;
+        // Retain literal alternatives when correction was needed; never lose the
+        // user's original interpretation solely because a correction scored well.
+        fluent.insert(fluent.end(), query.fluent_cache.items.begin(), query.fluent_cache.items.end());
+      }
     }
   }
   if (cancelled && cancelled(context)) return 0;
-  query.items = merge_candidates(input, conversational, literal, fluent, limit);
+  query.items = merge_candidates(input, conversational, literal, fluent, limit,contextual);
   Item literal_replacement;
   if (!repaired && leading_row && correction && !query.items.empty() &&
       repair_literal(query,input,query.items.front(),literal_replacement,cancelled,context)) {
@@ -525,12 +614,18 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   // A complete dictionary word must use the same protected path as the
   // dedicated conversation dictionary. Neural continuation search is for
   // ambiguous composition, not a second vote over an already exact phrase.
-  rank_sentence(query,input,length,leading_row,correction,repaired || !full.empty(),started,cancelled,context,limit);
+  rank_sentence(query,input,length,leading_row,correction,contextual || repaired || !full.empty(),started,cancelled,context,limit);
   if (cancelled && cancelled(context)) return 0;
   return static_cast<int>(query.items.size());
 }
 int cr_query(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context) {
   return query_candidates(id, input, limit, cancelled, context, true);
+}
+extern "C" int cr_query_context(uintptr_t id,const char *input,const char *before,int limit,cr_cancelled cancelled,void *context) {
+  return query_candidates(id,input,limit,cancelled,context,true,before);
+}
+extern "C" int cr_query_fast_context(uintptr_t id,const char *input,const char *before,int limit,cr_cancelled cancelled,void *context) {
+  return query_candidates(id,input,limit,cancelled,context,false,before);
 }
 int cr_query_fast(uintptr_t id, const char *input, int limit, cr_cancelled cancelled, void *context) {
   return query_candidates(id, input, limit, cancelled, context, false);

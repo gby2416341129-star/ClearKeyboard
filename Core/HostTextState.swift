@@ -1,5 +1,28 @@
 import Foundation
 
+struct CandidateRequestKey: Hashable {
+    let raw: String
+    let preceding: String
+}
+
+enum CandidateLanguageContext {
+    static func tail(_ text: String) -> String {
+        var suffix: [Unicode.Scalar] = []
+        for scalar in text.unicodeScalars.reversed() {
+            let c = scalar.value
+            guard (0x3400...0x9fff).contains(c) || (0x20000...0x3134f).contains(c) ||
+                    (0x3001...0x303f).contains(c) || (0xff01...0xff65).contains(c) else { break }
+            suffix.append(scalar)
+            if suffix.count == 16 { break }
+        }
+        return String(String.UnicodeScalarView(suffix.reversed()))
+    }
+    static func preceding(before: String, markedDraft: String) -> String {
+        guard markedDraft.isEmpty || before.hasSuffix(markedDraft) else { return "" }
+        return tail(markedDraft.isEmpty ? before : String(before.dropLast(markedDraft.count)))
+    }
+}
+
 public struct HostTextSnapshot: Equatable {
     public var before: String
     public var after: String

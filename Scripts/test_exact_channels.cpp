@@ -1,4 +1,5 @@
 #define CLEAR_INITIAL_TESTING
+#define CLEAR_BLIND_TESTING
 void rime_require_module_octagram() {}
 void rime_require_module_lua() {}
 #include "../CRime/ClearRime.cpp"
@@ -16,6 +17,10 @@ bool same(const std::vector<Item> &a,const std::vector<Item> &b){
 double percentile(std::vector<double> values,double p){std::sort(values.begin(),values.end());return values[std::min(values.size()-1,size_t(std::ceil(values.size()*p)-1))];}
 int main(int argc,char **argv){
   assert(argc==4 && cr_initialize(argv[1],argv[2]));assert(sentence_model);sentence_model->set_native_enabled(false);
+  // This paired test isolates exact-dictionary cache reuse. A deadline-bounded
+  // rescue can legitimately finish in one timed mode and expire in the other;
+  // its production behavior is checked separately through the real engine.
+  blind_rescue_enabled=false;
   const std::string index_path=std::string(argv[1])+"/clear-initials.idx";
   std::ifstream inputs(argv[3]);assert(inputs);std::string line;size_t cases=0,tuples=0;
   std::vector<double> before,after,initial_before,initial_after;
@@ -51,6 +56,6 @@ int main(int argc,char **argv){
   assert(cases>=400 && exact_reuse_count>100 && initial_before.size()>20);
   exact_index_enabled=true;
   std::cout<<"{\"exactChannelCases\":"<<cases<<",\"exactReuseQueries\":"<<exact_reuse_count<<",\"queriesPerMode\":"<<before.size()<<",\"candidateTuplesCompared\":"<<tuples
-    <<",\"changedHeads\":0,\"changedPages\":0,\"initialBeforeMedianMS\":"<<percentile(initial_before,.5)<<",\"initialAfterMedianMS\":"<<percentile(initial_after,.5)
+    <<",\"changedHeads\":0,\"changedPages\":0,\"scope\":\"Exact cache reuse with neural ranking and deadline-based spelling rescue disabled\",\"initialBeforeMedianMS\":"<<percentile(initial_before,.5)<<",\"initialAfterMedianMS\":"<<percentile(initial_after,.5)
     <<",\"initialBeforeP95MS\":"<<percentile(initial_before,.95)<<",\"initialAfterP95MS\":"<<percentile(initial_after,.95)<<"}\n";
 }

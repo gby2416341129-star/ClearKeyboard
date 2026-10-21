@@ -155,7 +155,7 @@ public final class InputEngine {
         return positions.contains(letters.count)
     }
 
-    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], recentCorrections: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
+    public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], recentCorrections: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, context: String = "", cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
         let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
@@ -170,7 +170,7 @@ public final class InputEngine {
         }
         if compose, let matureDecoder {
             if cancelled() { return [] }
-            let result = matureDecoder.candidates(raw.lowercased(), limit: limit, correction: correction, cancelled: cancelled)
+            let result = matureDecoder.candidates(raw.lowercased(), limit: limit, correction: correction, context: context, cancelled: cancelled)
             if cancelled() { return [] }
             var output = result.sorted {
                 $0.score + min(2, log(Double(learned[$0.text] ?? 0) + 1)) >
@@ -195,7 +195,7 @@ public final class InputEngine {
                           PinyinSpelling.reachablePrefix(suffix) < suffix.count,
                           PinyinSpelling.reachablePrefix(prefix) == prefix.count,
                           chinese.lookup("e:" + input, limit: 1).isEmpty,
-                          let first = matureDecoder.candidates(prefix, limit: 4, correction: false, cancelled: cancelled).first,
+                          let first = matureDecoder.candidates(prefix, limit: 4, correction: false, context: context, cancelled: cancelled).first,
                           first.consumed == prefix.count else { continue }
                     output.insert(Candidate(text: first.text + suffix, consumed: input.count, score: 110), at: 0); break
                 }
@@ -203,7 +203,7 @@ public final class InputEngine {
             if correction, !fuzzy.isEmpty {
                 for variant in FuzzyPinyin.variants(input, enabled: fuzzy, limit: limit <= 6 ? 3 : 12).dropFirst() {
                     if cancelled() { return [] }
-                    output += matureDecoder.candidates(variant, limit: limit, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }
+                    output += matureDecoder.candidates(variant, limit: limit, context: context, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }
                 }
             }
             if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }

@@ -6,33 +6,39 @@ import UniformTypeIdentifiers
     private var observer: NSObjectProtocol?
     private var active = false
     private var settings = KeyboardSettings()
-    private let defaults: UserDefaults
+    private let observation: ClipboardObservation
     private let makeStore: () -> ClipboardStore
     private let changeCount: () -> Int
     private let hasStrings: () -> Bool
+    private let hasContent: () -> Bool
     private let readText: () -> String?
     private let readAttachment: () -> (Data, String, String)?
     private let notificationName: Notification.Name
-    private static let observedKey = "clear.clipboard.observedChangeCount.v1"
     var onCapture: (() -> Void)?
 
     init(defaults: UserDefaults? = nil, makeStore: (() -> ClipboardStore)? = nil,
-         changeCount: (() -> Int)? = nil, hasStrings: (() -> Bool)? = nil,
+         changeCount: (() -> Int)? = nil, hasStrings: (() -> Bool)? = nil, hasContent: (() -> Bool)? = nil,
          readText: (() -> String?)? = nil, readAttachment: (() -> (Data, String, String)?)? = nil, notificationName: Notification.Name = UIPasteboard.changedNotification) {
-        self.defaults = defaults ?? SharedStorage.defaults(allowShared: true)
+        let accessDefaults = defaults ?? SharedStorage.defaults(allowShared: true)
+        observation = ClipboardObservation(defaults: accessDefaults,
+            owner: Bundle.main.bundleURL.pathExtension == "appex" ? .keyboard : .app)
         self.makeStore = makeStore ?? { ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)) }
         self.changeCount = changeCount ?? { UIPasteboard.general.changeCount }
         self.hasStrings = hasStrings ?? { UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs }
+        // Type metadata does not read the clipboard payload or register a
+        // permission attempt. An empty clipboard must not consume that attempt.
+        self.hasContent = hasContent ?? (hasStrings ?? { !UIPasteboard.general.types.isEmpty })
         self.readText = readText ?? { UIPasteboard.general.string ?? UIPasteboard.general.url?.absoluteString }
         if let readAttachment { self.readAttachment = readAttachment }
         else if readText != nil { self.readAttachment = { nil } }
         else { self.readAttachment = { Self.systemAttachment() } }
         self.notificationName = notificationName
     }
-    func activate(settings: KeyboardSettings, allowed: Bool) {
+    func activate(settings: KeyboardSettings, allowed: Bool, retryPermission: Bool = false) {
         self.settings = settings
         guard allowed, settings.capturesClipboard else { stop(); return }
         active = true
+        if retryPermission { observation.retry() }
         makeStore().prune(lifetime: settings.clipboardLifetimeHours * 3600)
         if observer == nil {
             observer = NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] _ in
@@ -44,24 +50,24 @@ import UniformTypeIdentifiers
     func captureIfChanged() {
         guard active else { return }
         let count = changeCount()
-        guard defaults.object(forKey: Self.observedKey) == nil || defaults.integer(forKey: Self.observedKey) != count else { return }
-        // Remember denied/empty attempts too, so one copy cannot trigger repeated permission prompts.
-        defaults.set(count, forKey: Self.observedKey)
+        guard observation.shouldRead(changeCount: count, hasContent: hasContent()) else { return }
+        // Remember denied/unavailable payloads too, so one copy cannot repeatedly prompt.
+        observation.didAttempt(changeCount: count)
         if saveCurrentContent() { onCapture?() }
     }
     @discardableResult func captureManually() -> Bool {
         let saved = saveCurrentContent()
-        defaults.set(changeCount(), forKey: Self.observedKey)
+        observation.didAttempt(changeCount: changeCount())
         if saved { onCapture?() }; return saved
     }
-    func retryAfterPermissionChange() { defaults.removeObject(forKey: Self.observedKey); captureIfChanged() }
+    func retryAfterPermissionChange() { observation.retry(); captureIfChanged() }
     func acceptText(_ text: String) {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600); store.add(text)
-        defaults.set(changeCount(), forKey: Self.observedKey); onCapture?()
+        observation.didAttempt(changeCount: changeCount()); onCapture?()
     }
     func acceptAttachment(_ data: Data, typeIdentifier: String, name: String) {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600)
-        if store.addAttachment(data, typeIdentifier: typeIdentifier, name: name) { defaults.set(changeCount(), forKey: Self.observedKey); onCapture?() }
+        if store.addAttachment(data, typeIdentifier: typeIdentifier, name: name) { observation.didAttempt(changeCount: changeCount()); onCapture?() }
     }
     private func saveCurrentContent() -> Bool {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600)

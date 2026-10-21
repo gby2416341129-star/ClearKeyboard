@@ -120,8 +120,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var interruptedCandidates: PreparedCandidates?
     private var activeCandidates: PreparedCandidates?
     private var presentedRevision = 0
-    private var candidateCache: [String: PreparedCandidates.Result] = [:]
-    private var candidateCacheOrder: [String] = []
+    private var candidateCache: [CandidateRequestKey: PreparedCandidates.Result] = [:]
+    private var candidateCacheOrder: [CandidateRequestKey] = []
     private var candidateCacheEpoch = 0
     private var candidateBackendRevision = 0
     private var refinementWork: DispatchWorkItem?
@@ -209,9 +209,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if let query = preparedCandidates, query.raw == raw, query.generation == generation,
            query.origin == origin, !query.token.isCancelled { return query }
         discardPreparedCandidates()
-        let query = PreparedCandidates(raw: raw, generation: generation, origin: origin, cacheEpoch: candidateCacheEpoch)
+        let preceding = CandidateLanguageContext.preceding(before: origin.before, markedDraft: composition.raw)
+        let query = PreparedCandidates(raw: raw, generation: generation, origin: origin, cacheEpoch: candidateCacheEpoch, preceding: preceding)
         preparedCandidates = query
-        if let cached = candidateCache[raw] {
+        if let cached = candidateCache[query.cacheKey] {
             query.publish(cached.items, stage: cached.stage, limit: cached.limit,
                           hasMore: cached.hasMore, correction: cached.correction)
             return query
@@ -281,7 +282,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             guard !cancelled() else { return }
             let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
-                correction: correction, cancelled: cancelled)
+                correction: correction, context: query.preceding, cancelled: cancelled)
             guard !cancelled() else { return }
             query.publish(Array(result.prefix(limit)), stage: stage, limit: limit,
                           hasMore: stage == 1 ? !result.isEmpty : (result.count > limit && limit < 4095),
@@ -312,8 +313,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
         candidateGeneration = generation; candidateContext = requestedContext
         if result.stage > 0 && result.stage < 3 {
             if query.cacheEpoch == candidateCacheEpoch {
-                if candidateCache[query.raw] == nil { candidateCacheOrder.append(query.raw) }
-                candidateCache[query.raw] = result
+                if candidateCache[query.cacheKey] == nil { candidateCacheOrder.append(query.cacheKey) }
+                candidateCache[query.cacheKey] = result
                 if candidateCacheOrder.count > 32 { candidateCache.removeValue(forKey: candidateCacheOrder.removeFirst()) }
             }
         }
@@ -770,12 +771,15 @@ private final class PreparedCandidates: @unchecked Sendable {
     let generation: Int
     let origin: KeyboardModel.CandidateContext
     let cacheEpoch: Int
+    let preceding: String
+    var cacheKey: CandidateRequestKey { CandidateRequestKey(raw: raw, preceding: preceding) }
     let token = QueryCancellation()
     private let lock = NSLock()
     private var stored: Result?
     private var emptyWordLookup = false
-    init(raw: String, generation: Int, origin: KeyboardModel.CandidateContext, cacheEpoch: Int) {
+    init(raw: String, generation: Int, origin: KeyboardModel.CandidateContext, cacheEpoch: Int, preceding: String) {
         self.raw = raw; self.generation = generation; self.origin = origin; self.cacheEpoch = cacheEpoch
+        self.preceding = preceding
     }
     var result: Result? { lock.lock(); defer { lock.unlock() }; return stored }
     var missedWords: Bool { lock.lock(); defer { lock.unlock() }; return emptyWordLookup }

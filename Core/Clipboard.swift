@@ -1,6 +1,24 @@
 import Foundation
 import CryptoKit
 
+/// Clipboard contents are shared, but the system's access decision belongs to
+/// the process that reads them. An extension attempt cannot stand in for an
+/// attempt by its containing app, including a denied attempt.
+struct ClipboardObservation {
+    enum Owner: String { case app, keyboard }
+    private let defaults: UserDefaults
+    private let key: String
+    init(defaults: UserDefaults, owner: Owner) {
+        self.defaults = defaults
+        key = "clear.clipboard.observedChangeCount.v2." + owner.rawValue
+    }
+    func shouldRead(changeCount: Int, hasContent: Bool) -> Bool {
+        hasContent && (defaults.object(forKey: key) == nil || defaults.integer(forKey: key) != changeCount)
+    }
+    func didAttempt(changeCount: Int) { defaults.set(changeCount, forKey: key) }
+    func retry() { defaults.removeObject(forKey: key) }
+}
+
 public struct ClipAttachment: Codable, Equatable {
     public let filename: String
     public let typeIdentifier: String

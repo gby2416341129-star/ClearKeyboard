@@ -24,6 +24,10 @@ void cr_set_sentence_scorer(cr_sentence_scorer scorer, void *context);
 void cr_trim_sentence_cache(void);
 int cr_query(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
 int cr_query_fast(uintptr_t session, const char *input, int limit, cr_cancelled cancelled, void *context);
+// The caller supplies an already cached editor snapshot, excluding marked
+// pinyin. Context is bounded and never written through to the host or learning.
+int cr_query_context(uintptr_t session, const char *input, const char *preceding, int limit, cr_cancelled cancelled, void *context);
+int cr_query_fast_context(uintptr_t session, const char *input, const char *preceding, int limit, cr_cancelled cancelled, void *context);
 int cr_candidate(uintptr_t session, int index, char *text, size_t capacity,
                  char *reading, size_t reading_capacity);
 const char *cr_version(void);
