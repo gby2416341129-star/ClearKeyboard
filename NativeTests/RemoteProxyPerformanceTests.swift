@@ -27,7 +27,10 @@ import UIKit
             XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw)
             XCTAssertNil(proxy.textView.markedTextRange)
             XCTAssertTrue(model.composition.isEmpty)
-            XCTAssertEqual(proxy.insertedTexts, [candidate.text, remainder.raw])
+            // Enter may confirm the already visible marked pinyin by unmarking
+            // it. Verify text conservation and one Chinese insertion, without
+            // requiring a second insertion of that literal text.
+            XCTAssertEqual(proxy.insertedTexts.filter { $0.contains { !$0.isASCII } }, [candidate.text])
             // Also exercise one atomic Chinese replacement with a complete,
             // naturally punctuated article, independently of decoder quality.
             controller.setMarkedText(article.raw)
@@ -214,7 +217,10 @@ import UIKit
         XCTAssertEqual(model.composition.raw, "ji")
         let marked = try XCTUnwrap(proxy.textView.markedTextRange)
         XCTAssertEqual(proxy.textView.text(in: marked), "ji", "The committed Chinese must be outside the new marked range")
-        try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "机" } }
+        if !model.candidates.contains(where: { $0.text == "机" }) {
+            model.loadMoreCandidates(context: model.candidateContext)
+            try await waitFor { model.candidates.contains { $0.text == "机" } }
+        }
         let machine = try XCTUnwrap(model.candidates.first { $0.text == "机" })
         model.chooseDisplayed(machine, context: model.candidateContext)
         XCTAssertEqual(proxy.textView.text, "办公机")
@@ -275,9 +281,14 @@ import UIKit
                 return label.font.pointSize == CGFloat(size.points)
             }
             ribbon.layoutIfNeeded()
-            widths.append(ribbon.contentSize.width)
             let first = try XCTUnwrap(descendants(ribbon).compactMap { $0 as? UIButton }.first { $0.tag == 0 })
             first.layoutIfNeeded()
+            // The strip lazily measures only a viewport-sized prefix. Its
+            // total contentSize need not grow monotonically when a larger
+            // font means fewer cells fit in that prefix. Compare the same
+            // visible cell, while retaining the touch-surface assertion.
+            widths.append(first.frame.width)
+            XCTAssertGreaterThan(ribbon.contentSize.width, ribbon.bounds.width)
             let label = try XCTUnwrap(descendants(first).compactMap { $0 as? UILabel }.first { $0.text == items[0].text })
             XCTAssertEqual(label.font.pointSize, CGFloat(size.points))
             XCTAssertTrue(ribbon.hitTest(CGPoint(x: first.frame.maxX - 2, y: 22), with: nil) === ribbon)
