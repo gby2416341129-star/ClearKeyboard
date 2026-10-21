@@ -55,7 +55,10 @@ public struct PersonalLexicon: Codable {
         found.sort { $0.0.uses == $1.0.uses ? $0.0.selectedAt > $1.0.selectedAt : $0.0.uses > $1.0.uses }
         var seen = Set<String>()
         return Array(found.filter { seen.insert($0.0.text).inserted }.prefix(4).map { entry, consumed in
-            Candidate(text: entry.text, reading: entry.reading, consumed: consumed, score: Double(min(3, entry.uses)))
+            // An explicit full phrase also teaches its initials immediately.
+            // Exact spelling choices retain their gradual contextual preference.
+            Candidate(text: entry.text, reading: entry.reading, consumed: consumed,
+                score: entry.initials == code && entry.code != code ? 4 : Double(min(3, entry.uses)))
         })
     }
     private static func initials(text: String, reading: String) -> String? {

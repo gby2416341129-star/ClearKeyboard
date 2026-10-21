@@ -9,7 +9,7 @@ xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -derivedDataPath .build/Native -resultBundlePath .build/CandidateUIResults.xcresult \
   -destination-timeout 60 -parallel-testing-enabled NO \
   -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
-  -only-testing:ClearKeyboardUITests/AppUITests/testCandidateRibbonFlicksAndTapCommit \
+  -only-testing:ClearKeyboardUITests/AppUITests/testACustomizationControlsCanBeChangedWithoutCrashing \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test 2>&1 | tee .build/candidate-ui-tests.log
 TEST_EXIT=${PIPESTATUS[0]}
 set -e

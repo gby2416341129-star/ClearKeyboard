@@ -29,6 +29,17 @@ extension Accent {
 }
 
 extension KeyboardSettings {
+    static func color(hex: String?) -> UIColor? {
+        guard let hex, let rgb = RGBColor(hex: hex) else { return nil }
+        return UIColor(red: CGFloat(rgb.red), green: CGFloat(rgb.green), blue: CGFloat(rgb.blue), alpha: 1)
+    }
+    var backgroundTintColor: UIColor? { Self.color(hex: backgroundColorHex) }
+    var keyTintColor: UIColor? { Self.color(hex: keyColorHex) }
+    var candidateTintColor: UIColor? { Self.color(hex: candidateColorHex) }
+    var keyInkColor: UIColor {
+        guard let hex = keyColorHex, let rgb = RGBColor(hex: hex) else { return .label }
+        return rgb.red * 0.2126 + rgb.green * 0.7152 + rgb.blue * 0.0722 < 0.45 ? .white : .black
+    }
     var accentColor: UIColor {
         guard let hex = customAccentHex, let rgb = RGBColor(hex: hex) else { return accent.uiColor }
         return UIColor(red: CGFloat(rgb.red), green: CGFloat(rgb.green), blue: CGFloat(rgb.blue), alpha: 1)

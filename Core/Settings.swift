@@ -41,9 +41,17 @@ public enum ToolbarTool: String, Codable, CaseIterable, Identifiable {
 public struct KeyboardSettings: Codable, Equatable {
     public var language: InputLanguage = .chinese
     public var glass: GlassPreset = .clear
-    public var accent: Accent = .jade
+    public var accent: Accent = .ocean
     public var customAccentHex: String? = nil
     public var glassOpacity: Double = 0.52
+    // Optional fields preserve settings written before independent materials.
+    public var backgroundGlassStrength: Double? = nil
+    public var keyGlassStrength: Double? = nil
+    public var backgroundColorHex: String? = nil
+    public var keyColorHex: String? = nil
+    public var candidateColorHex: String? = nil
+    public var resolvedBackgroundGlassStrength: Double { backgroundGlassStrength ?? glassOpacity }
+    public var resolvedKeyGlassStrength: Double { keyGlassStrength ?? 0.55 }
     public var keyHeight: Double = 50
     /// Optional storage keeps settings saved before this control was added readable.
     public var candidateTextSize: CandidateTextSize? = nil
@@ -69,6 +77,11 @@ public struct KeyboardSettings: Codable, Equatable {
         // Subsequent changes to the switch, including disabling it, are preserved.
         if selectionLearningVersion == nil { learnChoices = true; selectionLearningVersion = 1 }
         customAccentHex = customAccentHex.flatMap { RGBColor(hex: $0)?.hex }
+        backgroundColorHex = backgroundColorHex.flatMap { RGBColor(hex: $0)?.hex }
+        keyColorHex = keyColorHex.flatMap { RGBColor(hex: $0)?.hex }
+        candidateColorHex = candidateColorHex.flatMap { RGBColor(hex: $0)?.hex }
+        backgroundGlassStrength = backgroundGlassStrength.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
+        keyGlassStrength = keyGlassStrength.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
         glassOpacity = min(1, max(0.15, glassOpacity.isFinite ? glassOpacity : 0.52))
         keyHeight = min(58, max(44, keyHeight.isFinite ? keyHeight : 50))
         clipboardLifetimeHours = clipboardLifetimeHours == 0 ? 0 : min(8_760, max(0.25, clipboardLifetimeHours.isFinite ? clipboardLifetimeHours : 168))

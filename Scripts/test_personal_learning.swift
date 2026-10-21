@@ -32,7 +32,7 @@ import Foundation
                 require(restored.candidates(for: raw).contains { $0.text == text && $0.consumed == FuzzyPinyin.normalize(raw).count }, "Missing full spelling after segmented selection")
                 let base = ["默认", "备选", "第三", "第四"].map { Candidate(text: $0, consumed: initials.count) }
                 let merged = PersonalLexicon.merging(alias, into: base, limit: 8)
-                require(merged.first?.text == "默认" && merged.prefix(4).contains { $0.text == text }, "One choice must be available without permanently pinning it")
+                require(merged.first?.text == text, "A confirmed phrase must become the first initials choice after one selection")
                 require(Set(merged.map(\.text)).count == merged.count, "Learning duplicated a word")
                 var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(memory)) as! [String: Any]
                 legacy["entries"] = (legacy["entries"] as! [[String: Any]]).map { row in var row = row; row.removeValue(forKey: "initials"); return row }
@@ -55,7 +55,8 @@ import Foundation
         for n in 1...3 {
             memory.record(name, for: "chenyuhan")
             let values = PersonalLexicon.merging(memory.candidates(for: "cyh"), into: base, limit: 8)
-            require(values[3-n].text == name.text, "Repeated confirmation did not promote gradually")
+            require(values.first?.text == name.text, "Initials must remain immediately available after every confirmed choice")
+            require(memory.candidates(for: "chenyuhan").first?.score == Double(n), "Exact full-spelling learning must remain gradual")
         }
         for trial in 0..<512 {
             let digits = String(format: "%08d", trial * 7919 % 100_000_000)

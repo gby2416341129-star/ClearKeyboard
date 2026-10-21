@@ -4,10 +4,11 @@ import UIKit
 @MainActor enum ToolArtwork {
     private static var cache: [String: UIImage] = [:]
     static func brand(size: CGFloat = 28) -> UIImage { image(symbol: "clear.prism", size: size) }
-    static func image(symbol: String, size: CGFloat = 28) -> UIImage {
-        let key = "\(symbol):\(size)"
+    static func image(symbol: String, size: CGFloat = 28, scale: CGFloat = UIScreen.main.scale) -> UIImage {
+        let key = "\(symbol):\(size):\(scale)"
         if let image = cache[key] { return image }
-        let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { renderer in
+        let format = UIGraphicsImageRendererFormat(); format.scale = scale
+        let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { renderer in
             let c = renderer.cgContext; c.scaleBy(x: size / 32, y: size / 32)
             func color(_ hex: UInt32) -> UIColor { UIColor(red: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: 1) }
             func fill(_ path: UIBezierPath, _ top: UInt32, _ bottom: UInt32) {
@@ -54,10 +55,10 @@ import UIKit
                 let teeth = UIBezierPath(); teeth.move(to: CGPoint(x: 10.5, y: 19)); teeth.addQuadCurve(to: CGPoint(x: 21.5, y: 19), controlPoint: CGPoint(x: 16, y: 22))
                 teeth.lineWidth = 1.3; teeth.lineCapStyle = .round; color(0xFFF5DD).setStroke(); teeth.stroke()
             case "keyboard.fill":
-                fill(rect(1, 7, 30, 21, 5), 0x86BEE8, 0x4264A8)
-                fill(rect(3, 9, 26, 15, 3), 0xEDF5FC, 0xA4C4DD)
-                for row in 0..<2 { for column in 0..<6 { fill(rect(5 + CGFloat(column) * 3.8, 11 + CGFloat(row) * 4, 2.7, 2.7, 0.8), 0xFFFFFF, 0x6C98C3) } }
-                fill(rect(10, 20, 12, 2.5, 0.8), 0x6CDAED, 0x2D92C7)
+                fill(rect(3, 3, 26, 26, 6), 0x93CAFA, 0x5272C6)
+                fill(rect(6, 8, 20, 17, 3), 0xF4F8FF, 0xC9DBF5)
+                for row in 0..<2 { for column in 0..<5 { fill(rect(8 + CGFloat(column) * 3.4, 11 + CGFloat(row) * 4.1, 2.2, 2.5, 0.7), 0x91B6EB, 0x668FC9) } }
+                fill(rect(11, 20, 10, 2.3, 0.8), 0x91B6EB, 0x668FC9)
             case "character.bubble.fill":
                 fill(rect(2, 3, 19, 23, 4), 0x80D4FF, 0x3683D8)
                 fill(rect(12, 10, 18, 21, 4), 0xC3A6FA, 0x7956D1)

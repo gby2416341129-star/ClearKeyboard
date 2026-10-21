@@ -2,23 +2,42 @@ import UIKit
 
 final class GlassBackdrop: UIView {
     private let material = UIVisualEffectView()
+    private let wash = UIView()
+    private var effectSignature = ""
+    private var intensity: UIViewPropertyAnimator?
     override init(frame: CGRect) {
         super.init(frame: frame)
-        addSubview(material)
+        addSubview(material); addSubview(wash)
         isUserInteractionEnabled = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() { super.layoutSubviews(); material.frame = bounds }
+    override func layoutSubviews() { super.layoutSubviews(); material.frame = bounds; wash.frame = bounds }
     func apply(_ settings: KeyboardSettings, systemBacked: Bool = false) {
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled || settings.glass == .solid
-        isOpaque = false; backgroundColor = reduced ? .secondarySystemBackground : .clear
-        if reduced || systemBacked { material.effect = nil }
-        else if #available(iOS 26.0, *) {
-            let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
-            glass.isInteractive = false; material.effect = glass
-            material.cornerConfiguration = .corners(radius: .fixed(28))
-        } else { material.effect = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
+        isOpaque = false; backgroundColor = reduced ? (settings.backgroundTintColor ?? .secondarySystemBackground) : .clear
+        let signature = "\(settings.glass)-\(reduced)-\(systemBacked)"
+        if signature != effectSignature {
+            effectSignature = signature
+            if intensity?.state == .active { intensity?.stopAnimation(true) }
+            intensity = nil; material.effect = nil
+            var target: UIVisualEffect?
+            if reduced { target = nil }
+            else if #available(iOS 26.0, *) {
+                let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
+                glass.isInteractive = false; target = glass
+                material.cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28))
+            } else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
+            if let target {
+                let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak material] in material?.effect = target }
+                animator.pausesOnCompletion = true; intensity = animator
+            }
+        }
+        // Drive the material transition itself. Fading a visual-effect view's
+        // alpha can disable its backdrop or force additional offscreen passes.
+        intensity?.fractionComplete = settings.resolvedBackgroundGlassStrength
+        wash.backgroundColor = settings.backgroundTintColor?.withAlphaComponent(reduced ? 1 : 0.12 + settings.resolvedBackgroundGlassStrength * 0.55)
     }
+    deinit { if intensity?.state == .active { intensity?.stopAnimation(true) } }
 }
 
 final class KeyButton: UIButton {
@@ -135,20 +154,20 @@ final class KeyButton: UIButton {
         // A continuous system glass sheet supplies the backdrop. Key faces transmit
         // that material instead of stacking 30 separate refracting lenses on top.
         if reduced {
-            plate.backgroundColor = UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
+            plate.backgroundColor = settings.keyTintColor ?? UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
             plate.layer.borderWidth = 0
         } else {
             let base = settings.glass == .clear ? (dark ? 0.14 : 0.62) : (dark ? 0.25 : 0.78)
-            let alpha = min(0.92, base + settings.glassOpacity * 0.12)
-            plate.backgroundColor = UIColor.white.withAlphaComponent(utility ? alpha * 0.58 : alpha)
+            let alpha = min(0.92, 0.06 + base * settings.resolvedKeyGlassStrength)
+            plate.backgroundColor = (settings.keyTintColor ?? .white).withAlphaComponent(utility ? alpha * 0.72 : alpha)
             plate.layer.borderWidth = 0.5
         }
         plate.layer.borderColor = UIColor.white.withAlphaComponent(dark ? 0.18 : 0.65).cgColor
         plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.10
         plate.layer.shadowRadius = 0.5; plate.layer.shadowOffset = CGSize(width: 0, height: 0.5)
         pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
-        caption.textColor = .label
-        icon.tintColor = .label
+        caption.textColor = settings.keyInkColor
+        icon.tintColor = settings.keyInkColor
         updateShift(active: active, capsLocked: capsLocked)
         if let title { updateTitle(title) }
     }

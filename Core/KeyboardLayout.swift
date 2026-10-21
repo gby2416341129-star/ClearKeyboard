@@ -18,7 +18,7 @@ public struct KeyboardRow: Equatable {
 }
 public enum KeyboardLayout {
     /// System QWERTY positions. Appearance settings never reorder keys.
-    public static func rows(page: KeyboardPage, uppercase: Bool = false, globe: Bool = true) -> [KeyboardRow] {
+    public static func rows(page: KeyboardPage, uppercase: Bool = false, globe: Bool = true, language: InputLanguage = .chinese) -> [KeyboardRow] {
         func letters(_ value: String) -> [KeyboardKey] {
             value.map { KeyboardKey(uppercase ? String($0).uppercased() : String($0), .text(String($0))) }
         }
@@ -42,6 +42,14 @@ public enum KeyboardLayout {
         let side = globe ? 2.8 : 2.4
         let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 0.85)] : []) +
             [KeyboardKey("中", .language, units: globe ? 0.95 : 1.2), KeyboardKey("空格", .space, units: 10 - side * 2), KeyboardKey("换行", .enter, units: side)]
-        return rows + [KeyboardRow(bottom)]
+        let output = rows + [KeyboardRow(bottom)]
+        guard language == .chinese, page != .letters else { return output }
+        let punctuation = [".": "。", ",": "，", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）", "\"": "“", "'": "、"]
+        return output.map { row in
+            KeyboardRow(row.keys.map { key in
+                guard case .text(let text) = key.action, let value = punctuation[text] else { return key }
+                return KeyboardKey(value, .text(value), units: key.units)
+            }, inset: row.insetUnits)
+        }
     }
 }

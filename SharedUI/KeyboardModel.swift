@@ -83,6 +83,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
     } }
     private(set) var page: KeyboardPage = .letters
+    private(set) var characterSelectionMode = false
+    func toggleCharacterSelection() {
+        guard settings.language == .chinese, !composition.isEmpty, !awaitingCommit else { return }
+        characterSelectionMode.toggle(); refreshCandidates()
+    }
     private var shiftState = KeyboardShift()
     private(set) var shifted: Bool {
         get { shiftState.shifted }
@@ -186,7 +191,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     // Begin work during the contact, without changing the document or the row.
     // A cancelled key is still cancelled; only handle(_:) commits the spelling.
     func prepare(_ action: KeyAction) {
-        guard !awaitingCommit, !isMovingCursor, settings.language == .chinese,
+        guard !awaitingCommit, !isMovingCursor, !characterSelectionMode, settings.language == .chinese,
               page == .letters, !shifted else { return }
         var next = composition
         switch action {
@@ -244,7 +249,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let immediateComposition = engine.hasImmediateComposition(raw)
         let lookup = wordLookup, cache = hotWords, warm = warmsWords
         let cachedWords = warm ? cache.value(raw) : nil
-        if let cachedWords, !cachedWords.isEmpty {
+        if preferred.contains(where: { $0.score == 4 }) {
+            // A learned initials alias is an explicit user mapping. It is safe
+            // to publish from memory during this key, without a worker roundtrip.
+            query.publish(Self.preferredWords(preferred, cachedWords ?? []), stage: 0)
+        } else if let cachedWords, !cachedWords.isEmpty {
             query.publish(Self.preferredWords(preferred, cachedWords), stage: immediateComposition ? 1 : 0)
         }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
@@ -545,7 +554,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 commitComposition()
                 insertText(shifted && page == .letters ? text.uppercased() : punctuation(text))
                 if !capsLocked { shifted = false; manualShift = false }
-                if page != .letters && [".", ",", "?", "!"].contains(text) { page = .letters }
+                if page != .letters && [".", ",", "?", "!", "。", "，", "？", "！"].contains(text) { page = .letters }
             }
         case .shift:
             shiftState.tap(now: ProcessInfo.processInfo.systemUptime)
@@ -569,6 +578,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 literalInputRevision += 1
             }
         case .space:
+            if settings.language == .english, candidatesAreCurrent,
+               let candidate = candidates.first, let document,
+               document.selectedText.isEmpty, document.contextBefore == englishSnapshot {
+                commitChoice(candidate, document: document)
+                return
+            }
             if composition.isEmpty { insertText(" ") } else { commitComposition(flushRemainder: false) }
         case .enter:
             if composition.isEmpty { insertText("\n") } else { finishCompositionAsTyped() }
@@ -745,6 +760,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if inputOnly, let onInputChange { onInputChange() } else { onChange?() }
         }
         guard !isMovingCursor else { return }
+        if composition.isEmpty || settings.language != .chinese { characterSelectionMode = false }
         if prepared == nil { discardPreparedCandidates() }
         generation += 1; let requestedGeneration = generation
         cancellation.cancel(); activeCandidates = nil; presentedRevision = 0
@@ -784,6 +800,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if arithmetic != nil { candidateGeneration = requestedGeneration; render(); return }
         guard let engine, document != nil, selectionIsEmpty else { render(); return }
         englishSnapshot = context
+        if characterSelectionMode, settings.language == .chinese, !raw.isEmpty {
+            render()
+            let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
+                let result = engine.characterCandidates(raw, cancelled: { token.isCancelled })
+                guard !token.isCancelled else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.generation == requestedGeneration, !token.isCancelled else { return }
+                    self.candidates = result; self.candidateGeneration = requestedGeneration
+                    self.candidateContext = queryContext; self.hasMoreCandidates = false
+                    self.notifyCandidates(); self.completeDeferredActions(for: queryContext)
+                }
+            }
+            work = job; queue.async(execute: job); return
+        }
         if settings.language == .chinese, !raw.isEmpty {
             guard let query = prepared ?? prepareCandidates(for: raw) else { render(); return }
             activeCandidates = query; preparedCandidates = nil; cancellation = query.token

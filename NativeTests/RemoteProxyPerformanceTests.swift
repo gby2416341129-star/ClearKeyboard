@@ -458,8 +458,8 @@ import UIKit
         let label = try XCTUnwrap(descendants(button).compactMap { $0 as? UILabel }.first { $0.accessibilityIdentifier == "candidate.currentInk" })
         let outgoing = try XCTUnwrap(descendants(button).compactMap { $0 as? UILabel }.first { $0.accessibilityIdentifier == "candidate.outgoingInk" })
         let initial = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
-        XCTAssertEqual(initial.keyPath, "opacity"); XCTAssertEqual(initial.duration, 0.10, accuracy: 0.0001)
-        XCTAssertGreaterThanOrEqual((initial.fromValue as? NSNumber)?.doubleValue ?? 0, 0.75)
+        XCTAssertEqual(initial.keyPath, "opacity"); XCTAssertEqual(initial.duration, 0.14, accuracy: 0.0001)
+        XCTAssertEqual((initial.fromValue as? NSNumber)?.doubleValue ?? 0, 0.40, accuracy: 0.0001)
         XCTAssertEqual(outgoing.text, "旧词")
         XCTAssertNotNil(outgoing.layer.animation(forKey: "candidatePreviousText"))
         let frame = button.frame

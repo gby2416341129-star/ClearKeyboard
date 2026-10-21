@@ -17,6 +17,9 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -derivedDataPath .build/Composition -resultBundlePath .build/CompositionResults.xcresult \
   -destination-timeout 60 -parallel-testing-enabled NO \
   -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
+  -only-testing:ClearKeyboardRuntimeTests/UnifiedRepairTests \
+  -only-testing:ClearKeyboardRuntimeTests/CustomizationRuntimeTests \
+  -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testDelayedFirstLetterAcknowledgementCannotSplitLivePinyin \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testHostReadInterruptedByKeyCannotCancelNewSpelling \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testDelayedOwnHostNotificationsDoNotDiscardCandidates \
@@ -61,6 +64,7 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -derivedDataPath .build/Composition -resultBundlePath .build/AppBottomResults.xcresult \
   -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
   -only-testing:ClearKeyboardUITests/AppUITests/testEveryTabCanScrollItsLastControlAboveTheBottomBar \
+  -only-testing:ClearKeyboardUITests/AppUITests/testACustomizationControlsCanBeChangedWithoutCrashing \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
 UI_EXIT=$?
 set -e

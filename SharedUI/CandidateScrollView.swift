@@ -10,6 +10,7 @@ import os
         let arithmetic: Bool
         let hasMore: Bool
         let textSize: CandidateTextSize
+        let textColor: UIColor?
     }
     private var presentation: Presentation?
     private var pending: (Presentation, UIColor)?
@@ -83,8 +84,9 @@ import os
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
     func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool,
-                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard) {
-        var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize)
+                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil) {
+        var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize,
+                                textColor: textColor?.resolvedColor(with: traitCollection))
         let resolved = accent.resolvedColor(with: traitCollection)
         if UIAccessibility.isReduceMotionEnabled { buttons.forEach { $0.finishTransition() } }
         if sameQuery(browsed, next), let current = presentation, sameQuery(current, next) {
@@ -93,7 +95,7 @@ import os
             var seen = Set(current.items.map(\.text))
             let appended = current.items + items.filter { seen.insert($0.text).inserted }
             next = Presentation(items: appended, context: current.context,
-                                arithmetic: arithmetic, hasMore: hasMore, textSize: textSize)
+                                arithmetic: arithmetic, hasMore: hasMore, textSize: textSize, textColor: next.textColor)
             pending = nil; schedule(next, accent: resolved); return
         }
         if holdsCandidateUpdates { pending = (next, resolved); return }
@@ -119,7 +121,7 @@ import os
                 var seen = Set(current.items.map(\.text))
                 let merged = current.items + next.items.filter { seen.insert($0.text).inserted }
                 self.apply(Presentation(items: merged, context: current.context, arithmetic: next.arithmetic,
-                    hasMore: next.hasMore, textSize: next.textSize), accent: color)
+                    hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor), accent: color)
             } else { self.apply(next, accent: color) }
         }
     }
@@ -148,7 +150,7 @@ import os
         let changedQuery = !sameQuery(presentation, next)
         let previous = presentation?.items ?? []
         let changedItems = previous.map(\.text) != next.items.map(\.text)
-        let changedColor = !ink.isEqual(accent)
+        let changedColor = !ink.isEqual(accent) || presentation?.textColor != next.textColor
         let changedFont = presentation?.textSize != next.textSize
         if changedFont {
             normalFont = .systemFont(ofSize: CGFloat(next.textSize.points))
@@ -227,7 +229,7 @@ import os
             if force || old == nil {
                 button.configure(current.items[index], first: index == 0, accent: ink,
                                  font: index == 0 ? firstFont : normalFont,
-                                 animate: animateChanges && window != nil)
+                                 animate: animateChanges && window != nil, normalColor: current.textColor)
                 button.tag = index; button.frame = frames[index]
             }
             if button.isHidden { button.isHidden = false }
@@ -332,7 +334,7 @@ import os
         if let (next, color) = pending, sameQuery(browsed, next) {
             pending = nil
             update(next.items, context: next.context, arithmetic: next.arithmetic,
-                   accent: color, hasMore: next.hasMore, textSize: next.textSize)
+                   accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor)
         }
         requestedCount = -1; requestMoreIfNeeded()
     }
@@ -348,7 +350,7 @@ import os
                 if let (next, color) = self.pending {
                     self.pending = nil
                     // Recheck the browsing lock after finger-up as well.
-                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore, textSize: next.textSize)
+                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor)
                 }
             }
         }
@@ -415,18 +417,19 @@ import os
         measuredWidths.setObject(NSNumber(value: Double(width)), forKey: key)
         return width
     }
-    func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false) {
+    func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false, normalColor: UIColor? = nil) {
         let oldText = label.text
         let oldFont = label.font, oldColor = label.textColor
         let changedFont = label.font != font
         if label.font != font { label.font = font }
         if label.text != candidate.text { label.text = candidate.text }
-        label.textColor = first ? accent : .label
+        label.textColor = normalColor ?? (first ? accent : .label)
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
         if changedFont { finishTransition() }
         guard oldText != candidate.text else {
-            if !animate { finishTransition() }
+            // Geometry can refresh immediately after this row was published.
+            // Reusing unchanged ink must not cancel its in-flight animation.
             return
         }
         guard animate, !UIAccessibility.isReduceMotionEnabled else { finishTransition(); return }
@@ -441,18 +444,18 @@ import os
         let rate = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
         // Blend only glyph opacity: no moving cells, layout animation, bitmap
         // capture or delayed hit target. Most new ink is visible from frame one.
-        let duration = 0.10
+        let duration = 0.14
         transitionDeadline = now + duration
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.preferredFrameRateRange = rate
-        fade.fromValue = 0.78; fade.toValue = 1; fade.duration = duration
+        fade.fromValue = 0.40; fade.toValue = 1; fade.duration = duration
         fade.beginTime = label.layer.convertTime(now, from: nil)
         fade.timingFunction = CAMediaTimingFunction(name: .linear)
         label.layer.add(fade, forKey: "candidateText")
         if oldText?.isEmpty == false {
             let previous = CABasicAnimation(keyPath: "opacity")
             previous.preferredFrameRateRange = rate
-            previous.fromValue = 0.22; previous.toValue = 0; previous.duration = duration
+            previous.fromValue = 0.35; previous.toValue = 0; previous.duration = duration
             previous.beginTime = outgoing.layer.convertTime(now, from: nil)
             previous.timingFunction = CAMediaTimingFunction(name: .linear)
             outgoing.layer.add(previous, forKey: "candidatePreviousText")

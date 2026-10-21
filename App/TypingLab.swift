@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftUI
 import UIKit
 
@@ -147,3 +148,5 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
         rememberSelection(); editingInternally = false; return true
     }
 }
+
+#endif

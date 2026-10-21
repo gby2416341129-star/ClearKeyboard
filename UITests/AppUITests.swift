@@ -10,80 +10,55 @@ import XCTest
     }
     func testEveryTabCanScrollItsLastControlAboveTheBottomBar() throws {
         continueAfterFailure = false; clear.launch()
-        for (tab, identifier) in [("home", "home.footer"), ("custom", "custom.toolbarEditor"), ("input", "input.resetLearning")] {
-            clear.buttons["tab." + tab].tap()
+        let bar = clear.tabBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 8))
+        for (tab, identifier) in [("澈", "home.footer"), ("定制", "custom.footer"), ("输入", "input.resetLearning")] {
+            bar.buttons[tab].tap()
             let last = clear.descendants(matching: .any).matching(identifier: identifier).firstMatch
             let scroll = clear.scrollViews.firstMatch
             for _ in 0..<10 {
-                let barTop = clear.buttons["tab.home"].frame.minY
-                if last.exists && last.isHittable && last.frame.maxY <= barTop - 6 { break }
+                if last.exists && last.isHittable && last.frame.maxY < bar.frame.minY { break }
                 scroll.swipeUp()
             }
-            XCTAssertTrue(last.exists && last.isHittable, "Last content must be reachable in " + tab)
-            XCTAssertLessThanOrEqual(last.frame.maxY, clear.buttons["tab.home"].frame.minY - 6,
-                                     "Last content is covered by the bottom bar in " + tab)
-            print("APP_BOTTOM_REACHABLE tab=\(tab) lastMaxY=\(last.frame.maxY) barMinY=\(clear.buttons["tab.home"].frame.minY)")
+            XCTAssertTrue(last.exists && last.isHittable, "Last control must be reachable in " + tab)
+            XCTAssertLessThan(last.frame.maxY, bar.frame.minY, "The tab bar covers content in " + tab)
+            XCTAssertFalse(clear.buttons["home.practice"].exists, "The removed practice screen must have no entry")
+            print("APP_BOTTOM_REACHABLE tab=\(tab) lastMaxY=\(last.frame.maxY) barMinY=\(bar.frame.minY)")
+            attachment(clear, name: "redesigned-" + identifier)
         }
     }
-    func testCandidateRibbonFlicksAndTapCommit() throws {
-        continueAfterFailure = false; clear.launch()
-        let practice = clear.buttons["home.practice"]; reveal(practice, in: clear); practice.tap()
-        let input = clear.textViews["practice.input"]; XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
-        func key(_ identifier: String) -> XCUIElement { clear.descendants(matching: .any).matching(identifier: identifier).firstMatch }
-        let language = key("key.language"); XCTAssertTrue(language.waitForExistence(timeout: 5), clear.debugDescription)
-        if language.label.hasPrefix("英文") { language.tap() }
-        XCTAssertTrue(language.label.hasPrefix("中文"), clear.debugDescription)
-        let ribbon = clear.scrollViews["clear.candidates"]
-        for letter in "shaod" {
-            key("key.text." + String(letter)).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            print("CANDIDATE_TYPING letter=\(letter) visibleInput=\(input.value ?? "nil")")
-        }
-        let wait = key("candidate.稍等"); XCTAssertTrue(wait.waitForExistence(timeout: 5), clear.debugDescription)
-        Thread.sleep(forTimeInterval: 1.2)
-        wait.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertEqual(input.value as? String, "稍等", "A candidate must commit by finger tap before any space key")
-        for _ in 0..<2 { key("key.⌫").tap() }
-        for letter in "shi" { let item = key("key.text." + String(letter)); XCTAssertTrue(item.waitForExistence(timeout: 5)); item.tap() }
-        XCTAssertTrue(ribbon.waitForExistence(timeout: 5))
-        func offset() -> Int {
-            let value = ribbon.value as? String ?? ""
-            return Int(value.split(separator: ";").first?.split(separator: ":").last.map(String.init) ?? "") ?? -1
-        }
-        for _ in 0..<2 {
-            ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)).press(forDuration: 0.02,
-                thenDragTo: ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)))
-            XCTAssertGreaterThan(offset(), 40, "A quick horizontal flick must scroll the candidates")
-            ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).press(forDuration: 0.02,
-                thenDragTo: ribbon.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.5)))
-        }
-        for _ in 0..<3 { key("key.⌫").tap() }
-        for letter in "nihao" { key("key.text." + String(letter)).tap() }
-        let candidate = clear.descendants(matching: .any).matching(identifier: "candidate.你好").firstMatch
-        XCTAssertTrue(candidate.waitForExistence(timeout: 5))
-        candidate.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertEqual(clear.textViews["practice.input"].value as? String, "你好")
-        print("CANDIDATE_REAL_GESTURES tapBeforeSpace=passed shaod=稍等 forwardReverseFlicks=4 tapAfterFlick=passed")
-    }
+
+
     func testACustomizationControlsCanBeChangedWithoutCrashing() throws {
         continueAfterFailure = false; clear.launch()
-        clear.buttons["tab.custom"].tap()
-        let segmented = clear.segmentedControls["custom.glass"]
-        XCTAssertTrue(segmented.waitForExistence(timeout: 8))
-        for title in ["柔雾", "纯净", "清透"] { segmented.buttons[title].tap() }
-        clear.sliders["custom.opacity"].adjust(toNormalizedSliderPosition: 0.35)
-        for color in ["ocean", "rose", "jade"] { let swatch = clear.buttons["custom.accent." + color]; reveal(swatch, in: clear); swatch.tap() }
-        let hex = clear.textFields["custom.hex"]; hex.tap()
-        if let value = hex.value as? String { hex.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count)) }
-        hex.typeText("#3399FF"); clear.buttons["custom.applyHex"].tap()
-        if clear.keyboards.buttons["Done"].exists { clear.keyboards.buttons["Done"].tap() }
-        let height = clear.sliders["custom.keyHeight"]; reveal(height, in: clear)
-        height.adjust(toNormalizedSliderPosition: 0.7); clear.buttons["custom.resetHeight"].tap()
-        let hand = clear.buttons["custom.hand"]; reveal(hand, in: clear)
-        for title in ["左手", "右手", "标准"] { hand.tap(); clear.buttons.matching(identifier: title).firstMatch.tap() }
-        let haptics = clear.switches["custom.haptics"]; reveal(haptics, in: clear); haptics.tap(); haptics.tap()
-        XCTAssertEqual(clear.state, .runningForeground)
-        attachment(clear, name: "customization-controls")
+        clear.tabBars.buttons["定制"].tap()
+        for name in ["backgroundGlass", "keyGlass", "backgroundColor", "keyColor", "candidateColor", "candidateSize"] {
+            let entry = clear.descendants(matching: .any).matching(identifier: "custom.edit." + name).firstMatch
+            reveal(entry, in: clear); XCTAssertTrue(entry.isHittable, name); entry.tap()
+            let preview = clear.descendants(matching: .any).matching(identifier: "preview." + name).firstMatch
+            let nativePreview = clear.descendants(matching: .any).matching(identifier: "appearance.preview").firstMatch
+            XCTAssertTrue(preview.waitForExistence(timeout: 4) || nativePreview.exists, "Missing live preview for " + name)
+            if name == "backgroundGlass" || name == "keyGlass" {
+                let slider = clear.sliders["appearance.strength." + name]
+                XCTAssertTrue(slider.exists); slider.adjust(toNormalizedSliderPosition: name == "backgroundGlass" ? 0.2 : 0.85)
+            } else if name == "candidateSize" {
+                clear.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap()
+            } else {
+                let swatch = clear.buttons["#7573F5"]; reveal(swatch, in: clear); XCTAssertTrue(swatch.isHittable); swatch.tap()
+            }
+            XCTAssertEqual(clear.state, .runningForeground)
+            clear.navigationBars.buttons.element(boundBy: 0).tap()
+        }
+        let toolbar = clear.buttons["custom.toolbarEditor"]; reveal(toolbar, in: clear); toolbar.tap()
+        XCTAssertTrue(clear.navigationBars["快捷工具"].waitForExistence(timeout: 4))
+        clear.buttons["完成"].tap()
+        clear.terminate(); clear.launch(); clear.tabBars.buttons["定制"].tap()
+        let entry = clear.descendants(matching: .any).matching(identifier: "custom.edit.candidateSize").firstMatch
+        reveal(entry, in: clear); entry.tap()
+        XCTAssertTrue(clear.segmentedControls["custom.candidateTextSize"].buttons["特大"].isSelected)
+        print("APPEARANCE_UI pages=6 livePreview=true controlsChanged=true persistedAfterRelaunch=true")
     }
+
     private func tapSettingsText(_ label: String, in app: XCUIApplication) {
         let target = app.staticTexts.matching(identifier: label).firstMatch
         reveal(target, in: app); XCTAssertTrue(target.waitForExistence(timeout: 5), label); target.tap()

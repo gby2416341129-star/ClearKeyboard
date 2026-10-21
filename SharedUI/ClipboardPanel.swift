@@ -124,7 +124,14 @@ import ImageIO
         onClose?()
     }
     private func menu(for clip: Clip) -> UIMenu {
-        var actions: [UIAction] = []
+        var actions: [UIAction] = [UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+            guard let self else { return }
+            if let attachment = clip.attachment,
+               let data = (self.tabs.selectedSegmentIndex == 1 ? self.phrases : self.store).attachmentData(for: clip) {
+                UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
+            } else { UIPasteboard.general.string = clip.text }
+            UIAccessibility.post(notification: .announcement, argument: "已复制")
+        }]
         if clip.attachment == nil {
             if tabs.selectedSegmentIndex == 0 {
                 actions.append(UIAction(title: "加入常用语", image: UIImage(systemName: "plus.bubble")) { [weak self] _ in self?.phrases.add(clip.text); self?.reload() })

@@ -1,5 +1,6 @@
 import UIKit
 import ImageIO
+import SwiftUI
 
 @MainActor final class KeyboardSurface: UIView, UIDragInteractionDelegate, UIDropInteractionDelegate {
     let model: KeyboardModel
@@ -11,6 +12,14 @@ import ImageIO
     private let candidateScroll = CandidateScrollView()
     private let hint = UILabel()
     private let keyGlassGroup = UIView()
+    private let keyMaterial = KeyGlassMaterial(effect: nil)
+    private let characterButton = UIButton(type: .system)
+    private let clipboardSuggestion = UIStackView()
+    private let clipboardPaste = UIButton(type: .system)
+    private var recentClip: Clip?
+    private var dismissedClip: UUID?
+    private var appearanceHost: UIHostingController<KeyboardAppearancePanel>?
+    private var appearanceBridge: AppearanceBridge?
     private var keysContainer: UIView { keyGlassGroup }
     private var movingCursor = false
     private let sideRail = UIStackView()
@@ -72,7 +81,14 @@ import ImageIO
         }
         addSubview(hint); hint.font = .systemFont(ofSize: 13); hint.textColor = .secondaryLabel
         hint.textAlignment = .center; hint.isUserInteractionEnabled = false
-        addSubview(keyGlassGroup); addSubview(sideRail)
+        addSubview(keyGlassGroup); keyGlassGroup.addSubview(keyMaterial); addSubview(sideRail)
+        characterButton.setTitle("字", for: .normal)
+        characterButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        characterButton.backgroundColor = .secondarySystemFill; characterButton.layer.cornerRadius = 10
+        characterButton.accessibilityIdentifier = "candidate.characterMode"
+        characterButton.addAction(UIAction { [weak self] _ in self?.model.toggleCharacterSelection() }, for: .touchUpInside)
+        addSubview(characterButton)
+        configureClipboardSuggestion(); addSubview(clipboardSuggestion)
         sideRail.axis = .vertical; sideRail.distribution = .fillEqually; sideRail.spacing = 6
         addSubview(deleteHint); deleteHint.isHidden = true; deleteHint.isUserInteractionEnabled = false
         deleteHint.font = .systemFont(ofSize: 13, weight: .semibold); deleteHint.textAlignment = .center
@@ -99,9 +115,11 @@ import ImageIO
         }
         initialized = true; render()
         model.clipboardCapture.onCapture = { [weak self] in
-            guard let self, self.panelKind == .clipboard else { return }
-            (self.panel as? ClipboardPanel)?.reloadFromDisk()
+            guard let self else { return }
+            self.reloadClipboardSuggestion()
+            if self.panelKind == .clipboard { (self.panel as? ClipboardPanel)?.reloadFromDisk() }
         }
+        reloadClipboardSuggestion(fresh: false)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     deinit { observerTokens.forEach { NotificationCenter.default.removeObserver($0) } }
@@ -131,16 +149,23 @@ import ImageIO
             geometryPresentation = geometry; keyFramesNeedLayout = false
             backdrop.frame = bounds; toolbar.frame = layout.header
             keyGlassGroup.frame = layout.keys
+            keyMaterial.frame = keyGlassGroup.bounds
+            var faces: [CGRect] = []
             for (button, row, start, units) in keys {
                 button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
                                       width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
+                faces.append(KeyboardGeometry.keyPlate(in: button.bounds, action: button.key.action, units: units).offsetBy(dx: button.frame.minX, dy: button.frame.minY))
             }
+            keyMaterial.setFaces(faces)
             sideRail.isHidden = settings.hand == .full
             sideRail.frame = layout.sideRail
         }
         // Eight points retain compact left alignment while keeping the first
         // highlight inside the keyboard shell's rounded top corners.
         var header = layout.header.insetBy(dx: -8, dy: 0); header.size.height = candidateHeight
+        characterButton.frame = CGRect(x: header.maxX - 37, y: header.minY + 6, width: 34, height: 32)
+        clipboardSuggestion.frame = layout.header.insetBy(dx: 3, dy: 5)
+        if model.settings.language == .chinese, !model.composition.isEmpty { header.size.width = max(0, header.width - 41) }
         if candidateScroll.frame != header { candidateScroll.frame = header }
         hint.frame = header
         renderCandidates()
@@ -160,11 +185,11 @@ import ImageIO
         rendering = true; defer { rendering = false }
         let settings = model.settings
         let uppercase = settings.language == .chinese || model.shifted
-        let signature = "\(model.page)-\(model.document?.needsGlobe ?? true)"
+        let signature = "\(model.page)-\(settings.language)-\(model.document?.needsGlobe ?? true)"
         if signature != layoutSignature && !movingCursor {
             layoutSignature = signature
             keys.forEach { $0.0.removeFromSuperview() }; keys = []
-            for (rowIndex, row) in KeyboardLayout.rows(page: model.page, uppercase: uppercase, globe: model.document?.needsGlobe ?? true).enumerated() {
+            for (rowIndex, row) in KeyboardLayout.rows(page: model.page, uppercase: uppercase, globe: model.document?.needsGlobe ?? true, language: settings.language).enumerated() {
                 var start = row.insetUnits
                 for key in row.keys {
                     let button = KeyButton(key: key)
@@ -205,10 +230,11 @@ import ImageIO
         let toolSignature = "\(settings.toolbar)-\(toolbarEditing)-\(toolboxVisible)-\(panelKind?.rawValue ?? "")"
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
-        let style = "\(settings.glass)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.glassOpacity)-\(settings.haptics)-\(traitCollection.userInterfaceStyle.rawValue)"
+        let style = "\(settings.glass)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedBackgroundGlassStrength)-\(settings.resolvedKeyGlassStrength)-\(settings.backgroundColorHex ?? "")-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.haptics)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
             appearanceSignature = style; backdrop.apply(settings, systemBacked: systemBacked); tintColor = settings.accentInkColor
+            keyMaterial.apply(settings)
         }
         let presentation = KeyPresentation(uppercase: uppercase, chinese: settings.language == .chinese,
             shifted: model.shifted, capsLocked: model.capsLocked,
@@ -267,10 +293,16 @@ import ImageIO
         // A result can arrive before the first host layout. Do not ask a zero-
         // sized flow layout to lay out 44-point cells; layout will pull the latest.
         if !panelOpen, height > 0, candidateScroll.bounds.width > 0 {
-            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize)
+            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize, textColor: model.settings.candidateTintColor)
         }
-        toolbar.isHidden = panelKind == .clipboard || (!panelOpen && candidateHeight > 0)
-        candidateScroll.isHidden = panelOpen || movingCursor || candidateHeight == 0
+        let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && recentClip != nil
+        clipboardSuggestion.isHidden = !clipboardVisible
+        toolbar.isHidden = clipboardVisible || panelKind == .clipboard || (!panelOpen && candidateHeight > 0)
+        candidateScroll.isHidden = clipboardVisible || panelOpen || movingCursor || candidateHeight == 0
+        characterButton.isHidden = panelOpen || movingCursor || model.settings.language != .chinese || model.composition.isEmpty
+        characterButton.setTitle(model.characterSelectionMode ? "词" : "字", for: .normal)
+        characterButton.accessibilityLabel = model.characterSelectionMode ? "返回词组候选" : "按单字选词"
+        if let bridge = appearanceBridge, bridge.settings != model.settings { bridge.settings = model.settings }
         hint.isHidden = panelOpen || !movingCursor; hint.text = movingCursor ? "滑动键盘，移动光标" : nil
         // Candidate updates only touch the header, never the keys or glass layers.
         // The collection lays out in UIKit's normal pass, never synchronously
@@ -296,10 +328,11 @@ import ImageIO
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
-        config.image = image ?? symbol.map { ToolArtwork.image(symbol: $0, size: 28) }
+        let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
+        config.image = image ?? symbol.map { navigationIcon ? UIImage(systemName: $0, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)) : ToolArtwork.image(symbol: $0, size: 28) }
         config.baseForegroundColor = .secondaryLabel
-        config.background.backgroundColor = .clear
-        config.background.cornerRadius = 0
+        config.background.backgroundColor = navigationIcon ? .secondarySystemFill : .clear
+        config.background.cornerRadius = navigationIcon ? 17 : 0
         config.contentInsets = .zero
         button.configuration = config; button.accessibilityLabel = label
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
@@ -317,7 +350,7 @@ import ImageIO
                 if self.panel != nil { self.closePanel() }
                 else { self.showToolbox() }
             }
-        brand.configuration?.baseForegroundColor = model.settings.accentInkColor
+        brand.configuration?.baseForegroundColor = panelOpen ? .secondaryLabel : model.settings.accentInkColor
         brand.accessibilityIdentifier = "toolbar.tools"
         toolbar.addArrangedSubview(brand)
         let spacer = UIView(); spacer.setContentHuggingPriority(.defaultLow, for: .horizontal); toolbar.addArrangedSubview(spacer)
@@ -407,6 +440,7 @@ import ImageIO
     }
     func closePanel() {
         panel?.removeFromSuperview(); panel = nil; panelKind = nil; toolboxVisible = false; toolbarEditing = false
+        appearanceHost = nil; appearanceBridge = nil
         keyGlassGroup.isHidden = false; render()
     }
     private func activateTool(_ tool: ToolbarTool) {
@@ -420,6 +454,60 @@ import ImageIO
     private func announce(_ text: String) {
         guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)
+    }
+    private func configureClipboardSuggestion() {
+        clipboardSuggestion.axis = .horizontal; clipboardSuggestion.spacing = 8; clipboardSuggestion.alignment = .fill
+        clipboardSuggestion.accessibilityIdentifier = "clipboard.recent"
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "doc.on.clipboard", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14))
+        config.imagePadding = 7; config.contentInsets = .zero; config.baseForegroundColor = .label
+        config.titleLineBreakMode = .byTruncatingTail
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in
+            var next = values; next.font = .systemFont(ofSize: 14); return next
+        }
+        clipboardPaste.configuration = config; clipboardPaste.contentHorizontalAlignment = .leading
+        clipboardPaste.accessibilityIdentifier = "clipboard.recent.paste"
+        clipboardPaste.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        clipboardPaste.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        clipboardPaste.addAction(UIAction { [weak self] _ in self?.pasteRecentClip() }, for: .touchUpInside)
+        clipboardSuggestion.addArrangedSubview(clipboardPaste)
+        let expand = UIButton(type: .system)
+        expand.setImage(UIImage(systemName: "chevron.down"), for: .normal)
+        expand.tintColor = .secondaryLabel; expand.accessibilityLabel = "打开剪贴板历史"
+        expand.accessibilityIdentifier = "clipboard.recent.history"
+        expand.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        expand.addAction(UIAction { [weak self] _ in self?.showPanel(.clipboard) }, for: .touchUpInside)
+        clipboardSuggestion.addArrangedSubview(expand)
+        let close = UIButton(type: .system)
+        close.setImage(UIImage(systemName: "xmark"), for: .normal)
+        close.tintColor = .secondaryLabel; close.accessibilityLabel = "关闭本次剪贴提示"
+        close.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        close.addAction(UIAction { [weak self] _ in self?.dismissRecentClip() }, for: .touchUpInside)
+        clipboardSuggestion.addArrangedSubview(close)
+    }
+    private func reloadClipboardSuggestion(fresh: Bool = true) {
+        let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true))
+        store.prune(lifetime: model.settings.clipboardLifetimeHours * 3600)
+        if fresh { dismissedClip = nil }
+        recentClip = store.clips.first.flatMap {
+            $0.id != dismissedClip && (fresh || Date().timeIntervalSince($0.createdAt) < 900) ? $0 : nil
+        }
+        clipboardPaste.configuration?.title = recentClip?.text.replacingOccurrences(of: "\n", with: " ")
+        clipboardPaste.accessibilityLabel = recentClip.map { "粘贴：" + $0.text }
+        renderCandidates()
+    }
+    private func dismissRecentClip() {
+        dismissedClip = recentClip?.id; recentClip = nil; renderCandidates()
+    }
+    private func pasteRecentClip() {
+        guard let clip = recentClip else { return }
+        if let attachment = clip.attachment {
+            let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true))
+            guard let data = store.attachmentData(for: clip) else { dismissRecentClip(); return }
+            UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
+            UIAccessibility.post(notification: .announcement, argument: "已复制，请在输入框粘贴")
+        } else { model.insertLiteral(clip.text) }
+        dismissRecentClip()
     }
     private func panelStack(title: String) -> UIStackView {
         let container = UIView(); container.backgroundColor = .clear
@@ -459,11 +547,13 @@ import ImageIO
                 guard start + offset < items.count else { row.addArrangedSubview(UIView()); continue }
                 let (title, symbol, action) = items[start + offset]
                 var config = UIButton.Configuration.plain(); config.title = title; config.image = ToolArtwork.image(symbol: symbol, size: 32)
-                config.imagePlacement = .top; config.imagePadding = 7; config.baseForegroundColor = .label
-                config.background.backgroundColor = UIColor.tertiarySystemFill.withAlphaComponent(0.18); config.background.cornerRadius = 14
-                config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 11); return result }
+                config.imagePlacement = .top; config.imagePadding = 10; config.baseForegroundColor = .label
+                config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 4, bottom: 12, trailing: 4)
+                config.background.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.65); config.background.cornerRadius = 16
+                config.background.strokeColor = UIColor.separator.withAlphaComponent(0.12); config.background.strokeWidth = 0.5
+                config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 12, weight: .medium); return result }
                 let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
-                button.heightAnchor.constraint(equalToConstant: 76).isActive = true; row.addArrangedSubview(button)
+                button.heightAnchor.constraint(equalToConstant: 84).isActive = true; row.addArrangedSubview(button)
             }
             stack.addArrangedSubview(row)
         }
@@ -475,6 +565,14 @@ import ImageIO
             let content = ClipboardPanel(model: model)
             content.onClose = { [weak self] in self?.closePanel() }
             addSubview(content); panel = content; keyGlassGroup.isHidden = true; render(); return
+        }
+        if kind == .appearance {
+            let bridge = AppearanceBridge(settings: model.settings) { [weak model] value in model?.settings = value }
+            let host = UIHostingController(rootView: KeyboardAppearancePanel(bridge: bridge))
+            // Remote keyboard hosts must receive drags that begin between rows.
+            host.view.backgroundColor = UIColor(white: 0.5, alpha: 0.01); host.view.isOpaque = false
+            appearanceBridge = bridge; appearanceHost = host
+            addSubview(host.view); panel = host.view; keyGlassGroup.isHidden = true; render(); setNeedsLayout(); return
         }
         let stack = panelStack(title: kind.title)
         switch kind {
@@ -497,41 +595,7 @@ import ImageIO
             height.accessibilityLabel = "按键高度"
             height.addAction(UIAction { [weak self, weak height] _ in if let height { self?.model.settings.keyHeight = Double(height.value.rounded()) } }, for: .valueChanged)
             stack.addArrangedSubview(height)
-        case .appearance:
-            stack.addArrangedSubview(note("候选词大小"))
-            let textSize = UISegmentedControl(items: CandidateTextSize.allCases.map(\.title))
-            textSize.selectedSegmentIndex = CandidateTextSize.allCases.firstIndex(of: model.settings.resolvedCandidateTextSize) ?? 1
-            textSize.accessibilityLabel = "候选词大小"
-            textSize.accessibilityIdentifier = "keyboard.candidateTextSize"
-            textSize.addAction(UIAction { [weak self, weak textSize] _ in
-                guard let textSize, CandidateTextSize.allCases.indices.contains(textSize.selectedSegmentIndex) else { return }
-                self?.model.settings.candidateTextSize = CandidateTextSize.allCases[textSize.selectedSegmentIndex]
-            }, for: .valueChanged)
-            stack.addArrangedSubview(textSize)
-            let segment = UISegmentedControl(items: GlassPreset.allCases.map(\.title))
-            segment.selectedSegmentIndex = GlassPreset.allCases.firstIndex(of: model.settings.glass) ?? 0
-            segment.addAction(UIAction { [weak self, weak segment] _ in guard let segment else { return }; self?.model.settings.glass = GlassPreset.allCases[segment.selectedSegmentIndex] }, for: .valueChanged)
-            stack.addArrangedSubview(segment)
-            let slider = UISlider(); slider.minimumValue = 0.15; slider.maximumValue = 1; slider.value = Float(model.settings.glassOpacity)
-            slider.accessibilityLabel = "玻璃遮罩浓度"
-            slider.addAction(UIAction { [weak self, weak slider] _ in if let slider { self?.model.settings.glassOpacity = Double(slider.value) } }, for: .valueChanged)
-            stack.addArrangedSubview(slider)
-            let colors = UIStackView(); colors.axis = .horizontal; colors.distribution = .fillEqually
-            for color in Accent.allCases { colors.addArrangedSubview(actionButton(color.title) { [weak self] in self?.model.settings.accent = color; self?.model.settings.customAccentHex = nil }) }
-            stack.addArrangedSubview(colors)
-            for (channel, name) in ["R", "G", "B"].enumerated() {
-                let row = UIStackView(); row.axis = .horizontal; row.spacing = 8
-                let label = note(name); label.widthAnchor.constraint(equalToConstant: 15).isActive = true; row.addArrangedSubview(label)
-                let rgb = model.settings.accentRGB
-                let slider = UISlider(); slider.minimumValue = 0; slider.maximumValue = 255; slider.tag = channel
-                slider.value = Float([rgb.red, rgb.green, rgb.blue][channel] * 255); slider.accessibilityLabel = "自定义颜色 " + name
-                slider.addAction(UIAction { [weak self, weak slider] _ in
-                    guard let self, let slider else { return }; var color = self.model.settings.accentRGB
-                    let value = Double(slider.value) / 255
-                    if slider.tag == 0 { color.red = value } else if slider.tag == 1 { color.green = value } else { color.blue = value }
-                    self.model.settings.customAccentHex = color.hex
-                }, for: .valueChanged); row.addArrangedSubview(slider); stack.addArrangedSubview(row)
-            }
+        case .appearance: break
         }
         render(); setNeedsLayout()
     }

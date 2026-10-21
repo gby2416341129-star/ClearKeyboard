@@ -55,6 +55,26 @@ public final class InputEngine {
     public func hasImmediateComposition(_ raw: String) -> Bool {
         raw.utf8.count <= Composition.maximumQueryLength && !raw.contains("'") && repetition?.recognizes(FuzzyPinyin.normalize(raw)) == true
     }
+    /// Explicit character browsing uses the existing dictionary and consumes only
+    /// the leading syllable. No name or character list is injected into ranking.
+    public func characterCandidates(_ raw: String, cancelled: () -> Bool = { false }) -> [Candidate] {
+        let input = FuzzyPinyin.normalize(raw)
+        guard !input.isEmpty else { return [] }
+        for length in stride(from: min(6, input.count), through: 1, by: -1) {
+            if cancelled() { return [] }
+            let prefix = String(input.prefix(length))
+            let entries = matureDecoder?.candidates(prefix, limit: 256, correction: false, context: "", cancelled: cancelled)
+                ?? chinese.lookup("e:" + prefix, limit: 256).map {
+                    Candidate(text: $0.text, reading: $0.reading, consumed: length)
+                }
+            let values = entries.filter {
+                $0.text.count == 1 && !$0.text.unicodeScalars.allSatisfy({ $0.isASCII }) &&
+                (FuzzyPinyin.normalize($0.reading) == prefix || (length == 1 && $0.reading.hasPrefix(prefix)))
+            }.map { Candidate(text: $0.text, reading: $0.reading, consumed: length, score: $0.score) }
+            if !values.isEmpty { return values }
+        }
+        return []
+    }
     private func repeatedCandidates(_ input: String) -> [Candidate] {
         var values = repetition?.candidates(input) ?? []
         guard !values.isEmpty else { return [] }

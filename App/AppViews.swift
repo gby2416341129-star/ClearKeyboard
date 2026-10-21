@@ -58,39 +58,17 @@ struct RootView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var tab: AppTab = .home
     var body: some View {
-        VStack(spacing: 0) {
-          NavigationStack {
-            Group {
-                switch tab {
-                case .home: HomeView(selectedTab: $tab)
-                case .custom: CustomizationView()
-                case .input: InputSettingsView()
-                }
-            }
-        }.id(tab)
-          // Reserve actual layout height for the bar. A safe-area inset on
-          // the outside of NavigationStack can leave its inner scroll view
-          // using the full height, hiding the last controls behind the bar.
-            HStack(spacing: 6) {
-                ForEach(AppTab.allCases, id: \.self) { item in
-                    Button { tab = item } label: {
-                        VStack(spacing: 5) {
-                            Image(systemName: item.symbol).font(.system(size: 20, weight: tab == item ? .semibold : .regular))
-                            Text(item.title).font(.system(size: 10, weight: .medium))
-                        }.frame(maxWidth: .infinity).padding(.vertical, 11)
-                            .foregroundStyle(tab == item ? Color(preferences.settings.accentInkColor) : Color.secondary)
-                            .background(tab == item ? Color(preferences.settings.accentColor).opacity(0.11) : .clear, in: RoundedRectangle(cornerRadius: 18))
-                    }.buttonStyle(.plain).accessibilityIdentifier("tab." + item.rawValue)
-                        .accessibilityAddTraits(tab == item ? .isSelected : [])
-                }
-            }.padding(6).background(AppPalette.card, in: RoundedRectangle(cornerRadius: 25))
-                .overlay(RoundedRectangle(cornerRadius: 25).strokeBorder(AppPalette.line, lineWidth: 0.5))
-                .padding(.horizontal, 22).padding(.top, 8).padding(.bottom, 4)
-                .background(AppPalette.canvas)
-        }.background(AppPalette.canvas.ignoresSafeArea())
-        .onAppear { preferences.activate() }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in preferences.deactivate() }
+        TabView(selection: $tab) {
+            NavigationStack { HomeView(selectedTab: $tab) }
+                .tabItem { Label("澈", systemImage: "square.stack.3d.up") }.tag(AppTab.home)
+            NavigationStack { CustomizationView() }
+                .tabItem { Label("定制", systemImage: "slider.horizontal.3") }.tag(AppTab.custom)
+            NavigationStack { InputSettingsView() }
+                .tabItem { Label("输入", systemImage: "textformat.abc") }.tag(AppTab.input)
+        }.tint(AppPalette.accent)
+            .onAppear { preferences.activate() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in preferences.deactivate() }
     }
 }
 
@@ -99,75 +77,41 @@ struct HomeView: View {
     @Binding var selectedTab: AppTab
     @State private var showSetup = false
     var body: some View {
-        ScrollView {
+        AppPage(title: "澈") {
             VStack(alignment: .leading, spacing: 24) {
-                HStack(spacing: 10) {
-                    Image(uiImage: ClearBrand.image(36)).renderingMode(.original).frame(width: 36, height: 36)
-                    Text("澈").font(.system(size: 21, weight: .semibold))
-                    Spacer()
-                    Text("CLEAR KEYBOARD").font(.system(size: 9, weight: .medium)).tracking(2).foregroundStyle(.secondary)
-                }.padding(.top, 20)
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("每一句，\n都顺手。").font(.system(size: 44, weight: .bold)).tracking(-1.5).lineSpacing(3)
-                    Text("中文、English，自在切换。\n把喜欢的手感，留在每一次输入里。")
-                        .font(.system(size: 15)).foregroundStyle(.secondary).lineSpacing(6)
-                }.padding(.top, 14)
-                AppCard {
-                    HStack {
-                        Label("从这里开始", systemImage: "sparkle").font(.system(size: 13, weight: .semibold))
-                        Spacer()
-                        Text("01 / SET UP").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                HStack(spacing: 14) {
+                    Image(uiImage: ClearBrand.image(44)).renderingMode(.original).frame(width: 44, height: 44)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("澈键盘").font(.system(size: 22, weight: .semibold))
+                        Text("中文 · English").font(.subheadline).foregroundStyle(.secondary)
                     }
-                    Text("让澈成为你的键盘").font(.system(size: 22, weight: .semibold)).tracking(-0.5)
-                    Text("添加一次，之后在任何输入框切换使用。")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
-                    Button { showSetup = true } label: {
-                        HStack { Text("设置键盘"); Spacer(); Image(systemName: "arrow.up.right") }.padding(.horizontal, 18)
-                    }.buttonStyle(PrimaryAppButton(bodyColor: Color(preferences.settings.accentColor), ink: Color(preferences.settings.onAccentColor)))
-                        .accessibilityIdentifier("home.setup")
+                    Spacer()
+                    Image(systemName: "sparkle").font(.system(size: 23)).foregroundStyle(AppPalette.accent)
                 }
-                AppSectionTitle(title: "按你的习惯", caption: "MAKE IT YOURS")
-                HStack(alignment: .top, spacing: 12) {
-                    homeTile("外观与手感", detail: "材质 · 色彩 · 工具栏", symbol: "slider.horizontal.3", tab: .custom)
-                    homeTile("输入偏好", detail: "选词 · 拼音 · 剪贴板", symbol: "textformat.abc", tab: .input)
-                }
-                NavigationLink { TypingPracticeView() } label: {
-                    AppRow(title: "试打一段", detail: "在独立页面体验输入", symbol: "arrow.up.right.square")
-                }.buttonStyle(.plain).padding(.horizontal, 4).accessibilityIdentifier("home.practice")
-                HStack(spacing: 6) {
-                    Image(systemName: "lock.shield").font(.system(size: 10))
-                    Text("离线输入，选词记忆留在本机。").accessibilityIdentifier("home.footer")
-                }.font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 2)
-            }.padding(.horizontal, 22).padding(.bottom, 28)
-        }.background(AppPalette.canvas.ignoresSafeArea()).toolbar(.hidden, for: .navigationBar)
-            .accessibilityIdentifier("home.page")
+                Button { showSetup = true } label: {
+                    HStack { Image(systemName: "keyboard"); Text("启用键盘"); Spacer(); Image(systemName: "arrow.up.right") }.padding(.horizontal, 16)
+                }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("home.setup")
+            }.padding(22).background {
+                RoundedRectangle(cornerRadius: 24).fill(AppPalette.card)
+                    .overlay(RoundedRectangle(cornerRadius: 24).fill(LinearGradient(colors: [AppPalette.accent.opacity(0.12), Color.blue.opacity(0.025)], startPoint: .topLeading, endPoint: .bottomTrailing)))
+            }
+            AppCard {
+                Button { selectedTab = .custom } label: { AppRow(title: "外观与手感", detail: "按你的喜好", symbol: "slider.horizontal.3") }
+                Divider()
+                Button { selectedTab = .input } label: { AppRow(title: "输入偏好", detail: "选词与纠错", symbol: "textformat.abc") }
+            }.buttonStyle(.plain)
+            AppCard {
+                NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "复制记录", symbol: "doc.on.clipboard") }
+                Divider()
+                NavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "本机存储", symbol: "lock.shield") }
+            }.buttonStyle(.plain)
+            HStack {
+                Text("离线输入"); Spacer()
+                Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+            }.font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 4).accessibilityIdentifier("home.footer")
+        }.accessibilityIdentifier("home.page")
             .sheet(isPresented: $showSetup) { SetupView() }
             .onAppear { preferences.reload() }
-    }
-    private func homeTile(_ title: String, detail: String, symbol: String, tab: AppTab) -> some View {
-        Button { selectedTab = tab } label: {
-            VStack(alignment: .leading, spacing: 19) {
-                Image(systemName: symbol).font(.system(size: 23, weight: .regular)).foregroundStyle(.tint)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                    Text(detail).font(.system(size: 10)).foregroundStyle(.secondary)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 22))
-        }.buttonStyle(.plain)
-    }
-}
-
-struct TypingPracticeView: View {
-    @EnvironmentObject private var preferences: Preferences
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("试试拼音，也试试 English。").font(.system(size: 22, weight: .semibold))
-            Text("长按空格移动光标，上滑删除键清空，下滑撤回。")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
-            TypingLab(settings: preferences.settings).clipShape(RoundedRectangle(cornerRadius: 22))
-        }.padding(22).background(AppPalette.canvas).navigationTitle("试打")
-            .navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
     }
 }
 
@@ -175,32 +119,29 @@ struct SetupView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text("三步，开始输入。").font(.system(size: 30, weight: .bold)).padding(.top, 24)
-                    AppCard {
-                        setupStep("01", title: "打开系统键盘设置", detail: "设置 → 通用 → 键盘 → 键盘")
-                        Divider()
-                        setupStep("02", title: "添加澈", detail: "添加新键盘 → 澈")
-                        Divider()
-                        setupStep("03", title: "长按地球键", detail: "在输入框中切换到澈")
-                    }
-                    Button("打开系统设置") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
-                        .buttonStyle(PrimaryAppButton(bodyColor: .teal))
-                    Text("同步 App 设置和自动收录剪贴板需要开启键盘的「允许完全访问」。普通离线输入无需开启。")
-                        .font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(5)
-                }.padding(22)
-            }.background(AppPalette.canvas).navigationTitle("启用澈").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
-        }
+            AppPage(title: "启用键盘") {
+                AppCard {
+                    setupStep("1", title: "打开键盘设置", detail: "通用 → 键盘 → 键盘")
+                    Divider()
+                    setupStep("2", title: "添加澈", detail: "添加新键盘 → 澈")
+                    Divider()
+                    setupStep("3", title: "切换键盘", detail: "输入时长按地球键，选择澈")
+                }
+                Button("打开系统设置") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
+                    .buttonStyle(PrimaryAppButton())
+                Text("完全访问用于同步设置与剪贴板，离线输入无需开启。")
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
+            }.toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }.tint(AppPalette.accent)
     }
     private func setupStep(_ number: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            Text(number).font(.system(size: 14, weight: .medium, design: .monospaced)).foregroundStyle(.teal).padding(.top, 2)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.system(size: 15, weight: .semibold))
+        HStack(spacing: 14) {
+            Text(number).font(.system(size: 15, weight: .semibold)).foregroundStyle(AppPalette.accent)
+                .frame(width: 32, height: 32).background(AppPalette.accent.opacity(0.10), in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 16, weight: .medium))
                 Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
             }
-        }.padding(.vertical, 5)
+        }.padding(.vertical, 4)
     }
 }
