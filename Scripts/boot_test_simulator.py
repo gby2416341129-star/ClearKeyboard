@@ -1,5 +1,5 @@
 """Boot a dedicated test device before compilation, with bounded migration recovery."""
-import json,subprocess,uuid
+import json,os,subprocess,uuid
 from pathlib import Path
 
 def run(args,**kwargs): return subprocess.run(['xcrun','simctl',*args],**kwargs)
@@ -10,6 +10,8 @@ for runtime,devices in sorted(inventory['devices'].items(),reverse=True):
     devices=[d for d in devices if d.get('isAvailable') and 'iPhone' in d['name']]
     if devices:choices.append((runtime,next((d for d in devices if 'Air' in d['name']),devices[0])))
 assert choices,'No available iPhone simulator runtime'
+preferred=os.environ.get('CLEAR_TEST_SIMULATOR_RUNTIME','')
+if preferred:choices.sort(key=lambda choice: choice[0]!=preferred)
 selected=[choices[0]]
 if len(choices)>1:selected.append(choices[-1])
 for runtime,template in selected:

@@ -83,7 +83,7 @@ import UIKit
         try await waitFor { model.candidatesAreCurrent }
         if !model.candidates.contains(where: { $0.text == "办公" }) {
             model.loadMoreCandidates(context: model.candidateContext)
-            try await waitFor { !model.loadingMoreCandidates }
+            try await waitFor { model.candidates.contains { $0.text == "办公" } }
         }
         let office = try XCTUnwrap(model.candidates.first { $0.text == "办公" })
         XCTAssertEqual(office.consumed, 7)

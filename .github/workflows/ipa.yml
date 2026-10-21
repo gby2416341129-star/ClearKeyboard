@@ -136,6 +136,8 @@ jobs:
           swiftc -O -parse-as-library Core/Candidate.swift Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/RepetitionModel.swift Scripts/test_repetition.swift -o .build/test-repetition
           .build/test-repetition Core/Resources/Rime/repetition-priors.tsv
       - name: Check live composition and commit barriers with the UIKit controller
+        env:
+          CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-18-5
         run: bash Scripts/test-composition-proxy.sh
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
