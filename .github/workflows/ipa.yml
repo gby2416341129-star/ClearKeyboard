@@ -15,7 +15,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: ipa-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,8 +37,6 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin fed2ef08404cd5b0f252a798922e884d4868655b
           python3 Scripts/verify_ui_hotfix.py
-      - name: Start the required iOS 26 simulator and verify UI services
-        run: python3 Scripts/boot_test_simulator.py
       - name: Reproduce the expiring composition ledger and check the repair
         if: env.CLEAR_UI_HOTFIX != '1'
         run: |
@@ -103,6 +101,8 @@ jobs:
         run: |
           python3 Scripts/generate_project.py
           xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
+      - name: Start the required iOS 26 simulator and verify UI services
+        run: python3 Scripts/boot_test_simulator.py
       - name: Compile the pinned Core ML model for the Apple accelerator
         run: |
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
