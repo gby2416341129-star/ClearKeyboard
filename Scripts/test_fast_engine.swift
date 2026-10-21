@@ -80,7 +80,8 @@ import Foundation
             require(head.first?.text == expected && head.first?.consumed == raw.count,
                     "Context/typo failed: \(preceding) + \(raw): \(head)")
             let page = engine.candidates(raw, limit: 96, context: preceding)
-            require(Array(page.prefix(head.count)) == head, "A restored context cache changed its page head")
+            require(Array(page.prefix(head.count)) == head,
+                    "A restored context cache changed its page head: \(preceding) + \(raw); head=\(head); page=\(Array(page.prefix(head.count)))")
             contextualRows.append(["input": raw, "preceding": preceding, "first": head.first!.text])
         }
         print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows, "exactInitialRowsChecked": exactRows, "contextualRows": contextualRows,

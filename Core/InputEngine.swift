@@ -32,6 +32,8 @@ public final class InputEngine {
     public let chinese: Lexicon
     public let english: Lexicon
     private var matureDecoder: RimeDecoder?
+    private var literalPositions: [CandidateRequestKey: Int] = [:]
+    private var literalPositionOrder: [CandidateRequestKey] = []
     private var associations: Lexicon?
     private var repetition: RepetitionModel?
     public var chineseBackend: String { matureDecoder == nil ? "fallback" : "rime-wanxiang" }
@@ -237,7 +239,22 @@ public final class InputEngine {
                 output.insert(contentsOf: repeatedHead(repeated, raw: raw, length: input.count, preferred: preferred), at: 0)
             }
             output.insert(contentsOf: preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }, at: 0)
-            if !output.contains(where: { $0.text == raw }) { output.insert(literal, at: min(8, output.count)) }
+            if !output.contains(where: { $0.text == raw }) {
+                let key = CandidateRequestKey(raw: raw, preceding: CandidateLanguageContext.tail(context))
+                let position: Int
+                if limit <= 9 {
+                    position = min(8, output.count)
+                    guard !cancelled() else { return [] }
+                    if literalPositions[key] == nil { literalPositionOrder.append(key) }
+                    literalPositions[key] = position
+                    if literalPositionOrder.count > 32 { literalPositions.removeValue(forKey: literalPositionOrder.removeFirst()) }
+                } else {
+                    // A short first screen may place the raw spelling before
+                    // slot eight. Loading more words must retain that slot.
+                    position = literalPositions[key] ?? min(8, output.count)
+                }
+                output.insert(literal, at: min(position, output.count))
+            }
             var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))))
         }
         var choices: [Candidate] = []
