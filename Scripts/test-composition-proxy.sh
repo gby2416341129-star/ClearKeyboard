@@ -44,6 +44,9 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testRealControllerKeyPathDoesNotSynchronouslyReadRemoteContext \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testCandidateInkDoesNotRestartWhenResultsArriveUnevenly \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testExplicitClipboardCheckDistinguishesEmptyUnavailableAndOneSuccessfulRead \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testSegmentedNamesLearnWholeSpellingAndInitialsWithRealUIKitTextStorage \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNumericRecallNeedsTwoCompletedRunsAndInsertsOnlySuffixInRealUIKit \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNumericRecallSurvivesReloadAndRespectsDisableAndClear \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
 TEST_EXIT=$?
 set -e

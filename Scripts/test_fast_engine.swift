@@ -47,6 +47,14 @@ import Foundation
         require(personalized.first == personal && Array(personalizedPage.prefix(personalized.count)) == personalized,
                 "A preferred word outside the model's short row changed on paging")
         let index = try Lexicon.bundled("associations")
+        for (raw, text, consumed) in [("gouboyuan", "苟", 3), ("boyuan", "博", 2), ("yuan", "渊", 4),
+                                      ("chenyuhan", "陈", 4), ("yuhan", "宇", 2), ("han", "涵", 3),
+                                      ("liuxinyue", "刘", 3), ("xinyue", "欣", 3), ("yue", "悦", 3)] {
+            let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 256)
+            require(page.contains { $0.text == text && $0.consumed == consumed }, "A name cannot be selected a character at a time: \(raw) / \(text)")
+            require(Array(page.prefix(head.count)) == head, "Name alternatives changed the visible first screen")
+            rows.append(["input": raw, "character": text, "consumed": consumed, "kind": "selectable-name-prefix"])
+        }
         let initials = Array("bpmfdtnlgkhjqxrzcsyw")
         var exactRows = 0
         for n in 0..<1200 {

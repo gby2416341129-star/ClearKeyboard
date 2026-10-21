@@ -70,9 +70,9 @@ public final class InputEngine {
         return Array(values.prefix(8))
     }
     private func repeatedHead(_ repeated: [Candidate], raw: String, length: Int, preferred: [Candidate]) -> [Candidate] {
-        var seen = Set<String>()
-        var values = (preferred.filter { $0.consumed > 0 && $0.consumed <= length } + repeated)
-            .filter { seen.insert($0.text).inserted }
+        var values = PersonalLexicon.merging(preferred.filter { $0.consumed > 0 && $0.consumed <= length },
+                                             into: repeated, limit: 4096)
+        let seen = Set(values.map(\.text))
         if !seen.contains(raw) {
             values.insert(Candidate(text: raw, reading: raw, consumed: length, score: 80), at: min(8, values.count))
         }
@@ -90,11 +90,12 @@ public final class InputEngine {
         if prefix != raw {
             return expandedPrefix(immediateCandidates(prefix, preferred: preferred), window: prefix, whole: input)
         }
-        var output = preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }
+        let preferences = preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }
+        var output: [Candidate] = []
         if !repeated.isEmpty {
             var seen = Set(output.map(\.text))
             output += repeated.filter { seen.insert($0.text).inserted }
-            return Array(output.prefix(8))
+            return PersonalLexicon.merging(preferences, into: output, limit: 8)
         }
         let exact = chinese.lookup("e:" + input, limit: 8)
         let english = input.count >= 3 && associations?.contains("e:" + input) == true
@@ -125,11 +126,11 @@ public final class InputEngine {
                     .map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count) }
             }
         }
-        if preferred.isEmpty, let alias = Self.conversational[input], let index = output.firstIndex(where: { $0.text == alias }) {
+        if let alias = Self.conversational[input], let index = output.firstIndex(where: { $0.text == alias }) {
             output.insert(output.remove(at: index), at: 0)
         }
         var seen = Set<String>()
-        return Array(output.filter { seen.insert($0.text).inserted }.prefix(8))
+        return PersonalLexicon.merging(preferences, into: output.filter { seen.insert($0.text).inserted }, limit: 8)
     }
 
     private func expandedPrefix(_ values: [Candidate], window: String, whole: String) -> [Candidate] {
@@ -268,7 +269,6 @@ public final class InputEngine {
             if !repeated.isEmpty {
                 output.insert(contentsOf: repeatedHead(repeated, raw: raw, length: input.count, preferred: preferred), at: 0)
             }
-            output.insert(contentsOf: preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }, at: 0)
             if !output.contains(where: { $0.text == raw }) {
                 let key = CandidateRequestKey(raw: raw, preceding: CandidateLanguageContext.tail(context))
                 let position: Int
@@ -285,7 +285,9 @@ public final class InputEngine {
                 }
                 output.insert(literal, at: min(position, output.count))
             }
-            var seen = Set<String>(); return Array(output.filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))))
+            var seen = Set<String>()
+            return PersonalLexicon.merging(preferred.filter { $0.consumed > 0 && $0.consumed <= input.count },
+                into: output.filter { seen.insert($0.text).inserted }, limit: max(1, min(4096, limit)))
         }
         var choices: [Candidate] = []
         let explicit = raw.contains("'") ? raw.lowercased().split(separator: "'").map(String.init) : []
@@ -321,8 +323,10 @@ public final class InputEngine {
             }
         }
         var seen = Set<String>()
-        return choices.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
-            .filter { seen.insert($0.text).inserted }.prefix(max(1, min(4096, limit))).map { $0 }
+        let sorted = choices.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+            .filter { seen.insert($0.text).inserted }
+        return PersonalLexicon.merging(preferred.filter { $0.consumed > 0 && $0.consumed <= input.count },
+            into: sorted, limit: max(1, min(4096, limit)))
     }
 
     private func conversationalCandidates(_ input: String, raw: String) -> [Candidate] {

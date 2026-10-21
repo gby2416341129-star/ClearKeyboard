@@ -11,7 +11,7 @@ for name in ['Rime','pinyin.clx','english.clx','pinyin-corrections.clx','associa
 library=build/'libclear-test.dylib'
 subprocess.run(['c++','-O3','-std=c++17','-dynamiclib','Scripts/test_fast_engine_bridge.cpp','-F',str(framework.parent),
  '-framework','RimeDynamic','-framework','Accelerate','-Wl,-rpath,'+str(framework.parent),'-o',str(library)],check=True)
-sources=['Candidate','Lexicon','FuzzyPinyin','Composition','HostTextState','RepetitionModel','InputEngine','RimeDecoder','CoreMLSentence','CoreMLPrefixState','CoreMLCandidateScorer']
+sources=['Candidate','Lexicon','FuzzyPinyin','Composition','HostTextState','RepetitionModel','PersonalLexicon','InputEngine','RimeDecoder','CoreMLSentence','CoreMLPrefixState','CoreMLCandidateScorer']
 subprocess.run(['swiftc','-O','-parse-as-library','-import-objc-header','CRime/include/ClearRime.h',
  *['Core/'+s+'.swift' for s in sources],'Scripts/test_fast_engine.swift','-L',str(build),'-lclear-test',
  '-Xlinker','-rpath','-Xlinker',str(build),'-o',str(build/'test-fast-engine')],check=True)

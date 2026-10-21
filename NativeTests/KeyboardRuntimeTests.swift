@@ -699,8 +699,8 @@ import SwiftUI
         controller.model.choose(film)
         XCTAssertEqual(controller.textView.text, "钢化膜")
         for character in "ganghuam" { controller.model.handle(.text(String(character))) }
-        XCTAssertEqual(controller.model.candidates.first?.text, "钢化膜", "A remembered choice must appear without waiting for the background decoder")
-        controller.model.choose(controller.model.candidates[0])
+        try await waitFor { controller.model.candidatesAreCurrent && controller.model.candidates.prefix(4).contains { $0.text == "钢化膜" } }
+        controller.model.choose(try XCTUnwrap(controller.model.candidates.first { $0.text == "钢化膜" }))
         XCTAssertEqual(controller.textView.text, "钢化膜钢化膜")
     }
     func testNewSpellingInterruptsOldCandidateDeceleration() async throws {

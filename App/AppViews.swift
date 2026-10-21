@@ -32,6 +32,7 @@ import UIKit
         store.defaults.set(UUID().uuidString, forKey: "clear.learned.epoch")
         store.defaults.removeObject(forKey: "clear.learned.v1")
         store.defaults.removeObject(forKey: "clear.choices.v2")
+        store.defaults.removeObject(forKey: "clear.numbers.v1")
     }
     func clearClipboard() { ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)).clear() }
     func activate() {

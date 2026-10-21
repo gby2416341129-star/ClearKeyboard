@@ -216,6 +216,7 @@ import os
         // should configure one cell, not move and relabel the entire pool.
         for button in buttons where !range.contains(button.tag) {
             button.tag = -1
+            button.finishTransition()
             if !button.isHidden { button.isHidden = true }
         }
         var existing = Dictionary(uniqueKeysWithValues: buttons.filter { $0.tag >= 0 }.map { ($0.tag, $0) })
@@ -370,6 +371,7 @@ import os
         super.didMoveToWindow()
         if window == nil {
             displayFrame.cancel(); frameValue.discard()
+            buttons.forEach { $0.finishTransition() }
             pending = nil; browsed = nil; setInteraction(false)
         }
     }
@@ -381,13 +383,19 @@ import os
     }()
     private let plate = UIView()
     private let label = UILabel()
+    private let outgoing = UILabel()
+    private var transitionDeadline: CFTimeInterval = 0
     override init(frame: CGRect) {
         super.init(frame: frame)
-        addSubview(plate); plate.addSubview(label)
+        addSubview(plate); plate.addSubview(outgoing); plate.addSubview(label)
         plate.isUserInteractionEnabled = false
         backgroundColor = .clear
         label.isUserInteractionEnabled = false; label.isAccessibilityElement = false
         label.numberOfLines = 1; label.lineBreakMode = .byClipping
+        outgoing.isUserInteractionEnabled = false; outgoing.isAccessibilityElement = false
+        outgoing.numberOfLines = 1; outgoing.lineBreakMode = .byClipping; outgoing.layer.opacity = 0
+        label.accessibilityIdentifier = "candidate.currentInk"
+        outgoing.accessibilityIdentifier = "candidate.outgoingInk"
         plate.layer.cornerRadius = 8; plate.layer.cornerCurve = .continuous; plate.clipsToBounds = true
         isAccessibilityElement = true; accessibilityTraits = .button
     }
@@ -398,6 +406,7 @@ import os
         plate.frame = CGRect(x: 0, y: (bounds.height - height) / 2,
                              width: max(0, bounds.width - 4), height: height)
         label.frame = plate.bounds.insetBy(dx: 8, dy: 0)
+        outgoing.frame = label.frame
     }
     static func width(_ candidate: Candidate, font: UIFont) -> CGFloat {
         let key = "\(font.fontName):\(font.pointSize):\(candidate.text)" as NSString
@@ -408,30 +417,53 @@ import os
     }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false) {
         let oldText = label.text
+        let oldFont = label.font, oldColor = label.textColor
+        let changedFont = label.font != font
         if label.font != font { label.font = font }
         if label.text != candidate.text { label.text = candidate.text }
         label.textColor = first ? accent : .label
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
-        guard oldText != candidate.text else { return }
+        if changedFont { finishTransition() }
+        guard oldText != candidate.text else {
+            if !animate { finishTransition() }
+            return
+        }
         guard animate, !UIAccessibility.isReduceMotionEnabled else { finishTransition(); return }
-        // A second result can replace text during the same visual pulse. Let
-        // that pulse finish on its original clock instead of snapping to full
-        // opacity and restarting an ease-out for every quick/decoded result.
-        guard label.layer.animation(forKey: "candidateText") == nil else { return }
+        // Both dictionary and decoded updates share one handoff clock. A newer
+        // word becomes readable immediately, without restarting the fade or
+        // accumulating snapshots while the user types quickly.
+        let now = CACurrentMediaTime()
+        if now < transitionDeadline, label.layer.animation(forKey: "candidateText") != nil { return }
+        finishTransition()
+        outgoing.text = oldText; outgoing.font = oldFont; outgoing.textColor = oldColor
         let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
         let rate = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-        // Text, geometry and selection update immediately. A small linear ink
-        // pulse needs no old-label snapshot and has the same timing for every
-        // word length. Native scrolling ends it at contact-down.
+        // Blend only glyph opacity: no moving cells, layout animation, bitmap
+        // capture or delayed hit target. Most new ink is visible from frame one.
+        let duration = 0.10
+        transitionDeadline = now + duration
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.preferredFrameRateRange = rate
-        fade.fromValue = 0.88; fade.toValue = 1; fade.duration = 0.06
-        fade.beginTime = label.layer.convertTime(CACurrentMediaTime(), from: nil)
+        fade.fromValue = 0.78; fade.toValue = 1; fade.duration = duration
+        fade.beginTime = label.layer.convertTime(now, from: nil)
         fade.timingFunction = CAMediaTimingFunction(name: .linear)
         label.layer.add(fade, forKey: "candidateText")
+        if oldText?.isEmpty == false {
+            let previous = CABasicAnimation(keyPath: "opacity")
+            previous.preferredFrameRateRange = rate
+            previous.fromValue = 0.22; previous.toValue = 0; previous.duration = duration
+            previous.beginTime = outgoing.layer.convertTime(now, from: nil)
+            previous.timingFunction = CAMediaTimingFunction(name: .linear)
+            outgoing.layer.add(previous, forKey: "candidatePreviousText")
+        }
     }
-    func finishTransition() { label.layer.removeAnimation(forKey: "candidateText") }
+    func finishTransition() {
+        label.layer.removeAnimation(forKey: "candidateText")
+        outgoing.layer.removeAnimation(forKey: "candidatePreviousText")
+        outgoing.text = nil; outgoing.layer.opacity = 0; label.layer.opacity = 1
+        transitionDeadline = 0
+    }
     override func accessibilityActivate() -> Bool {
         sendActions(for: .touchUpInside); return true
     }

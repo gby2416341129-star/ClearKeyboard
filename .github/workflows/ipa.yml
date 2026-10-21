@@ -65,6 +65,8 @@ jobs:
           .build/test-long-draft
           swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_input_core.swift -o .build/test-input-core
           .build/test-input-core
+          swiftc -O -parse-as-library Core/Candidate.swift Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/PersonalLexicon.swift Core/NumericLexicon.swift Scripts/test_personal_learning.swift -o .build/test-personal-learning
+          .build/test-personal-learning
       - name: Restore pinned language model cache
         id: language-model
         uses: actions/cache/restore@v4
@@ -157,8 +159,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.43')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 46')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.44')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 47')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

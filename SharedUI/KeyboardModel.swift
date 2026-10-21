@@ -73,6 +73,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 settings.learnChoices != oldValue.learnChoices {
                 discardPreparedCandidates(); candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []
             }
+            if settings.language != oldValue.language || settings.learnChoices != oldValue.learnChoices {
+                phraseLearning.reset(); numericRun.reset()
+            }
             store.save(settings)
             if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
                 settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }
@@ -105,7 +108,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         // Otherwise Space awaits the semantic row; a provisional frequency row
         // must not win merely because it arrived first.
         let syllables = candidates.first?.reading.split(separator: " ").count ?? 0
-        return syllables > raw.utf8.count || (settings.learnChoices && !personal.candidates(for: composition.raw).isEmpty)
+        return syllables > raw.utf8.count || (settings.learnChoices && personal.candidates(for: composition.raw).contains { $0.score >= 3 })
     }
     private(set) var engineState = "离线词库加载中…"
     var onChange: (() -> Void)?
@@ -118,6 +121,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     let clipboardCapture = ClipboardCapture()
     private var clipboardActive = false
     private var store: SettingsStore
+    private let suppliedDefaults: UserDefaults?
     private var engine: InputEngine?
     // One serial decoder owner. Common words have an independent memory/CLX
     // path; sentence enrichment starts in a typing gap or on explicit browsing.
@@ -149,6 +153,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var englishSnapshot = ""
     private var learned: [String: Int] = [:]
     private var personal = PersonalLexicon()
+    private var phraseLearning = PhraseLearning()
+    private var numbers = NumericLexicon()
+    private var numericRun = NumericInputRun()
     private var learningEpoch: String?
     private var saveWork: DispatchWorkItem?
     private var manualShift = false
@@ -276,8 +283,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
 
     nonisolated private static func preferredWords(_ preferred: [Candidate], _ words: [Candidate]) -> [Candidate] {
-        var seen = Set<String>()
-        return Array((preferred + words).filter { seen.insert($0.text).inserted }.prefix(8))
+        PersonalLexicon.merging(preferred, into: words, limit: 8)
     }
 
     private func scheduleDecoder(_ query: PreparedCandidates, limit: Int = 8, stage: Int = 1,
@@ -347,16 +353,18 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
     }
 
-    init(document: KeyboardDocument, settings: KeyboardSettings? = nil,
+    init(document: KeyboardDocument, settings: KeyboardSettings? = nil, defaults: UserDefaults? = nil,
          wordLookup: ((InputEngine, String, [Candidate]) -> [Candidate])? = nil) {
         self.document = document
         self.wordLookup = wordLookup ?? { $0.immediateCandidates($1, preferred: $2) }
         self.warmsWords = wordLookup == nil
-        let defaults = SharedStorage.defaults(allowShared: document.fullAccess)
+        suppliedDefaults = defaults
+        let defaults = defaults ?? SharedStorage.defaults(allowShared: document.fullAccess)
         store = SettingsStore(defaults: defaults)
         self.settings = settings ?? store.load()
         learned = defaults.dictionary(forKey: "clear.learned.v1") as? [String: Int] ?? [:]
         personal = defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
+        numbers = defaults.data(forKey: "clear.numbers.v1").flatMap { try? JSONDecoder().decode(NumericLexicon.self, from: $0) } ?? NumericLexicon()
         learningEpoch = defaults.string(forKey: "clear.learned.epoch")
         if document.prefersEnglish { self.settings.language = .english }
         let cache = hotWords, warm = warmsWords, prefetch = warmQueue
@@ -383,17 +391,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func reloadSettings() {
         guard let document else { return }
-        store = SettingsStore(defaults: SharedStorage.defaults(allowShared: document.fullAccess))
+        store = SettingsStore(defaults: suppliedDefaults ?? SharedStorage.defaults(allowShared: document.fullAccess))
+        phraseLearning.reset(); numericRun.reset()
         settings = store.load()
         if document.prefersEnglish { settings.language = .english }
         learned = store.defaults.dictionary(forKey: "clear.learned.v1") as? [String: Int] ?? [:]
         personal = store.defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
+        numbers = store.defaults.data(forKey: "clear.numbers.v1").flatMap { try? JSONDecoder().decode(NumericLexicon.self, from: $0) } ?? NumericLexicon()
         learningEpoch = store.defaults.string(forKey: "clear.learned.epoch")
         refreshCandidates()
     }
     func clearComposition() {
         beginDocumentEdit(); defer { endDocumentEdit() }
         cancelDeferredActions()
+        phraseLearning.reset(); numericRun.reset()
         if !composition.raw.isEmpty { document?.setMarkedText(""); document?.unmarkText() }
         composition.clear(); refreshCandidates()
     }
@@ -402,11 +413,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard !isMovingCursor else { return }
         cancelDeferredActions()
         deletionUndo = nil
+        phraseLearning.reset(); finishNumericRun()
         if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates()
     }
     func finishCompositionAsTyped() {
         beginDocumentEdit(); defer { endDocumentEdit() }
         cancelDeferredActions()
+        phraseLearning.reset()
         if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear()
     }
     private func syncMarkedText() {
@@ -421,6 +434,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func moveCursor(_ offset: Int) {
         beginDocumentEdit(); defer { endDocumentEdit() }
         if !isMovingCursor { if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() } }
+        phraseLearning.reset(); finishNumericRun()
         document?.moveCursor(offset)
         if !isMovingCursor { refreshCandidates() }
     }
@@ -428,6 +442,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard !isMovingCursor else { return }
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
+        phraseLearning.reset(); finishNumericRun()
         isMovingCursor = true; deletionUndo = nil
         cancellation.cancel(); work?.cancel(); refinementCancellation.cancel(); refinementWork?.cancel()
         discardPreparedCandidates(); activeCandidates = nil
@@ -446,6 +461,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document else { return }
         cancelDeferredActions()
+        phraseLearning.reset(); numericRun.reset()
         let spelling = composition
         document.unmarkText(); composition.clear()
         if let deleted = document.clearInput() {
@@ -468,6 +484,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func toggleLanguage() {
         beginDocumentEdit(); defer { endDocumentEdit() }
+        finishNumericRun()
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         settings.language = settings.language == .chinese ? .english : .chinese
         page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
@@ -513,8 +530,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 !(shifted && page == .letters && text.first?.isLetter == true)
             let mathCharacter = possibleOperator && document?.contextBefore.last.map({ $0.isNumber || $0 == ")" }) == true
             if mathCharacter {
-                commitComposition(); document?.insert(text)
+                commitComposition(); insertText(text)
             } else if settings.language == .chinese && page == .letters && !shifted && text.first?.isLetter == true {
+                finishNumericRun()
                 _ = composition.append(text)
                 prepared = prepareCandidates(for: composition.raw)
                 inputOnly = true; syncMarkedText()
@@ -524,7 +542,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 inputOnly = true; syncMarkedText()
             } else {
                 commitComposition()
-                document?.insert(shifted && page == .letters ? text.uppercased() : punctuation(text))
+                insertText(shifted && page == .letters ? text.uppercased() : punctuation(text))
                 if !capsLocked { shifted = false; manualShift = false }
                 if page != .letters && [".", ",", "?", "!"].contains(text) { page = .letters }
             }
@@ -537,17 +555,23 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 discardPreparedCandidates(); onChange?(); return
             }
         case .delete:
+            phraseLearning.reset()
             if !composition.raw.isEmpty {
                 composition.deleteBackward()
                 prepared = prepareCandidates(for: composition.raw)
                 inputOnly = true; syncMarkedText()
-            } else { document?.deleteBackward() }
+            } else {
+                if let document, document.selectedText.isEmpty {
+                    numericRun.delete(before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
+                } else { numericRun.reset() }
+                document?.deleteBackward()
+            }
         case .space:
-            if composition.isEmpty { document?.insert(" ") } else { commitComposition(flushRemainder: false) }
+            if composition.isEmpty { insertText(" ") } else { commitComposition(flushRemainder: false) }
         case .enter:
-            if composition.isEmpty { document?.insert("\n") } else { finishCompositionAsTyped() }
+            if composition.isEmpty { insertText("\n") } else { finishCompositionAsTyped() }
         case .page(let next): page = next
-        case .globe: commitComposition(); document?.nextKeyboard()
+        case .globe: commitComposition(); finishNumericRun(); phraseLearning.reset(); document?.nextKeyboard()
         case .language: toggleLanguage(); return
         }
         refreshCandidates(using: prepared, inputOnly: inputOnly)
@@ -559,12 +583,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func insertLiteral(_ text: String) {
         beginDocumentEdit(); defer { endDocumentEdit() }
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
-        document?.insert(text); refreshCandidates()
+        insertText(text); refreshCandidates()
     }
     func chooseArithmetic(_ text: String) {
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document, let arithmetic, arithmetic.candidates.contains(text),
               composition.isEmpty, document.selectedText.isEmpty, document.contextBefore.hasSuffix(arithmetic.expression) else { return }
+        numericRun.reset(); phraseLearning.reset()
         for _ in arithmetic.expression { document.deleteBackward() }
         document.insert(text); refreshCandidates()
     }
@@ -576,12 +601,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let fallback = current ?? hotWords.value(composition.raw)?.first
         if let candidate = fallback {
             let spelling = composition.raw
+            let phrase = trackPhrase(candidate)
             composition.consume(candidate.consumed)
             // Preserve any spelling not covered by a partial candidate.
             let output = candidate.text + (flushRemainder ? composition.normalized : "")
             document?.commitMarkedText(output)
-            learn(candidate, raw: spelling)
-        } else { document?.commitMarkedText(composition.normalized) }
+            learn(candidate, raw: spelling, phrase: phrase)
+        } else { document?.commitMarkedText(composition.normalized); phraseLearning.reset() }
+        if flushRemainder { phraseLearning.reset() }
         if flushRemainder || fallback == nil { composition.clear() }
         else if !composition.raw.isEmpty { syncMarkedText() }
     }
@@ -656,9 +683,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument, learningRaw: String? = nil) {
         beginDocumentEdit(); defer { endDocumentEdit() }
+        if composition.isEmpty, let prefix = numericPrefix(), numbers.candidates(for: prefix).contains(candidate) {
+            insertText(candidate.text); refreshCandidates(); return
+        }
         if settings.language == .chinese {
             let spelling = learningRaw ?? composition.raw
-            if composition.raw.isEmpty { document.insert(candidate.text) }
+            let phrase = trackPhrase(candidate)
+            if composition.raw.isEmpty {
+                insertText(candidate.text)
+            }
             else {
                 // One host insertion replaces and commits the marked spelling.
                 // A temporary Chinese marked range followed by unmark/re-mark
@@ -667,13 +700,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 composition.consume(candidate.consumed)
                 if !composition.raw.isEmpty { syncMarkedText() }
             }
-            learn(candidate, raw: spelling)
+            if !spelling.isEmpty { learn(candidate, raw: spelling, phrase: phrase) }
         } else {
             guard document.selectedText.isEmpty, document.contextBefore == englishSnapshot else { refreshCandidates(); return }
             let word = EnglishContext.word(in: englishSnapshot)
             let output = EnglishContext.applyingCase(candidate.text, like: word)
             if candidate.consumed > 0 { for _ in word { document.deleteBackward() } }
-            document.insert(output + " ")
+            insertText(output + " ")
         }
         refreshCandidates()
     }
@@ -738,10 +771,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if arithmetic != nil { candidateGeneration = requestedGeneration; candidateContext = queryContext }
         let raw = composition.raw, settings = self.settings, learned = self.learned
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
-        // Explicit personal choices are already in memory. All dictionary reads,
-        // including the small first-pass lookup, belong on a worker.
-        if arithmetic == nil, selectionIsEmpty, settings.language == .chinese, !preferred.isEmpty {
-            candidates = preferred; candidateGeneration = requestedGeneration; candidateContext = queryContext
+        // Numeric recall is a bounded in-memory lookup independent of the
+        // Chinese decoder. No query or animation may automatically insert it.
+        if arithmetic == nil, selectionIsEmpty, let prefix = numericPrefix() {
+            candidates = settings.learnChoices ? numbers.candidates(for: prefix) : []
+            candidateGeneration = requestedGeneration; candidateContext = queryContext
+            render(); return
         }
         if arithmetic != nil { candidateGeneration = requestedGeneration; render(); return }
         guard let engine, document != nil, selectionIsEmpty else { render(); return }
@@ -788,13 +823,41 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if deferredContext == context { resumeDeferredActions() }
         else { deferredActions = []; deferredContext = nil; deferredPreview = nil }
     }
-    private func learn(_ candidate: Candidate, raw: String) {
+    private func trackPhrase(_ candidate: Candidate) -> PhraseLearning.Choice? {
+        guard settings.learnChoices, let document else { phraseLearning.reset(); return nil }
+        return phraseLearning.select(candidate, from: composition, before: document.contextBefore,
+            after: document.contextAfter, document: document.documentIdentity)
+    }
+    private func numericPrefix() -> String? {
+        guard let document, document.selectedText.isEmpty else { return nil }
+        return numericRun.prefix(before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
+    }
+    private func insertText(_ text: String) {
+        guard let document else { return }
+        if settings.learnChoices, document.selectedText.isEmpty, NumericLexicon.isDigits(text) {
+            numericRun.append(text, before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
+        } else { finishNumericRun() }
+        document.insert(text)
+    }
+    private func finishNumericRun() {
+        guard !numericRun.isEmpty else { return }
+        guard let document, document.selectedText.isEmpty else { numericRun.reset(); return }
+        let value = numericRun.complete(before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
+        if settings.learnChoices, let value { numbers.record(value); scheduleLearningSave() }
+    }
+    private func learn(_ candidate: Candidate, raw: String, phrase: PhraseLearning.Choice? = nil) {
         guard settings.learnChoices else { return }
         candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []; discardPreparedCandidates()
         let text = candidate.text
         personal.record(candidate, for: raw)
+        if let phrase, phrase.raw != raw || phrase.candidate.text != candidate.text {
+            personal.record(phrase.candidate, for: phrase.raw)
+        }
         learned[text] = min(10_000, (learned[text] ?? 0) + 1)
         if learned.count > 512, let least = learned.min(by: { $0.value < $1.value })?.key { learned.removeValue(forKey: least) }
+        scheduleLearningSave()
+    }
+    private func scheduleLearningSave() {
         saveWork?.cancel()
         let save = DispatchWorkItem { [weak self] in self?.flushLearning() }
         saveWork = save; DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: save)
@@ -803,14 +866,16 @@ struct DeletedInput { let text: String; let selection: NSRange }
         saveWork?.cancel()
         let epoch = store.defaults.string(forKey: "clear.learned.epoch")
         guard epoch == learningEpoch else {
-            learned = [:]; personal = PersonalLexicon(); learningEpoch = epoch
+            learned = [:]; personal = PersonalLexicon(); numbers = NumericLexicon(); learningEpoch = epoch
+            phraseLearning.reset(); numericRun.reset()
             candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []; discardPreparedCandidates()
             return
         }
         store.defaults.set(learned, forKey: "clear.learned.v1")
         if let data = try? JSONEncoder().encode(personal) { store.defaults.set(data, forKey: "clear.choices.v2") }
+        if let data = try? JSONEncoder().encode(numbers) { store.defaults.set(data, forKey: "clear.numbers.v1") }
     }
-    func suspend() { pendingDocumentKeys.removeAll(); stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
+    func suspend() { finishNumericRun(); phraseLearning.reset(); pendingDocumentKeys.removeAll(); stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
 }
 
 /// Workers publish immutable results without waiting for UIKit's event loop.

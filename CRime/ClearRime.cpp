@@ -654,22 +654,20 @@ std::vector<Item> merge_candidates(const std::string &input, const std::vector<I
   const bool has_exact_phrase = std::any_of(conversation.begin(),conversation.end(),complete_dictionary) ||
       std::any_of(literal.begin(),literal.end(),complete_dictionary);
   auto useful_prefix = [&](const Item &item) {
-    if (item.consumed <= 0 || item.consumed >= length || item.reading.find(' ') == std::string::npos) return false;
+    if (item.consumed <= 0 || item.consumed >= length || item.reading.empty()) return false;
     return clear_sentence::PhoneticSearch::matches(spelling.substr(0,item.consumed),syllables(item.reading))>=0;
   };
   int longest = 0;
   for (const auto &item : literal) if (useful_prefix(item)) longest = std::max(longest, item.consumed);
   if (has_exact_phrase) for (const auto &item : literal) if (item.consumed == longest && useful_prefix(item)) append(item);
   for (const auto &item : fluent) if (item.consumed == length) append(item);
-  // Keep every longest matching word prefix, including mixed/initial readings
-  // and homophones absent
-  // from the whole-phrase winner. Shorter prefixes remain available on inputs
-  // with no whole dictionary phrase and in ordinary short-initial selection.
-  if (length <= 4 || !has_exact_phrase) {
-    for (const auto &item : conversation) append(item);
-    for (const auto &item : literal) append(item);
-    for (const auto &item : fluent) append(item);
-  }
+  // A complete dictionary phrase must not make its first syllable impossible
+  // to select. Retain compatible shorter prefixes after the complete row on
+  // paging, including single characters used to assemble unfamiliar names.
+  // Query::head_items keeps the already visible leading screen unchanged.
+  for (const auto &item : conversation) if (!has_exact_phrase || item.consumed == length || useful_prefix(item)) append(item);
+  for (const auto &item : literal) if (!has_exact_phrase || item.consumed == length || useful_prefix(item)) append(item);
+  for (const auto &item : fluent) if (!has_exact_phrase || item.consumed == length || useful_prefix(item)) append(item);
   return result;
 }
 }
