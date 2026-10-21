@@ -24,6 +24,8 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       CLEAR_UI_HOTFIX: '1'
+      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-5
+      CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '26'
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +37,8 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin fed2ef08404cd5b0f252a798922e884d4868655b
           python3 Scripts/verify_ui_hotfix.py
+      - name: Start the required iOS 26 simulator and verify UI services
+        run: python3 Scripts/boot_test_simulator.py
       - name: Reproduce the expiring composition ledger and check the repair
         if: env.CLEAR_UI_HOTFIX != '1'
         run: |
@@ -168,9 +172,6 @@ jobs:
       - name: Check live composition and commit barriers with the UIKit controller
         id: ui-tests
         continue-on-error: true
-        env:
-          CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-5
-          CLEAR_TEST_REQUIRE_RUNTIME: '1'
         run: bash Scripts/test-composition-proxy.sh
       - name: Require core and live UI checks before packaging
         if: always()

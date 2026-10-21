@@ -6,7 +6,7 @@ python3 Scripts/generate_project.py
 df -h .
 python3 Scripts/boot_test_simulator.py
 TEST_DEVICE="$(cat .build/composition-device-id)"
-trap 'xcrun simctl shutdown "$TEST_DEVICE" >/dev/null 2>&1 || true; xcrun simctl delete "$TEST_DEVICE" >/dev/null 2>&1 || true' EXIT
+trap 'python3 Scripts/boot_test_simulator.py --cleanup || true' EXIT
 xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime \
   -configuration Debug -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
