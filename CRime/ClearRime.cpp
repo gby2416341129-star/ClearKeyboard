@@ -398,7 +398,7 @@ bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item>
 bool repair_trailing_initials(Query &query,const std::string &raw,const Item &literal,
     std::vector<Item> &output,clear_sentence::Budget::Clock::time_point started,cr_cancelled cancelled,void *context) {
   const std::string consonants="bpmfdtnlgkhjqxrzcsyw";
-  if(raw.size()<6 || raw.size()>32 || raw.find_first_of("aeiouv")==std::string::npos ||
+  if(!blind_rescue_enabled || raw.size()<6 || raw.size()>32 || raw.find_first_of("aeiouv")==std::string::npos ||
      consonants.find(raw[raw.size()-1])==std::string::npos || consonants.find(raw[raw.size()-2])==std::string::npos ||
      letters(literal.reading)==raw) return false;
   const auto deadline=started+std::chrono::milliseconds(35);
@@ -450,7 +450,7 @@ bool same_syllable_initials(const std::string &left,const std::string &right) {
 bool confident_valid_correction(Query &query,uintptr_t id,const std::string &raw,const Item &literal,
     cr_cancelled cancelled,void *context,Item *replacement=nullptr,
     clear_sentence::Budget::Clock::time_point started=clear_sentence::Budget::Clock::now()) {
-  if (literal.consumed!=static_cast<int>(raw.size()) || letters(literal.reading)!=raw ||
+  if (!blind_rescue_enabled || literal.consumed!=static_cast<int>(raw.size()) || letters(literal.reading)!=raw ||
       std::count(literal.reading.begin(),literal.reading.end(),' ')<2) return false;
   // A valid syllable can still be a neighbouring-key typo. The corrected
   // Rime channel already includes its edit cost; compare that same sentence
@@ -588,18 +588,22 @@ std::vector<Item> merge_candidates(const std::string &input, const std::vector<I
   if(contextual)for(const auto &item:fluent)if(item.consumed==length)append(item);
   for (const auto &item : conversation) if (item.consumed == length) append(item);
   for (const auto &item : literal) if (item.consumed == length) append(item);
-  const bool has_exact_phrase = !result.empty();
+  // A contextual grammar sentence is still a hypothesis. It must not hide
+  // the dictionary prefixes used to correct that sentence one word at a time.
+  // Only an actual complete dictionary phrase may prune shorter prefixes.
+  const auto complete_dictionary=[&](const Item &item){return item.consumed==length;};
+  const bool has_exact_phrase = std::any_of(conversation.begin(),conversation.end(),complete_dictionary) ||
+      std::any_of(literal.begin(),literal.end(),complete_dictionary);
   auto useful_prefix = [&](const Item &item) {
     if (item.consumed <= 0 || item.consumed >= length || item.reading.find(' ') == std::string::npos) return false;
-    const auto reading = letters(item.reading);
-    return static_cast<int>(reading.size()) == item.consumed &&
-           spelling.compare(0, item.consumed, reading) == 0;
+    return clear_sentence::PhoneticSearch::matches(spelling.substr(0,item.consumed),syllables(item.reading))>=0;
   };
   int longest = 0;
   for (const auto &item : literal) if (useful_prefix(item)) longest = std::max(longest, item.consumed);
   if (has_exact_phrase) for (const auto &item : literal) if (item.consumed == longest && useful_prefix(item)) append(item);
   for (const auto &item : fluent) if (item.consumed == length) append(item);
-  // Keep every longest fully spelled word prefix, including homophones absent
+  // Keep every longest matching word prefix, including mixed/initial readings
+  // and homophones absent
   // from the whole-phrase winner. Shorter prefixes remain available on inputs
   // with no whole dictionary phrase and in ordinary short-initial selection.
   if (length <= 4 || !has_exact_phrase) {

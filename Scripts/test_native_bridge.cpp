@@ -1,3 +1,4 @@
+#define CLEAR_BLIND_TESTING
 #include "../CRime/ClearRime.cpp"
 #include <cassert>
 #include <iostream>
@@ -127,6 +128,17 @@ int main(int argc, char **argv) {
   assert(!confident_valid_correction(q,1,"buguixianzaishi",{"strong-literal","bu gui xian zai shi",15,-11.0},nullptr,nullptr));
   assert(!confident_valid_correction(q,1,"buguixianzaishi",{"partial","bu gui",5,-30},nullptr,nullptr));
   assert(!confident_valid_correction(q,1,"buguixianzaishi",{"literal","bu gui xian zai shi",15,-16.45},cancelled_now,nullptr));
+  // Exact-cache equivalence isolates dictionary reuse from every deadline-
+  // bounded spelling comparison. The test switch must cover the mixed-tail
+  // and valid-syllable comparisons as well as the invalid-spelling graph.
+  // Production builds keep the switch constexpr true.
+  const auto before_disabled=starts[1]+starts[5];
+  blind_rescue_enabled=false;std::vector<Item> disabled_repairs;
+  assert(!confident_valid_correction(q,1,"buguixianzaishi",{"literal","bu gui xian zai shi",15,-16.45},nullptr,nullptr));
+  assert(!repair_trailing_initials(q,"nichifankm",{"weak","ni chi fan ke ma",10,-33},
+      disabled_repairs,clear_sentence::Budget::Clock::now(),nullptr,nullptr));
+  assert(starts[1]+starts[5]==before_disabled && disabled_repairs.empty());
+  blind_rescue_enabled=true;
   assert(same_syllable_initials("bu gui xian zai shi","bu guo xian zai shi"));
   assert(same_syllable_initials("cong zhi ka","chong zhi ka"));
   assert(!same_syllable_initials("gei wo kai","gei wo lai"));
@@ -136,6 +148,14 @@ int main(int argc, char **argv) {
   const auto homophones=merge_candidates("chongzhika",{},
       {{"充值卡","chong zhi ka",10},{"充值","chong zhi",8},{"重置","chong zhi",8}}, {},9);
   assert(homophones.size()==3 && homophones[0].text=="充值卡" && homophones[2].text=="重置");
+  const auto contextual_prefixes=merge_candidates("wmjtxbqcf",{},
+      {{"我们","wo men",2},{"我们今天","wo men jin tian",4}},
+      {{"unreliable-whole","wo men jin tian xia ban qu chi fan",9}},64,true);
+  assert(contextual_prefixes.size()==3 && contextual_prefixes[0].text=="unreliable-whole" &&
+      contextual_prefixes[1].text=="我们" && contextual_prefixes[2].text=="我们今天");
+  const auto mixed_prefixes=merge_candidates("wojtxb",{},
+      {{"我今天下班","wo jin tian xia ban",6},{"我今天","wo jin tian",4},{"我们","wo men",3}}, {},9);
+  assert(mixed_prefixes.size()==2 && mixed_prefixes[0].text=="我今天下班" && mixed_prefixes[1].text=="我今天");
   lists[4] = {{"weak", "ni chi fan ke ma\t12\t-33.3"}};
   lists[1] = {{"corrected", "ni chi fan le ma\t12\t-19.5"}};
   const auto correction_starts=starts[1],correction_resets=input_resets[1];
