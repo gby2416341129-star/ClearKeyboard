@@ -24,7 +24,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       CLEAR_UI_HOTFIX: '1'
-      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-5
+      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
       CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '26'
     timeout-minutes: 60
     steps:
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify appearance sync repair scope and unchanged Core model sources
+      - name: Verify keyboard background and candidate animation repair scope
         if: env.CLEAR_UI_HOTFIX == '1'
         run: |
           git fetch --no-tags --depth=1 origin fed2ef08404cd5b0f252a798922e884d4868655b
@@ -181,6 +181,16 @@ jobs:
         run: |
           test "$CORE_TESTS_RESULT" = success
           test "$UI_TESTS_RESULT" = success
+      - name: Export synthetic keyboard visual review images
+        run: |
+          xcrun xcresulttool export attachments --path .build/CompositionResults.xcresult --output-path .build/KeyboardVisualReview
+      - name: Return keyboard visual review images
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-keyboard-visual-review
+          path: .build/KeyboardVisualReview
+          if-no-files-found: error
+          retention-days: 7
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
           python3 - <<'PY'
@@ -189,8 +199,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.47')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 50')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.48')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 51')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

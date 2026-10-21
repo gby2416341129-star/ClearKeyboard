@@ -1,4 +1,4 @@
-"""Appearance and English Space hotfix: reuse only unchanged Core/model evidence."""
+"""Keyboard UI hotfix: reuse only unchanged Core/model evidence."""
 import json,subprocess
 BASE='fed2ef08404cd5b0f252a798922e884d4868655b'
 ALLOWED={
@@ -8,9 +8,11 @@ ALLOWED={
     'Config/Project.xcconfig','KeyboardExtension/KeyboardViewController.swift',
     'SharedUI/AppearanceEditor.swift','SharedUI/GlassBackdrop.swift',
     'SharedUI/KeyboardModel.swift','SharedUI/AppearanceSync.swift','SharedUI/AppearanceSettingsLink.swift',
+    'SharedUI/CandidateScrollView.swift','SharedUI/KeyboardSurface.swift',
     'SharedUI/KeyboardAppearancePreview.swift','SharedUI/SharedStorage.swift',
     'NativeTests/UnifiedRepairTests.swift','NativeTests/CustomizationRuntimeTests.swift',
     'UITests/AppUITests.swift','NativeTests/AppearanceSyncRuntimeTests.swift','NativeTests/AppearanceReceiverRuntimeTests.swift',
+    'NativeTests/KeyboardRuntimeTests.swift','NativeTests/RemoteProxyPerformanceTests.swift','NativeTests/CandidateAnimationRuntimeTests.swift',
 }
 changed=set(subprocess.check_output(['git','diff','--name-only',BASE,'HEAD'],text=True).splitlines())
 assert changed and changed<=ALLOWED,sorted(changed-ALLOWED)

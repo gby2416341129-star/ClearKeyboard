@@ -5,6 +5,7 @@ import os
 class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var model: KeyboardModel!
     private var surface: KeyboardSurface!
+    private let rootBackdrop = GlassBackdrop()
     private var heightConstraint: NSLayoutConstraint?
     private var widthConstraint: NSLayoutConstraint?
     private var surfaceHeightConstraint: NSLayoutConstraint?
@@ -39,7 +40,20 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let appearanceLink: AppearanceSettingsLink? = Bundle.main.bundleURL.pathExtension == "appex"
             ? .production(role: .keyboard) : nil
         model = KeyboardModel(document: self, appearanceLink: appearanceLink)
-        surface = KeyboardSurface(model: model, systemBacked: true)
+        // The host may temporarily give our primary view more height than the
+        // four-row surface requests. Paint all of our own root, while the keys
+        // retain their fixed pitch and bottom-anchored positions. Never reach
+        // into the system's surrounding keyboard/globe container.
+        rootBackdrop.accessibilityIdentifier = "clear.keyboard.root-backdrop"
+        rootBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(rootBackdrop)
+        NSLayoutConstraint.activate([
+            rootBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            rootBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            rootBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
+            rootBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        surface = KeyboardSurface(model: model, systemBacked: true, backgroundBackdrop: rootBackdrop)
         surface.configureGlobe = { [weak self] button in
             guard let self else { return }
             button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)

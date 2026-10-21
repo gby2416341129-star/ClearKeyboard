@@ -1,0 +1,177 @@
+import XCTest
+import UIKit
+
+@MainActor final class CandidateAnimationRuntimeTests: XCTestCase {
+    private func views(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(views) }
+    private func ink(_ view: UIView) throws -> UILabel {
+        try XCTUnwrap(views(view).compactMap { $0 as? UILabel }.first { $0.accessibilityIdentifier == "candidate.currentInk" })
+    }
+    private func context(_ raw: String = "ni") -> KeyboardModel.CandidateContext {
+        KeyboardModel.CandidateContext(raw: raw, before: raw, after: "", document: "animation-fixture", language: .chinese)
+    }
+    private func waitFor(_ condition: () -> Bool) async throws {
+        for _ in 0..<400 {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(condition(), "The latest candidate frame must arrive without an animation delay")
+    }
+    private func row() -> (UIWindow, CandidateScrollView) {
+        let window: UIWindow
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+            window = UIWindow(windowScene: scene)
+        } else { window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 120)) }
+        window.overrideUserInterfaceStyle = .dark
+        let controller = UIViewController(); controller.view.backgroundColor = UIColor(white: 0.13, alpha: 1)
+        window.rootViewController = controller
+        let ribbon = CandidateScrollView(); ribbon.frame = CGRect(x: 12, y: 10, width: 350, height: 44)
+        controller.view.addSubview(ribbon)
+        window.isHidden = false; controller.view.layoutIfNeeded()
+        return (window, ribbon)
+    }
+    private func button(_ row: CandidateScrollView, at index: Int = 0) -> CandidateButton? {
+        views(row).compactMap { $0 as? CandidateButton }.first { $0.tag == index && !$0.isHidden }
+    }
+    func testNewInkIsReadableImmediatelyWithoutOldWordOverprint() throws {
+        let button = CandidateButton(frame: CGRect(x: 0, y: 0, width: 240, height: 44))
+        let font = UIFont.systemFont(ofSize: 19)
+        button.configure(Candidate(text: "上一条候选", consumed: 2), first: true, accent: .systemBlue, font: font)
+        button.configure(Candidate(text: "你今天吃饭了吗", consumed: 7), first: true, accent: .systemBlue,
+                         font: font, animate: true, reduceMotion: false)
+        let label = try ink(button)
+        XCTAssertEqual(label.text, "你今天吃饭了吗")
+        XCTAssertEqual(label.layer.opacity, 1, "The model layer must already hold readable latest ink")
+        XCTAssertEqual(views(button).compactMap { $0 as? UILabel }.count, 1, "No old sentence may show through the new sentence")
+        let fade = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
+        let settle = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CABasicAnimation)
+        XCTAssertGreaterThanOrEqual((fade.fromValue as? NSNumber)?.doubleValue ?? 0, 0.9)
+        XCTAssertGreaterThan(fade.duration, 0); XCTAssertLessThanOrEqual(fade.duration, 0.18)
+        XCTAssertEqual(settle.beginTime, fade.beginTime); XCTAssertEqual(settle.duration, fade.duration)
+        XCTAssertEqual((settle.toValue as? NSNumber)?.doubleValue, 0)
+        XCTAssertLessThanOrEqual((settle.fromValue as? NSNumber)?.doubleValue ?? 100, 2)
+        XCTAssertTrue(CATransform3DIsIdentity(button.layer.transform), "Hit geometry must never animate")
+        button.configure(Candidate(text: "候选文字大小", consumed: 6), first: true, accent: .systemBlue,
+                         font: .systemFont(ofSize: 25), animate: false)
+        button.layoutIfNeeded()
+        XCTAssertTrue(label.superview === button, "The smaller highlight must not clip large animated glyphs")
+        XCTAssertGreaterThanOrEqual((label.bounds.height - label.font.lineHeight) / 2, 2)
+    }
+    func testRapidResultsShareOneClockAndKeepLatestTextAndExactHitGeometry() throws {
+        let button = CandidateButton(frame: CGRect(x: 8, y: 0, width: 260, height: 44))
+        let font = UIFont.systemFont(ofSize: 19), originalFrame = button.frame
+        button.configure(Candidate(text: "你", consumed: 1), first: true, accent: .systemBlue, font: font, animate: true, reduceMotion: false)
+        let label = try ink(button)
+        let first = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
+        for text in ["你今", "你今天", "你今天吃饭", "你今天吃饭了吗", "hello"] {
+            button.configure(Candidate(text: text, consumed: text.count), first: true, accent: .systemBlue,
+                             font: font, animate: true, reduceMotion: false)
+            let current = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
+            let position = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CABasicAnimation)
+            XCTAssertEqual(current.beginTime, first.beginTime); XCTAssertEqual(current.duration, first.duration)
+            XCTAssertEqual(position.beginTime, first.beginTime)
+            XCTAssertEqual(label.text, text); XCTAssertEqual(button.frame, originalFrame)
+            XCTAssertEqual(views(button).compactMap { $0 as? UILabel }.count, 1)
+        }
+    }
+    func testReduceMotionSettlesAnUnchangedWordAndNeverStartsAnotherTransition() throws {
+        let button = CandidateButton(frame: CGRect(x: 0, y: 0, width: 160, height: 44))
+        let font = UIFont.systemFont(ofSize: 19), word = Candidate(text: "你好", consumed: 5)
+        button.configure(word, first: true, accent: .systemBlue, font: font, animate: true, reduceMotion: false)
+        let label = try ink(button)
+        XCTAssertNotNil(label.layer.animation(forKey: "candidateText"))
+        button.configure(word, first: true, accent: .systemBlue, font: font, animate: true, reduceMotion: true)
+        XCTAssertNil(label.layer.animation(forKey: "candidateText")); XCTAssertNil(label.layer.animation(forKey: "candidateTextPosition"))
+        button.configure(Candidate(text: "hello", consumed: 5), first: true, accent: .systemBlue,
+                         font: font, animate: true, reduceMotion: true)
+        XCTAssertEqual(label.text, "hello"); XCTAssertNil(label.layer.animationKeys())
+        XCTAssertEqual(label.layer.opacity, 1); XCTAssertTrue(CATransform3DIsIdentity(label.layer.transform))
+    }
+    func testIntermediateEmptyAndSupersededRowsCoalesceWithoutHidingTheCurrentInk() async throws {
+        let (window, ribbon) = row(); defer { window.isHidden = true }
+        ribbon.update([Candidate(text: "你", consumed: 2)], context: context(), arithmetic: false, accent: .systemBlue)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你" }
+        let original = try XCTUnwrap(button(ribbon)); let currentInk = try ink(original)
+        let latest = context("nijintian")
+        ribbon.update([], context: latest, arithmetic: false, accent: .systemBlue)
+        ribbon.update([Candidate(text: "你今", consumed: 4)], context: latest, arithmetic: false, accent: .systemBlue)
+        ribbon.update([Candidate(text: "你今天", consumed: 8)], context: latest, arithmetic: false, accent: .systemBlue)
+        XCTAssertFalse(original.isHidden); XCTAssertEqual(currentInk.text, "你")
+        XCTAssertEqual(currentInk.layer.opacity, 1)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你今天" }
+        XCTAssertTrue(button(ribbon) === original, "A new word reuses its visible control instead of hiding and rebuilding the row")
+        XCTAssertEqual(ribbon.accessibilityValue, "offset:0;count:1")
+        var selected: (String, KeyboardModel.CandidateContext?)?
+        ribbon.onSelect = { candidate, context, _ in selected = (candidate.text, context) }
+        ribbon.selectCandidate(at: CGPoint(x: original.frame.midX, y: 22))
+        XCTAssertEqual(selected?.0, "你今天"); XCTAssertEqual(selected?.1, latest)
+        XCTAssertNil(currentInk.layer.animationKeys(), "Contact must settle ink immediately without delaying selection")
+        ribbon.update([], context: context("unknown"), arithmetic: false, accent: .systemBlue)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:0" }
+        XCTAssertNil(button(ribbon), "A genuine empty result must still clear obsolete, unselectable words")
+    }
+    func testAppendingWhileBrowsingKeepsControlPositionsOffsetAndSelectableContext() async throws {
+        let (window, ribbon) = row(); defer { window.isHidden = true }
+        let query = context("ni")
+        let values = (0..<35).map { Candidate(text: "候选\($0)", consumed: 2) }
+        ribbon.update(values, context: query, arithmetic: false, accent: .systemBlue)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:35" }
+        ribbon.layoutIfNeeded(); ribbon.contentOffset = CGPoint(x: 140, y: 0); ribbon.layoutIfNeeded()
+        ribbon.scrollViewWillBeginDragging(ribbon)
+        let offset = ribbon.contentOffset
+        let controls = views(ribbon).compactMap { $0 as? CandidateButton }.filter { !$0.isHidden }
+        let positions = controls.map { ($0, $0.tag, $0.frame) }
+        ribbon.update([values[1], values[0]] + Array(values.dropFirst(2)) + [Candidate(text: "新增", consumed: 2)],
+                      context: query, arithmetic: false, accent: .systemBlue)
+        try await waitFor { ribbon.accessibilityValue == "offset:140;count:36" }
+        XCTAssertEqual(ribbon.contentOffset, offset)
+        for (control, index, frame) in positions where !control.isHidden {
+            XCTAssertEqual(control.tag, index); XCTAssertEqual(control.frame, frame)
+            XCTAssertEqual(control.accessibilityIdentifier, "candidate." + values[index].text)
+            XCTAssertNil(try ink(control).layer.animationKeys())
+        }
+        var selected: String?
+        ribbon.onSelect = { candidate, context, _ in selected = candidate.text; XCTAssertEqual(context, query) }
+        let target = try XCTUnwrap(positions.first { ribbon.bounds.contains(CGPoint(x: $0.2.midX, y: 22)) })
+        ribbon.selectCandidate(at: CGPoint(x: target.2.midX, y: 22))
+        XCTAssertEqual(selected, values[target.1].text)
+    }
+    func testCandidateHandoffVisualSamplesAndSettledInk() async throws {
+        let (window, ribbon) = row(); defer { window.isHidden = true }
+        var samples: [(String, UIImage)] = []
+        func capture(_ title: String) {
+            ribbon.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(size: ribbon.bounds.size).image { context in
+                UIColor(white: 0.13, alpha: 1).setFill(); context.fill(CGRect(origin: .zero, size: ribbon.bounds.size))
+                ribbon.drawHierarchy(in: CGRect(origin: .zero, size: ribbon.bounds.size), afterScreenUpdates: false)
+            }
+            samples.append((title, image))
+        }
+        ribbon.update(["你", "呢", "拟", "泥"].map { Candidate(text: $0, consumed: 2) }, context: context(), arithmetic: false, accent: .systemBlue)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你" }
+        capture("首次候选 / 清晰显示")
+        ribbon.update(["你今天", "你已经", "你在"].map { Candidate(text: $0, consumed: 4) }, context: context("nijint"), arithmetic: false, accent: .systemBlue)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你今天" }
+        capture("文字交接 / 无旧字叠印")
+        ribbon.update([Candidate(text: "你今天吃饭了吗", consumed: 10), Candidate(text: "你今天", consumed: 6)], context: context("nijtchiflm"), arithmetic: false, accent: .systemBlue)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你今天吃饭了吗" }
+        capture("快速输入 / 最新结果立即可选")
+        try await Task.sleep(nanoseconds: 220_000_000)
+        capture("收稳 / 字形完整且位置固定")
+        for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
+            let label = try ink(control)
+            XCTAssertNil(label.layer.animation(forKey: "candidateText")); XCTAssertNil(label.layer.animation(forKey: "candidateTextPosition"))
+            XCTAssertEqual(label.layer.opacity, 1); XCTAssertTrue(CATransform3DIsIdentity(label.layer.transform))
+        }
+        let sheet = UIGraphicsImageRenderer(size: CGSize(width: 390, height: CGFloat(samples.count) * 92)).image { context in
+            UIColor(white: 0.09, alpha: 1).setFill(); context.fill(CGRect(x: 0, y: 0, width: 390, height: CGFloat(samples.count) * 92))
+            for (index, sample) in samples.enumerated() {
+                let y = CGFloat(index) * 92
+                (sample.0 as NSString).draw(at: CGPoint(x: 14, y: y + 10), withAttributes: [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.white])
+                sample.1.draw(in: CGRect(x: 14, y: y + 35, width: 350, height: 44))
+            }
+        }
+        let attachment = XCTAttachment(image: sheet); attachment.name = "Candidate-animation-handoff-contact-sheet"
+        attachment.lifetime = .keepAlways; add(attachment)
+        print("CANDIDATE_ANIMATION_VISUAL_SAMPLES count=4 latestWordsImmediate=true noOldWordOverprint=true physicalFrameRateMeasured=false")
+    }
+}

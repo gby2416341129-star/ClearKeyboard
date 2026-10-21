@@ -318,6 +318,7 @@ import os
     }
     fileprivate func activate(_ index: Int) {
         guard let current = presentation, current.items.indices.contains(index) else { return }
+        buttons.forEach { $0.finishTransition() }
         onSelect?(current.items[index], current.context, current.arithmetic)
     }
     private func setInteraction(_ active: Bool) {
@@ -384,19 +385,16 @@ import os
     }()
     private let plate = UIView()
     private let label = UILabel()
-    private let outgoing = UILabel()
     private var transitionDeadline: CFTimeInterval = 0
+    private static let transitionDuration: CFTimeInterval = 0.16
     override init(frame: CGRect) {
         super.init(frame: frame)
-        addSubview(plate); plate.addSubview(outgoing); plate.addSubview(label)
+        addSubview(plate); addSubview(label)
         plate.isUserInteractionEnabled = false
         backgroundColor = .clear
         label.isUserInteractionEnabled = false; label.isAccessibilityElement = false
         label.numberOfLines = 1; label.lineBreakMode = .byClipping
-        outgoing.isUserInteractionEnabled = false; outgoing.isAccessibilityElement = false
-        outgoing.numberOfLines = 1; outgoing.lineBreakMode = .byClipping; outgoing.layer.opacity = 0
         label.accessibilityIdentifier = "candidate.currentInk"
-        outgoing.accessibilityIdentifier = "candidate.outgoingInk"
         plate.layer.cornerRadius = 8; plate.layer.cornerCurve = .continuous; plate.clipsToBounds = true
         isAccessibilityElement = true; accessibilityTraits = .button
     }
@@ -406,8 +404,9 @@ import os
         let height = max(0, min(bounds.height - 12, max(28, ceil(label.font.lineHeight) + 8)))
         plate.frame = CGRect(x: 0, y: (bounds.height - height) / 2,
                              width: max(0, bounds.width - 4), height: height)
-        label.frame = plate.bounds.insetBy(dx: 8, dy: 0)
-        outgoing.frame = label.frame
+        // Ink uses the row's full height, independently of its smaller rounded
+        // highlight. Large text must retain headroom during the two-point settle.
+        label.frame = CGRect(x: 8, y: 0, width: max(0, bounds.width - 20), height: bounds.height)
     }
     static func width(_ candidate: Candidate, font: UIFont) -> CGFloat {
         let key = "\(font.fontName):\(font.pointSize):\(candidate.text)" as NSString
@@ -416,54 +415,53 @@ import os
         measuredWidths.setObject(NSNumber(value: Double(width)), forKey: key)
         return width
     }
-    func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false, normalColor: UIColor? = nil) {
+    func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false,
+                   normalColor: UIColor? = nil, reduceMotion: Bool = UIAccessibility.isReduceMotionEnabled) {
         let oldText = label.text
-        let oldFont = label.font, oldColor = label.textColor
         let changedFont = label.font != font
         if label.font != font { label.font = font }
         if label.text != candidate.text { label.text = candidate.text }
         label.textColor = normalColor ?? (first ? accent : .label)
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
-        if changedFont { finishTransition() }
+        if changedFont || reduceMotion { finishTransition() }
         guard oldText != candidate.text else {
             // Geometry can refresh immediately after this row was published.
             // Reusing unchanged ink must not cancel its in-flight animation.
             return
         }
-        guard animate, !UIAccessibility.isReduceMotionEnabled else { finishTransition(); return }
-        // Both dictionary and decoded updates share one handoff clock. A newer
-        // word becomes readable immediately, without restarting the fade or
-        // accumulating snapshots while the user types quickly.
+        guard animate, !reduceMotion else { finishTransition(); return }
+        // One readable glyph layer replaces the old two-label overlap. The old
+        // word must never shine through a different word or dim the whole row.
+        // A burst shares one settle clock: later results change the real text
+        // immediately, without bouncing again or stretching the handoff.
         let now = CACurrentMediaTime()
         if now < transitionDeadline, label.layer.animation(forKey: "candidateText") != nil { return }
         finishTransition()
-        outgoing.text = oldText; outgoing.font = oldFont; outgoing.textColor = oldColor
         let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
         let rate = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-        // Blend only glyph opacity: no moving cells, layout animation, bitmap
-        // capture or delayed hit target. Most new ink is visible from frame one.
-        let duration = 0.14
+        // Only the ink settles by two points. Cells, highlight, scroll offset
+        // and hit targets always use their latest exact geometry. There is no
+        // delay, blank frame, spring overshoot or outgoing bitmap to capture.
+        let duration = Self.transitionDuration
         transitionDeadline = now + duration
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.preferredFrameRateRange = rate
-        fade.fromValue = 0.40; fade.toValue = 1; fade.duration = duration
+        fade.fromValue = oldText?.isEmpty == false ? 0.92 : 0.82
+        fade.toValue = 1; fade.duration = duration
         fade.beginTime = label.layer.convertTime(now, from: nil)
-        fade.timingFunction = CAMediaTimingFunction(name: .linear)
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         label.layer.add(fade, forKey: "candidateText")
-        if oldText?.isEmpty == false {
-            let previous = CABasicAnimation(keyPath: "opacity")
-            previous.preferredFrameRateRange = rate
-            previous.fromValue = 0.35; previous.toValue = 0; previous.duration = duration
-            previous.beginTime = outgoing.layer.convertTime(now, from: nil)
-            previous.timingFunction = CAMediaTimingFunction(name: .linear)
-            outgoing.layer.add(previous, forKey: "candidatePreviousText")
-        }
+        let settle = CABasicAnimation(keyPath: "transform.translation.y")
+        settle.preferredFrameRateRange = rate
+        settle.fromValue = 2; settle.toValue = 0; settle.duration = duration
+        settle.beginTime = fade.beginTime; settle.timingFunction = fade.timingFunction
+        label.layer.add(settle, forKey: "candidateTextPosition")
     }
     func finishTransition() {
         label.layer.removeAnimation(forKey: "candidateText")
-        outgoing.layer.removeAnimation(forKey: "candidatePreviousText")
-        outgoing.text = nil; outgoing.layer.opacity = 0; label.layer.opacity = 1
+        label.layer.removeAnimation(forKey: "candidateTextPosition")
+        label.layer.opacity = 1; label.layer.transform = CATransform3DIdentity
         transitionDeadline = 0
     }
     override func accessibilityActivate() -> Bool {

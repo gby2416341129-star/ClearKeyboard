@@ -7,7 +7,8 @@ import SwiftUI
     let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
     var configureGlobe: ((UIButton) -> Void)? { didSet { layoutSignature = ""; render() } }
-    private let backdrop = GlassBackdrop()
+    private let backdrop: GlassBackdrop
+    private let ownsBackdrop: Bool
     private let toolbar = UIStackView()
     private let candidateScroll = CandidateScrollView()
     private let hint = UILabel()
@@ -62,9 +63,12 @@ import SwiftUI
     private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
     var desiredHeight: CGFloat { metrics.contentHeight }
 
-    init(model: KeyboardModel, systemBacked: Bool = false) {
-        self.model = model; self.systemBacked = systemBacked; super.init(frame: .zero)
-        isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked; addSubview(backdrop)
+    init(model: KeyboardModel, systemBacked: Bool = false, backgroundBackdrop: GlassBackdrop? = nil) {
+        self.model = model; self.systemBacked = systemBacked
+        backdrop = backgroundBackdrop ?? GlassBackdrop(); ownsBackdrop = backgroundBackdrop == nil
+        super.init(frame: .zero)
+        isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked
+        if ownsBackdrop { addSubview(backdrop) }
         layer.cornerCurve = .continuous; layer.cornerRadius = systemBacked ? 0 : 28
         // Remote hosts may advertise a much larger corner radius; never inherit it.
         if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28)) }
@@ -154,7 +158,8 @@ import SwiftUI
             trailingInset: safeAreaInsets.right, fitHeight: !systemBacked)
         if keyFramesNeedLayout || geometryPresentation != geometry {
             geometryPresentation = geometry; keyFramesNeedLayout = false
-            backdrop.frame = bounds; toolbar.frame = layout.header
+            if ownsBackdrop { backdrop.frame = bounds }
+            toolbar.frame = layout.header
             keyGlassGroup.frame = layout.keys
             keyMaterial.frame = keyGlassGroup.bounds
             var faces: [CGRect] = []

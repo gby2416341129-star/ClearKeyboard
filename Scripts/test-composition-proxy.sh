@@ -21,6 +21,7 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -only-testing:ClearKeyboardRuntimeTests/CustomizationRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests \
+  -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testDelayedFirstLetterAcknowledgementCannotSplitLivePinyin \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testHostReadInterruptedByKeyCannotCancelNewSpelling \

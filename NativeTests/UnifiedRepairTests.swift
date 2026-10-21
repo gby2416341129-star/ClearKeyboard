@@ -241,7 +241,7 @@ import UIKit
         button.configure(word, first: true, accent: .systemBlue, font: font)
         let after = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
         XCTAssertEqual(initial.beginTime, after.beginTime); XCTAssertEqual(label.text, word.text)
-        XCTAssertEqual(after.duration, 0.14, accuracy: 0.0001)
+        XCTAssertGreaterThan(after.duration, 0); XCTAssertLessThanOrEqual(after.duration, 0.18)
     }
     func testPreviewUsesRealKeyViewsAndAppliesIndependentColorsWithoutAnEngine() throws {
         let preview = KeyboardAppearancePreview(frame: CGRect(x: 0, y: 0, width: 350, height: 250))

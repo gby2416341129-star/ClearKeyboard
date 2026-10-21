@@ -430,9 +430,147 @@ import SwiftUI
         XCTAssertEqual(controller.preferredContentSize, .zero)
         XCTAssertTrue(surface.systemBacked); XCTAssertFalse(surface.isOpaque)
         XCTAssertEqual(surface.layer.cornerRadius, 0)
-        let backdrop = try XCTUnwrap(surface.subviews.compactMap { $0 as? GlassBackdrop }.first)
+        let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
+        XCTAssertEqual(backdrop.frame, input.bounds)
+        XCTAssertFalse(surface.subviews.contains { $0 is GlassBackdrop }, "The controller must paint its root once, not stack another whole background in its key surface")
         XCTAssertLessThan(backdrop.backgroundColor?.cgColor.alpha ?? 0, 0.1)
         XCTAssertFalse(backdrop.isOpaque)
+    }
+    private func assertRootIsBlueAtItsOwnedTopAndBottom(_ input: UIView, name: String) throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        let image = UIGraphicsImageRenderer(bounds: input.bounds, format: format).image { _ in
+            XCTAssertTrue(input.drawHierarchy(in: input.bounds, afterScreenUpdates: true))
+        }
+        let bitmap = try XCTUnwrap(image.cgImage)
+        for y in [2, max(2, Int(input.bounds.height) - 3)] {
+            let pixel = try XCTUnwrap(bitmap.cropping(to: CGRect(x: floor(input.bounds.midX), y: CGFloat(y), width: 1, height: 1)))
+            var bytes = [UInt8](repeating: 0, count: 4)
+            try bytes.withUnsafeMutableBytes { raw in
+                let context = try XCTUnwrap(CGContext(data: raw.baseAddress, width: 1, height: 1,
+                    bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                context.draw(pixel, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            XCTAssertLessThan(bytes[0], 15, "An unpainted strip remained inside our root at y=\(y)")
+            XCTAssertGreaterThan(bytes[1], 70); XCTAssertLessThan(bytes[1], 105)
+            XCTAssertGreaterThan(bytes[2], 240)
+        }
+        let attachment = XCTAttachment(image: image); attachment.name = name
+        attachment.lifetime = .keepAlways; add(attachment)
+    }
+    func testRootBackdropCoversExtraHostHeightWithoutChangingKeyGeometry() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), host = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 640)
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let controller = KeyboardViewController(nibName: nil, bundle: nil)
+        host.addChild(controller); controller.loadViewIfNeeded(); host.view.addSubview(controller.view)
+        controller.didMove(toParent: host)
+        let input = try XCTUnwrap(controller.inputView)
+        let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
+        let defaults = SharedStorage.defaults(allowShared: controller.fullAccess)
+        let saved = defaults.data(forKey: SettingsStore.key)
+        defer {
+            surface.model.suspend()
+            if let saved { defaults.set(saved, forKey: SettingsStore.key) } else { defaults.removeObject(forKey: SettingsStore.key) }
+        }
+        var settings = testSettings(); settings.glass = .solid
+        settings.backgroundColorHex = "#0057FF"; settings.keyColorHex = "#292C39"
+        surface.model.settings = settings
+        let requested = try XCTUnwrap(input.constraints.first { $0.identifier == "clear.keyboard.content-height" })
+        // Simulate an external host allocation that temporarily wins over the
+        // requested height. Only this fixture lowers the request's priority.
+        requested.priority = .defaultHigh
+        let allocated = input.heightAnchor.constraint(equalToConstant: surface.desiredHeight)
+        NSLayoutConstraint.activate([input.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+            input.topAnchor.constraint(equalTo: host.view.topAnchor, constant: 150),
+            input.widthAnchor.constraint(equalToConstant: 393), allocated])
+        let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
+        let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("q") })
+        let a = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("a") })
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = style
+            host.view.backgroundColor = style == .dark ? .black : .white
+            for extra: CGFloat in [0, 18, 0] {
+                allocated.constant = surface.desiredHeight + extra
+                settleLayout(host.view); settleLayout(input)
+                XCTAssertEqual(backdrop.frame, input.bounds, "Only painting the fixed key surface leaves extra host height uncovered")
+                XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
+                XCTAssertEqual(surface.frame.minY, extra, accuracy: 0.5)
+                XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
+                XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
+                XCTAssertEqual(KeyboardGeometry.keyPlate(in: q.bounds).height, 45, accuracy: 0.5)
+                print("KEYBOARD_ROOT_COVERAGE style=\(style.rawValue) extra=\(extra) root=\(input.bounds) background=\(backdrop.frame) surface=\(surface.frame) pitch=\(q.bounds.height)")
+                try assertRootIsBlueAtItsOwnedTopAndBottom(input, name: "root-blue-\(style == .dark ? "dark" : "light")-extra\(Int(extra))")
+            }
+        }
+    }
+    func testPublicResponderHostedInputViewPaintsItsOwnBoundsInBothStyles() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), host = UIViewController()
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = style
+            host.view.backgroundColor = style == .dark ? .black : .white
+            let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
+            let input = try XCTUnwrap(controller.inputView)
+            input.overrideUserInterfaceStyle = style
+            let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
+            let defaults = SharedStorage.defaults(allowShared: controller.fullAccess)
+            let saved = defaults.data(forKey: SettingsStore.key)
+            let field = UITextField(frame: CGRect(x: 20, y: 80, width: 300, height: 44))
+            field.borderStyle = .roundedRect; field.placeholder = "Public input-view appearance fixture"
+            field.keyboardAppearance = style == .dark ? .dark : .light
+            field.inputView = input; host.view.addSubview(field)
+            defer {
+                field.resignFirstResponder(); field.removeFromSuperview(); surface.model.suspend()
+                if let saved { defaults.set(saved, forKey: SettingsStore.key) } else { defaults.removeObject(forKey: SettingsStore.key) }
+            }
+            var settings = testSettings(); settings.glass = .solid
+            settings.backgroundColorHex = "#0057FF"; settings.keyColorHex = "#292C39"
+            surface.model.settings = settings
+            XCTAssertTrue(field.becomeFirstResponder())
+            try await waitFor { input.window != nil && input.bounds.width > 0 && input.bounds.height >= surface.desiredHeight }
+            try await Task.sleep(nanoseconds: 300_000_000)
+            settleLayout(input)
+            let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
+            XCTAssertEqual(backdrop.frame, input.bounds)
+            let keyboardWindow = try XCTUnwrap(input.window)
+            let owned = input.convert(input.bounds, to: keyboardWindow)
+            print("KEYBOARD_PUBLIC_INPUT_HOST style=\(style.rawValue) inputViewStyle=\(input.inputViewStyle.rawValue) ownedRootInWindow=\(owned) root=\(input.bounds) background=\(backdrop.frame) surface=\(surface.frame) outerSystemAreaVerified=false")
+            try assertRootIsBlueAtItsOwnedTopAndBottom(input, name: "public-host-owned-root-\(style == .dark ? "dark" : "light")")
+            // This public responder fixture shows UIKit's surrounding material
+            // for visual review; it is not an extension's remote host process.
+            snapshot(keyboardWindow, name: "public-input-host-context-\(style == .dark ? "dark" : "light")")
+            func contextImage() -> UIImage {
+                let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+                return UIGraphicsImageRenderer(bounds: keyboardWindow.bounds, format: format).image { _ in
+                    XCTAssertTrue(keyboardWindow.drawHierarchy(in: keyboardWindow.bounds, afterScreenUpdates: true))
+                }
+            }
+            let beforeDirectColor = contextImage()
+            let priorRootColor = input.backgroundColor
+            backdrop.isHidden = true
+            input.backgroundColor = UIColor(red: 0, green: 87 / 255, blue: 1, alpha: 1)
+            try await Task.sleep(nanoseconds: 60_000_000)
+            let afterDirectColor = contextImage()
+            let attachment = XCTAttachment(image: afterDirectColor)
+            attachment.name = "public-input-direct-root-blue-\(style == .dark ? "dark" : "light")"
+            attachment.lifetime = .keepAlways; add(attachment)
+            // Merely observe the public root's exterior; do not touch UIKit's
+            // surrounding views or assume this band belongs to our extension.
+            let band = CGRect(x: owned.minX + owned.width * 0.25, y: owned.minY - 16,
+                              width: owned.width * 0.5, height: 12).integral.intersection(keyboardWindow.bounds)
+            if !band.isEmpty, !band.isNull,
+               let before = beforeDirectColor.cgImage?.cropping(to: band),
+               let after = afterDirectColor.cgImage?.cropping(to: band) {
+                let changed = UIImage(cgImage: before).pngData() != UIImage(cgImage: after).pngData()
+                print("KEYBOARD_PUBLIC_ROOT_COLOR_PROBE style=\(style.rawValue) outsideOwnedRootBand=\(band) outsideBandChanged=\(changed) remoteExtensionVerified=false")
+            }
+            input.backgroundColor = priorRootColor; backdrop.isHidden = false
+        }
     }
     func testKeyboardObeysHostWidthInsideALargerWindow() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
