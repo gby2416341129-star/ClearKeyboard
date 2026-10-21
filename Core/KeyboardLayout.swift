@@ -22,6 +22,16 @@ public enum KeyboardLayout {
         func letters(_ value: String) -> [KeyboardKey] {
             value.map { KeyboardKey(uppercase ? String($0).uppercased() : String($0), .text(String($0))) }
         }
+        let punctuation = [".": "。", ",": "，", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）", "\"": "“", "'": "、"]
+        func symbols(_ values: [String]) -> [KeyboardKey] {
+            values.map { KeyboardKey(language == .chinese ? (punctuation[$0] ?? $0) : $0) }
+        }
+        func punctuationRow(_ switcher: KeyboardKey) -> KeyboardRow {
+            // A Chinese full stop and a decimal point need separate visible
+            // keys. Choosing Chinese punctuation must not remove decimals.
+            let values = language == .chinese ? ["。", "，", "、", "？", "！", "."] : [".", ",", "?", "!", "'"]
+            return KeyboardRow([switcher] + values.map { KeyboardKey($0, units: 7 / Double(values.count)) } + [KeyboardKey("⌫", .delete, units: 1.5)])
+        }
         let rows: [KeyboardRow]
         switch page {
         case .letters:
@@ -29,12 +39,12 @@ public enum KeyboardLayout {
                     KeyboardRow([KeyboardKey("⇧", .shift, units: 1.5)] + letters("zxcvbnm") + [KeyboardKey("⌫", .delete, units: 1.5)])]
         case .numbers:
             rows = [KeyboardRow("1234567890".map { KeyboardKey(String($0)) }),
-                    KeyboardRow(["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""].map { KeyboardKey($0) }),
-                    KeyboardRow([KeyboardKey("#+=", .page(.symbols), units: 1.5)] + [".", ",", "?", "!", "'"].map { KeyboardKey($0, units: 1.4) } + [KeyboardKey("⌫", .delete, units: 1.5)])]
+                    KeyboardRow(symbols(["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""])),
+                    punctuationRow(KeyboardKey("#+=", .page(.symbols), units: 1.5))]
         case .symbols:
             rows = [KeyboardRow(["[", "]", "{", "}", "#", "%", "^", "*", "+", "="].map { KeyboardKey($0) }),
-                    KeyboardRow(["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "•"].map { KeyboardKey($0) }),
-                    KeyboardRow([KeyboardKey("123", .page(.numbers), units: 1.5)] + [".", ",", "?", "!", "'"].map { KeyboardKey($0, units: 1.4) } + [KeyboardKey("⌫", .delete, units: 1.5)])]
+                    KeyboardRow(symbols(["_", "\\", "|", "~", "<", ">", "€", "£", "¥", language == .chinese ? "”" : "•"])),
+                    punctuationRow(KeyboardKey("123", .page(.numbers), units: 1.5))]
         }
         let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: globe ? 1 : 1.2)
         // Equal side totals keep both the space face and its touch target on the midline.
@@ -42,14 +52,6 @@ public enum KeyboardLayout {
         let side = globe ? 2.8 : 2.4
         let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 0.85)] : []) +
             [KeyboardKey("中", .language, units: globe ? 0.95 : 1.2), KeyboardKey("空格", .space, units: 10 - side * 2), KeyboardKey("换行", .enter, units: side)]
-        let output = rows + [KeyboardRow(bottom)]
-        guard language == .chinese, page != .letters else { return output }
-        let punctuation = [".": "。", ",": "，", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）", "\"": "“", "'": "、"]
-        return output.map { row in
-            KeyboardRow(row.keys.map { key in
-                guard case .text(let text) = key.action, let value = punctuation[text] else { return key }
-                return KeyboardKey(value, .text(value), units: key.units)
-            }, inset: row.insetUnits)
-        }
+        return rows + [KeyboardRow(bottom)]
     }
 }

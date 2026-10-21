@@ -29,34 +29,48 @@ import XCTest
     }
 
 
-    func testACustomizationControlsCanBeChangedWithoutCrashing() throws {
+    private func openAppearance(_ name: String) -> XCUIElement {
         continueAfterFailure = false; clear.launch()
         clear.tabBars.buttons["定制"].tap()
-        for name in ["backgroundGlass", "keyGlass", "backgroundColor", "keyColor", "candidateColor", "candidateSize"] {
-            let entry = clear.descendants(matching: .any).matching(identifier: "custom.edit." + name).firstMatch
-            reveal(entry, in: clear); XCTAssertTrue(entry.isHittable, name); entry.tap()
-            let preview = clear.descendants(matching: .any).matching(identifier: "preview." + name).firstMatch
-            let nativePreview = clear.descendants(matching: .any).matching(identifier: "appearance.preview").firstMatch
-            XCTAssertTrue(preview.waitForExistence(timeout: 4) || nativePreview.exists, "Missing live preview for " + name)
-            if name == "backgroundGlass" || name == "keyGlass" {
-                let slider = clear.sliders["appearance.strength." + name]
-                XCTAssertTrue(slider.exists); slider.adjust(toNormalizedSliderPosition: name == "backgroundGlass" ? 0.2 : 0.85)
-            } else if name == "candidateSize" {
-                clear.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap()
-            } else {
-                let swatch = clear.buttons["#7573F5"]; reveal(swatch, in: clear); XCTAssertTrue(swatch.isHittable); swatch.tap()
-            }
-            XCTAssertEqual(clear.state, .runningForeground)
-            clear.navigationBars.buttons.element(boundBy: 0).tap()
+        let entry = clear.descendants(matching: .any).matching(identifier: "custom.edit." + name).firstMatch
+        reveal(entry, in: clear); XCTAssertTrue(entry.isHittable, name); entry.tap()
+        let preview = clear.descendants(matching: .any).matching(NSPredicate(format: "identifier IN %@", ["preview." + name, "appearance.preview"] as NSArray)).firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 4), "Missing live preview for " + name)
+        return preview
+    }
+    private func exerciseAppearance(_ name: String) {
+        let preview = openAppearance(name)
+        if name == "backgroundGlass" || name == "keyGlass" {
+            let slider = clear.sliders["appearance.strength." + name]
+            XCTAssertTrue(slider.exists); slider.adjust(toNormalizedSliderPosition: name == "backgroundGlass" ? 0.2 : 0.85)
+        } else if name == "candidateSize" {
+            clear.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap()
+        } else {
+            let swatch = clear.buttons["#7573F5"]; reveal(swatch, in: clear); XCTAssertTrue(swatch.isHittable); swatch.tap()
         }
+        XCTAssertTrue(preview.exists); XCTAssertEqual(clear.state, .runningForeground)
+        print("APPEARANCE_PAGE name=" + name + " livePreview=true controlChanged=true")
+    }
+    func testAppearanceBackgroundGlass() { exerciseAppearance("backgroundGlass") }
+    func testAppearanceKeyGlass() { exerciseAppearance("keyGlass") }
+    func testAppearanceBackgroundColor() { exerciseAppearance("backgroundColor") }
+    func testAppearanceKeyColor() { exerciseAppearance("keyColor") }
+    func testAppearanceCandidateColor() { exerciseAppearance("candidateColor") }
+    func testAppearanceCandidateSize() { exerciseAppearance("candidateSize") }
+    func testAppearancePersistenceAndToolbar() {
+        _ = openAppearance("candidateSize")
+        let size = clear.segmentedControls["custom.candidateTextSize"]
+        let selected = size.buttons["特大"].isSelected ? "小" : "特大"
+        size.buttons[selected].tap()
+        clear.navigationBars.buttons.element(boundBy: 0).tap()
         let toolbar = clear.buttons["custom.toolbarEditor"]; reveal(toolbar, in: clear); toolbar.tap()
         XCTAssertTrue(clear.navigationBars["快捷工具"].waitForExistence(timeout: 4))
         clear.buttons["完成"].tap()
         clear.terminate(); clear.launch(); clear.tabBars.buttons["定制"].tap()
         let entry = clear.descendants(matching: .any).matching(identifier: "custom.edit.candidateSize").firstMatch
         reveal(entry, in: clear); entry.tap()
-        XCTAssertTrue(clear.segmentedControls["custom.candidateTextSize"].buttons["特大"].isSelected)
-        print("APPEARANCE_UI pages=6 livePreview=true controlsChanged=true persistedAfterRelaunch=true")
+        XCTAssertTrue(clear.segmentedControls["custom.candidateTextSize"].buttons[selected].isSelected)
+        print("APPEARANCE_PERSISTENCE persistedAfterRelaunch=true toolbarEditor=true")
     }
 
     private func tapSettingsText(_ label: String, in app: XCUIApplication) {

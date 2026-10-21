@@ -52,7 +52,7 @@ import SwiftUI
         try await waitFor { controller.model.candidatesAreCurrent }
         XCTAssertTrue(controller.model.candidates.contains { $0.text == "你好" }, "Pinyin did not produce a Chinese candidate")
         try await waitFor { self.descendants(controller.view).compactMap { $0 as? UIButton }.contains { $0.accessibilityIdentifier == "candidate.你好" } }
-        XCTAssertTrue(descendants(controller.view).compactMap { $0 as? UIButton }.contains { $0.title(for: .normal) == "你好" }, "Chinese candidates did not render")
+        XCTAssertTrue(descendants(controller.view).compactMap { $0 as? UILabel }.contains { $0.text == "你好" && !$0.isHidden }, "Chinese candidate ink did not render")
         controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
         let chineseButton = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你好" })
         XCTAssertGreaterThan(chineseButton.bounds.width, 0, "Candidate stack must have a visible width")
@@ -163,6 +163,7 @@ import SwiftUI
         controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
         let surface = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         surface.layoutIfNeeded()
+        try await waitFor { self.descendants(surface).compactMap { $0 as? UIButton }.contains { $0.accessibilityIdentifier == "candidate.你好" && !$0.isHidden } }
         let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你好" })
         XCTAssertTrue(candidate.isEnabled)
         let point = candidate.convert(CGPoint(x: candidate.bounds.midX, y: candidate.bounds.midY), to: surface)
@@ -407,6 +408,7 @@ import SwiftUI
         XCTAssertEqual(controller.textView.text, "99x88")
         XCTAssertEqual(controller.model.arithmetic?.candidates, ["8712", "99x88=8712"])
         settleLayout(controller.view)
+        try await waitFor { self.descendants(controller.view).compactMap { $0 as? UIButton }.contains { $0.accessibilityIdentifier == "candidate.8712" && !$0.isHidden } }
         let result = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.8712" })
         let point = result.convert(CGPoint(x: result.bounds.midX, y: result.bounds.midY), to: controller.view)
         let scroll = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? CandidateScrollView }.first)
@@ -549,6 +551,7 @@ import SwiftUI
         XCTAssertEqual(controller.textView.text, spelling)
         XCTAssertNotNil(controller.textView.markedTextRange)
         XCTAssertEqual(controller.model.candidates.first?.text, "你吃饭了吗")
+        try await waitFor { self.descendants(surface).compactMap { $0 as? UIButton }.contains { $0.accessibilityIdentifier == "candidate.你吃饭了吗" && !$0.isHidden } }
         let candidate = try XCTUnwrap(descendants(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.你吃饭了吗" })
         XCTAssertTrue(candidate.isEnabled); candidate.sendActions(for: .touchUpInside)
         XCTAssertEqual(controller.textView.text, "你吃饭了吗")

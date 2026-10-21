@@ -44,6 +44,10 @@ import UIKit
                 for text in language == .chinese ? ["。", "，", "？", "！", "、"] : [".", ",", "?", "!", "'"] {
                     XCTAssertTrue(keys.contains { $0.label == text })
                 }
+                XCTAssertTrue(keys.contains { $0.label == "." && $0.action == .text(".") }, "Decimals must remain typeable in either language")
+                if language == .chinese {
+                    XCTAssertTrue(keys.contains { $0.label == (page == .numbers ? "“" : "”") })
+                }
             }
         }
     }
@@ -67,6 +71,17 @@ import UIKit
         XCTAssertEqual(memory.candidates(for: "gby").first?.text, name.text, "A newly confirmed initials mapping must not be buried by an older frequent phrase")
         memory.record(Candidate(text: name.text, reading: name.reading, consumed: 3), for: "gby", now: Date(timeIntervalSince1970: 3))
         XCTAssertEqual(memory.candidates(for: "gby").first?.score, 4, "Selecting the learned alias must not downgrade its next recall")
+    }
+    func testDecimalPointAndChineseFullStopRemainDistinctWhenTypingNumbers() throws {
+        let value = controller(), model = try XCTUnwrap(value.model)
+        defer { model.suspend() }
+        model.handle(.page(.numbers))
+        for text in ["3", ".", "5"] { model.handle(.text(text)) }
+        XCTAssertEqual(value.textView.text, "3.5")
+        XCTAssertEqual(model.page, .numbers, "A decimal point must keep the number keys available")
+        model.handle(.text("。"))
+        XCTAssertEqual(value.textView.text, "3.5。")
+        XCTAssertEqual(model.page, .letters)
     }
     func testFirstHighlightFitsTheKeyboardCornerAtEveryCandidateSize() throws {
         let shell = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 390, height: 276), cornerRadius: 28)
@@ -209,10 +224,15 @@ import UIKit
         XCTAssertEqual(value.textView.text, text)
         XCTAssertTrue(paste.superview?.isHidden ?? false)
         model.clipboardCapture.onCapture?()
+        model.handle(.page(.numbers)); model.handle(.text("3"))
+        XCTAssertTrue(paste.superview?.isHidden ?? false, "Starting numeric input must release the header too")
+        model.clearInput(); model.handle(.page(.letters)); model.clipboardCapture.onCapture?()
         for letter in "nihao" { model.handle(.text(String(letter))) }
         XCTAssertTrue(paste.superview?.isHidden ?? false, "A clipboard tip must not cover live pinyin candidates")
         XCTAssertEqual(model.composition.raw, "nihao")
-        model.clearInput(); model.clipboardCapture.onCapture?()
+        model.clearInput()
+        XCTAssertTrue(paste.superview?.isHidden ?? false, "An old clipboard tip must not return after typing or clearing")
+        model.clipboardCapture.onCapture?()
         let history = try XCTUnwrap(views(value.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.history" })
         history.sendActions(for: .touchUpInside)
         value.view.setNeedsLayout(); value.view.layoutIfNeeded()
@@ -228,5 +248,32 @@ import UIKit
         panel.tableView(table, didSelectRowAt: IndexPath(row: 0, section: 0))
         XCTAssertEqual(value.textView.text, before + text)
         print("CLIPBOARD_RECENT_UIKIT textPaste=true history=true copyMenu=true compositionProtected=true")
+    }
+    func testCompactAppearanceOwnsAndRemovesItsHostingController() throws {
+        let value = controller(), model = try XCTUnwrap(value.model)
+        defer { model.suspend() }
+        let surface = try XCTUnwrap(views(value.view).compactMap { $0 as? KeyboardSurface }.first)
+        views(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.close" }?.sendActions(for: .touchUpInside)
+        for _ in 0..<3 {
+            let button = try XCTUnwrap(views(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "toolbar.appearance" })
+            button.sendActions(for: .touchUpInside)
+            let host = try XCTUnwrap(value.children.compactMap { $0 as? UIHostingController<KeyboardAppearancePanel> }.first)
+            XCTAssertTrue(host.view.superview === surface)
+            surface.closePanel()
+            XCTAssertTrue(value.children.isEmpty, "Closing a panel must release its child controller")
+        }
+    }
+    func testCustomKeyInkUsesTheTranslucentFaceInsteadOfOnlyTheColorSwatch() throws {
+        let button = KeyButton(key: KeyboardKey("A"))
+        let label = try XCTUnwrap(views(button).compactMap { $0 as? CenteredKeyLabel }.first)
+        var settings = KeyboardSettings(); settings.glass = .clear; settings.keyGlassStrength = 0
+        button.overrideUserInterfaceStyle = .dark; settings.keyColorHex = "#FFFFFF"; button.apply(settings)
+        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .white)
+        settings.glass = .solid; button.apply(settings)
+        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .black)
+        settings.keyColorHex = nil; settings.backgroundColorHex = "#FFFFFF"; button.apply(settings)
+        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .white)
+        button.overrideUserInterfaceStyle = .light; settings.glass = .clear; settings.keyColorHex = "#101010"; button.apply(settings)
+        XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), .black)
     }
 }

@@ -36,9 +36,34 @@ extension KeyboardSettings {
     var backgroundTintColor: UIColor? { Self.color(hex: backgroundColorHex) }
     var keyTintColor: UIColor? { Self.color(hex: keyColorHex) }
     var candidateTintColor: UIColor? { Self.color(hex: candidateColorHex) }
-    var keyInkColor: UIColor {
-        guard let hex = keyColorHex, let rgb = RGBColor(hex: hex) else { return .label }
-        return rgb.red * 0.2126 + rgb.green * 0.7152 + rgb.blue * 0.0722 < 0.45 ? .white : .black
+    var keyInkColor: UIColor { keyInkColor(utility: false) }
+    func keyInkColor(utility: Bool) -> UIColor {
+        guard keyColorHex != nil || backgroundColorHex != nil else { return .label }
+        let settings = self
+        let reduced = glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
+        return UIColor { trait in
+            let dark = trait.userInterfaceStyle == .dark
+            func blend(_ foreground: RGBColor, _ background: RGBColor, _ alpha: Double) -> RGBColor {
+                RGBColor(red: foreground.red * alpha + background.red * (1-alpha),
+                         green: foreground.green * alpha + background.green * (1-alpha),
+                         blue: foreground.blue * alpha + background.blue * (1-alpha))
+            }
+            let base = dark ? 0.12 : 0.97
+            var backdrop = RGBColor(red: base, green: base, blue: base)
+            if let hex = settings.backgroundColorHex, let tint = RGBColor(hex: hex) {
+                backdrop = blend(tint, backdrop, reduced ? 1 : 0.12 + settings.resolvedBackgroundGlassStrength * 0.55)
+            }
+            let neutral = reduced ? (dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97)) : 1
+            let tint = settings.keyColorHex.flatMap(RGBColor.init(hex:)) ?? RGBColor(red: neutral, green: neutral, blue: neutral)
+            let wash = settings.glass == .clear ? (dark ? 0.14 : 0.62) : (dark ? 0.25 : 0.78)
+            let alpha = reduced ? 1 : min(0.92, 0.06 + wash * settings.resolvedKeyGlassStrength) * (utility ? 0.72 : 1)
+            let face = blend(tint, backdrop, alpha)
+            func linear(_ value: Double) -> Double { value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4) }
+            let luminance = linear(face.red) * 0.2126 + linear(face.green) * 0.7152 + linear(face.blue) * 0.0722
+            // Pick ink for the translucent face, not for the uncomposited color
+            // swatch: a faint white tint on a dark keyboard still needs white ink.
+            return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? .black : .white
+        }
     }
     var accentColor: UIColor {
         guard let hex = customAccentHex, let rgb = RGBColor(hex: hex) else { return accent.uiColor }

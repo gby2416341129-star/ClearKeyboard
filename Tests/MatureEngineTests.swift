@@ -173,16 +173,24 @@ final class MatureEngineTests: XCTestCase {
             }
         }
     }
-    func testWholeSentenceChoicesDoNotAppendUnrelatedPartialWords() {
+    func testCompletePhrasesLeadWhileValidPrefixChoicesRemainSelectable() {
         for input in ["laopcfm", "lpcfm"] {
             let values = engine.candidates(input).filter { $0.text != input }
             XCTAssertEqual(values.first?.text, "老婆吃饭没", input)
             XCTAssertTrue(values.contains { $0.text == "老婆吃饭吗" }, input)
-            XCTAssertTrue(values.allSatisfy { $0.consumed == input.count }, "Short dictionary prefixes must not pad a sentence's candidate row: \(input)")
+            XCTAssertEqual(values.first?.consumed, input.count)
+            XCTAssertTrue(values.allSatisfy { $0.consumed > 0 && $0.consumed <= input.count })
+            // Prefix choices are required for segmented selection, including
+            // 办公 + ji and unfamiliar names; a complete sentence must lead
+            // without suppressing every valid shorter conversion.
+            XCTAssertTrue(values.contains { $0.text == "老婆" && $0.consumed < input.count })
         }
         let film = engine.candidates("ganghuam")
         XCTAssertTrue(film.contains { $0.text == "钢化" && $0.consumed == 7 })
-        XCTAssertFalse(film.contains { ["干桂花", "港华", "钢花", "感官"].contains($0.text) })
+        XCTAssertEqual(film.first?.text, "钢化膜")
+        XCTAssertEqual(film.first?.consumed, "ganghuam".count)
+        // 港华 and 钢花 are legitimate readings too. Do not ban literal
+        // vocabulary merely because this particular input intends 钢化膜.
         // These consume the complete initials and remain genuine alternatives.
         XCTAssertTrue(engine.candidates("znl").contains { $0.text == "正能量" })
         XCTAssertTrue(engine.candidates("zgm").contains { $0.text == "总规模" })

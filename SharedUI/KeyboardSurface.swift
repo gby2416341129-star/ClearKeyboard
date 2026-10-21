@@ -128,6 +128,10 @@ import SwiftUI
         let raw = model.composition.raw
         guard requestedSpelling != raw || requestedLiteralRevision != model.literalInputRevision ||
               requestedCharacterMode != model.characterSelectionMode else { return }
+        if (requestedLiteralRevision != model.literalInputRevision || (requestedSpelling != raw && !raw.isEmpty)),
+           let clip = recentClip {
+            dismissedClip = clip.id; recentClip = nil
+        }
         requestedSpelling = raw
         requestedLiteralRevision = model.literalInputRevision
         requestedCharacterMode = model.characterSelectionMode
@@ -298,7 +302,7 @@ import SwiftUI
         if !panelOpen, height > 0, candidateScroll.bounds.width > 0 {
             candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize, textColor: model.settings.candidateTintColor)
         }
-        let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && !model.hasEnglishPrefix && recentClip != nil
+        let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && model.arithmetic == nil && !model.hasEnglishPrefix && recentClip != nil
         model.englishSpaceSelectionIsVisible = !clipboardVisible && !panelOpen
         clipboardSuggestion.isHidden = !clipboardVisible
         toolbar.isHidden = clipboardVisible || panelKind == .clipboard || (!panelOpen && candidateHeight > 0)
@@ -448,7 +452,9 @@ import SwiftUI
         deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
     }
     func closePanel() {
+        appearanceHost?.willMove(toParent: nil)
         panel?.removeFromSuperview(); panel = nil; panelKind = nil; toolboxVisible = false; toolbarEditing = false
+        appearanceHost?.removeFromParent()
         appearanceHost = nil; appearanceBridge = nil
         keyGlassGroup.isHidden = false; render()
     }
@@ -507,7 +513,8 @@ import SwiftUI
         renderCandidates()
     }
     private func dismissRecentClip() {
-        dismissedClip = recentClip?.id; recentClip = nil; renderCandidates()
+        if let id = recentClip?.id { dismissedClip = id }
+        recentClip = nil; renderCandidates()
     }
     private func pasteRecentClip() {
         guard let clip = recentClip else { return }
@@ -582,7 +589,14 @@ import SwiftUI
             // Remote keyboard hosts must receive drags that begin between rows.
             host.view.backgroundColor = UIColor(white: 0.5, alpha: 0.01); host.view.isOpaque = false
             appearanceBridge = bridge; appearanceHost = host
-            addSubview(host.view); panel = host.view; keyGlassGroup.isHidden = true; render(); setNeedsLayout(); return
+            var responder: UIResponder? = self
+            while let current = responder {
+                if let owner = current as? UIViewController { owner.addChild(host); break }
+                responder = current.next
+            }
+            addSubview(host.view)
+            if let owner = host.parent { host.didMove(toParent: owner) }
+            panel = host.view; keyGlassGroup.isHidden = true; render(); setNeedsLayout(); return
         }
         let stack = panelStack(title: kind.title)
         switch kind {

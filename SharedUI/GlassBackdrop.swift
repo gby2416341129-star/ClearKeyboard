@@ -167,8 +167,9 @@ final class KeyButton: UIButton {
         plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.10
         plate.layer.shadowRadius = 0.5; plate.layer.shadowOffset = CGSize(width: 0, height: 0.5)
         pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
-        caption.textColor = settings.keyInkColor
-        icon.tintColor = settings.keyInkColor
+        let ink = settings.keyInkColor(utility: utility)
+        caption.textColor = ink
+        icon.tintColor = ink
         updateShift(active: active, capsLocked: capsLocked)
         if let title { updateTitle(title) }
     }
