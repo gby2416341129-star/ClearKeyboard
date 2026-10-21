@@ -43,9 +43,16 @@ jobs:
           report=json.loads(result.stdout.strip())
           assert result.returncode!=0 and report['failed']>0, 'The regression must reproduce against the delivered source'
           print('BUILD44_COMPOSITION_REGRESSION '+json.dumps(report,ensure_ascii=False),flush=True)
+          subprocess.run(['swiftc','-O','-parse-as-library','.build/HostTextState44.swift','Scripts/test_edit_transactions.swift','-o','.build/test-edits-before'],check=True)
+          result=subprocess.run(['.build/test-edits-before'],capture_output=True,text=True)
+          report=json.loads(result.stdout.strip())
+          assert result.returncode!=0 and report['failed']>0, 'Editing checks must catch the delivered append-after-marked defect'
+          print('BUILD44_EDIT_TRANSACTION_REGRESSION '+json.dumps(report,ensure_ascii=False),flush=True)
           PY
           swiftc -O -parse-as-library Core/HostTextState.swift Scripts/test_composition_ownership.swift -o .build/test-composition-ownership
           .build/test-composition-ownership
+          swiftc -O -parse-as-library Core/HostTextState.swift Scripts/test_edit_transactions.swift -o .build/test-edit-transactions
+          .build/test-edit-transactions
       - name: Restore pinned language model cache
         id: language-model
         uses: actions/cache/restore@v4

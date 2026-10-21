@@ -40,6 +40,19 @@ inline double penalty(const std::string &raw,const std::string &expected) {
   }
   return -1;
 }
+// Map a corrected prefix back to the letters actually typed. A transposition
+// straddling the boundary cannot be split safely into two selected words.
+inline int source_prefix(const std::string &raw,const std::string &expected,size_t count) {
+  if (!count || count>expected.size() || penalty(raw,expected)<0) return 0;
+  size_t first=0;while(first<std::min(raw.size(),expected.size()) && raw[first]==expected[first]) ++first;
+  if (raw.size()==expected.size()) {
+    if (count==first+1 && first+1<raw.size() && raw[first]!=expected[first] &&
+        raw[first]==expected[first+1] && raw[first+1]==expected[first]) return 0;
+    return static_cast<int>(count);
+  }
+  if (count<=first) return static_cast<int>(count);
+  return static_cast<int>(count)+(raw.size()>expected.size()?1:-1);
+}
 template<class Valid,class Cancel>std::vector<Repair> repairs(const std::string &raw,Valid valid,Cancel cancelled,size_t maximum=12) {
   if(raw.size()<3 || raw.size()>64 || std::any_of(raw.begin(),raw.end(),[](char c){return c<'a'||c>'z';}) ||
       std::none_of(raw.begin(),raw.end(),[](char c){return std::string("aeiouv").find(c)!=std::string::npos;}) || valid(raw))return {};

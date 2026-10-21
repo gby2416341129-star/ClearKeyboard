@@ -80,6 +80,8 @@ import Foundation
         }
         var contextualRows: [[String: Any]] = []
         for (raw, preceding, expected) in [
+            ("buguixianzaishi", "", "不过现在是"), ("buguoxianzaishi", "", "不过现在是"),
+            ("mafangeiwokaiyizhangdianzifapiao", "", "麻烦给我开一张电子发票"),
             ("niqhilema", "", "你吃了吗"), ("woxiangqhifan", "", "我想吃饭"),
             ("shi", "我正在考", "试"), ("shi", "", "是"), ("shi", "我正在考", "试"),
             ("shishi", "历史上的", "事实"), ("shishi", "让我们来", "试试"),
@@ -95,6 +97,13 @@ import Foundation
             require(Array(page.prefix(head.count)) == head,
                     "A restored context cache changed its page head: \(preceding) + \(raw); head=\(head); page=\(Array(page.prefix(head.count)))")
             contextualRows.append(["input": raw, "preceding": preceding, "first": head.first!.text, "queryMS": milliseconds])
+        }
+        for (raw, consumed) in [("chongzhika", 8), ("congzhika", 7), ("chongzika", 7)] {
+            let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 96)
+            require(head.contains { $0.text == "重置卡" && $0.consumed == raw.count }, "A homophonous word + character is missing: \(raw): \(head)")
+            require(page.contains { $0.text == "重置" && $0.consumed == consumed }, "A selectable word prefix disappeared: \(raw): \(page)")
+            require(Array(page.prefix(head.count)) == head, "Word alternatives moved on paging: \(raw)")
+            rows.append(["input": raw, "head": head.map(\.text), "prefixSelectable": "重置", "prefixConsumed": consumed])
         }
         print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows, "exactInitialRowsChecked": exactRows, "contextualRows": contextualRows,
             "scope": "macOS release, real Swift InputEngine and Rime; excludes UIKit, physical phone and display frame rate"], options: [.sortedKeys]), encoding: .utf8)!)

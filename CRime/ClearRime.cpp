@@ -63,6 +63,8 @@ struct Query {
   bool rank_decided = false;
   std::vector<Item> head_items;
   std::string context_key,preceding;
+  std::string recovered_input;
+  std::vector<Item> recovered_prefixes;
   bool context_initialized=true;
 };
 std::unordered_map<uintptr_t, Query> queries;
@@ -274,6 +276,7 @@ bool set_context(Query &query,uintptr_t id,const std::string &before,cr_cancelle
   if(query.context_initialized && query.context_key==before)return true;
   query.context_initialized=false;query.fluent_cache={};query.correction_cache={};query.repair_cache={};
   query.ranked_input.clear();query.ranked_choice.clear();query.rank_decided=false;query.head_items.clear();
+  query.recovered_input.clear();query.recovered_prefixes.clear();
   bool applied=true;
   for(auto channel:{id,query.fluent,query.repair})if(channel){
     if(cancelled && cancelled(context))return false;
@@ -370,6 +373,85 @@ bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item>
   return repair_blind_spelling_clock(query,raw,output,started,cancelled,context,
       []{return clear_sentence::Budget::Clock::now();});
 }
+bool same_syllable_initials(const std::string &left,const std::string &right) {
+  std::istringstream a(syllables(left)),b(syllables(right));std::string x,y;
+  while (a>>x) if (!(b>>y) || x.front()!=y.front()) return false;
+  return !(b>>y);
+}
+bool confident_valid_correction(Query &query,uintptr_t id,const std::string &raw,const Item &literal,
+    cr_cancelled cancelled,void *context,Item *replacement=nullptr,
+    clear_sentence::Budget::Clock::time_point started=clear_sentence::Budget::Clock::now()) {
+  if (literal.consumed!=static_cast<int>(raw.size()) || letters(literal.reading)!=raw ||
+      std::count(literal.reading.begin(),literal.reading.end(),' ')<2) return false;
+  // A valid syllable can still be a neighbouring-key typo. The corrected
+  // Rime channel already includes its edit cost; compare that same sentence
+  // score rather than declaring every legal spelling immune to correction.
+  collect(id,raw,4,query.correction_cache,cancelled,context);
+  if ((cancelled && cancelled(context)) || query.correction_cache.items.empty()) return false;
+  if (!query.repair && api->create_session && api->select_schema) {
+    const auto extra=api->create_session();
+    if (extra && api->select_schema(extra,"clear_fluent")) {
+      query.repair=extra;
+      if (!query.preceding.empty() && !prime_context(extra,query.preceding)) { api->destroy_session(extra);query.repair=0; }
+    } else if (extra) api->destroy_session(extra);
+  }
+  if (!query.repair) return false;
+  Item best;double best_score=literal.weight+2.0;std::unordered_set<std::string> tried;
+  for (const auto &candidate:query.correction_cache.items) {
+    if ((cancelled && cancelled(context)) || clear_sentence::Budget::Clock::now()>=started+std::chrono::milliseconds(35)) break;
+    const auto expanded=letters(candidate.reading);const auto cost=clear_blind::penalty(raw,expanded);
+    // A correctly typed initial identifies a different word, e.g. kai/lai.
+    // Keep such alternatives selectable instead of silently changing that word.
+    if (candidate.consumed!=literal.consumed || cost<=0 || cost>3.5 ||
+        !same_syllable_initials(literal.reading,candidate.reading) || !tried.insert(expanded).second) continue;
+    collect(query.repair,expanded,1,query.repair_cache,cancelled,context);
+    if (query.repair_cache.items.empty()) continue;
+    const auto &plain=query.repair_cache.items.front();
+    if (plain.text!=candidate.text || plain.consumed!=static_cast<int>(expanded.size()) || letters(plain.reading)!=expanded) continue;
+    // Score every proposed spelling with the same plain grammar and an edit
+    // prior. Rime only exposes a reliable phrase weight for its leading row.
+    const auto score=plain.weight-cost*(std::log(100.0)/1.4);
+    if (std::isfinite(score) && score>best_score) { best_score=score;best={plain.text,plain.reading,literal.consumed,score}; }
+  }
+  if (best.text.empty() || (cancelled && cancelled(context))) return false;
+  if (replacement) *replacement=std::move(best);
+  return true;
+}
+
+std::vector<Item> compound_alternatives(const std::string &raw,const std::vector<Item> &literal,
+    const std::vector<Item> &fluent,cr_cancelled cancelled,void *context) {
+  std::vector<Item> result,prefixes;
+  if (raw.size()<5 || raw.size()>32 || (cancelled && cancelled(context))) return result;
+  const Item *whole=nullptr;
+  for (const auto &item:literal) if (item.consumed==static_cast<int>(raw.size()) && letters(item.reading)==raw) { whole=&item;break; }
+  if (!whole) for (const auto &item:fluent) if (item.consumed==static_cast<int>(raw.size())) {
+    const auto cost=clear_blind::penalty(raw,letters(item.reading));
+    if (cost>0 && cost<=3.5) { whole=&item;break; }
+  }
+  if (!whole || whole->text.empty()) return result;
+  int longest=0;
+  auto consider=[&](const Item &item) {
+    if (item.consumed<=0 || item.consumed>=static_cast<int>(raw.size()) || item.reading.find(' ')==std::string::npos) return;
+    const auto reading=letters(item.reading),input=raw.substr(0,item.consumed);
+    if (reading!=input && clear_blind::penalty(input,reading)<0) return;
+    const auto split=whole->reading.rfind(' ');
+    if (split==std::string::npos || syllables(whole->reading.substr(0,split))!=syllables(item.reading) ||
+        whole->reading.substr(split+1)!=raw.substr(item.consumed)) return;
+    if (item.consumed>longest) { longest=item.consumed;prefixes.clear(); }
+    if (item.consumed==longest && prefixes.size()<4 && std::none_of(prefixes.begin(),prefixes.end(),[&](const Item &old){return old.text==item.text;})) prefixes.push_back(item);
+  };
+  for (const auto &item:literal) consider(item);
+  for (const auto &item:fluent) consider(item);
+  if (prefixes.empty() || std::none_of(prefixes.begin(),prefixes.end(),[&](const Item &prefix){return whole->text.compare(0,prefix.text.size(),prefix.text)==0;})) return result;
+  // Reuse a known whole word's final Han character and its existing word
+  // prefix alternatives. No Cartesian sentence search, new model call or
+  // dictionary phrase exception is needed to expose these homophones.
+  size_t last=whole->text.size()-1;
+  while (last && (static_cast<unsigned char>(whole->text[last])&0xc0)==0x80) --last;
+  const auto suffix=whole->text.substr(last),tail=whole->reading.substr(whole->reading.rfind(' ')+1);
+  for (const auto &prefix:prefixes) result.push_back({prefix.text+suffix,prefix.reading+" "+tail,static_cast<int>(raw.size())});
+  return result;
+}
 bool reliable_literal_sentence(const Item &item, const std::string &input) {
   if (item.consumed != static_cast<int>(input.size()) || !std::isfinite(item.weight)) return false;
   const auto reading = letters(item.reading);
@@ -438,18 +520,15 @@ std::vector<Item> merge_candidates(const std::string &input, const std::vector<I
     if (item.consumed <= 0 || item.consumed >= length || item.reading.find(' ') == std::string::npos) return false;
     const auto reading = letters(item.reading);
     return static_cast<int>(reading.size()) == item.consumed &&
-           spelling.compare(0, item.consumed, reading) == 0 &&
-           std::any_of(result.begin(), result.end(), [&](const Item &full) {
-             return full.consumed == length && full.text.compare(0, item.text.size(), item.text) == 0;
-           });
+           spelling.compare(0, item.consumed, reading) == 0;
   };
   int longest = 0;
   for (const auto &item : literal) if (useful_prefix(item)) longest = std::max(longest, item.consumed);
-  for (const auto &item : literal) if (item.consumed == longest && useful_prefix(item)) append(item);
+  if (has_exact_phrase) for (const auto &item : literal) if (item.consumed == longest && useful_prefix(item)) append(item);
   for (const auto &item : fluent) if (item.consumed == length) append(item);
-  // Short initials support ordinary word-by-word selection. An exact longer
-  // phrase keeps its established whole-phrase alternatives and deliberate
-  // fully spelled prefix, rather than filling the tail with short homophones.
+  // Keep every longest fully spelled word prefix, including homophones absent
+  // from the whole-phrase winner. Shorter prefixes remain available on inputs
+  // with no whole dictionary phrase and in ordinary short-initial selection.
   if (length <= 4 || !has_exact_phrase) {
     for (const auto &item : conversation) append(item);
     for (const auto &item : literal) append(item);
@@ -559,6 +638,7 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   // Never issue a new shortened query: its terminal search may be more costly
   // than the original spelling. Paging and all unknown cases keep that path.
   const std::string raw(input);
+  if (query.recovered_input!=raw) { query.recovered_input=raw;query.recovered_prefixes.clear(); }
   const auto prefix=leading_row && correction && exact_index_enabled?initial_index.exact_prefix_size(raw):raw.size();
   const auto &previous=query.exact_cache;
   const bool reuse_exact=prefix<raw.size() && previous.initialized &&
@@ -594,6 +674,21 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
       fluent=query.fluent_cache.items;
       fluent.erase(std::remove_if(fluent.begin(),fluent.end(),[&](const Item &old){return old.text==literal_replacement.text;}),fluent.end());
       fluent.insert(fluent.begin(),std::move(literal_replacement));repaired=true;
+    } else if (leading_row && correction && !query.fluent_cache.items.empty() &&
+               confident_valid_correction(query,id,raw,query.fluent_cache.items.front(),cancelled,context,&literal_replacement,started)) {
+      collect(id,input,limit,query.correction_cache,cancelled,context);
+      fluent=query.correction_cache.items;
+      fluent.erase(std::remove_if(fluent.begin(),fluent.end(),[&](const Item &old){return old.text==literal_replacement.text;}),fluent.end());
+      const auto expanded=letters(literal_replacement.reading);
+      collect(query.repair,expanded,8,query.repair_cache,cancelled,context);
+      for (const auto &item:query.repair_cache.items) if (item.consumed>0 && item.consumed<static_cast<int>(expanded.size()) &&
+          item.reading.find(' ')!=std::string::npos && expanded.compare(0,item.consumed,letters(item.reading))==0) {
+        const auto consumed=clear_blind::source_prefix(raw,expanded,item.consumed);
+        if (consumed>0 && query.recovered_prefixes.size()<4) query.recovered_prefixes.push_back({item.text,item.reading,consumed,item.weight});
+      }
+      fluent.insert(fluent.begin(),std::move(literal_replacement));
+      collect(query.fluent,input,limit,query.fluent_cache,cancelled,context);
+      fluent.insert(fluent.end(),query.fluent_cache.items.begin(),query.fluent_cache.items.end());repaired=true;
     } else if (!correction || reliable) {
       collect(query.fluent, input, limit, query.fluent_cache, cancelled, context);
       fluent = query.fluent_cache.items;
@@ -618,7 +713,23 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
     }
   }
   if (cancelled && cancelled(context)) return 0;
+  fluent.insert(fluent.end(),query.recovered_prefixes.begin(),query.recovered_prefixes.end());
   query.items = merge_candidates(input, conversational, literal, fluent, limit,contextual);
+  if (!query.recovered_prefixes.empty()) {
+    for (const auto &prefix:query.recovered_prefixes)
+      query.items.erase(std::remove_if(query.items.begin(),query.items.end(),[&](const Item &item){return item.text==prefix.text;}),query.items.end());
+    query.items.insert(query.items.begin()+std::min<size_t>(1,query.items.size()),query.recovered_prefixes.begin(),query.recovered_prefixes.end());
+    if (query.items.size()>static_cast<size_t>(std::clamp(limit,1,4096))) query.items.resize(std::clamp(limit,1,4096));
+  }
+  const auto compounds=compound_alternatives(raw,literal,fluent,cancelled,context);
+  if (!compounds.empty()) {
+    auto position=query.items.begin()+std::min<size_t>(1,query.items.size());
+    std::unordered_set<std::string> seen;for (const auto &item:query.items) seen.insert(item.text);
+    std::vector<Item> additions;
+    for (const auto &item:compounds) if (seen.insert(item.text).second) additions.push_back(item);
+    query.items.insert(position,additions.begin(),additions.end());
+    if (query.items.size()>static_cast<size_t>(std::clamp(limit,1,4096))) query.items.resize(std::clamp(limit,1,4096));
+  }
   Item literal_replacement;
   if (!repaired && leading_row && correction && !query.items.empty() &&
       repair_literal(query,input,query.items.front(),literal_replacement,cancelled,context)) {

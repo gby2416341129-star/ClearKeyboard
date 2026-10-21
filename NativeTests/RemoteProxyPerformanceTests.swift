@@ -2,6 +2,52 @@ import XCTest
 import UIKit
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
+    func testRealUIKitEditingConservesEveryChosenWordAndUntouchedContext() async throws {
+        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        let drafts = ["bangongji", "zaigansha", "wogeimam", "busuanchadla", "chongzhika", "jintianxiayu",
+            "qingbangwokankan", "womenmingtianzaijiudianjian", String(repeating: "nichifanlema", count: 9)]
+        var choices = 0, edits = 0
+        for (index, raw) in drafts.enumerated() {
+            let prefix = "前文🙂\(index)：", suffix = "｜后文🙂"
+            proxy.textView.text = prefix + suffix
+            proxy.textView.selectedRange = NSRange(location: prefix.utf16.count, length: 0)
+            controller.textDidChange(nil)
+            try await waitFor { controller.contextBefore == prefix && controller.contextAfter == suffix }
+            for character in raw { model.handle(.text(String(character))); edits += 1 }
+            // Backspace and retype the last character before any pending
+            // spelling frame is guaranteed to have reached the host.
+            model.handle(.delete); model.handle(.text(String(try XCTUnwrap(raw.last)))); edits += 2
+            var confirmed = "", steps = 0
+            while !model.composition.isEmpty {
+                try await waitFor { model.candidatesAreCurrent }
+                let available = model.candidates.filter { $0.text != model.composition.raw && $0.consumed > 0 }
+                let candidate = try XCTUnwrap((index % 2 == 0 ? available.first { $0.consumed < model.composition.normalized.count } : nil) ?? available.first)
+                var remainder = model.composition; remainder.consume(candidate.consumed)
+                confirmed += candidate.text
+                model.chooseDisplayed(candidate, context: model.candidateContext)
+                try await waitFor { proxy.textView.text == prefix + confirmed + remainder.raw + suffix }
+                XCTAssertEqual(model.composition, remainder)
+                XCTAssertEqual(controller.contextBefore, prefix + confirmed + remainder.raw)
+                XCTAssertEqual(controller.contextAfter, suffix)
+                if remainder.isEmpty { XCTAssertNil(proxy.textView.markedTextRange) }
+                else {
+                    let marked = try XCTUnwrap(proxy.textView.markedTextRange)
+                    XCTAssertEqual(proxy.textView.text(in: marked), remainder.raw)
+                }
+                choices += 1; steps += 1
+                XCTAssertLessThanOrEqual(steps, raw.count, "Every choice must consume some spelling")
+                if steps > raw.count { break }
+            }
+            XCTAssertEqual(proxy.textView.text, prefix + confirmed + suffix)
+            XCTAssertEqual(proxy.insertedTexts.suffix(steps).joined(), confirmed)
+        }
+        print("EDIT_TEXT_CONSERVATION actualUITextView=true drafts=\(drafts.count) keyEdits=\(edits) choices=\(choices) lostWords=0 duplicatedPinyin=0 contextPreserved=true")
+    }
     func testCandidateCommitReplacesRealUIKitMarkedRangeInOneInsertion() async throws {
         let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()

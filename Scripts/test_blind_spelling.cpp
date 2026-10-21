@@ -40,12 +40,23 @@ int main(int argc,char **argv){
       for(const auto &repair:repairs){
         assert(valid(repair.input) && distance(typed,repair.input)==1 && clear_blind::penalty(typed,repair.input)>0);
         assert(seen.insert(repair.input).second);++verified;
+        for(size_t end=1;end<=repair.input.size();++end) {
+          const auto used=clear_blind::source_prefix(typed,repair.input,end);
+          if (used>0) {
+            assert(used<=static_cast<int>(typed.size()));
+            assert(distance(typed.substr(0,used),repair.input.substr(0,end))+
+                   distance(typed.substr(used),repair.input.substr(end))<=1);
+          }
+        }
       }
     }
   }
   assert(clear_blind::penalty("ab","ba")==1.2 && clear_blind::penalty("abc","abbc")==3.0);
   assert(clear_blind::penalty("abbc","abc")==1.0 && clear_blind::penalty("abc","ac")==3.5);
   assert(clear_blind::penalty("abc","xyz")==-1);
+  assert(clear_blind::source_prefix("congzhika","chongzhika",8)==7);
+  assert(clear_blind::source_prefix("chongzika","chongzhika",8)==7);
+  assert(clear_blind::source_prefix("abdc","abcd",3)==0);
   assert(clear_context::tail(u8"English 我正在考")==u8"我正在考");
   assert(clear_context::tail(u8"我正在考🙂").empty() && clear_context::tail(u8"我正在考\n").empty());
   assert(clear_context::tail(u8"我真是气死了，")==u8"我真是气死了，");

@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
   lists[1] = {{"wrong-correction", "ba ba bu chi fan le ma\t16\t-17.7"}};
   assert(cr_query(1, "babanichifanlema", 9, nullptr, nullptr) == 1);
   assert(q.items.front().text == "literal");
-  assert(starts[1] == 0); // A reliable literal reading never starts correction.
+  assert(starts[1] == 1); // Compare once; a multi-key rewrite cannot displace a valid reading.
   assert(reliable_literal_sentence({"whole", "wo chi le de", 9, -16.8}, "wochilede"));
   assert(reliable_literal_sentence({"final-initial", "wo gei ma ma", 8, -17.9}, "wogeimam"));
   assert(!reliable_literal_sentence({"weak", "ni chi fan ke ma", 12, -33.3}, "nichifankema"));
@@ -120,13 +120,30 @@ int main(int argc, char **argv) {
   assert(!reliable_literal_sentence({"weak-initials", "wo men jin tian qu chi fan", 7, -50}, "wmjtqcf"));
   assert(!reliable_literal_sentence({"typo-in-a-long-phrase", "ni chi fan qu na le mei lao po",
       18, -30}, "nichifqnlemeilaopo"));
+  lists[1]={{"intended","bu guo xian zai shi\t15\t-10.76"}};
+  lists[5]={{"intended","bu guo xian zai shi\t15\t-6.15"}};q.repair=5;
+  q.correction_cache={};
+  assert(confident_valid_correction(q,1,"buguixianzaishi",{"literal","bu gui xian zai shi",15,-16.45},nullptr,nullptr));
+  assert(!confident_valid_correction(q,1,"buguixianzaishi",{"strong-literal","bu gui xian zai shi",15,-11.0},nullptr,nullptr));
+  assert(!confident_valid_correction(q,1,"buguixianzaishi",{"partial","bu gui",5,-30},nullptr,nullptr));
+  assert(!confident_valid_correction(q,1,"buguixianzaishi",{"literal","bu gui xian zai shi",15,-16.45},cancelled_now,nullptr));
+  assert(same_syllable_initials("bu gui xian zai shi","bu guo xian zai shi"));
+  assert(same_syllable_initials("cong zhi ka","chong zhi ka"));
+  assert(!same_syllable_initials("gei wo kai","gei wo lai"));
+  const auto compounds=compound_alternatives("chongzhika",
+      {{"充值卡","chong zhi ka",10},{"充值","chong zhi",8},{"重置","chong zhi",8}}, {},nullptr,nullptr);
+  assert(compounds.size()==2 && compounds[1].text=="重置卡" && compounds[1].consumed==10);
+  const auto homophones=merge_candidates("chongzhika",{},
+      {{"充值卡","chong zhi ka",10},{"充值","chong zhi",8},{"重置","chong zhi",8}}, {},9);
+  assert(homophones.size()==3 && homophones[0].text=="充值卡" && homophones[2].text=="重置");
   lists[4] = {{"weak", "ni chi fan ke ma\t12\t-33.3"}};
   lists[1] = {{"corrected", "ni chi fan le ma\t12\t-19.5"}};
+  const auto correction_starts=starts[1],correction_resets=input_resets[1];
   assert(cr_query(1, "nichifankema", 9, nullptr, nullptr) == 2);
   assert(q.items[0].text == "corrected" && q.items[1].text == "weak");
-  // The compatibility gate reads one candidate, then resumes the same menu.
-  // Two iterator starts must still set the input only once.
-  assert(starts[1] == 2 && input_resets[1] == 1);
+  // The bounded comparison already exhausted this one-item menu. Reusing it
+  // for compatibility and the final row must not reset or enumerate it again.
+  assert(starts[1]-correction_starts == 1 && input_resets[1]-correction_resets == 1);
   lists[3] = {{"question", "ma ma ni chi fan ma\t7\t-12"}};
   lists[2] = {{"other", "ma ma ni chi fan mei\t7\t-13"}};
   lists[4].clear();
