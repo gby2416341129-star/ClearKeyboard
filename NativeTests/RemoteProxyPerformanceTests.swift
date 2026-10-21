@@ -109,7 +109,7 @@ import UIKit
             model.handle(.delete); model.handle(.text(String(try XCTUnwrap(raw.last)))); edits += 2
             var confirmed = "", steps = 0
             while !model.composition.isEmpty {
-                try await waitFor { model.candidatesAreCurrent }
+                try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text != model.composition.raw && $0.consumed > 0 } }
                 let available = model.candidates.filter { $0.text != model.composition.raw && $0.consumed > 0 }
                 let candidate = try XCTUnwrap((index % 2 == 0 ? available.first { $0.consumed < model.composition.normalized.count } : nil) ?? available.first)
                 var remainder = model.composition; remainder.consume(candidate.consumed)
@@ -178,6 +178,7 @@ import UIKit
         XCTAssertEqual(model.composition.raw, "ji")
         let marked = try XCTUnwrap(proxy.textView.markedTextRange)
         XCTAssertEqual(proxy.textView.text(in: marked), "ji", "The committed Chinese must be outside the new marked range")
+        try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "机" } }
         let machine = try XCTUnwrap(model.candidates.first { $0.text == "机" })
         model.chooseDisplayed(machine, context: model.candidateContext)
         XCTAssertEqual(proxy.textView.text, "办公机")
