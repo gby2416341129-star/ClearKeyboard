@@ -35,7 +35,7 @@ final class RepetitionModel {
         let bytes = Array(input.utf8)
         // Two repetitions are still a common non-repeating four-syllable word.
         // Require three complete units before giving repeated readings priority.
-        guard bytes.count >= 6, bytes.count <= Composition.maximumLength else { return nil }
+        guard bytes.count >= 6, bytes.count <= Composition.maximumQueryLength else { return nil }
         for index in 2..<bytes.count where bytes[index] != bytes[index % 2] { return nil }
         let key = String(decoding: bytes.prefix(2), as: UTF8.self)
         guard groups[key] != nil else { return nil }

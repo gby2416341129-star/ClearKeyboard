@@ -53,7 +53,7 @@ public final class InputEngine {
         return engine
     }
     public func hasImmediateComposition(_ raw: String) -> Bool {
-        !raw.contains("'") && repetition?.recognizes(FuzzyPinyin.normalize(raw)) == true
+        raw.utf8.count <= Composition.maximumQueryLength && !raw.contains("'") && repetition?.recognizes(FuzzyPinyin.normalize(raw)) == true
     }
     private func repeatedCandidates(_ input: String) -> [Candidate] {
         var values = repetition?.candidates(input) ?? []
@@ -84,7 +84,11 @@ public final class InputEngine {
     /// A visible word can therefore be selected while that worker is busy.
     public func immediateCandidates(_ raw: String, preferred: [Candidate] = []) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
-        guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
+        guard !input.isEmpty else { return [] }
+        if input.utf8.count > Composition.maximumQueryLength {
+            let prefix = Composition.queryPrefix(raw, normalized: input)
+            return expandedPrefix(immediateCandidates(prefix, preferred: preferred), window: prefix, whole: input)
+        }
         var output = preferred.filter { $0.consumed > 0 && $0.consumed <= input.count }
         let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
         if !repeated.isEmpty {
@@ -128,6 +132,18 @@ public final class InputEngine {
         return Array(output.filter { seen.insert($0.text).inserted }.prefix(8))
     }
 
+    private func expandedPrefix(_ values: [Candidate], window: String, whole: String) -> [Candidate] {
+        let prefix = FuzzyPinyin.normalize(window)
+        return values.filter { $0.consumed > 0 && $0.consumed <= prefix.utf8.count }.map { value in
+            let reading = FuzzyPinyin.normalize(value.reading)
+            // A window may end inside the last syllable. If the user already
+            // typed its remaining letters, the chosen completion consumes them
+            // exactly as a visible completion tapped during fast typing does.
+            let count = value.consumed == prefix.utf8.count && reading.hasPrefix(prefix) && whole.hasPrefix(reading)
+                ? reading.utf8.count : value.consumed
+            return Candidate(text: value.text, reading: value.reading, consumed: count, score: value.score)
+        }
+    }
     /// Recognize mixed full syllables and initials before considering an English
     /// suffix. For example wo + gei + ma + m is a Chinese spelling, even though
     /// the last four letters also happen to be an English dictionary entry.
@@ -159,7 +175,14 @@ public final class InputEngine {
 
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], preferred: [Candidate] = [], recentCorrections: [Candidate] = [], limit: Int = 24, compose: Bool = true, correction: Bool = true, context: String = "", cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
-        guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
+        guard !input.isEmpty, !cancelled() else { return [] }
+        if input.utf8.count > Composition.maximumQueryLength {
+            let prefix = Composition.queryPrefix(raw, normalized: input)
+            let values = candidates(prefix, fuzzy: fuzzy, learned: learned, preferred: preferred,
+                recentCorrections: recentCorrections, limit: limit, compose: compose, correction: correction,
+                context: context, cancelled: cancelled)
+            return cancelled() ? [] : expandedPrefix(values, window: prefix, whole: input)
+        }
         let repeated = raw.contains("'") ? [] : repeatedCandidates(input)
         guard !cancelled() else { return [] }
         if compose, !repeated.isEmpty, limit <= 9 {

@@ -1,7 +1,8 @@
 import Foundation
 
 public struct Composition: Equatable {
-    public static let maximumLength = 256
+    /// Bound decoder work, not how much unconfirmed text the user may type.
+    public static let maximumQueryLength = 256
     public private(set) var raw = ""
     public private(set) var normalized = ""
     private var asciiRaw = true
@@ -9,12 +10,22 @@ public struct Composition: Equatable {
     public init() {}
     @discardableResult public mutating func append(_ text: String) -> Bool {
         let addition = FuzzyPinyin.normalize(text)
-        guard normalized.utf8.count + addition.utf8.count <= Self.maximumLength else { return false }
         asciiRaw = asciiRaw && text.utf8.allSatisfy { $0 < 128 }
         raw += text
         if asciiRaw { normalized += addition }
         else { normalized = FuzzyPinyin.normalize(raw) }
         return true
+    }
+    /// A long draft stays intact while the decoder offers selectable prefixes.
+    /// Leave lookahead so the cut normally falls at a complete syllable.
+    static func queryPrefix(_ raw: String, normalized: String) -> String {
+        guard normalized.utf8.count > maximumQueryLength else { return raw }
+        let probe = String(normalized.prefix(maximumQueryLength))
+        let count = PinyinSpelling.prefixBoundary(probe, noLaterThan: maximumQueryLength / 2)
+        var remainder = Composition(); remainder.raw = raw; remainder.normalized = normalized
+        remainder.asciiRaw = raw.utf8.allSatisfy { $0 < 128 }
+        remainder.consume(count)
+        return String(raw.dropLast(remainder.raw.count))
     }
     public mutating func deleteBackward() {
         guard let last = raw.last else { return }

@@ -66,9 +66,11 @@ final class StateTests: XCTestCase {
         buffer.deleteBackward(); XCTAssertEqual(buffer.raw, "m")
         buffer.clear(); XCTAssertTrue(buffer.isEmpty)
     }
-    func testCompositionBoundIsEnforced() {
-        var buffer = Composition(); XCTAssertTrue(buffer.append(String(repeating: "a", count: Composition.maximumLength)))
-        XCTAssertFalse(buffer.append("a")); XCTAssertEqual(buffer.normalized.count, Composition.maximumLength)
+    func testDecoderBoundDoesNotDiscardTheDraft() {
+        var buffer = Composition(); XCTAssertTrue(buffer.append(String(repeating: "a", count: Composition.maximumQueryLength)))
+        XCTAssertTrue(buffer.append("a")); XCTAssertEqual(buffer.normalized.count, Composition.maximumQueryLength + 1)
+        let prefix = Composition.queryPrefix(buffer.raw, normalized: buffer.normalized)
+        XCTAssertTrue(buffer.raw.hasPrefix(prefix)); XCTAssertLessThanOrEqual(prefix.count, Composition.maximumQueryLength)
     }
     func testNormalizationAndBoundedFuzzyVariants() {
         XCTAssertEqual(FuzzyPinyin.normalize("LÜ'e 123"), "lve")

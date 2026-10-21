@@ -43,7 +43,11 @@ public struct HostTextState {
     private var pending: [(HostTextSnapshot, Double)] = []
     private var marked = ""
     private var markedOrigin: HostTextSnapshot?
-    private var markedHistory: [String] = []
+    private struct MarkedPath {
+        var text: String
+        var requestedLengths: Set<Int>
+    }
+    private var markedHistory: [MarkedPath] = []
     public init(_ snapshot: HostTextSnapshot = HostTextSnapshot()) { self.snapshot = snapshot; acknowledged = snapshot }
     public func hasPendingEdits(now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
         pending.contains { now - $0.1 <= 1 }
@@ -57,15 +61,31 @@ public struct HostTextState {
         marked = ""; markedOrigin = nil; markedHistory.removeAll(keepingCapacity: true)
     }
     private func isMarkedAcknowledgement(_ actual: HostTextSnapshot) -> Bool {
-        guard !marked.isEmpty, let origin = markedOrigin,
+        guard !marked.isEmpty, !actual.before.isEmpty, let origin = markedOrigin,
               actual.document == origin.document, actual.selected.isEmpty else { return false }
-        // An acknowledgement belongs to the live composition, not to a timer.
-        // Hosts can expose an earlier spelling after a pause or after newer
-        // writes were acknowledged. Keep only spellings actually requested in
-        // this session; a different field, selection or surrounding text fails.
-        for text in markedHistory.reversed() {
-            var expected = origin; expected.before += text
-            if Self.equivalent(expected, actual) { return true }
+        // Store maximal typing paths and the lengths actually requested along
+        // each path. A long append-only draft needs one string, not one full
+        // copy per key. Earlier acknowledgements remain owned after 512 keys.
+        for path in markedHistory.reversed() {
+            let full = origin.before + path.text
+            if actual.before.count < 32 {
+                let length = actual.before.count - origin.before.count
+                if full.hasPrefix(actual.before), path.requestedLengths.contains(length) {
+                    var expected = origin; expected.before = actual.before
+                    if Self.equivalent(expected, actual) { return true }
+                }
+                continue
+            }
+            var search = full.startIndex..<full.endIndex
+            while let range = full.range(of: actual.before, range: search) {
+                let length = full.distance(from: full.startIndex, to: range.upperBound) - origin.before.count
+                if path.requestedLengths.contains(length) {
+                    var expected = origin; expected.before = String(full[..<range.upperBound])
+                    if Self.equivalent(expected, actual) { return true }
+                }
+                if range.lowerBound == full.endIndex { break }
+                search = full.index(after: range.lowerBound)..<full.endIndex
+            }
         }
         return false
     }
@@ -86,7 +106,11 @@ public struct HostTextState {
         return bounded(expected.before, actual.before, suffix: true) && bounded(expected.after, actual.after, suffix: false)
     }
     private mutating func remember(now: Double) {
-        snapshot.before = String(snapshot.before.suffix(4_096)); snapshot.after = String(snapshot.after.prefix(4_096))
+        if !marked.isEmpty, snapshot.before.hasSuffix(marked) {
+            let prefix = snapshot.before.dropLast(marked.count)
+            snapshot.before = String(prefix.suffix(4_096)) + marked
+        } else { snapshot.before = String(snapshot.before.suffix(4_096)) }
+        snapshot.after = String(snapshot.after.prefix(4_096))
         pending.removeAll { now - $0.1 > 1 }
         if pending.last?.0 == snapshot { pending[pending.count - 1].1 = now }
         else { pending.append((snapshot, now)) }
@@ -105,9 +129,13 @@ public struct HostTextState {
         if markedOrigin == nil {
             var origin = snapshot; origin.selected = ""; markedOrigin = origin
         }
-        if markedHistory.last != text { markedHistory.append(text) }
-        // Two full 256-letter drafts, including edits, fit without retaining an
-        // unbounded input history. This history is discarded at every commit.
+        if let last = markedHistory.indices.last,
+           text.hasPrefix(markedHistory[last].text) || markedHistory[last].text.hasPrefix(text) {
+            if text.count > markedHistory[last].text.count { markedHistory[last].text = text }
+            markedHistory[last].requestedLengths.insert(text.count)
+        } else { markedHistory.append(MarkedPath(text: text, requestedLengths: [text.count])) }
+        // Bound distinct replacement branches, rather than truncating the
+        // acknowledgement history halfway through one long typing path.
         if markedHistory.count > 512 { markedHistory.removeFirst(markedHistory.count - 512) }
         // A long-lived draft may be older than the acknowledgement window.
         // Renew its predecessor snapshot before replacement, so an immediately

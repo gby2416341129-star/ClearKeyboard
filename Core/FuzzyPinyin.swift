@@ -62,6 +62,27 @@ enum PinyinSpelling {
         }
         return furthest
     }
+    /// Recover a bounded full-syllable prefix using lookahead. Prefer fewer
+    /// syllables so an/ng and a/n/g are not arbitrarily split at the window edge.
+    static func prefixBoundary(_ input: String, noLaterThan limit: Int) -> Int {
+        let letters = Array(input), count = letters.count
+        var cost = [Int](repeating: Int.max, count: count + 1)
+        var parent = [Int](repeating: -1, count: count + 1)
+        cost[0] = 0
+        if count > 0 {
+            for start in 0..<count where cost[start] != Int.max {
+                for end in (start + 1)...min(count, start + 6)
+                    where syllables.contains(String(letters[start..<end])) && cost[start] + 1 < cost[end] {
+                    cost[end] = cost[start] + 1; parent[end] = start
+                }
+            }
+        }
+        var end = (0...count).last { cost[$0] != Int.max } ?? 0
+        while end > limit, parent[end] >= 0 { end = parent[end] }
+        // Blind-typing errors can block the lattice much earlier. Keep the
+        // bounded correction channel available instead of returning an empty row.
+        return end >= limit - 6 ? end : min(limit, count)
+    }
     private static let keyPositions: [UInt8: CGPoint] = {
         var positions: [UInt8: CGPoint] = [:]
         for (row, value) in ["qwertyuiop", "asdfghjkl", "zxcvbnm"].enumerated() {

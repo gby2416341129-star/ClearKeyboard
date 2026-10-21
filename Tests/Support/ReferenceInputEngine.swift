@@ -13,7 +13,7 @@ public final class ReferenceInputEngine {
 
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:], compose: Bool = true, cancelled: () -> Bool = { false }) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
-        guard !input.isEmpty, input.count <= Composition.maximumLength else { return [] }
+        guard !input.isEmpty, input.count <= Composition.maximumQueryLength else { return [] }
         var choices: [Candidate] = []
         let explicit = raw.contains("'") ? raw.lowercased().split(separator: "'").map(String.init) : []
         func allowed(_ entry: LexiconEntry) -> Bool {

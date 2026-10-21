@@ -32,8 +32,16 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         var acrossBoundary = Composition()
         acrossBoundary.append("u"); acrossBoundary.append("\u{0308}")
         expect(acrossBoundary.normalized == referenceNormalize(acrossBoundary.raw), "A combining mark crossed the cached boundary")
-        var limit = Composition(); expect(limit.append(String(repeating: "n", count: 256)), "Maximum length rejected")
-        expect(!limit.append("i") && limit.raw.count == 256, "Length guard changed the draft")
+        var limit = Composition(); expect(limit.append(String(repeating: "n", count: 256)), "Decoder boundary rejected")
+        expect(limit.append("i") && limit.raw.count == 257, "A decoder work limit must not reject user input")
+        for value in [String(repeating: "nichifanlema", count: 50), String(repeating: "ni'hao'ma'", count: 60)] {
+            let normalized = FuzzyPinyin.normalize(value)
+            let prefix = Composition.queryPrefix(value, normalized: normalized)
+            expect(value.hasPrefix(prefix) && !prefix.isEmpty, "Long decoding window is not a source prefix")
+            expect(FuzzyPinyin.normalize(prefix).count <= Composition.maximumQueryLength, "Long decoding work is unbounded")
+            var remainder = Composition(); remainder.append(value); remainder.consume(FuzzyPinyin.normalize(prefix).count)
+            expect(prefix + remainder.raw == value, "Taking a bounded query window lost source letters")
+        }
         var host = HostTextState(HostTextSnapshot(before: "前文", document: "field"))
         let raw = String(repeating: "nichifanlema", count: 16)
         host.setMarked(raw, now: 1)

@@ -396,7 +396,7 @@ bool confident_valid_correction(Query &query,uintptr_t id,const std::string &raw
     } else if (extra) api->destroy_session(extra);
   }
   if (!query.repair) return false;
-  Item best;double best_score=literal.weight+2.0;std::unordered_set<std::string> tried;
+  Item best;double best_score=literal.weight;std::unordered_set<std::string> tried;
   for (const auto &candidate:query.correction_cache.items) {
     if ((cancelled && cancelled(context)) || clear_sentence::Budget::Clock::now()>=started+std::chrono::milliseconds(35)) break;
     const auto expanded=letters(candidate.reading);const auto cost=clear_blind::penalty(raw,expanded);
@@ -411,7 +411,11 @@ bool confident_valid_correction(Query &query,uintptr_t id,const std::string &raw
     // Score every proposed spelling with the same plain grammar and an edit
     // prior. Rime only exposes a reliable phrase weight for its leading row.
     const auto score=plain.weight-cost*(std::log(100.0)/1.4);
-    if (std::isfinite(score) && score>best_score) { best_score=score;best={plain.text,plain.reading,literal.consumed,score}; }
+    // An ordinary collocation preference must not replace one fully typed
+    // vowel with another. Require 100:1 evidence after its edit prior. Missing
+    // letters, including omitted h in zh/ch/sh, retain their existing channel.
+    const auto margin=expanded.size()==raw.size()?std::log(100.0):2.0;
+    if (std::isfinite(score) && score>literal.weight+margin && score>best_score) { best_score=score;best={plain.text,plain.reading,literal.consumed,score}; }
   }
   if (best.text.empty() || (cancelled && cancelled(context))) return false;
   if (replacement) *replacement=std::move(best);

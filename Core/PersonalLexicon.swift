@@ -18,7 +18,7 @@ public struct PersonalLexicon: Codable {
     }
     public mutating func record(_ candidate: Candidate, for raw: String, now: Date = Date()) {
         let code = Self.key(raw)
-        guard !code.isEmpty, code.count <= Composition.maximumLength, candidate.consumed > 0,
+        guard !code.isEmpty, code.count <= Composition.maximumQueryLength, candidate.consumed > 0,
               candidate.consumed <= FuzzyPinyin.normalize(code).count, !candidate.text.isEmpty else { return }
         let uses = entries.first { $0.code == code && $0.text == candidate.text }?.uses ?? 0
         entries.removeAll { $0.code == code && $0.text == candidate.text }

@@ -138,7 +138,13 @@ final class FallbackEngineTests: XCTestCase {
     func testChineseContinuation() { XCTAssertTrue(engine.predictions(after: "中华").contains { $0.text == "人民共和国" }) }
     func testEnglishCompletion() { XCTAssertTrue(engine.englishCandidates(prefix: "hell").contains { $0.text == "hello" }) }
     func testEnglishContinuation() { XCTAssertEqual(engine.englishPredictions(after: "thank ").first?.text, "you") }
-    func testEmptyAndOverlongInput() { XCTAssertTrue(engine.candidates("").isEmpty); XCTAssertTrue(engine.candidates(String(repeating: "a", count: Composition.maximumLength + 1)).isEmpty) }
+    func testEmptyAndLongInput() {
+        XCTAssertTrue(engine.candidates("").isEmpty)
+        let raw = String(repeating: "haode", count: 100)
+        let values = engine.candidates(raw)
+        XCTAssertFalse(values.isEmpty)
+        XCTAssertTrue(values.allSatisfy { $0.consumed > 0 && $0.consumed < raw.count })
+    }
     func testContinuousAbbreviationsDoNotLoseCandidates() {
         for count in [2, 6, 12, 40] {
             let input = String(repeating: "hd", count: count)

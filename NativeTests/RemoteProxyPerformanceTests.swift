@@ -2,6 +2,42 @@ import XCTest
 import UIKit
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
+    func testLongLifestyleArticlesNeverCommitBeforeAChoiceOrLoseTheirRemainder() async throws {
+        var keys = 0
+        for article in LifestyleTypingFixtures.articles {
+            let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
+            controller.proxy = proxy; controller.loadViewIfNeeded()
+            let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+            model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+            defer { model.suspend() }
+            try await waitFor { model.engineState == "离线就绪" }
+            for letter in article.raw { model.handle(.text(String(letter))); keys += 1 }
+            XCTAssertGreaterThan(article.raw.count, 1_500)
+            XCTAssertEqual(model.composition.raw, article.raw, "A decoder window cannot automatically confirm or split an article")
+            XCTAssertTrue(proxy.insertedTexts.isEmpty, "Typing alone must never commit Chinese or literal pinyin")
+            try await waitFor { proxy.textView.text == article.raw }
+            try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text.contains { !$0.isASCII } && $0.consumed > 0 } }
+            let candidate = try XCTUnwrap(model.candidates.first { $0.text.contains { !$0.isASCII } && $0.consumed > 0 })
+            XCTAssertLessThan(candidate.consumed, article.raw.count)
+            var remainder = model.composition; remainder.consume(candidate.consumed)
+            model.chooseDisplayed(candidate, context: model.candidateContext)
+            try await waitFor { proxy.textView.text == candidate.text + remainder.raw }
+            XCTAssertEqual(model.composition.raw, remainder.raw)
+            model.handle(.enter)
+            XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw)
+            XCTAssertNil(proxy.textView.markedTextRange)
+            XCTAssertTrue(model.composition.isEmpty)
+            XCTAssertEqual(proxy.insertedTexts, [candidate.text, remainder.raw])
+            // Also exercise one atomic Chinese replacement with a complete,
+            // naturally punctuated article, independently of decoder quality.
+            controller.setMarkedText(article.raw)
+            controller.commitMarkedText(article.text)
+            XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw + article.text)
+            await Task.yield()
+            XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw + article.text)
+        }
+        print("LONGFORM_UIKIT articles=4 typedLetters=\(keys) automaticCommits=0 lostRemainders=0 actualUITextView=true")
+    }
     func testRapidTypingAfterAnExternalClearKeepsTheNewComposition() async throws {
         let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()

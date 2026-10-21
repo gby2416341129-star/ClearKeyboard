@@ -507,7 +507,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if mathCharacter {
                 commitComposition(); document?.insert(text)
             } else if settings.language == .chinese && page == .letters && !shifted && text.first?.isLetter == true {
-                if !composition.append(text) { commitComposition(); _ = composition.append(text) }
+                _ = composition.append(text)
                 prepared = prepareCandidates(for: composition.raw)
                 inputOnly = true; syncMarkedText()
             } else if settings.language == .chinese && text == "'" && !composition.isEmpty {

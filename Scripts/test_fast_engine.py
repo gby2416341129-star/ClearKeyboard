@@ -16,3 +16,7 @@ subprocess.run(['swiftc','-O','-parse-as-library','-import-objc-header','CRime/i
  *['Core/'+s+'.swift' for s in sources],'Scripts/test_fast_engine.swift','-L',str(build),'-lclear-test',
  '-Xlinker','-rpath','-Xlinker',str(build),'-o',str(build/'test-fast-engine')],check=True)
 subprocess.run([str(build/'test-fast-engine')],check=True)
+subprocess.run(['swiftc','-O','-parse-as-library','-import-objc-header','CRime/include/ClearRime.h',
+ *['Core/'+s+'.swift' for s in sources],'Scripts/test_longform_engine.swift','-L',str(build),'-lclear-test',
+ '-Xlinker','-rpath','-Xlinker',str(build),'-o',str(build/'test-longform-engine')],check=True)
+subprocess.run([str(build/'test-longform-engine')],check=True)

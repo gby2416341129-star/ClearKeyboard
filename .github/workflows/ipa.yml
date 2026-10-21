@@ -48,11 +48,21 @@ jobs:
           report=json.loads(result.stdout.strip())
           assert result.returncode!=0 and report['failed']>0, 'Editing checks must catch the delivered append-after-marked defect'
           print('BUILD44_EDIT_TRANSACTION_REGRESSION '+json.dumps(report,ensure_ascii=False),flush=True)
+          source=urllib.request.urlopen('https://raw.githubusercontent.com/gby2416341129-star/ClearKeyboard/631d0624a68208e88de18e907f4adf051053ab0f/Core/Composition.swift',timeout=60).read()
+          assert hashlib.sha256(source).hexdigest()=='41150402693b8faa7465b194a46c96fcd782e7af4af9eb3acd07e843b93b00f2'
+          Path('.build/Composition44.swift').write_bytes(source)
+          subprocess.run(['swiftc','-O','-parse-as-library','Core/Lexicon.swift','Core/FuzzyPinyin.swift','.build/Composition44.swift','.build/HostTextState44.swift','Scripts/test_long_draft.swift','-o','.build/test-long-draft-before'],check=True)
+          result=subprocess.run(['.build/test-long-draft-before'],capture_output=True,text=True)
+          report=json.loads(result.stdout.strip())
+          assert result.returncode!=0 and report['failed']>0, 'Long typing must cross the old draft limit and marked-context truncation'
+          print('BUILD44_LONG_DRAFT_REGRESSION '+json.dumps(report,ensure_ascii=False),flush=True)
           PY
           swiftc -O -parse-as-library Core/HostTextState.swift Scripts/test_composition_ownership.swift -o .build/test-composition-ownership
           .build/test-composition-ownership
           swiftc -O -parse-as-library Core/HostTextState.swift Scripts/test_edit_transactions.swift -o .build/test-edit-transactions
           .build/test-edit-transactions
+          swiftc -O -parse-as-library Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/HostTextState.swift Scripts/test_long_draft.swift -o .build/test-long-draft
+          .build/test-long-draft
       - name: Restore pinned language model cache
         id: language-model
         uses: actions/cache/restore@v4
