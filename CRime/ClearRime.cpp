@@ -342,10 +342,18 @@ bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item>
   }
   if(!query.repair)return false;
   std::vector<std::pair<double,Item>> results;
+  clear_sentence::Budget::Clock::duration previous_cost{};
   for(const auto &variant:variants){
-    if(stopped())return false;
+    if(stopped())break;
+    const auto before=clear_sentence::Budget::Clock::now();
+    // Once a complete candidate is available, avoid starting another Rime
+    // query whose recent cost cannot fit. A finished candidate remains valid
+    // when the search budget expires; an abandoned input never does.
+    if(!results.empty() && before+previous_cost>=deadline)break;
     collect(query.repair,variant.input,1,query.repair_cache,cancelled,context);
-    if(stopped())return false;
+    const auto finished=clear_sentence::Budget::Clock::now();previous_cost=finished-before;
+    if(cancelled && cancelled(context))return false;
+    if(finished>=deadline)break;
     if(query.repair_cache.items.empty())continue;
     const auto &item=query.repair_cache.items.front();
     if(item.consumed!=static_cast<int>(variant.input.size()) || letters(item.reading)!=variant.input || !std::isfinite(item.weight))continue;
@@ -355,7 +363,7 @@ bool repair_blind_spelling(Query &query,const std::string &raw,std::vector<Item>
   std::sort(results.begin(),results.end(),[](const auto &a,const auto &b){return a.first!=b.first?a.first>b.first:a.second.text<b.second.text;});
   std::vector<Item> complete;std::unordered_set<std::string> seen;
   for(const auto &item:results)if(seen.insert(item.second.text).second)complete.push_back(item.second);
-  if(stopped())return false;output=std::move(complete);return true;
+  if(cancelled && cancelled(context))return false;output=std::move(complete);return true;
 }
 bool reliable_literal_sentence(const Item &item, const std::string &input) {
   if (item.consumed != static_cast<int>(input.size()) || !std::isfinite(item.weight)) return false;

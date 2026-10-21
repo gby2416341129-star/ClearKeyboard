@@ -31,10 +31,11 @@ int from_index(RimeSessionId id, RimeCandidateListIterator *it, int index) {
 }
 void end_list(RimeCandidateListIterator *) { ended++; }
 RimeSessionId delayed_session=0;
+int delay_ms=25;
 std::unordered_map<RimeSessionId,int> input_resets;
 int set_input_mock(RimeSessionId id, const char *) {
   ++input_resets[id];
-  if (id==delayed_session) std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  if (id==delayed_session) std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
   return 1;
 }
 int cancelled_now(void *) { return 1; }
@@ -173,6 +174,14 @@ int main(int argc, char **argv) {
   assert(cr_query(1,"busuanchadlama",9,nullptr,nullptr)>0);
   assert(q.items.front().text=="broad-correction" && starts[1]==before_internal+2 &&
       input_resets[1]==resets_before_internal+1 && starts[5]==before_extra);
+  // A short search budget may stop before every variant is visited. Preserve
+  // a fully completed repair instead of dropping it with the unvisited tail.
+  q.repair_cache={};lists[5]={{"completed-repair","ni chi le ma\t9\t-18"}};
+  delayed_session=5;delay_ms=12;std::vector<Item> completed_repairs;
+  assert(repair_blind_spelling(q,"niqhilema",completed_repairs,
+      clear_sentence::Budget::Clock::now(),nullptr,nullptr));
+  assert(!completed_repairs.empty() && completed_repairs.front().text=="completed-repair" && completed_repairs.front().consumed==9);
+  delayed_session=0;delay_ms=25;
   mock.set_input=reset_live;mock.get_input=read_live;mock.process_key=edit_live;
   ChannelCache incremental;
   collect(2,"ni",1,incremental,nullptr,nullptr);
@@ -192,5 +201,5 @@ int main(int argc, char **argv) {
   assert(q.items.front().text==u8"你奶奶的" && unexpected_predictions==0 && q.rank_decided);
   assert(cr_query_fast(1,"nnnd",32,nullptr,nullptr)>=1);
   assert(q.items.front().text==u8"你奶奶的" && unexpected_predictions==0);
-  std::cout << "PASS: unique paging, incremental cursor, literal retention, cancellation, stable heads, phonetic boundaries, slow-host literal repair, complete dictionary bypass\n";
+  std::cout << "PASS: unique paging, incremental cursor, literal retention, cancellation, stable heads, phonetic boundaries, slow-host literal repair, budgeted complete repair retention, complete dictionary bypass\n";
 }

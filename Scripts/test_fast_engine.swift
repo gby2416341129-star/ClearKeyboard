@@ -76,13 +76,15 @@ import Foundation
             ("qhimian", "我想去餐馆", "吃面"), ("qhimian", "最近我老是", "失眠"),
             ("qhimian", "我们应该勇敢", "直面"), ("qhimian", "我想去餐馆", "吃面")
         ] {
+            let started = ProcessInfo.processInfo.systemUptime
             let head = engine.candidates(raw, limit: 9, context: preceding)
+            let milliseconds = (ProcessInfo.processInfo.systemUptime - started) * 1_000
             require(head.first?.text == expected && head.first?.consumed == raw.count,
-                    "Context/typo failed: \(preceding) + \(raw): \(head)")
+                    "Context/typo failed after \(milliseconds) ms: \(preceding) + \(raw): \(head)")
             let page = engine.candidates(raw, limit: 96, context: preceding)
             require(Array(page.prefix(head.count)) == head,
                     "A restored context cache changed its page head: \(preceding) + \(raw); head=\(head); page=\(Array(page.prefix(head.count)))")
-            contextualRows.append(["input": raw, "preceding": preceding, "first": head.first!.text])
+            contextualRows.append(["input": raw, "preceding": preceding, "first": head.first!.text, "queryMS": milliseconds])
         }
         print(String(data: try JSONSerialization.data(withJSONObject: ["status": "passed", "rows": rows, "exactInitialRowsChecked": exactRows, "contextualRows": contextualRows,
             "scope": "macOS release, real Swift InputEngine and Rime; excludes UIKit, physical phone and display frame rate"], options: [.sortedKeys]), encoding: .utf8)!)
