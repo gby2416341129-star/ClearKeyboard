@@ -97,7 +97,6 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
     }
     func activate() {
         active = true; receiptAttempt = nil
-        if let pendingEnvelope { send(pendingEnvelope) }
         refresh()
     }
     func deactivate() { active = false; client.flush() }
@@ -128,7 +127,7 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
     }
     func refresh() {
         guard active else { return }
-        if pendingEnvelope != nil { return }
+        if let pendingEnvelope { send(pendingEnvelope); return }
         let request = generation
         client.load { [weak self] result in
             guard let self, self.active, self.generation == request else { return }

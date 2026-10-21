@@ -14,8 +14,19 @@ if '--cleanup' in sys.argv:
     raise SystemExit(0)
 
 Path('.build').mkdir(exist_ok=True)
-inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j'],text=True,timeout=30))
-runtimes=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j'],text=True,timeout=30))
+def inventory_json(args):
+    # CoreSimulator's first connection on a fresh hosted VM can outlast one
+    # short probe. Retry that read without erasing devices or relaxing readiness.
+    for attempt in range(3):
+        result=run(args,timeout=45)
+        if result and result.returncode==0:
+            try:return json.loads(result.stdout)
+            except json.JSONDecodeError:pass
+        print('SIMULATOR_INVENTORY_RETRY '+json.dumps(dict(attempt=attempt+1,
+            detail=(result.stderr[-700:] if result else 'service connection timed out'))),flush=True)
+    raise RuntimeError('CoreSimulator inventory did not become available')
+inventory=inventory_json(['list','devices','available','-j'])
+runtimes=inventory_json(['list','runtimes','-j'])
 versions={entry['identifier']:entry['version'] for entry in runtimes['runtimes']}
 choices=[]
 for runtime,devices in sorted(inventory['devices'].items(),reverse=True):
