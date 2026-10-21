@@ -1,5 +1,5 @@
 """Start a preinstalled simulator and prove UI services are ready before tests."""
-import json,os,plistlib,subprocess,sys,uuid
+import json,os,subprocess,sys,uuid
 from pathlib import Path
 
 def run(args,timeout=30):
@@ -34,6 +34,9 @@ elif os.environ.get('CLEAR_TEST_REQUIRE_RUNTIME')=='1':
     choices=[choice for choice in choices if choice[0]==preferred]
     assert choices,'The required simulator runtime is unavailable: '+preferred
 if preferred:choices.sort(key=lambda choice: choice[0]!=preferred)
+if device_file.is_file():
+    selected=device_file.read_text().strip();uuid.UUID(selected)
+    choices.sort(key=lambda choice: choice[1]['udid']!=selected)
 print('SIMULATOR_CANDIDATES '+json.dumps([dict(runtime=r,model=d['name']) for r,d in choices[:2]]),flush=True)
 
 def ready(device):
@@ -42,10 +45,15 @@ def ready(device):
     listed=run(['listapps',device],timeout=20)
     apps={}
     if listed and listed.returncode==0:
-        try:apps=plistlib.loads(listed.stdout.encode())
-        except (ValueError,plistlib.InvalidFileException):
-            try:apps=json.loads(listed.stdout)
-            except json.JSONDecodeError:pass
+        # simctl emits an OpenStep plist on some Xcode versions. Apple's plist
+        # converter handles that format as well as XML, binary plists and JSON.
+        try:
+            converted=subprocess.run(['/usr/bin/plutil','-convert','json','-o','-','--','-'],
+                input=listed.stdout,capture_output=True,text=True,timeout=20)
+            if converted.returncode==0:apps=json.loads(converted.stdout)
+            else:print('App plist conversion: '+converted.stderr[-700:],flush=True)
+        except (subprocess.TimeoutExpired,json.JSONDecodeError):
+            print('App plist conversion did not complete',flush=True)
     screenshot=Path('.build/simulator-readiness-'+device+'.png')
     captured=run(['io',device,'screenshot',str(screenshot)],timeout=20)
     image_ok=bool(captured and captured.returncode==0 and screenshot.is_file() and screenshot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'))
