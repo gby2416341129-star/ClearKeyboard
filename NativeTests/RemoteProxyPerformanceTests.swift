@@ -119,6 +119,58 @@ import UIKit
         XCTAssertEqual(model.composition.raw, "nichifankm")
         print("REMOTE_HOST_NOTIFICATIONS keys=10 synchronousContextReads=0 deferredContextReads=\(proxy.contextReads)")
     }
+    func testDelayedFirstLetterAcknowledgementCannotSplitLivePinyin() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "zaigansha" { model.handle(.text(String(character))) }
+        try await waitFor { proxy.before == "zaigansha" && model.candidatesAreCurrent }
+        controller.textDidChange(nil)
+        try await waitFor { proxy.contextReads >= 6 }
+        // The latest spelling was already acknowledged. An older first-letter
+        // callback after the old one-second lease must not cancel the draft.
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        let reads = proxy.contextReads; proxy.visibleBefore = "z"; controller.textDidChange(nil)
+        try await waitFor { proxy.contextReads > reads }
+        XCTAssertEqual(model.composition.raw, "zaigansha")
+        XCTAssertEqual(proxy.markedLength, "zaigansha".count)
+        XCTAssertTrue(model.candidatesAreCurrent)
+        XCTAssertFalse(model.candidates.isEmpty)
+        proxy.visibleBefore = nil
+        let choice = try XCTUnwrap(model.candidates.first)
+        model.chooseDisplayed(choice, context: model.candidateContext)
+        XCTAssertFalse(proxy.before.hasPrefix("z"), "A delayed acknowledgement must not leave a committed first letter")
+        print("LIVE_PINYIN_OWNERSHIP delayedFirstLetter=true candidatesRetained=true commitRetained=true")
+    }
+    func testHostReadInterruptedByKeyCannotCancelNewSpelling() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        model.handle(.text("z")); try await waitFor { proxy.before == "z" }
+        var interrupted = false
+        proxy.visibleBefore = "旧的上下文"
+        proxy.beforeContextRead = {
+            guard !interrupted else { return }; interrupted = true
+            model.handle(.text("a"))
+            proxy.visibleBefore = nil
+        }
+        controller.textDidChange(nil)
+        try await waitFor { interrupted }
+        proxy.beforeContextRead = nil
+        try await waitFor { proxy.before == "za" }
+        XCTAssertEqual(model.composition.raw, "za")
+        XCTAssertEqual(proxy.markedLength, 2)
+        for character in "igansha" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent && proxy.before == "zaigansha" }
+        XCTAssertEqual(model.composition.raw, "zaigansha")
+        print("LIVE_PINYIN_OWNERSHIP interruptedHostRead=true newestSpellingRetained=true")
+    }
     func testCandidateButtonCommitsWithoutSpaceWhenHostOmitsMarkedText() async throws {
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
         proxy.omitsMarkedText = true; controller.proxy = proxy; controller.loadViewIfNeeded()
@@ -693,6 +745,7 @@ import UIKit
 @MainActor private final class DelayedDocumentProxy: NSObject, UITextDocumentProxy {
     var before = "", after = "", selected = ""
     var visibleBefore: String?
+    var beforeContextRead: (() -> Void)?
     var markedLength = 0
     var markedWrites: [String] = []
     var reads = 0
@@ -706,7 +759,12 @@ import UIKit
         let delay = context ? (contextReadDelay ?? readDelay) : readDelay
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
     }
-    var documentContextBeforeInput: String? { read(); return visibleBefore ?? (omitsMarkedText ? String(before.dropLast(min(markedLength, before.count))) : before) }
+    var documentContextBeforeInput: String? {
+        read()
+        let value = visibleBefore ?? (omitsMarkedText ? String(before.dropLast(min(markedLength, before.count))) : before)
+        beforeContextRead?()
+        return value
+    }
     var documentContextAfterInput: String? { read(); return after }
     var selectedText: String? { read(); return selected.isEmpty ? nil : selected }
     var documentIdentifier: UUID { read(context: false); return identity }

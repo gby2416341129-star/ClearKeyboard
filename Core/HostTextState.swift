@@ -42,11 +42,29 @@ public struct HostTextState {
     private var acknowledged: HostTextSnapshot
     private var pending: [(HostTextSnapshot, Double)] = []
     private var marked = ""
+    private var markedOrigin: HostTextSnapshot?
+    private var markedHistory: [String] = []
     public init(_ snapshot: HostTextSnapshot = HostTextSnapshot()) { self.snapshot = snapshot; acknowledged = snapshot }
     public func hasPendingEdits(now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
         pending.contains { now - $0.1 <= 1 }
     }
     public var hasMarkedText: Bool { !marked.isEmpty }
+    private mutating func endMarkedSession() {
+        marked = ""; markedOrigin = nil; markedHistory.removeAll(keepingCapacity: true)
+    }
+    private func isMarkedAcknowledgement(_ actual: HostTextSnapshot) -> Bool {
+        guard !marked.isEmpty, let origin = markedOrigin,
+              actual.document == origin.document, actual.selected.isEmpty else { return false }
+        // An acknowledgement belongs to the live composition, not to a timer.
+        // Hosts can expose an earlier spelling after a pause or after newer
+        // writes were acknowledged. Keep only spellings actually requested in
+        // this session; a different field, selection or surrounding text fails.
+        for text in markedHistory.reversed() {
+            var expected = origin; expected.before += text
+            if Self.equivalent(expected, actual) { return true }
+        }
+        return false
+    }
     private func isMarkedBoundary(_ actual: HostTextSnapshot) -> Bool {
         guard !marked.isEmpty, snapshot.before.hasSuffix(marked), actual.selected.isEmpty else { return false }
         var boundary = snapshot; boundary.before.removeLast(marked.count)
@@ -71,27 +89,35 @@ public struct HostTextState {
         if pending.count > 64 { pending.removeFirst(pending.count - 64) }
     }
     public mutating func insert(_ text: String, now: Double = ProcessInfo.processInfo.systemUptime) {
-        snapshot.before += text; snapshot.selected = ""; marked = ""; remember(now: now)
+        snapshot.before += text; snapshot.selected = ""; endMarkedSession(); remember(now: now)
     }
     public mutating func setMarked(_ text: String, now: Double = ProcessInfo.processInfo.systemUptime) {
+        if markedOrigin == nil {
+            var origin = snapshot; origin.selected = ""; markedOrigin = origin
+        }
+        if markedHistory.last != text { markedHistory.append(text) }
+        // Two full 256-letter drafts, including edits, fit without retaining an
+        // unbounded input history. This history is discarded at every commit.
+        if markedHistory.count > 512 { markedHistory.removeFirst(markedHistory.count - 512) }
         // A long-lived draft may be older than the acknowledgement window.
         // Renew its predecessor snapshot before replacement, so an immediately
         // delayed host read cannot turn a confirmed word back into raw pinyin.
         if !marked.isEmpty { remember(now: now) }
         if !marked.isEmpty, snapshot.before.hasSuffix(marked) { snapshot.before.removeLast(marked.count) }
         snapshot.before += text; snapshot.selected = ""; marked = text; remember(now: now)
+        if text.isEmpty { endMarkedSession() }
     }
-    public mutating func unmark() { marked = "" }
+    public mutating func unmark() { endMarkedSession() }
     public mutating func deleteBackward(now: Double = ProcessInfo.processInfo.systemUptime) {
         if !snapshot.selected.isEmpty { snapshot.selected = "" }
         else if !snapshot.before.isEmpty { snapshot.before.removeLast() }
-        marked = ""; remember(now: now)
+        endMarkedSession(); remember(now: now)
     }
     public mutating func moveCursor(_ offset: Int, now: Double = ProcessInfo.processInfo.systemUptime) {
         let whole = snapshot.before + snapshot.selected + snapshot.after
         let position = max(0, min(whole.count, snapshot.before.count + offset))
         snapshot.before = String(whole.prefix(position)); snapshot.after = String(whole.dropFirst(position))
-        snapshot.selected = ""; marked = ""; remember(now: now)
+        snapshot.selected = ""; endMarkedSession(); remember(now: now)
     }
     public mutating func reconcile(_ actual: HostTextSnapshot, now: Double = ProcessInfo.processInfo.systemUptime) -> Reconciliation {
         pending.removeAll { now - $0.1 > 1 }
@@ -102,6 +128,7 @@ public struct HostTextState {
         // A host can expose context around the marked range rather than including
         // its uncommitted spelling. This boundary remains valid after a reading pause.
         if isMarkedBoundary(actual) { acknowledged = actual; return .ownEdit }
+        if isMarkedAcknowledgement(actual) { acknowledged = actual; return .ownEdit }
         if actual.document == snapshot.document {
             if let index = pending.lastIndex(where: { Self.equivalent($0.0, actual) }) {
                 acknowledged = actual; pending.removeFirst(index + 1); return .ownEdit
@@ -109,13 +136,14 @@ public struct HostTextState {
             // A delayed notification may still expose the last acknowledged text.
             if !pending.isEmpty, Self.equivalent(acknowledged, actual) { return .ownEdit }
         }
-        snapshot = actual; acknowledged = actual; marked = ""; pending = []; return .externalEdit
+        snapshot = actual; acknowledged = actual; endMarkedSession(); pending = []; return .externalEdit
     }
     public func accepts(_ expected: HostTextSnapshot, actual: HostTextSnapshot, now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
         guard actual.available, actual.selected.isEmpty, expected.document == actual.document,
               Self.equivalent(snapshot, expected) else { return false }
         if Self.equivalent(expected, actual) { return true }
         if isMarkedBoundary(actual) { return true }
+        if isMarkedAcknowledgement(actual) { return true }
         let recent = pending.filter { now - $0.1 <= 1 }
         return !recent.isEmpty && (Self.equivalent(acknowledged, actual) || recent.contains { Self.equivalent($0.0, actual) })
     }

@@ -167,7 +167,15 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     private func refreshHostState(refreshTraits: Bool = false) {
         needsHostRefresh = false
-        let outcome = hostState.reconcile(readHostSnapshot())
+        let revision = hostRefreshGeneration
+        let actual = readHostSnapshot()
+        // A remote getter may service UIKit callbacks before returning. A key
+        // or another notification in that interval invalidates this read; it
+        // cannot cancel a newer spelling or unmark its first letter.
+        guard revision == hostRefreshGeneration else {
+            needsHostRefresh = true; scheduleHostRefresh(); return
+        }
+        let outcome = hostState.reconcile(actual)
         guard outcome != .unavailable else { needsHostRefresh = true; scheduleHostRefresh(); return }
         // Traits belong to the field. Own text acknowledgements must not fetch
         // all of them again after each confirmed word.
