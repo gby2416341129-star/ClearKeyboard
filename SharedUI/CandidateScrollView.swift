@@ -64,11 +64,9 @@ import os
         // Vertical drift must not lock out the next horizontal reversal.
         isDirectionalLockEnabled = false; decelerationRate = .normal
         contentInsetAdjustmentBehavior = .never
-        // The system keyboard's outer material is rounded, but does not always
-        // clip a remote extension's child layers. Match the header's inset curve
-        // locally, without masking or resizing the key grid or glass sheet.
-        layer.cornerCurve = .continuous; layer.cornerRadius = 20
-        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        // The strip is inset inside the keyboard shell's curve. A second round
+        // mask here cut into the first candidate's highlight independently.
+        layer.cornerRadius = 0
         clipsToBounds = true
         scrollsToTop = false
         accessibilityIdentifier = "clear.candidates"
@@ -404,7 +402,7 @@ import os
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let height = max(0, min(bounds.height - 8, max(28, ceil(label.font.lineHeight) + 8)))
+        let height = max(0, min(bounds.height - 12, max(28, ceil(label.font.lineHeight) + 8)))
         plate.frame = CGRect(x: 0, y: (bounds.height - height) / 2,
                              width: max(0, bounds.width - 4), height: height)
         label.frame = plate.bounds.insetBy(dx: 8, dy: 0)

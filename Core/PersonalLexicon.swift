@@ -52,13 +52,18 @@ public struct PersonalLexicon: Codable {
                 found.append((entry, FuzzyPinyin.normalize(code).count))
             }
         }
-        found.sort { $0.0.uses == $1.0.uses ? $0.0.selectedAt > $1.0.selectedAt : $0.0.uses > $1.0.uses }
+        found.sort {
+            let leftAlias = $0.0.initials == code, rightAlias = $1.0.initials == code
+            if leftAlias != rightAlias { return leftAlias }
+            if leftAlias { return $0.0.selectedAt > $1.0.selectedAt }
+            return $0.0.uses == $1.0.uses ? $0.0.selectedAt > $1.0.selectedAt : $0.0.uses > $1.0.uses
+        }
         var seen = Set<String>()
         return Array(found.filter { seen.insert($0.0.text).inserted }.prefix(4).map { entry, consumed in
             // An explicit full phrase also teaches its initials immediately.
             // Exact spelling choices retain their gradual contextual preference.
             Candidate(text: entry.text, reading: entry.reading, consumed: consumed,
-                score: entry.initials == code && entry.code != code ? 4 : Double(min(3, entry.uses)))
+                score: entry.initials == code ? 4 : Double(min(3, entry.uses)))
         })
     }
     private static func initials(text: String, reading: String) -> String? {
@@ -68,9 +73,8 @@ public struct PersonalLexicon: Codable {
               syllables.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isLowercase && $0.isLetter } }) else { return nil }
         return String(syllables.compactMap(\.first))
     }
-    /// One confirmation makes a word available, two raise it, and three may
-    /// promote it to first. A one-off selection cannot pin an unfamiliar name.
-    /// Explicit caller preferences (score 0 or legacy 200) retain their API.
+    /// Exact spellings promote gradually. Explicitly taught initials (score 4)
+    /// are immediately reusable; caller preferences (0 or legacy 200) keep their API.
     public static func merging(_ preferred: [Candidate], into words: [Candidate], limit: Int) -> [Candidate] {
         var seen = Set<String>()
         let choices = preferred.filter { seen.insert($0.text).inserted }

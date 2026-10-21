@@ -14,9 +14,11 @@ import UIKit
             // from its own observer re-enters the wrapped setter during a UI binding write.
             var clean = newValue; clean.sanitize()
             guard clean != storedSettings else { return }
+            let clipboardChanged = clean.capturesClipboard != storedSettings.capturesClipboard ||
+                clean.clipboardLifetimeHours != storedSettings.clipboardLifetimeHours
             storedSettings = clean
             store.save(clean)
-            if active { clipboardCapture.activate(settings: clean, allowed: true) }
+            if active && clipboardChanged { clipboardCapture.activate(settings: clean, allowed: true) }
         }
     }
     init(store: SettingsStore? = nil, clipboardCapture: ClipboardCapture? = nil) {

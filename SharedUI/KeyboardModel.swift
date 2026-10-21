@@ -157,6 +157,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var generation = 0
     private var candidateGeneration = -1
     private var englishSnapshot = ""
+    var hasEnglishPrefix: Bool { settings.language == .english && !EnglishContext.word(in: englishSnapshot).isEmpty }
+    // A clipboard preview can temporarily occupy the header. Space must never
+    // confirm a hidden English prediction beneath it.
+    var englishSpaceSelectionIsVisible = true
     private var learned: [String: Int] = [:]
     private var personal = PersonalLexicon()
     private var phraseLearning = PhraseLearning()
@@ -226,7 +230,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
 
     private func prepareCandidates(for raw: String) -> PreparedCandidates? {
-        guard let engine, let document, !raw.isEmpty, document.selectedText.isEmpty else { return nil }
+        guard !characterSelectionMode, let engine, let document, !raw.isEmpty, document.selectedText.isEmpty else { return nil }
         let backend = CoreMLSentence.shared.revision
         if backend != candidateBackendRevision {
             candidateBackendRevision = backend; candidateCacheEpoch += 1
@@ -578,7 +582,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 literalInputRevision += 1
             }
         case .space:
-            if settings.language == .english, candidatesAreCurrent,
+            if settings.language == .english, englishSpaceSelectionIsVisible, candidatesAreCurrent,
                let candidate = candidates.first, let document,
                document.selectedText.isEmpty, document.contextBefore == englishSnapshot {
                 commitChoice(candidate, document: document)

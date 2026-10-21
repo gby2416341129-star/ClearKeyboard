@@ -160,9 +160,9 @@ import SwiftUI
             sideRail.isHidden = settings.hand == .full
             sideRail.frame = layout.sideRail
         }
-        // Eight points retain compact left alignment while keeping the first
+        // Twelve points retain compact left alignment while keeping the first
         // highlight inside the keyboard shell's rounded top corners.
-        var header = layout.header.insetBy(dx: -8, dy: 0); header.size.height = candidateHeight
+        var header = layout.header.insetBy(dx: -4, dy: 0); header.size.height = candidateHeight
         characterButton.frame = CGRect(x: header.maxX - 37, y: header.minY + 6, width: 34, height: 32)
         clipboardSuggestion.frame = layout.header.insetBy(dx: 3, dy: 5)
         if model.settings.language == .chinese, !model.composition.isEmpty { header.size.width = max(0, header.width - 41) }
@@ -295,7 +295,8 @@ import SwiftUI
         if !panelOpen, height > 0, candidateScroll.bounds.width > 0 {
             candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize, textColor: model.settings.candidateTintColor)
         }
-        let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && recentClip != nil
+        let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && !model.hasEnglishPrefix && recentClip != nil
+        model.englishSpaceSelectionIsVisible = !clipboardVisible && !panelOpen
         clipboardSuggestion.isHidden = !clipboardVisible
         toolbar.isHidden = clipboardVisible || panelKind == .clipboard || (!panelOpen && candidateHeight > 0)
         candidateScroll.isHidden = clipboardVisible || panelOpen || movingCursor || candidateHeight == 0
@@ -481,6 +482,7 @@ import SwiftUI
         let close = UIButton(type: .system)
         close.setImage(UIImage(systemName: "xmark"), for: .normal)
         close.tintColor = .secondaryLabel; close.accessibilityLabel = "关闭本次剪贴提示"
+        close.accessibilityIdentifier = "clipboard.recent.close"
         close.widthAnchor.constraint(equalToConstant: 32).isActive = true
         close.addAction(UIAction { [weak self] _ in self?.dismissRecentClip() }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(close)

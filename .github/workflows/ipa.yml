@@ -88,6 +88,10 @@ jobs:
           python3 Scripts/test_prepare_rime.py
           python3 Scripts/test_conversation_index.py
           python3 Scripts/prepare_rime.py
+      - name: Compile iOS sources and test hosts before model evaluation
+        run: |
+          python3 Scripts/generate_project.py
+          xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
       - name: Compile the pinned Core ML model for the Apple accelerator
         run: |
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'

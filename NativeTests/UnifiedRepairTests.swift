@@ -59,9 +59,29 @@ import UIKit
             XCTAssertTrue(restored.candidates(for: initials + "x").isEmpty)
             XCTAssertEqual(restored.candidates(for: raw).first?.score, 1, "Full spellings retain gradual learning")
         }
+        var memory = PersonalLexicon()
+        let previous = Candidate(text: "高博雅", reading: "gao bo ya", consumed: 8)
+        for _ in 0..<5 { memory.record(previous, for: "gaoboya", now: Date(timeIntervalSince1970: 1)) }
+        let name = Candidate(text: "苟博渊", reading: "gou bo yuan", consumed: 9)
+        memory.record(name, for: "gouboyuan", now: Date(timeIntervalSince1970: 2))
+        XCTAssertEqual(memory.candidates(for: "gby").first?.text, name.text, "A newly confirmed initials mapping must not be buried by an older frequent phrase")
+        memory.record(Candidate(text: name.text, reading: name.reading, consumed: 3), for: "gby", now: Date(timeIntervalSince1970: 3))
+        XCTAssertEqual(memory.candidates(for: "gby").first?.score, 4, "Selecting the learned alias must not downgrade its next recall")
+    }
+    func testFirstHighlightFitsTheKeyboardCornerAtEveryCandidateSize() throws {
+        let shell = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 390, height: 276), cornerRadius: 28)
+        for size in CandidateTextSize.allCases {
+            let button = CandidateButton(frame: CGRect(x: 12, y: 0, width: 150, height: 44))
+            button.configure(Candidate(text: "车", consumed: 3), first: true, accent: .systemBlue, font: .systemFont(ofSize: CGFloat(size.points)))
+            button.layoutIfNeeded()
+            let plate = try XCTUnwrap(button.subviews.first).frame.offsetBy(dx: 12, dy: 0)
+            XCTAssertTrue(shell.contains(CGPoint(x: plate.minX, y: plate.minY)), size.title)
+            XCTAssertTrue(shell.contains(CGPoint(x: plate.minX, y: plate.maxY)), size.title)
+        }
     }
     func testEnglishSpaceCommitsTheVisibleCompletionAndPredictionWithRealTextStorage() async throws {
         let value = controller(language: .english), model = try XCTUnwrap(value.model)
+        views(value.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.close" }?.sendActions(for: .touchUpInside)
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
         for letter in "hell" { model.handle(.text(String(letter))) }
@@ -105,6 +125,16 @@ import UIKit
         model.handle(.space)
         XCTAssertEqual(value.textView.text, "苟博渊苟博渊")
         print("CHARACTER_PICKER_UIKIT characters=3 unrelatedPhraseRows=0 initialsImmediateFirst=true duplicatedPinyin=0")
+    }
+    func testCharacterBrowsingKeepsAlternativeSyllableBoundariesAndExplicitSeparators() throws {
+        let engine = try InputEngine.bundled()
+        let ambiguous = engine.characterCandidates("xian")
+        XCTAssertTrue(ambiguous.contains { $0.text == "先" && $0.consumed == 4 })
+        XCTAssertTrue(ambiguous.contains { $0.text == "西" && $0.consumed == 2 })
+        let separated = engine.characterCandidates("xi'an")
+        XCTAssertTrue(separated.contains { $0.text == "西" && $0.consumed == 2 })
+        XCTAssertTrue(separated.allSatisfy { $0.consumed <= 2 })
+        XCTAssertTrue(engine.characterCandidates("xian", cancelled: { true }).isEmpty)
     }
     func testUnchangedInkKeepsItsFadeThroughALayoutRefresh() throws {
         let button = CandidateButton(frame: CGRect(x: 0, y: 0, width: 200, height: 44))

@@ -1,11 +1,14 @@
 import Foundation
 
+@_silgen_name("cr_test_native_score_limit") private func nativeScoreLimit() -> Int32
+
 @main struct FastEngineChecks {
     static func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() { fatalError(message) }
     }
     static func main() throws {
         let engine = try InputEngine.bundled()
+        print("NATIVE_SCORING_POSITION_BUDGET \(nativeScoreLimit())")
         var rows: [[String: Any]] = []
         for (raw, expected) in [("en", "嗯"), ("enen", "嗯嗯"), ("enenen", "嗯嗯嗯"),
                                 ("enhaode", "嗯好的"), ("enenhao", "嗯嗯好"),
@@ -87,13 +90,21 @@ import Foundation
             }
             rows.append(["input":raw,"head":values.map(\.text),"readings":values.map(\.reading)])
         }
-        for (raw, expected) in [("wcfl", "我吃饭了"), ("nijtchiflm", "你今天吃饭了吗")] {
+        for (raw, expected) in [("wcfl", "我吃饭了"), ("nijtchifanlema", "你今天吃饭了吗"), ("nijtchifanlemei", "你今天吃饭了没")] {
             let head = engine.candidates(raw, limit: 9), page = engine.candidates(raw, limit: 64)
             require(head.first?.text == expected && head.first?.consumed == raw.count,
                     "Shared-prefix initialism comparison missed its spoken alternative: \(raw): \(head)")
             require(Array(page.prefix(head.count)) == head, "An initialism changed when browsing")
             rows.append(["input": raw, "head": head.map(\.text), "kind": "shared-prefix-initialism"])
         }
+        // The final m abbreviates both ma and mei. A slow backend may retain
+        // either legitimate dictionary question; both must remain immediately
+        // selectable. Fully specified final syllables above remain strict.
+        let ambiguous = engine.candidates("nijtchiflm", limit: 9)
+        require(["你今天吃饭了吗", "你今天吃饭了没", "你今天吃饭了么"].contains(ambiguous.first?.text ?? ""), "An abbreviated question lost its literal reading")
+        require(ambiguous.prefix(3).contains { $0.text == "你今天吃饭了吗" } && ambiguous.prefix(3).contains { $0.text == "你今天吃饭了没" }, "Shared-prefix question alternatives must remain on the first screen")
+        require(Array(engine.candidates("nijtchiflm", limit: 64).prefix(ambiguous.count)) == ambiguous, "Ambiguous questions moved on paging")
+        rows.append(["input": "nijtchiflm", "head": ambiguous.map(\.text), "kind": "ambiguous-question-initials"])
         var contextualRows: [[String: Any]] = []
         var initialWindows: [[String: Any]] = []
         for raw in [String(repeating: "wmjtqcf", count: 20), String(repeating: "nijtchiflm", count: 20)] {

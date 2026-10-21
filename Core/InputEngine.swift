@@ -58,22 +58,41 @@ public final class InputEngine {
     /// Explicit character browsing uses the existing dictionary and consumes only
     /// the leading syllable. No name or character list is injected into ranking.
     public func characterCandidates(_ raw: String, cancelled: () -> Bool = { false }) -> [Candidate] {
-        let input = FuzzyPinyin.normalize(raw)
+        let input = FuzzyPinyin.normalize(String(raw.split(separator: "'", maxSplits: 1).first ?? Substring(raw)))
         guard !input.isEmpty else { return [] }
-        for length in stride(from: min(6, input.count), through: 1, by: -1) {
-            if cancelled() { return [] }
+        func characters(_ length: Int, initial: Bool = false) -> [Candidate] {
             let prefix = String(input.prefix(length))
             let entries = matureDecoder?.candidates(prefix, limit: 256, correction: false, context: "", cancelled: cancelled)
                 ?? chinese.lookup("e:" + prefix, limit: 256).map {
                     Candidate(text: $0.text, reading: $0.reading, consumed: length)
                 }
-            let values = entries.filter {
+            return entries.filter {
                 $0.text.count == 1 && !$0.text.unicodeScalars.allSatisfy({ $0.isASCII }) &&
-                (FuzzyPinyin.normalize($0.reading) == prefix || (length == 1 && $0.reading.hasPrefix(prefix)))
+                (FuzzyPinyin.normalize($0.reading) == prefix || (initial && $0.reading.hasPrefix(prefix)))
             }.map { Candidate(text: $0.text, reading: $0.reading, consumed: length, score: $0.score) }
-            if !values.isEmpty { return values }
         }
-        return []
+        var pools: [[Candidate]] = []
+        for length in stride(from: min(6, input.count), through: 2, by: -1) {
+            if cancelled() { return [] }
+            let values = characters(length)
+            if !values.isEmpty { pools.append(values) }
+        }
+        if pools.isEmpty { return cancelled() ? [] : characters(1, initial: true) }
+        // An unseparated spelling can have more than one leading syllable
+        // (xian = xian / xi+an). Keep those alternatives reachable, while the
+        // longest complete syllable retains most of the visible positions.
+        var positions = Array(repeating: 0, count: pools.count), output: [Candidate] = [], seen = Set<String>()
+        while output.count < 512 {
+            var advanced = false
+            for index in pools.indices {
+                for _ in 0..<(index == 0 ? 3 : 1) where positions[index] < pools[index].count {
+                    let candidate = pools[index][positions[index]]; positions[index] += 1; advanced = true
+                    if seen.insert(candidate.text).inserted { output.append(candidate) }
+                }
+            }
+            if !advanced || cancelled() { break }
+        }
+        return cancelled() ? [] : Array(output.prefix(512))
     }
     private func repeatedCandidates(_ input: String) -> [Candidate] {
         var values = repetition?.candidates(input) ?? []
