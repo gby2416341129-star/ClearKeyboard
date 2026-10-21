@@ -264,9 +264,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
 
         }
         wordQueue.async(execute: job)
-        if !immediateComposition, raw.utf8.count >= 3, raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) }) {
+        let contextualShortSpelling = !preceding.isEmpty && raw.utf8.count <= 6
+        if !immediateComposition, contextualShortSpelling ||
+            (raw.utf8.count >= 3 && raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) })) {
             // Start the semantic row at contact-down. It can finish while the
-            // key is still held, without changing the uncommitted UI spelling.
+            // key is still held. A context-aware short spelling must not wait
+            // for the independent, context-free word lookup to finish first.
             scheduleDecoder(query, delay: 0)
         }
         return query

@@ -879,6 +879,35 @@ import UIKit
         model.handle(.enter)
         XCTAssertEqual(document.before, "hd\n", "An empty composition retains the editor's return behavior")
     }
+    func testContextualShortSpellingDoesNotWaitForTheWordLookupWorker() async throws {
+        let document = WordLookupDocument(); document.before = "办公"
+        let lookupStarted = expectation(description: "Context-free word lookup reached ji")
+        let releaseLookup = DispatchSemaphore(value: 0)
+        var settings = KeyboardSettings()
+        settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
+        let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
+            if raw == "ji" {
+                lookupStarted.fulfill()
+                _ = releaseLookup.wait(timeout: .now() + 5)
+            }
+            return engine.immediateCandidates(raw, preferred: preferred)
+        }
+        defer { releaseLookup.signal(); model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        model.handle(.text("j")); model.prepare(.text("i"))
+        await fulfillment(of: [lookupStarted], timeout: 2)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(document.before, "办公j", "A held key cannot write the prospective spelling")
+        model.handle(.text("i"))
+        XCTAssertTrue(model.candidatesAreCurrent, "The decoded row must be ready while the independent word worker is blocked")
+        XCTAssertFalse(model.candidates.isEmpty)
+        XCTAssertEqual(model.candidateContext?.raw, "ji")
+        let settled = model.candidates
+        releaseLookup.signal()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(model.candidates, settled, "The late context-free row cannot replace the contextual decision")
+        print("CONTEXTUAL_PREPARATION heldKeyWrites=0 blockedWordWorker=true readyOnRelease=true lateDowngrade=false")
+    }
     func testPreparingSpaceOrCancellingALetterCannotStrandAnUnfinishedSentence() async throws {
         let document = WordLookupDocument()
         var settings = KeyboardSettings()

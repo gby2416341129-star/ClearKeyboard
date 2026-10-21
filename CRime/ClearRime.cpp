@@ -88,6 +88,63 @@ std::string syllables(const std::string &reading) {
   }
   return result;
 }
+bool contextual_character(const Item &item,const std::string &input,int length) {
+  if(!sentence_model || input.empty() || input.size()>6 || item.consumed!=length || syllables(item.reading)!=input)return false;
+  std::vector<int> tokens;
+  return sentence_model->encode(item.text,tokens) && tokens.size()==1;
+}
+std::string known_context_suffix(const std::string &before) {
+  // set_context has already validated UTF-8. A punctuation mark or an unknown
+  // character terminates neural context; never collapse unknowns into UNK.
+  std::vector<std::string> suffix;
+  for(size_t start=0;start<before.size();) {
+    size_t end=start+1;while(end<before.size() && (static_cast<unsigned char>(before[end])&0xc0)==0x80)++end;
+    const auto character=before.substr(start,end-start);start=end;
+    unsigned value=static_cast<unsigned char>(character.front());
+    if(character.size()>1) {
+      value&=character.size()==2?31:character.size()==3?15:7;
+      for(size_t index=1;index<character.size();++index)value=(value<<6)|(static_cast<unsigned char>(character[index])&63);
+    }
+    const bool han=(value>=0x3400 && value<=0x9fff) || (value>=0xf900 && value<=0xfaff) || (value>=0x20000 && value<=0x3347f);
+    std::vector<int> tokens;
+    if(!han || !sentence_model->encode(character,tokens) || tokens.size()!=1) {suffix.clear();continue;}
+    suffix.push_back(character);if(suffix.size()>4)suffix.erase(suffix.begin());
+  }
+  std::string result;for(const auto &character:suffix)result+=character;
+  return result;
+}
+void rank_contextual_character(Query &query,const std::string &input,int length,const clear_sentence::Budget &outer) {
+  if(!sentence_model || !sentence_model->has_scorer() || query.items.empty() || query.preceding.empty() ||
+      !contextual_character(query.items.front(),input,length))return;
+  const auto prefix=known_context_suffix(query.preceding);if(prefix.empty())return;
+  std::vector<int> prefix_tokens;sentence_model->encode(prefix,prefix_tokens);
+  std::vector<size_t> indices;std::vector<std::string> texts;std::vector<double> priors;
+  for(size_t index=0;index<query.items.size() && texts.size()<32;++index) {
+    const auto &item=query.items[index];double prior=0;
+    if(!contextual_character(item,input,length) ||
+        !phonetic_search.pronunciation_score(input,item.text,input,*sentence_model,prior))continue;
+    indices.push_back(index);texts.push_back(prefix+item.text);priors.push_back(prior);
+  }
+  if(texts.size()<2 || indices.front()!=0)return;
+  // Every alternative shares the same known context and target length. Its
+  // full-sequence mean differs only in the final conditional probability.
+  // Score all eligible rows or retain the incumbent; a partial batch cannot win.
+  auto budget=outer;budget.deadline=std::min(budget.deadline,clear_sentence::Budget::Clock::now()+std::chrono::milliseconds(8));
+  std::vector<double> scores;
+  for(size_t start=0;start<texts.size();start+=4) {
+    const auto end=std::min(texts.size(),start+4);
+    const std::vector<std::string> batch(texts.begin()+start,texts.begin()+end);
+    if(!sentence_model->whole_pool_fits(batch))return;
+    std::vector<float> values;if(!sentence_model->compare(batch,values,budget))return;
+    for(size_t row=0;row<values.size();++row)scores.push_back(values[row]*(prefix_tokens.size()+1)+priors[start+row]);
+  }
+  if(!budget.alive() || scores.size()!=texts.size())return;
+  const auto best=static_cast<size_t>(std::max_element(scores.begin(),scores.end())-scores.begin());
+  if(best && scores[best]-scores.front()>=0.8) {
+    const auto item=query.items[indices[best]];query.ranked_choice=item.text;
+    query.items.erase(query.items.begin()+indices[best]);query.items.insert(query.items.begin(),item);
+  }
+}
 void rank_sentence(Query &query, const std::string &input, int length, bool leading,
                    bool correction, bool protected_dictionary, clear_sentence::Budget::Clock::time_point started,
                    cr_cancelled cancelled, void *context, int limit=9, bool dictionary_alternatives=false) {
@@ -111,9 +168,11 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
   const bool complete=!query.items.empty() && query.items.front().consumed==length;
   const int abbreviations=complete ? clear_sentence::PhoneticSearch::matches(input,syllables(query.items.front().reading)) : -1;
   const bool literal=abbreviations>=0;
-  if (protected_dictionary || !sentence_model) { finish();return; }
   const auto deadline=started+std::chrono::milliseconds(35);
   clear_sentence::Budget budget{deadline,cancelled,context};
+  rank_contextual_character(query,input,length,budget);
+  if(cancelled && cancelled(context))return;
+  if (protected_dictionary || !sentence_model) { finish();return; }
   float compared_mean=0;bool compared=false;
   if (literal && sentence_model->has_scorer() && budget.alive()) {
     std::vector<int> tokens;
@@ -823,6 +882,17 @@ static int query_candidates(uintptr_t id, const char *input, int limit, cr_cance
   const auto spelled_word=[&](const Item &item){return item.consumed==length && letters(item.reading)==letters(input);};
   const bool protected_word=std::any_of(conversational.begin(),conversational.end(),spelled_word) ||
       std::any_of(literal.begin(),literal.end(),spelled_word);
+  if(leading_row && correction && contextual && (query.ranked_input!=raw || !query.rank_decided) && sentence_model && sentence_model->has_scorer() &&
+      !query.items.empty() && contextual_character(query.items.front(),raw,length)) {
+    // Single-character homophones such as a word's final character may lie
+    // beyond the visible row. Extend only this cheap literal cursor, retaining
+    // every existing head item and its order before the atomic comparison.
+    collect(query.exact,input,32,query.exact_cache,cancelled,context);
+    if(cancelled && cancelled(context))return 0;
+    std::unordered_set<std::string> seen;for(const auto &item:query.items)seen.insert(item.text);
+    for(const auto &item:query.exact_cache.items)
+      if(query.items.size()<41 && contextual_character(item,raw,length) && seen.insert(item.text).second)query.items.push_back(item);
+  }
   rank_sentence(query,input,length,leading_row,correction,contextual || repaired || protected_word,started,cancelled,context,limit,!full.empty());
   if (cancelled && cancelled(context)) return 0;
   return static_cast<int>(query.items.size());

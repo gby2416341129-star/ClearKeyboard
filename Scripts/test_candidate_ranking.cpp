@@ -1,6 +1,7 @@
 #include "../CRime/ClearRime.cpp"
 #include <cassert>
 #include <iostream>
+#include <thread>
 #ifdef NDEBUG
 #error Candidate ranking checks require assertions
 #endif
@@ -14,6 +15,18 @@ int compare_mock(const char *const *,int count,float *values,double,cr_cancelled
   for(int row=0;row<count;++row) values[row]=-5+(row==1?state.advantage:0);
   if(state.partial && count>1) values[1]=std::numeric_limits<float>::quiet_NaN();
   return 1;
+}
+struct ContextScores {int calls=0;bool fail=false,cancelled=false,expire=false;};
+int context_cancel(void *context) {return static_cast<ContextScores*>(context)->cancelled;}
+int context_mock(const char *const *texts,int count,float *values,double,cr_cancelled,void *,void *context) {
+  auto &state=*static_cast<ContextScores*>(context);++state.calls;
+  for(int row=0;row<count;++row) {
+    const std::string text(texts[row]);
+    assert(text.compare(0,std::string(u8"办公").size(),u8"办公")==0);
+    values[row]=text==u8"办公机"?-2.f:-5.f;
+  }
+  if(state.expire)std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  return state.fail?0:1;
 }
 Query menu() {
   Query query;
@@ -76,5 +89,34 @@ int main(int argc,char **argv) {
     assert(std::abs(unbounded[row]-reference[row])<0.00001f);
     if(timely) assert(std::abs(actual[row]-reference[row])<0.00001f);
   }
+  // Context ranking can recover a homophone outside the initial screen, but
+  // must preserve the spelling, all other rows and the browsing decision.
+  ContextScores context_control;sentence_model->set_native_enabled(false);
+  cr_set_sentence_scorer(context_mock,&context_control);
+  auto character_menu=[] {
+    Query query;query.preceding=u8"办公";
+    query.items={{u8"及","ji",2},{u8"即","ji",2},{u8"既","ji",2},{u8"计","ji",2},
+      {u8"急","ji",2},{u8"积","ji",2},{u8"几","ji",2},{u8"季","ji",2},{u8"纪","ji",2},
+      {u8"机","ji",2},{u8"居","ju",2},{u8"𰻞","ji",2}};
+    return query;
+  };
+  auto contextual=character_menu();
+  rank_sentence(contextual,"ji",2,true,true,true,clear_sentence::Budget::Clock::now(),context_cancel,&context_control);
+  assert(contextual.items.size()==9 && contextual.items.front().text==u8"机" && contextual.rank_decided);
+  const auto contextual_head=contextual.items;contextual.items=character_menu().items;
+  const auto context_calls=context_control.calls;
+  rank_sentence(contextual,"ji",2,false,false,true,clear_sentence::Budget::Clock::now(),context_cancel,&context_control,32);
+  assert(contextual.items.size()==12 && context_control.calls==context_calls);
+  for(size_t index=0;index<contextual_head.size();++index)assert(contextual.items[index].text==contextual_head[index].text);
+  for(int mode=0;mode<3;++mode) {
+    context_control.fail=mode==0;context_control.cancelled=mode==1;context_control.expire=mode==2;
+    cr_set_sentence_scorer(context_mock,&context_control);contextual=character_menu();
+    rank_sentence(contextual,"ji",2,true,true,true,clear_sentence::Budget::Clock::now(),context_cancel,&context_control);
+    assert(contextual.items.front().text==u8"及");
+  }
+  assert(known_context_suffix(u8"前文。办公")==u8"办公");
+  assert(known_context_suffix(u8"很长的前文正在办公")==u8"正在办公");
+  assert(!contextual_character({u8"会","hui",4},"kuai",4));
+  assert(!contextual_character({u8"𰻞","ji",2},"ji",2));
   std::cout<<"PASS: legal complete pool, joint margin, dictionary protection, stable paging, atomic invalid/deadline/cancel fallback and native score parity\n";
 }

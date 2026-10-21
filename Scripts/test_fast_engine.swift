@@ -105,6 +105,7 @@ import Foundation
             ("mafangeiwokaiyizhangdianzifapiao", "", "麻烦给我开一张电子发票"),
             ("niqhilema", "", "你吃了吗"), ("woxiangqhifan", "", "我想吃饭"),
             ("shi", "我正在考", "试"), ("shi", "", "是"), ("shi", "我正在考", "试"),
+            ("ji", "办公", "机"), ("che", "公交", "车"), ("qi", "电脑重", "启"),
             ("shishi", "历史上的", "事实"), ("shishi", "让我们来", "试试"),
             ("qhimian", "我想去餐馆", "吃面"), ("qhimian", "最近我老是", "失眠"),
             ("qhimian", "我们应该勇敢", "直面"), ("qhimian", "我想去餐馆", "吃面")
