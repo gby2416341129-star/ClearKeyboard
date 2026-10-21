@@ -26,7 +26,9 @@ for runtime,template in selected:
     device=subprocess.check_output(['xcrun','simctl','create','ClearKeyboard CI '+uuid.uuid4().hex[:8],device_type,runtime],text=True).strip()
     uuid.UUID(device)
     for attempt in range(2):
-        if attempt:run(['shutdown',device],capture_output=True);run(['erase',device],check=True,capture_output=True)
+        # Keep completed migration work on the one fresh CI device. Erasing it
+        # after a failed first boot restarts every system migration from zero.
+        if attempt:run(['shutdown',device],capture_output=True,timeout=60)
         run(['boot',device],capture_output=True,timeout=60)
         try:
             result=run(['bootstatus',device,'-b'],capture_output=True,text=True,timeout=150)
@@ -39,6 +41,6 @@ for runtime,template in selected:
         if ok:
             Path('.build/composition-device-id').write_text(device)
             raise SystemExit(0)
-    run(['shutdown',device],capture_output=True)
-    run(['delete',device],check=True,capture_output=True)
+    run(['shutdown',device],capture_output=True,timeout=60)
+    run(['delete',device],check=True,capture_output=True,timeout=60)
 raise RuntimeError('Dedicated simulator could not complete boot and data migration')
