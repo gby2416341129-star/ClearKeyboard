@@ -5,35 +5,75 @@ final class GlassBackdrop: UIView {
     private let wash = UIView()
     private var effectSignature = ""
     private let materialMask = UIView()
+    private let materialGradient = CAGradientLayer()
+    private let washGradient = CAGradientLayer()
     private var strength: CGFloat = -1
     private var maskSize = CGSize.zero
+    private var systemBacked = false
+    private var masksNeedUpdate = true
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(material); addSubview(wash)
+        materialMask.layer.addSublayer(materialGradient)
         isUserInteractionEnabled = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews(); material.frame = bounds; wash.frame = bounds
-        updateMaterialMask()
+        updateMasks()
     }
-    private func updateMaterialMask() {
-        guard materialMask.alpha != strength || maskSize != material.bounds.size || material.mask == nil else { return }
+    private func updateMasks() {
+        guard masksNeedUpdate || materialMask.alpha != strength || maskSize != material.bounds.size || material.mask == nil else { return }
+        masksNeedUpdate = false
         maskSize = material.bounds.size
         UIView.performWithoutAnimation {
-            materialMask.frame = material.bounds; materialMask.backgroundColor = .black
-            materialMask.alpha = max(0, strength)
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            materialMask.frame = material.bounds
+            materialMask.alpha = min(1, max(0, strength))
+            if systemBacked {
+                // Our primary view sits inside a system-owned keyboard shell.
+                // Blend only inside our bounds so its top cap and globe region
+                // meet transparent edges rather than a second flat color rim.
+                // These are optical ramps, not extra host insets or key padding.
+                let height = max(1, material.bounds.height)
+                let clearEdge = min(3, height * 0.1)
+                let topRamp = min(32, height * 0.45)
+                let bottomRamp = min(24, height * 0.45)
+                let locations = [CGFloat(0), clearEdge / height, topRamp / height,
+                                 1 - bottomRamp / height, 1 - clearEdge / height, 1]
+                    .map { NSNumber(value: Double($0)) }
+                let clear = UIColor.clear.cgColor, opaque = UIColor.black.cgColor
+                let colors = [clear, clear, opaque, opaque, clear, clear]
+                materialMask.backgroundColor = .clear; materialGradient.isHidden = false
+                for gradient in [materialGradient, washGradient] {
+                    gradient.frame = material.bounds
+                    gradient.startPoint = CGPoint(x: 0.5, y: 0)
+                    gradient.endPoint = CGPoint(x: 0.5, y: 1)
+                    gradient.colors = colors; gradient.locations = locations
+                }
+                wash.layer.mask = washGradient
+            } else {
+                // Standalone previews or embedded surfaces retain their full
+                // original material; only system-backed edges need this blend.
+                materialMask.backgroundColor = .black; materialGradient.isHidden = true
+                wash.layer.mask = nil
+            }
             // UIVisualEffectView copies its mask. Reassign it after a size or
-            // strength change so both its effect and content use the new mask.
+            // strength change. Keep this mask on the effect itself; a mask on
+            // its parent would not reliably mask UIKit's backdrop sampling.
             material.mask = nil; material.mask = materialMask
+            CATransaction.commit()
         }
     }
     func apply(_ settings: KeyboardSettings, systemBacked: Bool = false) {
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled || settings.glass == .solid
-        isOpaque = false; backgroundColor = reduced ? (settings.backgroundTintColor ?? .secondarySystemBackground) : .clear
+        self.systemBacked = systemBacked
+        // All visible fill, including the opaque accessibility fallback, lives
+        // in wash. An unmasked root color would reveal the same rectangular seam.
+        isOpaque = false; backgroundColor = .clear
         let signature = "\(settings.glass)-\(reduced)-\(systemBacked)"
         if signature != effectSignature {
-            effectSignature = signature
+            effectSignature = signature; masksNeedUpdate = true
             let target: UIVisualEffect? = reduced ? nil : UIBlurEffect(style:
                 settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial)
             // Use the same maskable material in the preview and the keyboard.
@@ -43,8 +83,10 @@ final class GlassBackdrop: UIView {
         }
         // Modulate the effect's own mask, keeping the effect view opaque and
         // avoiding an indefinitely paused animator that prevents UI quiescence.
-        strength = CGFloat(settings.resolvedBackgroundGlassStrength); updateMaterialMask()
-        wash.backgroundColor = settings.backgroundTintColor?.withAlphaComponent(reduced ? 1 : settings.backgroundTintOpacity)
+        strength = CGFloat(settings.resolvedBackgroundGlassStrength)
+        wash.backgroundColor = reduced ? (settings.backgroundTintColor ?? .secondarySystemBackground)
+            : settings.backgroundTintColor?.withAlphaComponent(settings.backgroundTintOpacity)
+        updateMasks()
     }
 }
 

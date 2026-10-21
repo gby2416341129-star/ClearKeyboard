@@ -52,6 +52,10 @@ final class KeyGlassMaterial: UIVisualEffectView {
 /// logical sizes. It does not create an input engine or scale a keyboard bitmap.
 final class KeyboardAppearancePreview: UIView {
     private let scenery = CAGradientLayer()
+    // A local material approximates the host's neutral keyboard base. An
+    // ordinary UIInputView subview does not receive the responder's automatic
+    // backdrop. The extension itself uses the actual host-owned base.
+    private let nativeBase = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let backdrop = GlassBackdrop()
     private let keyArea = UIView()
     private let glass = KeyGlassMaterial(effect: nil)
@@ -67,7 +71,10 @@ final class KeyboardAppearancePreview: UIView {
         scenery.colors = [UIColor(red: 0.30, green: 0.38, blue: 0.65, alpha: 1).cgColor,
                           UIColor(red: 0.58, green: 0.40, blue: 0.64, alpha: 1).cgColor]
         scenery.startPoint = CGPoint(x: 0, y: 0); scenery.endPoint = CGPoint(x: 1, y: 1)
-        layer.addSublayer(scenery); addSubview(backdrop)
+        layer.addSublayer(scenery)
+        nativeBase.isUserInteractionEnabled = false
+        nativeBase.accessibilityIdentifier = "appearance.native-base"
+        addSubview(nativeBase); addSubview(backdrop)
         addSubview(first); addSubview(second); addSubview(keyArea); keyArea.addSubview(glass)
         for (index, row) in KeyboardLayout.rows(page: .letters, uppercase: true, globe: false).enumerated() {
             var start = row.insetUnits
@@ -88,7 +95,7 @@ final class KeyboardAppearancePreview: UIView {
         guard appliedSettings != value || appliedStyle != traitCollection.userInterfaceStyle || appliedReducedTransparency != reduced else { return }
         appliedSettings = value; appliedStyle = traitCollection.userInterfaceStyle
         appliedReducedTransparency = reduced
-        settings = value; backdrop.apply(value); glass.apply(value)
+        settings = value; backdrop.apply(value, systemBacked: true); glass.apply(value)
         for (key, _, _, _) in keys { key.apply(value) }
         let font = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points))
         first.configure(Candidate(text: "今天", consumed: 0), first: true, accent: value.accentInkColor,
@@ -103,7 +110,7 @@ final class KeyboardAppearancePreview: UIView {
         if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true { apply(settings) }
     }
     override func layoutSubviews() {
-        super.layoutSubviews(); scenery.frame = bounds; backdrop.frame = bounds
+        super.layoutSubviews(); scenery.frame = bounds; nativeBase.frame = bounds; backdrop.frame = bounds
         let metrics = KeyboardGeometry.Metrics(keyHeight: settings.keyHeight)
         let layout = KeyboardGeometry.layout(size: bounds.size, metrics: metrics, hand: .full, fitHeight: true)
         keyArea.frame = layout.keys; glass.frame = keyArea.bounds

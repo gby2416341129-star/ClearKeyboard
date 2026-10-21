@@ -40,10 +40,12 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let appearanceLink: AppearanceSettingsLink? = Bundle.main.bundleURL.pathExtension == "appex"
             ? .production(role: .keyboard) : nil
         model = KeyboardModel(document: self, appearanceLink: appearanceLink)
-        // The host may temporarily give our primary view more height than the
-        // four-row surface requests. Paint all of our own root, while the keys
-        // retain their fixed pitch and bottom-anchored positions. Never reach
-        // into the system's surrounding keyboard/globe container.
+        // Keep one backdrop inside the primary view. Its system-backed treatment
+        // blends the extra material and tint into UIKit's surrounding surface;
+        // an edge-to-edge rectangular wash exposed a second hard-edged sheet.
+        // Keys retain their fixed pitch and bottom anchoring, including when
+        // the host temporarily allocates extra height. The system's external
+        // rounded cap and globe container remain outside our drawing bounds.
         rootBackdrop.accessibilityIdentifier = "clear.keyboard.root-backdrop"
         rootBackdrop.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(rootBackdrop)
