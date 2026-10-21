@@ -241,6 +241,17 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if needsHostRefresh { scheduleHostRefresh() }
     }
     func insert(_ text: String) { performHostEdit { hostState.insert(text); textDocumentProxy.insertText(text) } }
+    func commitMarkedText(_ text: String) {
+        hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
+        // The host already owns either an older marked spelling or no draft
+        // yet. insertText replaces that range atomically; do not send a queued
+        // pinyin frame or stage the chosen Chinese as another marked range.
+        markedFrame.cancel(); pendingMarkedText.discard()
+        markedImmediateScheduled = false; markedWriteGeneration += 1
+        hostState.insert(text)
+        textDocumentProxy.insertText(text)
+        if needsHostRefresh { scheduleHostRefresh() }
+    }
     func setMarkedText(_ text: String) {
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
         hostState.setMarked(text)

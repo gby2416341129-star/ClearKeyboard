@@ -1,8 +1,30 @@
 """Check source Han readings survive import and remain in actual native pages."""
-import collections,json,sys,tempfile,unicodedata
+import collections,ctypes,json,sys,tempfile,unicodedata
 from pathlib import Path
-from evaluate_decoder import Bridge
 from prepare_rime import han_text,reading_aliases
+
+class CoverageDecoder:
+    def __init__(self, library, runtime, user):
+        self.lib=ctypes.CDLL(str(library.resolve()))
+        self.lib.cr_initialize.argtypes=[ctypes.c_char_p,ctypes.c_char_p]
+        self.lib.cr_initialize.restype=ctypes.c_int
+        self.lib.cr_session.restype=ctypes.c_size_t
+        self.lib.cr_destroy.argtypes=[ctypes.c_size_t]
+        self.lib.cr_query.argtypes=[ctypes.c_size_t,ctypes.c_char_p,ctypes.c_int,ctypes.c_void_p,ctypes.c_void_p]
+        self.lib.cr_query.restype=ctypes.c_int
+        self.lib.cr_candidate.argtypes=[ctypes.c_size_t,ctypes.c_int,ctypes.c_char_p,ctypes.c_size_t,ctypes.c_char_p,ctypes.c_size_t]
+        self.lib.cr_candidate.restype=ctypes.c_int
+        assert self.lib.cr_initialize(str(runtime.resolve()).encode(),str(user.resolve()).encode())
+    def query(self, raw, limit):
+        session=self.lib.cr_session();assert session
+        try:
+            result=[]
+            for index in range(self.lib.cr_query(session,raw.encode(),limit,None,None)):
+                text=ctypes.create_string_buffer(1536);reading=ctypes.create_string_buffer(1536)
+                consumed=self.lib.cr_candidate(session,index,text,len(text),reading,len(reading))
+                result.append(dict(text=text.value.decode(),consumed=consumed))
+            return result
+        finally:self.lib.cr_destroy(session)
 
 ROOT=Path(__file__).resolve().parents[1]
 words={}
@@ -26,10 +48,10 @@ for text,reading in words:
     if len(text)==1:expected[reading].add(text)
 library=Path(sys.argv[1]) if len(sys.argv)>1 else ROOT/'.build/fast-engine/libclear-test.dylib'
 with tempfile.TemporaryDirectory(prefix='clear-character-coverage-') as user:
-    decoder=Bridge(library,ROOT/'Core/Resources/Rime',Path(user),[])
+    decoder=CoverageDecoder(library,ROOT/'Core/Resources/Rime',Path(user))
     missing=[];pages=0;returned=0
     for reading,characters in sorted(expected.items()):
-        session=decoder.session();items,_=decoder.query(session,reading,4095);decoder.destroy(session)
+        items=decoder.query(reading,4095)
         assert len(items)<4095,'Coverage is unresolved because the page was truncated: '+reading
         actual={v['text'] for v in items if v['consumed']==len(reading)}
         missing.extend((character,reading) for character in characters-actual)

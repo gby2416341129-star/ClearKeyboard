@@ -89,6 +89,12 @@ public struct HostTextState {
         if pending.count > 64 { pending.removeFirst(pending.count - 64) }
     }
     public mutating func insert(_ text: String, now: Double = ProcessInfo.processInfo.systemUptime) {
+        // UIKeyInput insertion replaces an active marked range. Mirror that
+        // operation locally rather than appending Chinese after its pinyin.
+        if !marked.isEmpty {
+            remember(now: now)
+            if snapshot.before.hasSuffix(marked) { snapshot.before.removeLast(marked.count) }
+        }
         snapshot.before += text; snapshot.selected = ""; endMarkedSession(); remember(now: now)
     }
     public mutating func setMarked(_ text: String, now: Double = ProcessInfo.processInfo.systemUptime) {

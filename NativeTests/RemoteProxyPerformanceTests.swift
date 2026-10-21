@@ -2,6 +2,62 @@ import XCTest
 import UIKit
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
+    func testCandidateCommitReplacesRealUIKitMarkedRangeInOneInsertion() async throws {
+        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        for (raw, chinese) in [("bangongji", "办公机"), (String(repeating: "nichifanlema", count: 12), String(repeating: "你吃饭了吗", count: 12))] {
+            proxy.textView.text = "前文🙂"; proxy.textView.selectedRange = NSRange(location: "前文🙂".utf16.count, length: 0)
+            controller.textDidChange(nil)
+            try await waitFor { controller.contextBefore == "前文🙂" }
+            // Neither a queued, as-yet-unwritten spelling nor an older host
+            // spelling may be flushed after its Chinese choice is committed.
+            controller.setMarkedText(String(raw.prefix(1)))
+            try await waitFor { proxy.textView.markedTextRange != nil }
+            controller.setMarkedText(raw)
+            let writes = proxy.markedWrites.count, inserts = proxy.insertedTexts.count
+            controller.commitMarkedText(chinese)
+            XCTAssertEqual(proxy.textView.text, "前文🙂" + chinese)
+            XCTAssertEqual(controller.contextBefore, "前文🙂" + chinese)
+            XCTAssertNil(proxy.textView.markedTextRange)
+            XCTAssertEqual(proxy.markedWrites.count, writes, "Commit must not send an obsolete pinyin frame")
+            XCTAssertEqual(proxy.insertedTexts.count, inserts + 1)
+            await Task.yield()
+            XCTAssertEqual(proxy.textView.text, "前文🙂" + chinese)
+        }
+        print("ATOMIC_CANDIDATE_COMMIT actualUITextView=true longAndPendingSpelling=true insertionsPerChoice=1")
+    }
+    func testPartialOfficeChoiceAndRemainingMachineUseRealUIKitReplacement() async throws {
+        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "bangongji" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
+        if !model.candidates.contains(where: { $0.text == "办公" }) {
+            model.loadMoreCandidates(context: model.candidateContext)
+            try await waitFor { !model.loadingMoreCandidates }
+        }
+        let office = try XCTUnwrap(model.candidates.first { $0.text == "办公" })
+        XCTAssertEqual(office.consumed, 7)
+        let unmarks = proxy.unmarkWrites
+        model.chooseDisplayed(office, context: model.candidateContext)
+        try await waitFor { proxy.textView.text == "办公ji" && model.candidatesAreCurrent }
+        XCTAssertEqual(model.composition.raw, "ji")
+        let marked = try XCTUnwrap(proxy.textView.markedTextRange)
+        XCTAssertEqual(proxy.textView.text(in: marked), "ji", "The committed Chinese must be outside the new marked range")
+        let machine = try XCTUnwrap(model.candidates.first { $0.text == "机" })
+        model.chooseDisplayed(machine, context: model.candidateContext)
+        XCTAssertEqual(proxy.textView.text, "办公机")
+        XCTAssertEqual(controller.contextBefore, "办公机")
+        XCTAssertTrue(model.composition.isEmpty); XCTAssertNil(proxy.textView.markedTextRange)
+        XCTAssertEqual(proxy.insertedTexts.suffix(2), ["办公", "机"])
+        XCTAssertEqual(proxy.unmarkWrites, unmarks, "Candidate selection must not stage Chinese through unmark/re-mark")
+        await Task.yield()
+        XCTAssertEqual(proxy.textView.text, "办公机", "A pending spelling cannot reappear as ji机")
+        print("PARTIAL_CANDIDATE_COMMIT actualUITextView=true sourceCandidates=true officeRetained=true rawJiReplaced=true")
+    }
     func testMarkedTextBurstSendsLatestSpellingAndCommitFlushesInOrder() async throws {
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
@@ -770,6 +826,7 @@ import UIKit
     var needsGlobe: Bool { false }; var fullAccess: Bool { false }
     var prefersEnglish: Bool { false }; var capitalization: UITextAutocapitalizationType { .none }
     func insert(_ text: String) { before += text }
+    func commitMarkedText(_ text: String) { before = String(before.dropLast(marked.count)) + text; marked = "" }
     func setMarkedText(_ text: String) { beforeMarkedWrite?(); before = String(before.dropLast(marked.count)) + text; marked = text }
     func unmarkText() { marked = "" }
     func deleteBackward() { if !before.isEmpty { before.removeLast() } }
@@ -779,8 +836,41 @@ import UIKit
 }
 
 @MainActor private final class ProxyKeyboardController: KeyboardViewController {
-    var proxy: DelayedDocumentProxy?
+    var proxy: UITextDocumentProxy?
     override var textDocumentProxy: UITextDocumentProxy { if let proxy { return proxy }; return super.textDocumentProxy }
+}
+
+// Drive the production controller with real UIKit text storage. This checks
+// marked-range replacement independently of the delayed-proxy test double.
+@MainActor private final class UIKitDocumentProxy: NSObject, UITextDocumentProxy {
+    let textView = UITextView()
+    let documentIdentifier = UUID()
+    var markedWrites: [String] = [], insertedTexts: [String] = []
+    var unmarkWrites = 0
+    override init() {
+        super.init(); textView.inputView = UIView(frame: .zero)
+        textView.autocorrectionType = .no; textView.spellCheckingType = .no
+    }
+    var documentContextBeforeInput: String? {
+        (textView.text as NSString).substring(to: textView.selectedRange.location)
+    }
+    var documentContextAfterInput: String? {
+        (textView.text as NSString).substring(from: NSMaxRange(textView.selectedRange))
+    }
+    var selectedText: String? { textView.selectedTextRange.flatMap { textView.text(in: $0) } }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { textView.hasText }
+    func insertText(_ text: String) { insertedTexts.append(text); textView.insertText(text) }
+    func deleteBackward() { textView.deleteBackward() }
+    func setMarkedText(_ text: String, selectedRange: NSRange) {
+        markedWrites.append(text); textView.setMarkedText(text, selectedRange: selectedRange)
+    }
+    func unmarkText() { unmarkWrites += 1; textView.unmarkText() }
+    func adjustTextPosition(byCharacterOffset offset: Int) {
+        guard let selection = textView.selectedTextRange,
+              let position = textView.position(from: selection.end, offset: offset) else { return }
+        textView.selectedTextRange = textView.textRange(from: position, to: position)
+    }
 }
 
 @MainActor private final class DelayedDocumentProxy: NSObject, UITextDocumentProxy {
@@ -789,6 +879,8 @@ import UIKit
     var beforeContextRead: (() -> Void)?
     var markedLength = 0
     var markedWrites: [String] = []
+    var insertedTexts: [String] = []
+    var unmarkWrites = 0
     var reads = 0
     var contextReads = 0
     var readDelay: TimeInterval = 0
@@ -811,13 +903,17 @@ import UIKit
     var documentIdentifier: UUID { read(context: false); return identity }
     var documentInputMode: UITextInputMode? { nil }
     var hasText: Bool { !before.isEmpty || !after.isEmpty }
-    func insertText(_ text: String) { before += text; selected = ""; markedLength = 0 }
+    func insertText(_ text: String) {
+        insertedTexts.append(text)
+        before = String(before.dropLast(min(markedLength, before.count))) + text
+        selected = ""; markedLength = 0
+    }
     func deleteBackward() { if !before.isEmpty { before.removeLast() }; markedLength = 0 }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
         markedWrites.append(text)
         before = String(before.dropLast(min(markedLength, before.count))) + text; markedLength = text.count
     }
-    func unmarkText() { markedLength = 0 }
+    func unmarkText() { unmarkWrites += 1; markedLength = 0 }
     func adjustTextPosition(byCharacterOffset offset: Int) {
         let text = before + after, index = max(0, min(text.count, before.count + offset))
         before = String(text.prefix(index)); after = String(text.dropFirst(index)); markedLength = 0

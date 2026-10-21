@@ -103,6 +103,7 @@ final class TypingLabController: UIViewController, KeyboardDocument, UITextViewD
     var fullAccess: Bool { true }
     var prefersEnglish: Bool { false }
     func insert(_ text: String) { editingInternally = true; textView.insertText(text); rememberSelection(); editingInternally = false }
+    func commitMarkedText(_ text: String) { insert(text) }
     func setMarkedText(_ text: String) {
         editingInternally = true
         textView.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))

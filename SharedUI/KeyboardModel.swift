@@ -19,6 +19,7 @@ import os
     func endTrackpad()
     func nextKeyboard()
     func setMarkedText(_ text: String)
+    func commitMarkedText(_ text: String)
     func unmarkText()
     func clearInput() -> DeletedInput?
     func restoreInput(_ value: DeletedInput) -> Bool
@@ -530,11 +531,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let fallback = current ?? hotWords.value(composition.raw)?.first
         if let candidate = fallback {
             let spelling = composition.raw
-            document?.setMarkedText(candidate.text); document?.unmarkText(); composition.consume(candidate.consumed)
+            composition.consume(candidate.consumed)
             // Preserve any spelling not covered by a partial candidate.
-            if flushRemainder && !composition.isEmpty { document?.insert(composition.normalized) }
+            let output = candidate.text + (flushRemainder ? composition.normalized : "")
+            document?.commitMarkedText(output)
             learn(candidate, raw: spelling)
-        } else { document?.setMarkedText(composition.normalized); document?.unmarkText() }
+        } else { document?.commitMarkedText(composition.normalized) }
         if flushRemainder || fallback == nil { composition.clear() }
         else if !composition.raw.isEmpty { syncMarkedText() }
     }
@@ -610,7 +612,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
             let spelling = learningRaw ?? composition.raw
             if composition.raw.isEmpty { document.insert(candidate.text) }
             else {
-                document.setMarkedText(candidate.text); document.unmarkText()
+                // One host insertion replaces and commits the marked spelling.
+                // A temporary Chinese marked range followed by unmark/re-mark
+                // can be coalesced by a remote editor with the remainder.
+                document.commitMarkedText(candidate.text)
                 composition.consume(candidate.consumed)
                 if !composition.raw.isEmpty { syncMarkedText() }
             }
