@@ -5,12 +5,12 @@ ALLOWED={
     '.github/workflows/ipa.yml','Scripts/verify_ui_hotfix.py',
     'Scripts/boot_test_simulator.py','Scripts/test-composition-proxy.sh',
     'App/AppViews.swift','App/SettingsViews.swift',
-    'Config/Project.xcconfig',
+    'Config/Project.xcconfig','KeyboardExtension/KeyboardViewController.swift',
     'SharedUI/AppearanceEditor.swift','SharedUI/GlassBackdrop.swift',
-    'SharedUI/KeyboardModel.swift',
+    'SharedUI/KeyboardModel.swift','SharedUI/AppearanceSync.swift','SharedUI/AppearanceSettingsLink.swift',
     'SharedUI/KeyboardAppearancePreview.swift','SharedUI/SharedStorage.swift',
     'NativeTests/UnifiedRepairTests.swift','NativeTests/CustomizationRuntimeTests.swift',
-    'UITests/AppUITests.swift',
+    'UITests/AppUITests.swift','NativeTests/AppearanceSyncRuntimeTests.swift','NativeTests/AppearanceReceiverRuntimeTests.swift',
 }
 changed=set(subprocess.check_output(['git','diff','--name-only',BASE,'HEAD'],text=True).splitlines())
 assert changed and changed<=ALLOWED,sorted(changed-ALLOWED)

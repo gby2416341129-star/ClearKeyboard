@@ -77,7 +77,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if settings.language != oldValue.language || settings.learnChoices != oldValue.learnChoices {
                 phraseLearning.reset(); numericRun.reset()
             }
-            store.save(settings)
+            if !loadingSavedSettings {
+                store.save(settings)
+                if AppearanceSnapshot(settings: settings) != AppearanceSnapshot(settings: oldValue) { appearanceLink?.publish(settings) }
+            }
             if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
                 settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }
             onChange?()
@@ -128,6 +131,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     let clipboardCapture = ClipboardCapture()
     private var clipboardActive = false
     private var store: SettingsStore
+    private var loadingSavedSettings = false
+    private var appearanceLink: AppearanceSettingsLink?
     private let suppliedDefaults: UserDefaults?
     private var engine: InputEngine?
     // One serial decoder owner. Common words have an independent memory/CLX
@@ -369,7 +374,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
 
     init(document: KeyboardDocument, settings: KeyboardSettings? = nil, defaults: UserDefaults? = nil,
-         wordLookup: ((InputEngine, String, [Candidate]) -> [Candidate])? = nil) {
+         wordLookup: ((InputEngine, String, [Candidate]) -> [Candidate])? = nil,
+         appearanceLink: AppearanceSettingsLink? = nil) {
         self.document = document
         self.wordLookup = wordLookup ?? { $0.immediateCandidates($1, preferred: $2) }
         self.warmsWords = wordLookup == nil
@@ -382,6 +388,18 @@ struct DeletedInput { let text: String; let selection: NSRange }
         numbers = defaults.data(forKey: "clear.numbers.v1").flatMap { try? JSONDecoder().decode(NumericLexicon.self, from: $0) } ?? NumericLexicon()
         learningEpoch = defaults.string(forKey: "clear.learned.epoch")
         if document.prefersEnglish { self.settings.language = .english }
+        self.appearanceLink = appearanceLink
+        self.appearanceLink?.currentSettings = { [weak self] in self?.settings ?? KeyboardSettings() }
+        self.appearanceLink?.onReceive = { [weak self] snapshot in
+            guard let self else { return }
+            let value = snapshot.applying(to: self.settings)
+            self.loadingSavedSettings = true
+            self.settings = value
+            self.loadingSavedSettings = false
+            // Keep the local fallback current without broadcasting the read.
+            self.store.save(snapshot.applying(to: self.store.load()))
+        }
+        if document.fullAccess { self.appearanceLink?.activate() }
         let cache = hotWords, warm = warmsWords, prefetch = warmQueue
         queue.async { [weak self] in
             let result = Result { try InputEngine.bundled() }
@@ -408,13 +426,17 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard let document else { return }
         store = SettingsStore(defaults: suppliedDefaults ?? SharedStorage.defaults(allowShared: document.fullAccess))
         phraseLearning.reset(); numericRun.reset()
-        settings = store.load()
-        if document.prefersEnglish { settings.language = .english }
+        var saved = store.load()
+        if document.prefersEnglish { saved.language = .english }
+        loadingSavedSettings = true
+        settings = saved
+        loadingSavedSettings = false
         learned = store.defaults.dictionary(forKey: "clear.learned.v1") as? [String: Int] ?? [:]
         personal = store.defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
         numbers = store.defaults.data(forKey: "clear.numbers.v1").flatMap { try? JSONDecoder().decode(NumericLexicon.self, from: $0) } ?? NumericLexicon()
         learningEpoch = store.defaults.string(forKey: "clear.learned.epoch")
         refreshCandidates()
+        if document.fullAccess { appearanceLink?.activate() } else { appearanceLink?.deactivate() }
     }
     func clearComposition() {
         beginDocumentEdit(); defer { endDocumentEdit() }
@@ -933,7 +955,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if let data = try? JSONEncoder().encode(personal) { store.defaults.set(data, forKey: "clear.choices.v2") }
         if let data = try? JSONEncoder().encode(numbers) { store.defaults.set(data, forKey: "clear.numbers.v1") }
     }
-    func suspend() { finishNumericRun(); phraseLearning.reset(); pendingDocumentKeys.removeAll(); stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
+    func suspend() { appearanceLink?.deactivate(); finishNumericRun(); phraseLearning.reset(); pendingDocumentKeys.removeAll(); stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
 }
 
 /// Workers publish immutable results without waiting for UIKit's event loop.

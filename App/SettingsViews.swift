@@ -46,7 +46,7 @@ struct CustomizationView: View {
                 Button { showToolbarEditor = true } label: { AppRow(title: "快捷工具", detail: "排列与选择", symbol: "rectangle.3.group") }
                     .buttonStyle(.plain).accessibilityIdentifier("custom.toolbarEditor")
             }
-            Text("设置会同步到澈键盘").font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 4).accessibilityIdentifier("custom.footer")
+            Text(preferences.appearanceSyncStatus.title).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4).accessibilityIdentifier("custom.footer")
         }.accessibilityIdentifier("custom.page").tint(AppPalette.accent)
             .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView().tint(AppPalette.accent) }
             .onAppear { preferences.reload() }

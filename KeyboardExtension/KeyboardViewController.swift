@@ -34,7 +34,11 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         view.accessibilityIdentifier = "clear.keyboard.root"
         inputView?.allowsSelfSizing = false
         refreshHostState(refreshTraits: true)
-        model = KeyboardModel(document: self)
+        // Only the real extension acknowledges an App appearance revision.
+        // App previews and hosted test models must not produce that receipt.
+        let appearanceLink: AppearanceSettingsLink? = Bundle.main.bundleURL.pathExtension == "appex"
+            ? .production(role: .keyboard) : nil
+        model = KeyboardModel(document: self, appearanceLink: appearanceLink)
         surface = KeyboardSurface(model: model, systemBacked: true)
         surface.configureGlobe = { [weak self] button in
             guard let self else { return }

@@ -51,6 +51,56 @@ import UIKit
         XCTAssertEqual(preferences.settings.toolbar, [.language, .clipboard, .emoji])
         XCTAssertEqual(ClearKeyboard.SettingsStore(defaults: defaults).load(), preferences.settings)
     }
+    func testPreferencesReloadNormalizesInMemoryWithoutWritingBackSavedData() throws {
+        let suite = "clear.preferences.reload." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = makePreferences(defaults)
+        var raw = ClearKeyboard.KeyboardSettings()
+        raw.automaticClipboard = false; raw.keyHeight = 500
+        raw.customAccentHex = "#abc"; raw.backgroundColorHex = "#123"
+        raw.keyColorHex = "#fed"; raw.candidateColorHex = "#456"
+        let savedData = try JSONEncoder().encode(raw)
+        defaults.set(savedData, forKey: ClearKeyboard.SettingsStore.key)
+        var normalized = raw; normalized.sanitize()
+        XCTAssertNotEqual(savedData, try JSONEncoder().encode(normalized), "The fixture must distinguish a read from a normalized rewrite")
+
+        for _ in 0..<2 {
+            preferences.reload()
+            XCTAssertEqual(preferences.settings, normalized)
+            XCTAssertEqual(preferences.settings.keyHeight, 58)
+            XCTAssertEqual(preferences.settings.backgroundColorHex, "#112233")
+            XCTAssertEqual(defaults.data(forKey: ClearKeyboard.SettingsStore.key), savedData,
+                           "Observing saved App settings must not echo a normalized snapshot back into the store")
+        }
+    }
+    func testKeyboardReloadNormalizesInMemoryWithoutWritingBackSavedData() throws {
+        let suite = "clear.keyboard.reload." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let document = CustomizationReloadDocument()
+        var initial = ClearKeyboard.KeyboardSettings(); initial.automaticClipboard = false
+        let model = ClearKeyboard.KeyboardModel(document: document, settings: initial, defaults: defaults)
+        defer { model.suspend() }
+        var raw = ClearKeyboard.KeyboardSettings()
+        raw.automaticClipboard = false; raw.keyHeight = 500
+        raw.customAccentHex = "#abc"; raw.backgroundColorHex = "#123"
+        raw.keyColorHex = "#fed"; raw.candidateColorHex = "#456"
+        let savedData = try JSONEncoder().encode(raw)
+        defaults.set(savedData, forKey: ClearKeyboard.SettingsStore.key)
+        var normalized = raw; normalized.sanitize(); normalized.language = .english
+        XCTAssertNotEqual(savedData, try JSONEncoder().encode(normalized), "The fixture must distinguish a read from a normalized rewrite")
+
+        for _ in 0..<2 {
+            model.reloadSettings()
+            XCTAssertEqual(model.settings, normalized)
+            XCTAssertEqual(model.settings.keyHeight, 58)
+            XCTAssertEqual(model.settings.candidateColorHex, "#445566")
+            XCTAssertEqual(model.settings.language, .english, "Host language traits may affect the local view without becoming a settings edit")
+            XCTAssertEqual(defaults.data(forKey: ClearKeyboard.SettingsStore.key), savedData,
+                           "Reading saved keyboard settings or applying host traits must not rewrite the source snapshot")
+        }
+    }
     func testAppAndKeyboardUseTheSameAccessibleSharedSettingsGroup() throws {
         let group = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String)
         let plugins = try XCTUnwrap(Bundle.main.builtInPlugInsURL)
@@ -232,4 +282,28 @@ import UIKit
             print("APPEARANCE_RENDER end " + item.rawValue)
         }
     }
+}
+
+@MainActor private final class CustomizationReloadDocument: ClearKeyboard.KeyboardDocument {
+    var contextBefore: String { "" }
+    var contextAfter: String { "" }
+    let documentIdentity = UUID().uuidString
+    var selectedText: String { "" }
+    var enterTitle: String { "换行" }
+    var needsGlobe: Bool { false }
+    var fullAccess: Bool { false }
+    var prefersEnglish: Bool { true }
+    var capitalization: UITextAutocapitalizationType { .none }
+    func insert(_ text: String) {}
+    func deleteBackward() {}
+    func moveCursor(_ offset: Int) {}
+    func beginTrackpad() {}
+    func trackCursor(translation: CGPoint) {}
+    func endTrackpad() {}
+    func nextKeyboard() {}
+    func setMarkedText(_ text: String) {}
+    func commitMarkedText(_ text: String) {}
+    func unmarkText() {}
+    func clearInput() -> ClearKeyboard.DeletedInput? { nil }
+    func restoreInput(_ value: ClearKeyboard.DeletedInput) -> Bool { false }
 }

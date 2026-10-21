@@ -19,6 +19,8 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
   -only-testing:ClearKeyboardRuntimeTests/UnifiedRepairTests \
   -only-testing:ClearKeyboardRuntimeTests/CustomizationRuntimeTests \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testDelayedFirstLetterAcknowledgementCannotSplitLivePinyin \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testHostReadInterruptedByKeyCannotCancelNewSpelling \

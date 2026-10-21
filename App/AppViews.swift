@@ -2,7 +2,10 @@ import SwiftUI
 import UIKit
 
 @MainActor final class Preferences: ObservableObject {
-    private let store: SettingsStore
+    private var store: SettingsStore
+    private let suppliedStore: SettingsStore?
+    private let appearanceLink: AppearanceSettingsLink?
+    @Published private(set) var appearanceSyncStatus = AppearanceSettingsLink.Status.saved
     let clipboardCapture: ClipboardCapture
     private var active = false
     private var returningFromClipboardSettings = false
@@ -16,19 +19,39 @@ import UIKit
             guard clean != storedSettings else { return }
             let clipboardChanged = clean.capturesClipboard != storedSettings.capturesClipboard ||
                 clean.clipboardLifetimeHours != storedSettings.clipboardLifetimeHours
+            let appearanceChanged = AppearanceSnapshot(settings: clean) != AppearanceSnapshot(settings: storedSettings)
             storedSettings = clean
             store.save(clean)
+            if appearanceChanged { appearanceLink?.publish(clean) }
             if active && clipboardChanged { clipboardCapture.activate(settings: clean, allowed: true) }
         }
     }
-    init(store: SettingsStore? = nil, clipboardCapture: ClipboardCapture? = nil) {
+    init(store: SettingsStore? = nil, clipboardCapture: ClipboardCapture? = nil, appearanceLink: AppearanceSettingsLink? = nil) {
         let activeStore = store ?? SettingsStore(defaults: SharedStorage.defaults(allowShared: true))
+        suppliedStore = store
         self.store = activeStore; self.clipboardCapture = clipboardCapture ?? ClipboardCapture()
+        self.appearanceLink = appearanceLink ?? (store == nil ? .production(role: .app) : nil)
         storedSettings = activeStore.load()
+        self.appearanceLink?.currentSettings = { [weak self] in self?.settings ?? KeyboardSettings() }
+        self.appearanceLink?.onReceive = { [weak self] snapshot in
+            guard let self else { return }
+            let value = snapshot.applying(to: self.storedSettings)
+            if value != self.storedSettings {
+                self.storedSettings = value
+                self.store.save(snapshot.applying(to: self.store.load()))
+            }
+        }
+        self.appearanceLink?.onStatus = { [weak self] status in
+            if self?.appearanceSyncStatus != status { self?.appearanceSyncStatus = status }
+        }
     }
     func reload() {
+        if suppliedStore == nil { store = SettingsStore(defaults: SharedStorage.defaults(allowShared: true)) }
         let saved = store.load()
-        if saved != settings { settings = saved }
+        // A reload is an observation, not an edit. Never echo a stale read back
+        // into the shared domain while the other process is saving a new value.
+        if saved != storedSettings { storedSettings = saved }
+        if active { appearanceLink?.refresh() }
     }
     func clearLearning() {
         store.defaults.set(UUID().uuidString, forKey: "clear.learned.epoch")
@@ -41,9 +64,10 @@ import UIKit
         let retry = returningFromClipboardSettings
         returningFromClipboardSettings = false
         active = true
+        appearanceLink?.activate()
         clipboardCapture.activate(settings: settings, allowed: true, retryPermission: retry)
     }
-    func deactivate() { active = false; clipboardCapture.stop() }
+    func deactivate() { active = false; appearanceLink?.deactivate(); clipboardCapture.stop() }
     func openClipboardSettings() {
         returningFromClipboardSettings = true
         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
