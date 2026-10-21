@@ -31,6 +31,29 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Select and record an actually installed Xcode 27.2 toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$CLEAR_VISUAL_OUT"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          out = pathlib.Path(os.environ['CLEAR_VISUAL_OUT'])
+          candidates = sorted(pathlib.Path('/Applications').glob('Xcode*27.2*.app/Contents/Developer'), reverse=True)
+          inspected = []
+          for path in candidates:
+              result = subprocess.run(['/usr/bin/xcodebuild', '-version'],
+                  env={**os.environ, 'DEVELOPER_DIR': str(path)}, capture_output=True, text=True, timeout=60)
+              inspected.append({'path': str(path), 'exitCode': result.returncode,
+                                'version': result.stdout, 'stderr': result.stderr})
+          (out / 'installed-xcode-27-2.json').write_text(json.dumps(inspected, indent=2))
+          supported = [x for x in inspected if x['exitCode'] == 0 and x['version'].startswith('Xcode 27.2\n')]
+          assert supported, 'No installed Xcode 27.2 toolchain; no older SDK substitution is allowed'
+          selected = supported[0]
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('DEVELOPER_DIR=' + selected['path'] + '\n')
+          print(json.dumps({'selectedToolchain': selected, 'exactRuntimeStillRequired': '27.2 / 24B114'}, indent=2))
+          PY
+
       - name: Record exact source, hosted image, toolchain and initial disk space
         run: |
           set -euo pipefail
