@@ -152,11 +152,23 @@ jobs:
           swiftc -O -parse-as-library Core/Candidate.swift Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/RepetitionModel.swift Scripts/test_repetition.swift -o .build/test-repetition
           .build/test-repetition Core/Resources/Rime/repetition-priors.tsv
       - name: Exercise all core input, clipboard, layout and state tests
+        id: core-tests
+        continue-on-error: true
         run: swift test --configuration release --jobs 3
       - name: Check live composition and commit barriers with the UIKit controller
+        id: ui-tests
+        continue-on-error: true
         env:
           CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-18-5
         run: bash Scripts/test-composition-proxy.sh
+      - name: Require core and live UI checks before packaging
+        if: always()
+        env:
+          CORE_TESTS_RESULT: ${{ steps.core-tests.outcome }}
+          UI_TESTS_RESULT: ${{ steps.ui-tests.outcome }}
+        run: |
+          test "$CORE_TESTS_RESULT" = success
+          test "$UI_TESTS_RESULT" = success
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
           python3 - <<'PY'

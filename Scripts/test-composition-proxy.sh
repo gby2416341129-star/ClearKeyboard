@@ -56,7 +56,6 @@ set -e
 xcrun xcresulttool get test-results summary --path .build/CompositionResults.xcresult || true
 if [ "$TEST_EXIT" -ne 0 ]; then
   xcrun xcresulttool get test-results tests --path .build/CompositionResults.xcresult || true
-  exit "$TEST_EXIT"
 fi
 set +e
 xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
@@ -69,4 +68,5 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
 UI_EXIT=$?
 set -e
 xcrun xcresulttool get test-results summary --path .build/AppBottomResults.xcresult || true
+if [ "$TEST_EXIT" -ne 0 ]; then exit "$TEST_EXIT"; fi
 exit "$UI_EXIT"
