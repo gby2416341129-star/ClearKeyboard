@@ -11,6 +11,10 @@ for runtime,devices in sorted(inventory['devices'].items(),reverse=True):
     if devices:choices.append((runtime,next((d for d in devices if 'Air' in d['name']),devices[0])))
 assert choices,'No available iPhone simulator runtime'
 preferred=os.environ.get('CLEAR_TEST_SIMULATOR_RUNTIME','')
+if os.environ.get('CLEAR_TEST_REQUIRE_RUNTIME')=='1':
+    assert preferred,'A required simulator runtime must be specified'
+    choices=[choice for choice in choices if choice[0]==preferred]
+    assert choices,'The required simulator runtime is unavailable: '+preferred
 if preferred:choices.sort(key=lambda choice: choice[0]!=preferred)
 selected=[choices[0]]
 if len(choices)>1:selected.append(choices[-1])

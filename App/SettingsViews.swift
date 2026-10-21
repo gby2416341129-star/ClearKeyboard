@@ -11,7 +11,7 @@ struct CustomizationView: View {
                 ForEach(Array(AppearanceItem.allCases.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { Divider() }
                     NavigationLink {
-                        AppearanceDetailContent(item: item, settings: $preferences.settings)
+                        AppAppearanceDetail(item: item)
                             .background(AppPalette.canvas).navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
                     } label: { AppRow(title: item.title, detail: detail(item), symbol: item.symbol) }
                         .accessibilityIdentifier("custom.edit." + item.rawValue)
@@ -58,6 +58,14 @@ struct CustomizationView: View {
         case .candidateSize: return preferences.settings.resolvedCandidateTextSize.title
         default: return item.colorPath.flatMap { preferences.settings[keyPath: $0] } ?? "默认"
         }
+    }
+}
+
+struct AppAppearanceDetail: View {
+    let item: AppearanceItem
+    @EnvironmentObject private var preferences: Preferences
+    var body: some View {
+        AppearanceDetailContent(item: item, settings: $preferences.settings, value: preferences.settings)
     }
 }
 

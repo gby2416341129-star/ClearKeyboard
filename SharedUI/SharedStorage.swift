@@ -36,6 +36,14 @@ extension KeyboardSettings {
     var backgroundTintColor: UIColor? { Self.color(hex: backgroundColorHex) }
     var keyTintColor: UIColor? { Self.color(hex: keyColorHex) }
     var candidateTintColor: UIColor? { Self.color(hex: candidateColorHex) }
+    var backgroundTintOpacity: Double { glass == .solid ? 1 : glass == .clear ? 0.55 : 0.70 }
+    func keyFaceOpacity(dark: Bool, utility: Bool) -> Double {
+        // Color and optical strength are independent controls. A low glass
+        // strength must not reduce a chosen key color to a nearly invisible tint.
+        if keyColorHex != nil { return utility ? 0.70 : 0.78 }
+        let base = glass == .clear ? (dark ? 0.14 : 0.62) : (dark ? 0.25 : 0.78)
+        return min(0.92, 0.06 + base * resolvedKeyGlassStrength) * (utility ? 0.72 : 1)
+    }
     var keyInkColor: UIColor { keyInkColor(utility: false) }
     func keyInkColor(utility: Bool) -> UIColor {
         guard keyColorHex != nil || backgroundColorHex != nil else { return .label }
@@ -51,12 +59,11 @@ extension KeyboardSettings {
             let base = dark ? 0.12 : 0.97
             var backdrop = RGBColor(red: base, green: base, blue: base)
             if let hex = settings.backgroundColorHex, let tint = RGBColor(hex: hex) {
-                backdrop = blend(tint, backdrop, reduced ? 1 : 0.12 + settings.resolvedBackgroundGlassStrength * 0.55)
+                backdrop = blend(tint, backdrop, reduced ? 1 : settings.backgroundTintOpacity)
             }
             let neutral = reduced ? (dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97)) : 1
             let tint = settings.keyColorHex.flatMap(RGBColor.init(hex:)) ?? RGBColor(red: neutral, green: neutral, blue: neutral)
-            let wash = settings.glass == .clear ? (dark ? 0.14 : 0.62) : (dark ? 0.25 : 0.78)
-            let alpha = reduced ? 1 : min(0.92, 0.06 + wash * settings.resolvedKeyGlassStrength) * (utility ? 0.72 : 1)
+            let alpha = reduced ? 1 : settings.keyFaceOpacity(dark: dark, utility: utility)
             let face = blend(tint, backdrop, alpha)
             func linear(_ value: Double) -> Double { value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4) }
             let luminance = linear(face.red) * 0.2126 + linear(face.green) * 0.7152 + linear(face.blue) * 0.0722

@@ -40,14 +40,23 @@ import XCTest
     }
     private func exerciseAppearance(_ name: String) {
         let preview = openAppearance(name)
+        let before = preview.value as? String
+        XCTAssertNotNil(before, "The preview must expose the settings it actually rendered")
+        let oldPixels = preview.screenshot().pngRepresentation
         if name == "backgroundGlass" || name == "keyGlass" {
             let slider = clear.sliders["appearance.strength." + name]
-            XCTAssertTrue(slider.exists); slider.adjust(toNormalizedSliderPosition: name == "backgroundGlass" ? 0.2 : 0.85)
+            XCTAssertTrue(slider.exists)
+            slider.adjust(toNormalizedSliderPosition: (before ?? "").contains("0.9;") ? 0.15 : 0.9)
         } else if name == "candidateSize" {
-            clear.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap()
+            let picker = clear.segmentedControls["custom.candidateTextSize"]
+            picker.buttons[picker.buttons["特大"].isSelected ? "小" : "特大"].tap()
         } else {
-            let swatch = clear.buttons["#7573F5"]; reveal(swatch, in: clear); XCTAssertTrue(swatch.isHittable); swatch.tap()
+            let target = (before ?? "").contains("#E3AC72") ? "#558DF2" : "#E3AC72"
+            let swatch = clear.buttons[target]; reveal(swatch, in: clear); XCTAssertTrue(swatch.isHittable); swatch.tap()
         }
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _,_ in (preview.value as? String) != before }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 4), .completed, "The live preview did not consume the new setting")
+        XCTAssertNotEqual(preview.screenshot().pngRepresentation, oldPixels, "The preview's visible pixels must change with its control")
         XCTAssertTrue(preview.exists); XCTAssertEqual(clear.state, .runningForeground)
         print("APPEARANCE_PAGE name=" + name + " livePreview=true controlChanged=true")
     }

@@ -23,13 +23,20 @@ jobs:
     runs-on: macos-15
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      CLEAR_UI_HOTFIX: '1'
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Verify this hotfix changes only UI and reuses unchanged input and model sources
+        if: env.CLEAR_UI_HOTFIX == '1'
+        run: |
+          git fetch --no-tags --depth=1 origin fed2ef08404cd5b0f252a798922e884d4868655b
+          python3 Scripts/verify_ui_hotfix.py
       - name: Reproduce the expiring composition ledger and check the repair
+        if: env.CLEAR_UI_HOTFIX != '1'
         run: |
           mkdir -p .build
           python3 - <<'PY'
@@ -96,6 +103,7 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
           python3 Scripts/export_ime_shared.py
+          if [[ "$CLEAR_UI_HOTFIX" != '1' ]]; then
           python3 Scripts/validate_ime_shared.py
           python3 Scripts/test_ime_model.py
           swiftc -O -parse-as-library Core/CoreMLPrefixState.swift Scripts/test_coreml_prefix.swift -o .rime-cache/test-coreml-prefix
@@ -103,7 +111,9 @@ jobs:
           swiftc -O -target "$(uname -m)-apple-macos15.0" -parse-as-library Core/CoreMLCandidateScorer.swift Scripts/test_coreml_scorer.swift -o .rime-cache/test-coreml-scorer
           .rime-cache/test-coreml-scorer Core/Resources/Rime
           python3 Scripts/test_coreml_worker.py
+          fi
       - name: Check native model, phonetic search and input state
+        if: env.CLEAR_UI_HOTFIX != '1'
         run: |
           mkdir -p .build
           python3 - <<'PY'
@@ -159,7 +169,8 @@ jobs:
         id: ui-tests
         continue-on-error: true
         env:
-          CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-18-5
+          CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-2
+          CLEAR_TEST_REQUIRE_RUNTIME: '1'
         run: bash Scripts/test-composition-proxy.sh
       - name: Require core and live UI checks before packaging
         if: always()
@@ -177,8 +188,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.45')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 48')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.46')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 49')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

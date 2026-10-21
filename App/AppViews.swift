@@ -53,7 +53,7 @@ import UIKit
 enum AppTab: String, CaseIterable {
     case home, custom, input
     var title: String { switch self { case .home: return "澈"; case .custom: return "定制"; case .input: return "输入" } }
-    var symbol: String { switch self { case .home: return "square.stack.3d.up"; case .custom: return "slider.horizontal.3"; case .input: return "textformat.abc" } }
+    var symbol: String { switch self { case .home: return "square.stack.3d.up"; case .custom: return "slider.horizontal.3"; case .input: return "keyboard" } }
 }
 
 struct RootView: View {
@@ -66,7 +66,7 @@ struct RootView: View {
             NavigationStack { CustomizationView() }
                 .tabItem { Label("定制", systemImage: "slider.horizontal.3") }.tag(AppTab.custom)
             NavigationStack { InputSettingsView() }
-                .tabItem { Label("输入", systemImage: "textformat.abc") }.tag(AppTab.input)
+                .tabItem { Label("输入", systemImage: AppTab.input.symbol) }.tag(AppTab.input)
         }.tint(AppPalette.accent)
             .onAppear { preferences.activate() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
@@ -100,7 +100,8 @@ struct HomeView: View {
             AppCard {
                 Button { selectedTab = .custom } label: { AppRow(title: "外观与手感", detail: "按你的喜好", symbol: "slider.horizontal.3") }
                 Divider()
-                Button { selectedTab = .input } label: { AppRow(title: "输入偏好", detail: "选词与纠错", symbol: "textformat.abc") }
+                Button { selectedTab = .input } label: { AppRow(title: "输入偏好", detail: "选词与纠错", symbol: AppTab.input.symbol) }
+                    .accessibilityIdentifier("home.inputPreferences")
             }.buttonStyle(.plain)
             AppCard {
                 NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "复制记录", symbol: "doc.on.clipboard") }

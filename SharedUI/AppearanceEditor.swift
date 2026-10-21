@@ -43,6 +43,9 @@ struct KeyboardPreview: UIViewRepresentable {
 struct AppearanceDetailContent: View {
     let item: AppearanceItem
     @Binding var settings: KeyboardSettings
+    // The owner observes Preferences/AppearanceBridge. Pass its current value
+    // as well as a write binding so a stable NavigationStack destination redraws.
+    let value: KeyboardSettings
     var compact = false
     @Environment(\.colorScheme) private var scheme
     @State private var hex = ""
@@ -51,7 +54,7 @@ struct AppearanceDetailContent: View {
         let fallback = item == .candidateColor ? (scheme == .dark ? "#F4F4F8" : "#20212A")
             : item == .keyColor ? (scheme == .dark ? "#BFC4D6" : "#FFFFFF")
             : (scheme == .dark ? "#272A37" : "#ECEEF8")
-        return RGBColor(hex: item.colorPath.flatMap { settings[keyPath: $0] } ?? fallback)!
+        return RGBColor(hex: item.colorPath.flatMap { value[keyPath: $0] } ?? fallback)!
     }
     private var color: Binding<Color> {
         Binding(get: { Color(red: rgb.red, green: rgb.green, blue: rgb.blue) }, set: { value in
@@ -61,7 +64,7 @@ struct AppearanceDetailContent: View {
         })
     }
     private var strength: Binding<Double> {
-        Binding(get: { item == .backgroundGlass ? settings.resolvedBackgroundGlassStrength : settings.resolvedKeyGlassStrength },
+        Binding(get: { item == .backgroundGlass ? value.resolvedBackgroundGlassStrength : value.resolvedKeyGlassStrength },
             set: {
                 if settings.glass == .solid { settings.glass = .clear }
                 if item == .backgroundGlass { settings.backgroundGlassStrength = $0 } else { settings.keyGlassStrength = $0 }
@@ -74,19 +77,21 @@ struct AppearanceDetailContent: View {
     var body: some View {
         ScrollView {
             VStack(spacing: compact ? 14 : 24) {
-                KeyboardPreview(settings: settings).frame(height: compact ? 166 : 250)
+                KeyboardPreview(settings: value).frame(height: compact ? 166 : 250)
+                    .accessibilityLabel("键盘效果预览")
+                    .accessibilityValue(KeyboardAppearancePreview.accessibilityDescription(of: value))
                     .accessibilityIdentifier("preview." + item.rawValue)
                 VStack(alignment: .leading, spacing: 18) {
                     if item == .backgroundGlass || item == .keyGlass {
                         HStack { Text("强度"); Spacer(); Text(strength.wrappedValue, format: .percent.precision(.fractionLength(0))).monospacedDigit().foregroundStyle(.secondary) }
                         Slider(value: strength, in: 0...1).accessibilityIdentifier("appearance.strength." + item.rawValue)
                     } else if item == .candidateSize {
-                        Picker("候选词大小", selection: Binding(get: { settings.resolvedCandidateTextSize }, set: { settings.candidateTextSize = $0 })) {
+                        Picker("候选词大小", selection: Binding(get: { value.resolvedCandidateTextSize }, set: { settings.candidateTextSize = $0 })) {
                             ForEach(CandidateTextSize.allCases) { Text($0.title).tag($0) }
                         }.pickerStyle(.segmented).accessibilityIdentifier("custom.candidateTextSize")
                     } else {
                         if !compact { ColorPicker("自定义颜色", selection: color, supportsOpacity: false).accessibilityIdentifier("appearance.color." + item.rawValue) }
-                        HStack(spacing: 10) {
+                        HStack(spacing: 0) {
                             ForEach(["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"], id: \.self) { value in
                                 Button { setColor(RGBColor(hex: value)!) } label: {
                                     Circle().fill(Color(uiColor: KeyboardSettings.color(hex: value)!)).frame(width: compact ? 24 : 32, height: compact ? 24 : 32)
@@ -120,7 +125,7 @@ struct AppearanceDetailContent: View {
                         }
                     }
                     Button("恢复默认") {
-                        if let path = item.colorPath { settings[keyPath: path] = nil; hex = rgb.hex }
+                        if let path = item.colorPath { settings[keyPath: path] = nil }
                         else if item == .backgroundGlass { settings.backgroundGlassStrength = nil }
                         else if item == .keyGlass { settings.keyGlassStrength = nil }
                         else { settings.candidateTextSize = nil }
@@ -129,6 +134,7 @@ struct AppearanceDetailContent: View {
             }.padding(compact ? 12 : 20).padding(.bottom, 18)
         }.scrollDismissesKeyboard(.interactively)
             .onAppear { hex = rgb.hex }
+            .onChange(of: value) { _ in if item.colorPath != nil { hex = rgb.hex } }
     }
 }
 
@@ -143,7 +149,7 @@ struct KeyboardAppearancePanel: View {
                         Button { selected = nil } label: { Label("外观", systemImage: "chevron.left") }
                         Spacer(); Text(item.title).font(.subheadline.weight(.semibold)); Spacer()
                     }.font(.caption).padding(.horizontal, 12).padding(.vertical, 5)
-                    AppearanceDetailContent(item: item, settings: bridge.binding, compact: true)
+                    AppearanceDetailContent(item: item, settings: bridge.binding, value: bridge.settings, compact: true)
                 }
             } else {
                 ScrollView {

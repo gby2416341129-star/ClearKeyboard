@@ -37,10 +37,10 @@ final class KeyGlassMaterial: UIVisualEffectView {
             signature = next
             var target: UIVisualEffect?
             if reduced { target = nil }
-            else if #available(iOS 26.0, *) {
-                let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
-                glass.isInteractive = false; target = glass
-            } else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
+            // A refractive glass panel outlines its entire rectangle before a
+            // noncontiguous mask is applied. Diffuse material can follow the key
+            // faces without drawing a second rim around the whole key area.
+            else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
             UIView.performWithoutAnimation { effect = target }
         }
         let nextStrength = CGFloat(settings.resolvedKeyGlassStrength)
@@ -80,6 +80,9 @@ final class KeyboardAppearancePreview: UIView {
         accessibilityLabel = "键盘效果预览"; accessibilityIdentifier = "appearance.preview"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    static func accessibilityDescription(of value: KeyboardSettings) -> String {
+        "background:\(value.resolvedBackgroundGlassStrength);keys:\(value.resolvedKeyGlassStrength);backgroundColor:\(value.backgroundColorHex ?? "auto");keyColor:\(value.keyColorHex ?? "auto");candidateColor:\(value.candidateColorHex ?? "auto");font:\(value.resolvedCandidateTextSize.rawValue)"
+    }
     func apply(_ value: KeyboardSettings) {
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
         guard appliedSettings != value || appliedStyle != traitCollection.userInterfaceStyle || appliedReducedTransparency != reduced else { return }
@@ -92,7 +95,7 @@ final class KeyboardAppearancePreview: UIView {
                         font: font, normalColor: value.candidateTintColor)
         second.configure(Candidate(text: "你好", consumed: 0), first: false, accent: value.accentInkColor,
                          font: font, normalColor: value.candidateTintColor)
-        accessibilityValue = "background:\(value.resolvedBackgroundGlassStrength);keys:\(value.resolvedKeyGlassStrength);backgroundColor:\(value.backgroundColorHex ?? "auto");keyColor:\(value.keyColorHex ?? "auto");candidateColor:\(value.candidateColorHex ?? "auto");font:\(value.resolvedCandidateTextSize.rawValue)"
+        accessibilityValue = Self.accessibilityDescription(of: value)
         setNeedsLayout()
     }
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {

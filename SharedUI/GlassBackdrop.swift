@@ -36,17 +36,19 @@ final class GlassBackdrop: UIView {
             effectSignature = signature
             var target: UIVisualEffect?
             if reduced { target = nil }
-            else if #available(iOS 26.0, *) {
+            else if #available(iOS 26.0, *), !systemBacked {
                 let glass = UIGlassEffect(style: settings.glass == .clear ? .clear : .regular)
                 glass.isInteractive = false; target = glass
-                material.cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28))
+                material.cornerConfiguration = .corners(radius: .fixed(28))
             } else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
+            // UIInputView already supplies the keyboard's outer glass. A second
+            // refractive panel here draws a rectangular rim above its rounded shell.
             UIView.performWithoutAnimation { material.effect = target }
         }
         // Modulate the effect's own mask, keeping the effect view opaque and
         // avoiding an indefinitely paused animator that prevents UI quiescence.
         strength = CGFloat(settings.resolvedBackgroundGlassStrength); updateMaterialMask()
-        wash.backgroundColor = settings.backgroundTintColor?.withAlphaComponent(reduced ? 1 : 0.12 + settings.resolvedBackgroundGlassStrength * 0.55)
+        wash.backgroundColor = settings.backgroundTintColor?.withAlphaComponent(reduced ? 1 : settings.backgroundTintOpacity)
     }
 }
 
@@ -168,9 +170,8 @@ final class KeyButton: UIButton {
             plate.backgroundColor = settings.keyTintColor ?? UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
             plate.layer.borderWidth = 0
         } else {
-            let base = settings.glass == .clear ? (dark ? 0.14 : 0.62) : (dark ? 0.25 : 0.78)
-            let alpha = min(0.92, 0.06 + base * settings.resolvedKeyGlassStrength)
-            plate.backgroundColor = (settings.keyTintColor ?? .white).withAlphaComponent(utility ? alpha * 0.72 : alpha)
+            let alpha = settings.keyFaceOpacity(dark: dark, utility: utility)
+            plate.backgroundColor = (settings.keyTintColor ?? .white).withAlphaComponent(alpha)
             plate.layer.borderWidth = 0.5
         }
         plate.layer.borderColor = UIColor.white.withAlphaComponent(dark ? 0.18 : 0.65).cgColor
