@@ -6,6 +6,7 @@ import UIKit
     private let suppliedStore: SettingsStore?
     private let appearanceLink: AppearanceSettingsLink?
     @Published private(set) var appearanceSyncStatus = AppearanceSettingsLink.Status.saved
+    @Published private(set) var appearanceSyncDiagnostics = AppearanceSyncDiagnostics()
     let clipboardCapture: ClipboardCapture
     private var active = false
     private var returningFromClipboardSettings = false
@@ -43,6 +44,9 @@ import UIKit
         }
         self.appearanceLink?.onStatus = { [weak self] status in
             if self?.appearanceSyncStatus != status { self?.appearanceSyncStatus = status }
+        }
+        self.appearanceLink?.onDiagnostics = { [weak self] diagnostics in
+            if self?.appearanceSyncDiagnostics != diagnostics { self?.appearanceSyncDiagnostics = diagnostics }
         }
     }
     func reload() {

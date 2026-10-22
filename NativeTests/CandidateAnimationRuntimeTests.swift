@@ -115,6 +115,97 @@ import UIKit
             XCTAssertEqual(views(button).compactMap { $0 as? UILabel }.count, 1)
         }
     }
+    func testOnlyFirstInkHasASmallSpringWithoutChangingTheBurstDeadlineOrTargets() throws {
+        let button = CandidateButton(frame: CGRect(x: 8, y: 0, width: 240, height: 44))
+        let font = UIFont.systemFont(ofSize: 19), frame = button.frame
+        button.configure(Candidate(text: "你", consumed: 2), first: true, accent: .systemBlue,
+                         font: font, animate: true, reduceMotion: false, voiceOver: false, firstAppearance: true)
+        button.layoutIfNeeded()
+        let label = try ink(button)
+        let spring = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CASpringAnimation)
+        let fade = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
+        XCTAssertEqual(spring.duration, 0.16, accuracy: 0.0001)
+        XCTAssertEqual(spring.beginTime, fade.beginTime); XCTAssertEqual(spring.duration, fade.duration)
+        let amplitude = try XCTUnwrap(spring.fromValue as? NSNumber).doubleValue
+        let frequency = sqrt(spring.stiffness / spring.mass)
+        let dampingRatio = spring.damping / (2 * sqrt(spring.stiffness * spring.mass))
+        XCTAssertGreaterThan(dampingRatio, 0); XCTAssertLessThan(dampingRatio, 1)
+        let overshoot = amplitude * exp(-Double.pi * dampingRatio / sqrt(1 - dampingRatio * dampingRatio))
+        let finalEnvelope = amplitude * exp(-dampingRatio * frequency * spring.duration) / sqrt(1 - dampingRatio * dampingRatio)
+        XCTAssertGreaterThan(overshoot, 0, "First appearance should have a small, single rebound")
+        XCTAssertLessThan(overshoot, 0.3, "The rebound must stay smaller than one pixel on a 3x screen")
+        XCTAssertLessThan(finalEnvelope, 0.002, "The fixed deadline must not truncate visible spring travel")
+        XCTAssertEqual(button.frame, frame); XCTAssertTrue(CATransform3DIsIdentity(button.layer.transform))
+        XCTAssertEqual(label.text, "你"); XCTAssertEqual(label.layer.opacity, 1)
+        for face in button.subviews where face !== label { XCTAssertNil(face.layer.animationKeys()) }
+        button.configure(Candidate(text: "你今天", consumed: 7), first: true, accent: .systemBlue,
+                         font: font, animate: true, reduceMotion: false, voiceOver: false)
+        let continued = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CASpringAnimation)
+        XCTAssertEqual(continued.beginTime, spring.beginTime); XCTAssertEqual(continued.duration, spring.duration)
+        button.finishTransition()
+        button.configure(Candidate(text: "你今天吃饭了吗", consumed: 12), first: true, accent: .systemBlue,
+                         font: font, animate: true, reduceMotion: false, voiceOver: false)
+        let replacement = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CABasicAnimation)
+        XCTAssertFalse(replacement is CASpringAnimation, "A later result must not launch another rebound")
+        XCTAssertEqual(replacement.duration, 0.16, accuracy: 0.0001)
+        XCTAssertEqual(button.frame, frame); XCTAssertEqual(views(button).compactMap { $0 as? UILabel }.count, 1)
+    }
+    func testAnEmptyRowReusesItsInkButGetsOneFreshAppearanceSpring() async throws {
+        if UIAccessibility.isReduceMotionEnabled || UIAccessibility.isVoiceOverRunning {
+            throw XCTSkip("Accessibility intentionally disables candidate movement")
+        }
+        let (window, ribbon) = row(); defer { close(window) }
+        let word = Candidate(text: "你好", consumed: 5), query = context("nihao")
+        ribbon.update([word], context: query, arithmetic: false, accent: .systemBlue)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你好" }
+        let reused = try XCTUnwrap(button(ribbon)), label = try ink(reused), frame = reused.frame
+        XCTAssertNotNil(label.layer.animation(forKey: "candidateTextPosition") as? CASpringAnimation)
+        ribbon.update([], context: context(""), arithmetic: false, accent: .systemBlue)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:0" }
+        XCTAssertTrue(reused.isHidden); XCTAssertEqual(label.text, word.text)
+        XCTAssertNil(label.layer.animationKeys())
+        // Even the same word must appear again. Its pooled label intentionally
+        // retains old text, so oldText alone cannot identify a fresh appearance.
+        ribbon.update([word], context: query, arithmetic: false, accent: .systemBlue)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你好" }
+        XCTAssertTrue(button(ribbon) === reused); XCTAssertEqual(reused.frame, frame)
+        let spring = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CASpringAnimation)
+        XCTAssertEqual(spring.duration, 0.16, accuracy: 0.0001)
+        ribbon.update([Candidate(text: "你好吗", consumed: 6)], context: context("nihaom"), arithmetic: false, accent: .systemBlue)
+        try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你好吗" }
+        let continued = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CABasicAnimation)
+        if continued is CASpringAnimation {
+            XCTAssertEqual(continued.beginTime, spring.beginTime); XCTAssertEqual(continued.duration, spring.duration)
+        } else {
+            XCTAssertGreaterThanOrEqual(label.layer.convertTime(CACurrentMediaTime(), from: nil), spring.beginTime + spring.duration,
+                                        "Only an already-finished burst may start a quiet replacement")
+        }
+        ribbon.scrollViewWillBeginDragging(ribbon)
+        XCTAssertNil(label.layer.animationKeys(), "A finger must still settle reused ink immediately")
+        let words = (0..<35).map { Candidate(text: "候选\($0)", consumed: 6) }
+        ribbon.update(words, context: context("nihaom"), arithmetic: false, accent: .systemBlue)
+        try await waitFor { ribbon.accessibilityValue == "offset:0;count:36" }
+        ribbon.contentOffset.x = 140; ribbon.layoutIfNeeded()
+        for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
+            XCTAssertNil(try ink(control).layer.animation(forKey: "candidateTextPosition"),
+                         "A scrolling pool reuse must not become a new row appearance")
+        }
+    }
+    func testVoiceOverSettlesActiveInkAndKeepsNewResultsStable() throws {
+        let button = CandidateButton(frame: CGRect(x: 0, y: 0, width: 160, height: 44))
+        let font = UIFont.systemFont(ofSize: 19), word = Candidate(text: "你好", consumed: 5)
+        button.configure(word, first: true, accent: .systemBlue, font: font, animate: true,
+                         reduceMotion: false, voiceOver: false)
+        let label = try ink(button)
+        XCTAssertNotNil(label.layer.animation(forKey: "candidateTextPosition"))
+        button.configure(word, first: true, accent: .systemBlue, font: font, animate: true,
+                         reduceMotion: false, voiceOver: true)
+        XCTAssertNil(label.layer.animationKeys(), "Enabling VoiceOver must settle even unchanged ink")
+        button.configure(Candidate(text: "你今天", consumed: 7), first: true, accent: .systemBlue, font: font,
+                         animate: true, reduceMotion: false, voiceOver: true)
+        XCTAssertNil(label.layer.animationKeys()); XCTAssertEqual(label.text, "你今天")
+        XCTAssertEqual(label.layer.opacity, 1); XCTAssertTrue(CATransform3DIsIdentity(label.layer.transform))
+    }
     func testReduceMotionSettlesAnUnchangedWordAndNeverStartsAnotherTransition() throws {
         let button = CandidateButton(frame: CGRect(x: 0, y: 0, width: 160, height: 44))
         let font = UIFont.systemFont(ofSize: 19), word = Candidate(text: "你好", consumed: 5)

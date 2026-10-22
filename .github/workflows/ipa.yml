@@ -202,8 +202,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.49')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 52')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.50')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 53')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

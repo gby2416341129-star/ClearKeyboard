@@ -1,4 +1,4 @@
-"""Keyboard UI hotfix: reuse only unchanged Core/model evidence."""
+"""Scoped keyboard repair: decoder/model unchanged; edit ledger is re-tested."""
 import json,subprocess
 BASE='fed2ef08404cd5b0f252a798922e884d4868655b'
 ALLOWED={
@@ -13,9 +13,12 @@ ALLOWED={
     'NativeTests/UnifiedRepairTests.swift','NativeTests/CustomizationRuntimeTests.swift',
     'UITests/AppUITests.swift','NativeTests/AppearanceSyncRuntimeTests.swift','NativeTests/AppearanceReceiverRuntimeTests.swift',
     'NativeTests/KeyboardRuntimeTests.swift','NativeTests/RemoteProxyPerformanceTests.swift','NativeTests/CandidateAnimationRuntimeTests.swift',
+    'Core/HostTextState.swift','Tests/HostTextStateTests.swift',
 }
 changed=set(subprocess.check_output(['git','diff','--name-only',BASE,'HEAD'],text=True).splitlines())
 assert changed and changed<=ALLOWED,sorted(changed-ALLOWED)
-subprocess.run(['git','diff','--exit-code',BASE,'HEAD','--','Core','CRime','Data','Tests/Evaluation','Licenses'],check=True)
+subprocess.run(['git','diff','--exit-code',BASE,'HEAD','--','Core',':(exclude)Core/HostTextState.swift',
+    'CRime','Data','Tests/Evaluation','Licenses'],check=True)
 print('UI_HOTFIX_SCOPE '+json.dumps(dict(status='passed',baselineCommit=BASE,baselineRun=39594324975,
-    modelAndDecoderSourcesUnchanged=True,keyboardInteractionMayChange=True,changedFiles=sorted(changed)),ensure_ascii=False))
+    modelAndDecoderSourcesUnchanged=True,editLedgerChanged='Core/HostTextState.swift' in changed,
+    requiresFullCoreTests=True,keyboardInteractionMayChange=True,changedFiles=sorted(changed)),ensure_ascii=False))

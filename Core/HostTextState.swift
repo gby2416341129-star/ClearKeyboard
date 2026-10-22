@@ -48,6 +48,11 @@ public struct HostTextState {
         var requestedLengths: Set<Int>
     }
     private var markedHistory: [MarkedPath] = []
+    private struct MarkedAcknowledgements {
+        var origin: HostTextSnapshot
+        var paths: [MarkedPath]
+    }
+    private var convertedMarkedHistory: [MarkedAcknowledgements] = []
     public init(_ snapshot: HostTextSnapshot = HostTextSnapshot()) { self.snapshot = snapshot; acknowledged = snapshot }
     public func hasPendingEdits(now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
         pending.contains { now - $0.1 <= 1 }
@@ -59,14 +64,27 @@ public struct HostTextState {
     }
     private mutating func endMarkedSession() {
         marked = ""; markedOrigin = nil; markedHistory.removeAll(keepingCapacity: true)
+        convertedMarkedHistory.removeAll(keepingCapacity: true)
     }
     private func isMarkedAcknowledgement(_ actual: HostTextSnapshot) -> Bool {
-        guard !marked.isEmpty, !actual.before.isEmpty, let origin = markedOrigin,
+        guard !marked.isEmpty else { return false }
+        if let origin = markedOrigin, matchesMarkedAcknowledgement(actual, origin: origin, paths: markedHistory) { return true }
+        return convertedMarkedHistory.contains {
+            // The explicit empty-mark write can be acknowledged before the
+            // Chinese insertion. A nonempty original boundary is recognizable;
+            // an empty field is ambiguous with a real external Clear and keeps
+            // the ordinary bounded edit lease instead of an infinite exemption.
+            (!$0.origin.before.isEmpty && Self.equivalent($0.origin, actual)) ||
+                matchesMarkedAcknowledgement(actual, origin: $0.origin, paths: $0.paths)
+        }
+    }
+    private func matchesMarkedAcknowledgement(_ actual: HostTextSnapshot, origin: HostTextSnapshot, paths: [MarkedPath]) -> Bool {
+        guard !actual.before.isEmpty,
               actual.document == origin.document, actual.selected.isEmpty else { return false }
         // Store maximal typing paths and the lengths actually requested along
         // each path. A long append-only draft needs one string, not one full
         // copy per key. Earlier acknowledgements remain owned after 512 keys.
-        for path in markedHistory.reversed() {
+        for path in paths.reversed() {
             let full = origin.before + path.text
             if actual.before.count < 32 {
                 let length = actual.before.count - origin.before.count
@@ -125,6 +143,24 @@ public struct HostTextState {
         }
         snapshot.before += text; snapshot.selected = ""; endMarkedSession(); remember(now: now)
     }
+    /// A prefix conversion and its untouched spelling are one edit transaction.
+    /// Some hosts acknowledge the old whole draft after the ordinary edit lease
+    /// has expired. Keep those exact requested marked paths while the remainder
+    /// is active, rather than treating that acknowledgement as a cursor move.
+    public mutating func commitMarked(_ text: String, remaining: String, now: Double = ProcessInfo.processInfo.systemUptime) {
+        var history = convertedMarkedHistory
+        if !marked.isEmpty, let origin = markedOrigin {
+            history.append(MarkedAcknowledgements(origin: origin, paths: markedHistory))
+            setMarked("", now: now)
+        }
+        insert(text, now: now)
+        guard !remaining.isEmpty else { return }
+        setMarked(remaining, now: now)
+        // Retain the initial whole draft and recent partial conversions. This
+        // is scoped to one live composition, never to a later field or word.
+        if history.count > 32 { history.removeSubrange(1..<(history.count - 31)) }
+        convertedMarkedHistory = history
+    }
     public mutating func setMarked(_ text: String, now: Double = ProcessInfo.processInfo.systemUptime) {
         if markedOrigin == nil {
             var origin = snapshot; origin.selected = ""; markedOrigin = origin
@@ -181,6 +217,8 @@ public struct HostTextState {
                 // context without unmarking and committing that new pinyin.
                 snapshot = actual; acknowledged = actual
                 var origin = actual; origin.before.removeLast(marked.count); markedOrigin = origin
+                markedHistory = [MarkedPath(text: marked, requestedLengths: [marked.count])]
+                convertedMarkedHistory.removeAll(keepingCapacity: true)
                 remember(now: now); return .compositionContextChanged
             }
         }

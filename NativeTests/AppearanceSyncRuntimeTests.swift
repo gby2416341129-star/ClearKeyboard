@@ -10,6 +10,17 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
     private(set) var usedMainThread = false
     var readFailure: ClearKeyboard.AppearanceSyncError?
     var writeFailure: ClearKeyboard.AppearanceSyncError?
+    var didWrite: ((String) -> Void)?
+    var diagnostics: ClearKeyboard.AppearanceBackendDiagnostics {
+        lock.lock(); defer { lock.unlock() }
+        var value = ClearKeyboard.AppearanceBackendDiagnostics()
+        if case .keychain(let status)? = readFailure { value.keychainReadStatus = status }
+        else { value.keychainReadStatus = records.isEmpty ? errSecItemNotFound : errSecSuccess }
+        if case .keychain(let status)? = writeFailure { value.keychainWriteStatus = status }
+        else if writes > 0 { value.keychainWriteStatus = errSecSuccess }
+        if !records.isEmpty { value.keychainAccessGroup = "fixture.authorized.group" }
+        return value
+    }
     func read(account: String) -> Result<ClearKeyboard.AppearanceBackendRecord?, ClearKeyboard.AppearanceSyncError> {
         lock.lock(); defer { lock.unlock() }
         usedMainThread = usedMainThread || Thread.isMainThread
@@ -21,6 +32,7 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
         usedMainThread = usedMainThread || Thread.isMainThread
         if let writeFailure { return .failure(writeFailure) }
         records[account] = data; writes += 1; writesByAccount[account, default: 0] += 1
+        didWrite?(account)
         return .success("fixture.authorized.group")
     }
     func seed(_ data: Data, account: String) {
@@ -28,7 +40,28 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
     }
 }
 
+private final class AppearancePersistenceProbe {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    var events: [String] { lock.lock(); defer { lock.unlock() }; return recorded }
+    func append(_ value: String) { lock.lock(); defer { lock.unlock() }; recorded.append(value) }
+}
+
 @MainActor final class AppearanceSyncRuntimeTests: XCTestCase {
+    // Explicit same-process identity injection only exercises receipt matching.
+    // Production obtains this identity from the installed .appex bundle.
+    private func receiver(build: String = "53") -> ClearKeyboard.AppearanceReceiverIdentity {
+        ClearKeyboard.AppearanceReceiverIdentity(bundleIdentifier: "fixture.ClearKeyboard.Keyboard",
+            version: "0.1.50", build: build, extensionPoint: "com.apple.keyboard-service")
+    }
+    private enum FixtureFailure: Error { case timeout }
+    private func waitFor(_ condition: () -> Bool, message: String) async throws {
+        for _ in 0..<300 {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail(message); throw FixtureFailure.timeout
+    }
     private func envelope() -> ClearKeyboard.AppearanceEnvelope {
         var settings = ClearKeyboard.KeyboardSettings()
         settings.glass = .mist; settings.backgroundGlassStrength = 0.87; settings.keyGlassStrength = 0.23
@@ -147,7 +180,8 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
         let backend = AppearanceMemoryBackend(), keyboard = ClearKeyboard.AppearanceSyncClient(backend: backend)
         let app = ClearKeyboard.AppearanceSyncClient(backend: backend)
         let received = UUID(), different = UUID(), saved = expectation(description: "receipt saved"), loaded = expectation(description: "receipt loaded")
-        keyboard.writeReceipt(revision: received) { result in
+        let snapshot = envelope().snapshot, identity = receiver()
+        keyboard.writeReceipt(revision: received, snapshot: snapshot, receiver: identity) { result in
             XCTAssertEqual(try? result.get().revision, received); saved.fulfill()
         }
         await fulfillment(of: [saved], timeout: 3)
@@ -155,6 +189,7 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
             do {
                 let receipt = try XCTUnwrap(result.get())
                 XCTAssertEqual(receipt.receipt.revision, received); XCTAssertNotEqual(receipt.receipt.revision, different)
+                XCTAssertEqual(receipt.receipt.snapshot, snapshot); XCTAssertEqual(receipt.receipt.receiver, identity)
                 XCTAssertEqual(receipt.accessGroup, "fixture.authorized.group")
             } catch { XCTFail("\(error)") }
             loaded.fulfill()
@@ -198,6 +233,10 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
             if case .failure(.invalidPayload) = result {} else { XCTFail("Malformed receipt accepted") }; receipt.fulfill()
         }
         await fulfillment(of: [loaded, receipt], timeout: 3)
+        // The old schema only recorded transport revision, so it cannot prove
+        // which installed extension applied which appearance after an upgrade.
+        let legacy = Data("{\"schema\":1,\"revision\":\"\(UUID().uuidString)\",\"updatedAt\":0}".utf8)
+        XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decodeReceipt(legacy).get())
     }
     func testPublicKeychainRoundTripReturnsAssignedGroupAndUpdatesIsolatedItem() async {
         // This checks actual Security APIs in the test host. Cross-process
@@ -293,7 +332,7 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
         let backend = AppearanceMemoryBackend(), value = envelope()
         backend.seed(try ClearKeyboard.AppearanceSyncClient.encode(value).get(), account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
         let client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
-        let link = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: client)
+        let link = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: client, receiverIdentity: receiver())
         var settings = ClearKeyboard.KeyboardSettings(), deliveries = 0
         link.currentSettings = { settings }
         let received = expectation(description: "keyboard received exact revision")
@@ -370,10 +409,235 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
         let keychain = AppearanceMemoryBackend(); keychain.writeFailure = .keychain(errSecMissingEntitlement)
         let backend = ClearKeyboard.AppearanceMirroredBackend(groupRoot: blockedRoot, keychain: keychain)
         let data = try ClearKeyboard.AppearanceSyncClient.encode(envelope()).get()
-        if case .failure(.keychain(errSecMissingEntitlement)) = backend.write(data, account: ClearKeyboard.AppearanceSyncClient.settingsAccount) {} else {
-            XCTFail("Two failed channels must never report a saved appearance")
-        }
+        XCTAssertThrowsError(try backend.write(data, account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+        XCTAssertEqual(backend.diagnostics.fileWrite, "failed")
+        XCTAssertNotNil(backend.diagnostics.fileWriteError)
+        XCTAssertEqual(backend.diagnostics.keychainWriteStatus, errSecMissingEntitlement)
+        XCTAssertNil(backend.diagnostics.selectedChannel)
         XCTAssertEqual(keychain.writes, 0)
         XCTAssertThrowsError(try backend.write(data, account: "../outside").get())
+    }
+    func testDynamicGroupContainerRecoversAfterInitiallyUnavailableCapability() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("clear.appearance.recovered." + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keychain = AppearanceMemoryBackend()
+        keychain.readFailure = .keychain(errSecMissingEntitlement)
+        keychain.writeFailure = .keychain(errSecMissingEntitlement)
+        var available = false, resolutions = 0
+        let backend = ClearKeyboard.AppearanceMirroredBackend(groupRootProvider: {
+            resolutions += 1; return available ? root : nil
+        }, configuredGroup: "fixture.dynamic.group", keychain: keychain)
+        let value = envelope(), data = try ClearKeyboard.AppearanceSyncClient.encode(value).get()
+        XCTAssertThrowsError(try backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+        XCTAssertThrowsError(try backend.write(data, account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+        XCTAssertFalse(backend.diagnostics.containerAvailable)
+        available = true
+        XCTAssertEqual(try backend.write(data, account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get(), "app-group")
+        let received = try XCTUnwrap(backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+        XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(received.data).get(), value)
+        XCTAssertEqual(resolutions, 4, "An unavailable container must be resolved again on each later I/O")
+        XCTAssertTrue(backend.diagnostics.containerAvailable)
+        XCTAssertEqual(backend.diagnostics.configuredGroup, "fixture.dynamic.group")
+        XCTAssertEqual(backend.diagnostics.selectedChannel, "app-group")
+    }
+    func testAvailableGroupURLDoesNotTurnUnreadableOrMissingStorageIntoSuccess() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("clear.appearance.read-errors." + UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("Appearance-v1", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keychain = AppearanceMemoryBackend(); keychain.readFailure = .keychain(errSecMissingEntitlement)
+        let backend = ClearKeyboard.AppearanceMirroredBackend(groupRoot: root, keychain: keychain)
+        // A genuine group URL says nothing about the result of reading it.
+        XCTAssertThrowsError(try backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get()) {
+            XCTAssertEqual($0 as? ClearKeyboard.AppearanceSyncError, .keychain(errSecMissingEntitlement))
+        }
+        XCTAssertEqual(backend.diagnostics.fileRead, "missing")
+        let file = directory.appendingPathComponent("appearance.json")
+        try Data("malformed".utf8).write(to: file)
+        XCTAssertThrowsError(try backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get()) {
+            XCTAssertEqual($0 as? ClearKeyboard.AppearanceSyncError, .invalidPayload)
+        }
+        XCTAssertEqual(backend.diagnostics.fileRead, "invalid-payload")
+        XCTAssertEqual(backend.diagnostics.keychainReadStatus, errSecMissingEntitlement)
+        XCTAssertNil(backend.diagnostics.selectedChannel)
+        // An unavailable compatible record cannot hide the corrupt group file.
+        keychain.readFailure = nil
+        XCTAssertThrowsError(try backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+    }
+    func testPersistSignalRunsAfterActualSaveWhileMainCompletionIsNotYetRunning() async throws {
+        let backend = AppearanceMemoryBackend(), client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let value = envelope(), probe = AppearancePersistenceProbe(), signal = DispatchSemaphore(value: 0)
+        let completed = expectation(description: "main completion eventually delivered")
+        client.publish(value, didPersist: {
+            XCTAssertFalse(Thread.isMainThread)
+            do {
+                let record = try XCTUnwrap(backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+                XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(record.data).get(), value)
+            } catch { XCTFail("Persistence notification preceded the real save: \(error)") }
+            probe.append("persisted"); signal.signal()
+        }) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertEqual(try? result.get().revision, value.revision)
+            probe.append("completion"); completed.fulfill()
+        }
+        // This bounded main-thread hold models an App that has not resumed its
+        // UI callback. The receiver notification must already be independent.
+        XCTAssertEqual(signal.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(probe.events, ["persisted"])
+        await fulfillment(of: [completed], timeout: 3)
+        XCTAssertEqual(probe.events, ["persisted", "completion"])
+    }
+    func testFailedSaveDoesNotEmitPersistSignalOrReceiverReceipt() async {
+        let backend = AppearanceMemoryBackend(); backend.writeFailure = .keychain(errSecMissingEntitlement)
+        let client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let probe = AppearancePersistenceProbe(), completed = expectation(description: "failed write completed")
+        let value = envelope()
+        client.publish(value, didPersist: { probe.append("false-save") }) { result in
+            XCTAssertThrowsError(try result.get()); completed.fulfill()
+        }
+        await fulfillment(of: [completed], timeout: 3)
+        let receipt = expectation(description: "failed receipt completed")
+        client.writeReceipt(revision: value.revision, snapshot: value.snapshot, receiver: receiver(),
+                            didPersist: { probe.append("false-receipt") }) { result in
+            XCTAssertThrowsError(try result.get()); receipt.fulfill()
+        }
+        await fulfillment(of: [receipt], timeout: 3)
+        XCTAssertTrue(probe.events.isEmpty)
+        XCTAssertEqual(backend.writes, 0)
+    }
+    func testRefreshBeforeMainWriteCompletionDoesNotSaveSameRevisionAgain() async {
+        let backend = AppearanceMemoryBackend(), savedOnQueue = DispatchSemaphore(value: 0)
+        backend.didWrite = { account in
+            if account == ClearKeyboard.AppearanceSyncClient.settingsAccount { savedOnQueue.signal() }
+        }
+        let client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let link = ClearKeyboard.AppearanceSettingsLink(role: .app, client: client)
+        let desired = envelope().snapshot.applying(to: ClearKeyboard.KeyboardSettings())
+        link.currentSettings = { desired }
+        link.publish(desired)
+        XCTAssertEqual(savedOnQueue.wait(timeout: .now() + 2), .success)
+        // Persistence has happened, but the main save callback cannot have
+        // cleared pendingEnvelope yet. Repeated activation/notifications race here.
+        link.activate(); defer { link.deactivate() }
+        for _ in 0..<20 { link.activate(); link.refresh() }
+        let drained = expectation(description: "queued writes drained")
+        client.flush { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 3)
+        XCTAssertEqual(backend.writesByAccount[ClearKeyboard.AppearanceSyncClient.settingsAccount], 1)
+    }
+    func testEarlyReceiptIsReadAfterPendingWriteCompletionWithoutAnotherUserAction() async throws {
+        let backend = AppearanceMemoryBackend(), savedOnQueue = DispatchSemaphore(value: 0)
+        backend.didWrite = { account in
+            if account == ClearKeyboard.AppearanceSyncClient.settingsAccount { savedOnQueue.signal() }
+        }
+        let client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let identity = receiver(), link = ClearKeyboard.AppearanceSettingsLink(role: .app,
+            client: client, expectedReceiver: identity)
+        let desired = envelope().snapshot.applying(to: ClearKeyboard.KeyboardSettings())
+        link.currentSettings = { desired }
+        var confirmed = false
+        link.onStatus = { confirmed = confirmed || $0 == .receivedByKeyboard }
+        link.publish(desired)
+        let revision = try XCTUnwrap(link.diagnostics.latestRevision)
+        XCTAssertEqual(savedOnQueue.wait(timeout: .now() + 2), .success)
+        let receipt = ClearKeyboard.AppearanceReceipt(revision: revision,
+            snapshot: ClearKeyboard.AppearanceSnapshot(settings: desired), receiver: identity)
+        backend.seed(try ClearKeyboard.AppearanceSyncClient.encodeReceipt(receipt).get(), account: ClearKeyboard.AppearanceSyncClient.receiptAccount)
+        // The receiver's response is already durable, and this activation hint
+        // occurs before the pending main save callback. No later edit or manual
+        // refresh is provided to rescue an acknowledgement that was skipped.
+        link.activate(); defer { link.deactivate() }
+        try await waitFor({ confirmed }, message: "An early receiver reply was permanently hidden by the pending-write guard")
+        XCTAssertEqual(link.diagnostics.receiptRevision, revision)
+        XCTAssertEqual(backend.writesByAccount[ClearKeyboard.AppearanceSyncClient.settingsAccount], 1)
+    }
+    func testAppConfirmationRequiresExactRevisionSnapshotAndReceiverVersion() async throws {
+        let value = envelope(), identity = receiver()
+        var differentSettings = ClearKeyboard.KeyboardSettings(); differentSettings.keyColorHex = "#FFFFFF"
+        let differentSnapshot = ClearKeyboard.AppearanceSnapshot(settings: differentSettings)
+        let invalidReceipts = [
+            ClearKeyboard.AppearanceReceipt(revision: UUID(), snapshot: value.snapshot, receiver: identity),
+            ClearKeyboard.AppearanceReceipt(revision: value.revision, snapshot: differentSnapshot, receiver: identity),
+            ClearKeyboard.AppearanceReceipt(revision: value.revision, snapshot: value.snapshot, receiver: receiver(build: "52"))
+        ]
+        for receipt in invalidReceipts {
+            let backend = AppearanceMemoryBackend()
+            backend.seed(try ClearKeyboard.AppearanceSyncClient.encode(value).get(), account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
+            backend.seed(try ClearKeyboard.AppearanceSyncClient.encodeReceipt(receipt).get(), account: ClearKeyboard.AppearanceSyncClient.receiptAccount)
+            let link = ClearKeyboard.AppearanceSettingsLink(role: .app,
+                client: ClearKeyboard.AppearanceSyncClient(backend: backend), expectedReceiver: identity)
+            var states: [ClearKeyboard.AppearanceSettingsLink.Status] = []
+            link.onStatus = { states.append($0) }
+            link.currentSettings = { value.snapshot.applying(to: ClearKeyboard.KeyboardSettings()) }
+            link.activate()
+            try await waitFor({ states.contains(.waitingForKeyboard) }, message: "A mismatched receiver must remain unconfirmed")
+            XCTAssertFalse(states.contains(.receivedByKeyboard))
+            XCTAssertEqual(link.diagnostics.rejection, "receipt-identity-revision-or-snapshot-mismatch")
+            link.deactivate()
+        }
+        let backend = AppearanceMemoryBackend()
+        backend.seed(try ClearKeyboard.AppearanceSyncClient.encode(value).get(), account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
+        backend.seed(try ClearKeyboard.AppearanceSyncClient.encodeReceipt(ClearKeyboard.AppearanceReceipt(revision: value.revision,
+            snapshot: value.snapshot, receiver: identity)).get(), account: ClearKeyboard.AppearanceSyncClient.receiptAccount)
+        let link = ClearKeyboard.AppearanceSettingsLink(role: .app,
+            client: ClearKeyboard.AppearanceSyncClient(backend: backend), expectedReceiver: identity)
+        var received = false; link.onStatus = { received = received || $0 == .receivedByKeyboard }
+        link.activate(); defer { link.deactivate() }
+        try await waitFor({ received }, message: "An exact applied receipt was not accepted")
+        XCTAssertEqual(link.diagnostics.receiptRevision, value.revision)
+        XCTAssertNil(link.diagnostics.rejection)
+    }
+    func testAppTestHostAndUnappliedKeyboardCannotProduceReceiverProof() async throws {
+        XCTAssertNil(ClearKeyboard.AppearanceReceiverIdentity.keyboardBundle(.main), "The unit-test App is not the installed keyboard extension")
+        let value = envelope()
+        for identity in [nil, receiver()] as [ClearKeyboard.AppearanceReceiverIdentity?] {
+            let backend = AppearanceMemoryBackend()
+            backend.seed(try ClearKeyboard.AppearanceSyncClient.encode(value).get(), account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
+            let client = ClearKeyboard.AppearanceSyncClient(backend: backend)
+            let link = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: client, receiverIdentity: identity)
+            link.currentSettings = { ClearKeyboard.KeyboardSettings() }
+            // Deliberately decline to apply onReceive: transport receipt alone
+            // must not be promoted to a model or rendering confirmation.
+            link.onReceive = { _ in }
+            link.activate()
+            try await waitFor({ link.diagnostics.rejection != nil }, message: "An unverified receiver was silently accepted")
+            XCTAssertNil(link.diagnostics.appliedRevision)
+            XCTAssertNil(backend.writesByAccount[ClearKeyboard.AppearanceSyncClient.receiptAccount])
+            XCTAssertEqual(link.diagnostics.rejection, identity == nil ? "receiver-is-not-a-keyboard-extension" : "model-snapshot-not-applied")
+            link.deactivate()
+        }
+    }
+    func testReceiptWriteFailureRetriesAfterCapabilityRecovers() async throws {
+        let value = envelope(), backend = AppearanceMemoryBackend()
+        backend.seed(try ClearKeyboard.AppearanceSyncClient.encode(value).get(), account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
+        backend.writeFailure = .keychain(errSecInteractionNotAllowed)
+        let link = ClearKeyboard.AppearanceSettingsLink(role: .keyboard,
+            client: ClearKeyboard.AppearanceSyncClient(backend: backend), receiverIdentity: receiver())
+        var settings = ClearKeyboard.KeyboardSettings()
+        link.currentSettings = { settings }; link.onReceive = { settings = $0.applying(to: settings) }
+        link.activate(); defer { link.deactivate() }
+        try await waitFor({ link.diagnostics.event == "receipt-write-failed" }, message: "A failed acknowledgement was reported as success")
+        XCTAssertNil(link.diagnostics.receiptRevision)
+        backend.writeFailure = nil
+        link.activate()
+        try await waitFor({ link.diagnostics.receiptRevision == value.revision }, message: "Repeated activation failed to retry the blocked receipt")
+        XCTAssertEqual(backend.writesByAccount[ClearKeyboard.AppearanceSyncClient.receiptAccount], 1)
+    }
+    func testDiagnosticPayloadContainsCapabilitiesAndNoInputOrAppearanceValues() throws {
+        let backend = AppearanceMemoryBackend(); backend.readFailure = .keychain(errSecMissingEntitlement)
+        let mirror = ClearKeyboard.AppearanceMirroredBackend(groupRoot: nil, keychain: backend)
+        XCTAssertThrowsError(try mirror.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+        var value = ClearKeyboard.AppearanceSyncDiagnostics()
+        value.backend = mirror.diagnostics; value.receiver = receiver(); value.event = "read-failed"
+        let data = try JSONEncoder().encode(value)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let status = try XCTUnwrap(object["backend"] as? [String: Any])
+        XCTAssertEqual(status["keychainReadStatus"] as? Int, Int(errSecMissingEntitlement))
+        XCTAssertEqual(status["fileRead"] as? String, "container-unavailable")
+        let text = String(decoding: data, as: UTF8.self)
+        for forbidden in ["snapshot", "candidateColorHex", "clipboardContents", "composition", "learnedWords", "containerPath"] {
+            XCTAssertFalse(text.contains(forbidden), "Diagnostics accidentally included private settings/input: " + forbidden)
+        }
+        XCTAssertLessThan(data.count, 2_048)
     }
 }

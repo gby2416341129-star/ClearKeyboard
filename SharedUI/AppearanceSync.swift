@@ -58,13 +58,76 @@ struct AppearanceReceipt: Codable, Equatable {
     let schema: Int
     let revision: UUID
     let updatedAt: Date
-    init(revision: UUID, updatedAt: Date = Date()) {
-        schema = 1; self.revision = revision; self.updatedAt = updatedAt
+    let snapshot: AppearanceSnapshot
+    let receiver: AppearanceReceiverIdentity
+    init(revision: UUID, snapshot: AppearanceSnapshot, receiver: AppearanceReceiverIdentity, updatedAt: Date = Date()) {
+        schema = 2; self.revision = revision; self.snapshot = snapshot
+        self.receiver = receiver; self.updatedAt = updatedAt
     }
+}
+
+struct AppearanceReceiverIdentity: Codable, Equatable {
+    let bundleIdentifier: String
+    let version: String
+    let build: String
+    let extensionPoint: String
+    var isValid: Bool {
+        !bundleIdentifier.isEmpty && !version.isEmpty && !build.isEmpty && extensionPoint == "com.apple.keyboard-service"
+    }
+    static func keyboardBundle(_ bundle: Bundle) -> AppearanceReceiverIdentity? {
+        guard bundle.bundleURL.pathExtension == "appex",
+              let identifier = bundle.bundleIdentifier,
+              let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+              let configuration = bundle.object(forInfoDictionaryKey: "NSExtension") as? [String: Any],
+              let point = configuration["NSExtensionPointIdentifier"] as? String else { return nil }
+        let value = Self(bundleIdentifier: identifier, version: version, build: build, extensionPoint: point)
+        return value.isValid ? value : nil
+    }
+    static func embeddedKeyboard(in bundle: Bundle) -> AppearanceReceiverIdentity? {
+        guard let plugins = bundle.builtInPlugInsURL,
+              let children = try? FileManager.default.contentsOfDirectory(at: plugins, includingPropertiesForKeys: nil) else { return nil }
+        let identities = children.compactMap { Bundle(url: $0) }.compactMap(Self.keyboardBundle)
+        return identities.count == 1 ? identities.first : nil
+    }
+}
+
+/// Capability and operation results only: no typed text, learned words,
+/// clipboard contents, container paths or complete settings payloads.
+struct AppearanceBackendDiagnostics: Codable, Equatable {
+    var configuredGroup: String?
+    var containerAvailable = false
+    var fileRead = "not-attempted"
+    var fileReadError: Int?
+    var fileWrite = "not-attempted"
+    var fileWriteError: Int?
+    var keychainReadStatus: OSStatus?
+    var keychainWriteStatus: OSStatus?
+    var keychainAccessGroup: String?
+    var selectedChannel: String?
+    var operation = "idle"
+}
+
+struct AppearanceSyncDiagnostics: Codable, Equatable {
+    var role = "unknown"
+    var bundleIdentifier = "unknown"
+    var version = "unknown"
+    var build = "unknown"
+    var active = false
+    var fullAccess: Bool?
+    var event = "created"
+    var latestRevision: UUID?
+    var appliedRevision: UUID?
+    var receiptRevision: UUID?
+    var receiver: AppearanceReceiverIdentity?
+    var expectedReceiver: AppearanceReceiverIdentity?
+    var rejection: String?
+    var backend = AppearanceBackendDiagnostics()
 }
 
 enum AppearanceSyncError: Error, Equatable {
     case keychain(OSStatus)
+    case file(Int)
     case invalidPayload
     case unsupportedSchema(Int)
     case superseded
@@ -76,8 +139,12 @@ struct AppearanceBackendRecord {
 }
 
 protocol AppearanceSyncBackend: AnyObject {
+    var diagnostics: AppearanceBackendDiagnostics { get }
     func read(account: String) -> Result<AppearanceBackendRecord?, AppearanceSyncError>
     func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError>
+}
+extension AppearanceSyncBackend {
+    var diagnostics: AppearanceBackendDiagnostics { AppearanceBackendDiagnostics() }
 }
 
 /// Uses only the process's authorized keychain groups. Omitting an explicit
@@ -85,6 +152,7 @@ protocol AppearanceSyncBackend: AnyObject {
 /// A successful local write is not evidence that the keyboard can read it.
 final class AppearanceKeychainBackend: AppearanceSyncBackend {
     let service: String
+    private(set) var diagnostics = AppearanceBackendDiagnostics()
     init(service: String = "com.clearkeyboard.appearance.sync.v1") { self.service = service }
     private func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
@@ -99,11 +167,14 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         query[kSecReturnData as String] = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        diagnostics.operation = "keychain-read"; diagnostics.keychainReadStatus = status
         if status == errSecItemNotFound { return .success(nil) }
         guard status == errSecSuccess else { return .failure(.keychain(status)) }
         guard let attributes = result as? [String: Any], let data = attributes[kSecValueData as String] as? Data else { return .failure(.invalidPayload) }
         guard data.count <= AppearanceSyncClient.maximumPayloadBytes else { return .failure(.invalidPayload) }
-        return .success(AppearanceBackendRecord(data: data, accessGroup: attributes[kSecAttrAccessGroup as String] as? String))
+        let group = attributes[kSecAttrAccessGroup as String] as? String
+        diagnostics.keychainAccessGroup = group
+        return .success(AppearanceBackendRecord(data: data, accessGroup: group))
     }
     func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
         guard data.count <= AppearanceSyncClient.maximumPayloadBytes else { return .failure(.invalidPayload) }
@@ -115,8 +186,10 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         add[kSecReturnAttributes as String] = true
         var attributes: CFTypeRef?
         var status = SecItemAdd(add as CFDictionary, &attributes)
+        diagnostics.operation = "keychain-write"; diagnostics.keychainWriteStatus = status
         if status == errSecDuplicateItem {
             status = SecItemUpdate(base as CFDictionary, values as CFDictionary)
+            diagnostics.keychainWriteStatus = status
             guard status == errSecSuccess else { return .failure(.keychain(status)) }
             // Query the stored item to report the actual group Security assigned.
             return read(account: account).flatMap { record in
@@ -126,6 +199,7 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         }
         guard status == errSecSuccess else { return .failure(.keychain(status)) }
         let group = (attributes as? [String: Any])?[kSecAttrAccessGroup as String] as? String
+        diagnostics.keychainAccessGroup = group
         return .success(group)
     }
     /// Used only by isolated test fixtures, never a broad keychain deletion.
@@ -154,10 +228,19 @@ final class AppearanceSyncClient {
     private let backend: AppearanceSyncBackend
     private let queue = DispatchQueue(label: "clear.appearance.sync", qos: .utility)
     private let coalesceInterval: TimeInterval
-    private var pending: (AppearanceEnvelope, (Result<AppearanceSyncWrite, AppearanceSyncError>) -> Void)?
+    private var pending: (AppearanceEnvelope, (() -> Void)?, (Result<AppearanceSyncWrite, AppearanceSyncError>) -> Void)?
     private var scheduled: DispatchWorkItem?
+    private var diagnosticsHandler: ((AppearanceBackendDiagnostics) -> Void)?
     init(backend: AppearanceSyncBackend = AppearanceKeychainBackend(), coalesceInterval: TimeInterval = 0.08) {
         self.backend = backend; self.coalesceInterval = max(0, coalesceInterval)
+    }
+    func observeDiagnostics(_ handler: @escaping (AppearanceBackendDiagnostics) -> Void) {
+        queue.async { [self] in diagnosticsHandler = handler }
+    }
+    private func reportDiagnostics() {
+        guard let handler = diagnosticsHandler else { return }
+        let value = backend.diagnostics
+        DispatchQueue.main.async { handler(value) }
     }
     static func encode(_ envelope: AppearanceEnvelope) -> Result<Data, AppearanceSyncError> {
         guard envelope.schema == 1 else { return .failure(.unsupportedSchema(envelope.schema)) }
@@ -173,23 +256,25 @@ final class AppearanceSyncClient {
         return .success(envelope)
     }
     static func encodeReceipt(_ receipt: AppearanceReceipt) -> Result<Data, AppearanceSyncError> {
-        guard receipt.schema == 1 else { return .failure(.unsupportedSchema(receipt.schema)) }
-        guard receipt.updatedAt.timeIntervalSince1970.isFinite,
+        guard receipt.schema == 2 else { return .failure(.unsupportedSchema(receipt.schema)) }
+        guard receipt.snapshot.isValid, receipt.receiver.isValid, receipt.updatedAt.timeIntervalSince1970.isFinite,
               let data = try? JSONEncoder().encode(receipt), data.count <= maximumPayloadBytes else { return .failure(.invalidPayload) }
         return .success(data)
     }
     static func decodeReceipt(_ data: Data) -> Result<AppearanceReceipt, AppearanceSyncError> {
         guard data.count <= maximumPayloadBytes,
               let receipt = try? JSONDecoder().decode(AppearanceReceipt.self, from: data),
-              receipt.updatedAt.timeIntervalSince1970.isFinite else { return .failure(.invalidPayload) }
-        guard receipt.schema == 1 else { return .failure(.unsupportedSchema(receipt.schema)) }
+              receipt.updatedAt.timeIntervalSince1970.isFinite, receipt.snapshot.isValid,
+              receipt.receiver.isValid else { return .failure(.invalidPayload) }
+        guard receipt.schema == 2 else { return .failure(.unsupportedSchema(receipt.schema)) }
         return .success(receipt)
     }
-    func publish(_ envelope: AppearanceEnvelope, completion: @escaping (Result<AppearanceSyncWrite, AppearanceSyncError>) -> Void) {
+    func publish(_ envelope: AppearanceEnvelope, didPersist: (() -> Void)? = nil,
+                 completion: @escaping (Result<AppearanceSyncWrite, AppearanceSyncError>) -> Void) {
         queue.async { [self] in
             scheduled?.cancel()
-            if let old = pending { deliver(.failure(.superseded), to: old.1) }
-            pending = (envelope, completion)
+            if let old = pending { deliver(.failure(.superseded), to: old.2) }
+            pending = (envelope, didPersist, completion)
             let work = DispatchWorkItem { [weak self] in self?.flushPending() }
             scheduled = work
             queue.asyncAfter(deadline: .now() + coalesceInterval, execute: work)
@@ -203,10 +288,14 @@ final class AppearanceSyncClient {
     }
     private func flushPending() {
         scheduled?.cancel(); scheduled = nil
-        guard let (envelope, completion) = pending else { return }
+        guard let (envelope, didPersist, completion) = pending else { return }
         pending = nil
         let result = Self.encode(envelope).flatMap { backend.write($0, account: Self.settingsAccount) }
             .map { AppearanceSyncWrite(revision: envelope.revision, accessGroup: $0) }
+        reportDiagnostics()
+        // A suspended containing App may not run its main callback yet. Notify
+        // the keyboard on the persistence queue as soon as the value is durable.
+        if case .success = result { didPersist?() }
         deliver(result, to: completion)
     }
     func load(completion: @escaping (Result<AppearanceSyncRead?, AppearanceSyncError>) -> Void) {
@@ -216,13 +305,18 @@ final class AppearanceSyncClient {
                 guard let record else { return .success(nil) }
                 return Self.decode(record.data).map { AppearanceSyncRead(envelope: $0, accessGroup: record.accessGroup) }
             }
+            reportDiagnostics()
             deliver(result, to: completion)
         }
     }
-    func writeReceipt(revision: UUID, completion: @escaping (Result<AppearanceSyncWrite, AppearanceSyncError>) -> Void = { _ in }) {
+    func writeReceipt(revision: UUID, snapshot: AppearanceSnapshot, receiver: AppearanceReceiverIdentity,
+                      didPersist: (() -> Void)? = nil,
+                      completion: @escaping (Result<AppearanceSyncWrite, AppearanceSyncError>) -> Void = { _ in }) {
         queue.async { [self] in
-            let result = Self.encodeReceipt(AppearanceReceipt(revision: revision)).flatMap { backend.write($0, account: Self.receiptAccount) }
+            let result = Self.encodeReceipt(AppearanceReceipt(revision: revision, snapshot: snapshot, receiver: receiver)).flatMap { backend.write($0, account: Self.receiptAccount) }
                 .map { AppearanceSyncWrite(revision: revision, accessGroup: $0) }
+            reportDiagnostics()
+            if case .success = result { didPersist?() }
             deliver(result, to: completion)
         }
     }
@@ -232,6 +326,7 @@ final class AppearanceSyncClient {
                 guard let record else { return .success(nil) }
                 return Self.decodeReceipt(record.data).map { AppearanceReceiptRead(receipt: $0, accessGroup: record.accessGroup) }
             }
+            reportDiagnostics()
             deliver(result, to: completion)
         }
     }

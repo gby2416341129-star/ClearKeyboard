@@ -86,7 +86,9 @@ import os
         var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize,
                                 textColor: textColor?.resolvedColor(with: traitCollection))
         let resolved = accent.resolvedColor(with: traitCollection)
-        if UIAccessibility.isReduceMotionEnabled { buttons.forEach { $0.finishTransition() } }
+        if UIAccessibility.isReduceMotionEnabled || UIAccessibility.isVoiceOverRunning {
+            buttons.forEach { $0.finishTransition() }
+        }
         if sameQuery(browsed, next), let current = presentation, sameQuery(current, next) {
             // Keep every visible target at the same x coordinate, while allowing
             // unseen alternatives to extend the tail during native momentum.
@@ -165,7 +167,8 @@ import os
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
         updateVisible(force: changedColor || changedFont || (changedItems && !appendOnly),
-                      animateChanges: changedItems && (!changedFont || previous.isEmpty) && !holdsCandidateUpdates)
+                      animateChanges: changedItems && (!changedFont || previous.isEmpty) && !holdsCandidateUpdates,
+                      firstAppearance: previous.isEmpty && !next.items.isEmpty)
         if changedItems || changedQuery { updateAccessibility() }
         requestMoreIfNeeded()
     }
@@ -199,7 +202,7 @@ import os
     private func firstIndex(at x: CGFloat) -> Int {
         geometry.firstIndex(at: x)
     }
-    private func updateVisible(force: Bool = false, animateChanges: Bool = false) {
+    private func updateVisible(force: Bool = false, animateChanges: Bool = false, firstAppearance: Bool = false) {
         guard let current = presentation else { return }
         let first = firstIndex(at: max(0, contentOffset.x - bounds.width * 0.5))
         var end = first
@@ -228,7 +231,8 @@ import os
             if force || old == nil {
                 button.configure(current.items[index], first: index == 0, accent: ink,
                                  font: index == 0 ? firstFont : normalFont,
-                                 animate: animateChanges && window != nil, normalColor: current.textColor)
+                                 animate: animateChanges && window != nil, normalColor: current.textColor,
+                                 firstAppearance: firstAppearance)
                 button.tag = index; button.frame = frames[index]
             }
             if button.isHidden { button.isHidden = false }
@@ -416,7 +420,8 @@ import os
         return width
     }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false,
-                   normalColor: UIColor? = nil, reduceMotion: Bool = UIAccessibility.isReduceMotionEnabled) {
+                   normalColor: UIColor? = nil, reduceMotion: Bool = UIAccessibility.isReduceMotionEnabled,
+                   voiceOver: Bool = UIAccessibility.isVoiceOverRunning, firstAppearance: Bool = false) {
         let oldText = label.text
         let changedFont = label.font != font
         if label.font != font { label.font = font }
@@ -424,13 +429,13 @@ import os
         label.textColor = normalColor ?? (first ? accent : .label)
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text
-        if changedFont || reduceMotion { finishTransition() }
-        guard oldText != candidate.text else {
+        if changedFont || reduceMotion || voiceOver { finishTransition() }
+        guard firstAppearance || oldText != candidate.text else {
             // Geometry can refresh immediately after this row was published.
             // Reusing unchanged ink must not cancel its in-flight animation.
             return
         }
-        guard animate, !reduceMotion else { finishTransition(); return }
+        guard animate, !reduceMotion, !voiceOver else { finishTransition(); return }
         // One readable glyph layer replaces the old two-label overlap. The old
         // word must never shine through a different word or dim the whole row.
         // A burst shares one settle clock: later results change the real text
@@ -441,8 +446,9 @@ import os
         let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
         let rate = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
         // Only the ink settles by two points. Cells, highlight, scroll offset
-        // and hit targets always use their latest exact geometry. There is no
-        // delay, blank frame, spring overshoot or outgoing bitmap to capture.
+        // and hit targets always use their latest exact geometry. First ink has
+        // one sub-pixel rebound; replacements keep the quiet, one-way settle.
+        // Both finish on the same deadline, without an outgoing word bitmap.
         let duration = Self.transitionDuration
         transitionDeadline = now + duration
         let fade = CABasicAnimation(keyPath: "opacity")
@@ -452,10 +458,25 @@ import os
         fade.beginTime = label.layer.convertTime(now, from: nil)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         label.layer.add(fade, forKey: "candidateText")
-        let settle = CABasicAnimation(keyPath: "transform.translation.y")
+        let settle: CABasicAnimation
+        // Appearance belongs to the row's empty -> populated transition, not
+        // a pooled label's lifetime. Scrolling or new results never opt in.
+        if firstAppearance {
+            let spring = CASpringAnimation(keyPath: "transform.translation.y")
+            // This physical response peaks just 0.22pt above rest, then is
+            // within 0.002pt of rest at 160ms. Do not use settlingDuration here:
+            // extending its clock would stretch a fast typing burst.
+            spring.mass = 1; spring.stiffness = 6_400; spring.damping = 92.8
+            spring.initialVelocity = 0
+            spring.timingFunction = CAMediaTimingFunction(name: .linear)
+            settle = spring
+        } else {
+            settle = CABasicAnimation(keyPath: "transform.translation.y")
+            settle.timingFunction = fade.timingFunction
+        }
         settle.preferredFrameRateRange = rate
         settle.fromValue = 2; settle.toValue = 0; settle.duration = duration
-        settle.beginTime = fade.beginTime; settle.timingFunction = fade.timingFunction
+        settle.beginTime = fade.beginTime
         label.layer.add(settle, forKey: "candidateTextPosition")
     }
     func finishTransition() {

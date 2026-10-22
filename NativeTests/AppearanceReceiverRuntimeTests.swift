@@ -37,14 +37,14 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
 @MainActor private final class ReceiverAppearanceDocument: ClearKeyboard.KeyboardDocument {
     private(set) var before = "", marked = ""
     let english: Bool
-    init(english: Bool) { self.english = english }
+    var fullAccess: Bool
+    init(english: Bool, fullAccess: Bool) { self.english = english; self.fullAccess = fullAccess }
     var contextBefore: String { before }
     var contextAfter: String { "" }
     let documentIdentity = UUID().uuidString
     var selectedText: String { "" }
     var enterTitle: String { "换行" }
     var needsGlobe: Bool { false }
-    var fullAccess: Bool { true }
     var prefersEnglish: Bool { english }
     var capitalization: UITextAutocapitalizationType { .none }
     func insert(_ text: String) { before += text }
@@ -74,7 +74,7 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
     let model: ClearKeyboard.KeyboardModel
     let surface: ClearKeyboard.KeyboardSurface
     let window: UIWindow
-    init(english: Bool = false) throws {
+    init(english: Bool = false, fullAccess: Bool = true) throws {
         let appSuite = "clear.receiver.app." + UUID().uuidString
         let keyboardSuite = "clear.receiver.keyboard." + UUID().uuidString
         let appDefaults = try XCTUnwrap(UserDefaults(suiteName: appSuite))
@@ -87,10 +87,14 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         let backend = ReceiverAppearanceBackend()
         let appClient = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
         let keyboardClient = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
-        let appLink = ClearKeyboard.AppearanceSettingsLink(role: .app, client: appClient)
-        let keyboardLink = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: keyboardClient)
+        // Explicit fixture identity enables exact receiver matching in this
+        // same-process test. It does not prove installed two-process permissions.
+        let identity = ClearKeyboard.AppearanceReceiverIdentity(bundleIdentifier: "fixture.ClearKeyboard.Keyboard",
+            version: "fixture-version", build: "fixture-build", extensionPoint: "com.apple.keyboard-service")
+        let appLink = ClearKeyboard.AppearanceSettingsLink(role: .app, client: appClient, expectedReceiver: identity)
+        let keyboardLink = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: keyboardClient, receiverIdentity: identity)
         let preferences = ClearKeyboard.Preferences(store: ClearKeyboard.SettingsStore(defaults: appDefaults), appearanceLink: appLink)
-        let document = ReceiverAppearanceDocument(english: english)
+        let document = ReceiverAppearanceDocument(english: english, fullAccess: fullAccess)
         let model = ClearKeyboard.KeyboardModel(document: document, defaults: keyboardDefaults, appearanceLink: keyboardLink)
         let surface = ClearKeyboard.KeyboardSurface(model: model, systemBacked: true)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -307,5 +311,37 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         fixture.preferences.reload()
         try await waitFor({ fixture.preferences.settings.backgroundColorHex == "#558DF2" }, message: "An active App reload left the old defaults appearance visible")
         XCTAssertEqual(fixture.backend.counts.settings, writes, "A stale defaults observation must not become a new appearance revision")
+    }
+    func testLateFullAccessActivationReceivesAppearanceWithoutReloadingLiveCandidates() async throws {
+        let fixture = try ReceiverAppearanceFixture(fullAccess: false); defer { fixture.cleanUp() }
+        try await waitFor({ fixture.backend.counts.settings > 0 }, message: "The App did not persist its initial appearance")
+        try await composeNihao(fixture)
+        let composition = fixture.model.composition.raw, context = fixture.model.candidateContext
+        let candidates = fixture.model.candidates
+        let initial = ClearKeyboard.AppearanceSnapshot(settings: fixture.model.settings)
+        fixture.preferences.settings.backgroundColorHex = "#558DF2"
+        await withCheckedContinuation { continuation in fixture.appClient.flush { continuation.resume() } }
+        fixture.model.refreshAppearanceConnection()
+        XCTAssertEqual(ClearKeyboard.AppearanceSnapshot(settings: fixture.model.settings), initial)
+        XCTAssertFalse(fixture.keyboardLink.diagnostics.active)
+        XCTAssertEqual(fixture.keyboardLink.diagnostics.fullAccess, false)
+        XCTAssertEqual(fixture.backend.counts.receipts, 0)
+
+        // Permission becomes available after model init, as it can when the
+        // extension comes on screen after returning from Settings.
+        fixture.document.fullAccess = true
+        fixture.model.refreshAppearanceConnection()
+        XCTAssertTrue(fixture.model.candidatesAreCurrent)
+        XCTAssertEqual(fixture.model.candidates, candidates, "Appearance activation must not synchronously replace the live candidate request")
+        let expected = ClearKeyboard.AppearanceSnapshot(settings: fixture.preferences.settings)
+        try await waitFor({ ClearKeyboard.AppearanceSnapshot(settings: fixture.model.settings) == expected },
+                          message: "The visibility activation did not recover late full access")
+        try await waitFor({ fixture.backend.revisions.settings == fixture.backend.revisions.receipt },
+                          message: "The recovered receiver did not persist an exact acknowledgement")
+        XCTAssertEqual(fixture.keyboardLink.diagnostics.fullAccess, true)
+        XCTAssertEqual(fixture.model.composition.raw, composition)
+        XCTAssertEqual(fixture.model.candidateContext, context)
+        XCTAssertTrue(fixture.model.candidatesAreCurrent)
+        XCTAssertEqual(fixture.document.before, "nihao")
     }
 }

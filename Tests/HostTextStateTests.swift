@@ -62,4 +62,51 @@ final class HostTextStateTests: XCTestCase {
         XCTAssertFalse(state.accepts(state.snapshot, actual: remote("前文", after: "other"), now: 21))
         XCTAssertEqual(state.reconcile(remote("前", after: "文后文"), now: 22), .externalEdit)
     }
+    func testPartialConversionKeepsDelayedWholeDraftAcknowledgementsWhileRemainderIsActive() {
+        var state = HostTextState(remote("前文", after: "后文"))
+        let spelling = "jintiannichifanlema"
+        var prefix = ""
+        for letter in spelling { prefix.append(letter); state.setMarked(prefix, now: 10) }
+        state.commitMarked("今天你", remaining: "chifanlema", now: 11)
+        XCTAssertEqual(state.snapshot.before, "前文今天你chifanlema")
+        // Even after the ordinary one-second insertion lease has ended, these
+        // exact old marked writes are acknowledgements, not new cursor edits.
+        for old in ["", "j", "jintianni", spelling] {
+            XCTAssertEqual(state.reconcile(remote("前文" + old, after: "后文"), now: 20), .ownEdit)
+            XCTAssertEqual(state.snapshot.before, "前文今天你chifanlema")
+            XCTAssertTrue(state.hasMarkedText)
+        }
+        state.commitMarked("吃饭", remaining: "lema", now: 21)
+        for old in ["前文" + spelling, "前文今天你chifanlema"] {
+            XCTAssertEqual(state.reconcile(remote(old, after: "后文"), now: 30), .ownEdit)
+            XCTAssertEqual(state.snapshot.before, "前文今天你吃饭lema")
+        }
+        state.commitMarked("了吗", remaining: "", now: 31)
+        XCTAssertFalse(state.hasMarkedText)
+        XCTAssertEqual(state.snapshot.before, "前文今天你吃饭了吗")
+        XCTAssertEqual(state.reconcile(remote("前文" + spelling, after: "后文"), now: 40), .externalEdit,
+            "A completed composition cannot hide a later external edit or undo")
+    }
+    func testPartialConversionStillDetectsActualCursorSelectionAndFieldChanges() {
+        for actual in [remote("今天", after: "你chifanlema"),
+                       remote("今天", after: "chifanlema", selected: "你"),
+                       remote("", after: ""),
+                       remote("jintiannichifanlema", document: "B")] {
+            var state = HostTextState(remote(""))
+            state.setMarked("jintiannichifanlema", now: 10)
+            state.commitMarked("今天你", remaining: "chifanlema", now: 11)
+            XCTAssertEqual(state.reconcile(actual, now: 20), .externalEdit)
+            XCTAssertFalse(state.hasMarkedText)
+        }
+    }
+    func testRebasedCompositionDiscardsOldConversionAcknowledgements() {
+        var state = HostTextState(remote("前文"))
+        state.setMarked("jintiannichifanlema", now: 10)
+        state.commitMarked("今天你", remaining: "chifanlema", now: 11)
+        XCTAssertEqual(state.reconcile(remote("新文chifanlema"), now: 20), .compositionContextChanged)
+        XCTAssertEqual(state.snapshot.before, "新文chifanlema")
+        XCTAssertTrue(state.hasMarkedText)
+        XCTAssertEqual(state.reconcile(remote("前文jintiannichifanlema"), now: 21), .externalEdit,
+            "An old conversion acknowledgement cannot survive a new surrounding context")
+    }
 }

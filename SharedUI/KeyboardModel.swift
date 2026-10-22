@@ -20,6 +20,7 @@ import os
     func nextKeyboard()
     func setMarkedText(_ text: String)
     func commitMarkedText(_ text: String)
+    @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool
     func unmarkText()
     func clearInput() -> DeletedInput?
     func restoreInput(_ value: DeletedInput) -> Bool
@@ -29,6 +30,11 @@ import os
 }
 
 extension KeyboardDocument {
+    @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool {
+        commitMarkedText(text)
+        if !remaining.isEmpty { setMarkedText(remaining) }
+        return true
+    }
     func candidateInteractionChanged(_ active: Bool) {}
     func keyInteractionChanged(_ active: Bool) {}
     func validateCandidate(before: String, after: String, identity: String) -> Bool {
@@ -436,7 +442,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
         numbers = store.defaults.data(forKey: "clear.numbers.v1").flatMap { try? JSONDecoder().decode(NumericLexicon.self, from: $0) } ?? NumericLexicon()
         learningEpoch = store.defaults.string(forKey: "clear.learned.epoch")
         refreshCandidates()
-        if document.fullAccess { appearanceLink?.activate() } else { appearanceLink?.deactivate() }
+        refreshAppearanceConnection()
+    }
+    func refreshAppearanceConnection() {
+        appearanceLink?.updateFullAccess(document?.fullAccess == true)
+        if document?.fullAccess == true { appearanceLink?.activate() } else { appearanceLink?.deactivate() }
     }
     func clearComposition() {
         beginDocumentEdit(); defer { endDocumentEdit() }
@@ -445,13 +455,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if !composition.raw.isEmpty { document?.setMarkedText(""); document?.unmarkText() }
         composition.clear(); refreshCandidates()
     }
-    func cursorChanged() {
+    func cursorChanged(unmarkDraft: Bool = true) {
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard !isMovingCursor else { return }
+        if !unmarkDraft { pendingDocumentKeys.removeAll() }
         cancelDeferredActions()
         deletionUndo = nil
         phraseLearning.reset(); finishNumericRun()
-        if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates()
+        if unmarkDraft, !composition.raw.isEmpty { document?.unmarkText() }; composition.clear(); refreshCandidates()
     }
     func finishCompositionAsTyped() {
         beginDocumentEdit(); defer { endDocumentEdit() }
@@ -649,12 +660,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
             composition.consume(candidate.consumed)
             // Preserve any spelling not covered by a partial candidate.
             let output = candidate.text + (flushRemainder ? composition.normalized : "")
-            document?.commitMarkedText(output)
-            learn(candidate, raw: spelling, phrase: phrase)
+            if document?.commitMarkedText(output, remaining: flushRemainder ? "" : composition.raw) == true {
+                learn(candidate, raw: spelling, phrase: phrase)
+            }
         } else { document?.commitMarkedText(composition.normalized); phraseLearning.reset() }
         if flushRemainder { phraseLearning.reset() }
         if flushRemainder || fallback == nil { composition.clear() }
-        else if !composition.raw.isEmpty { syncMarkedText() }
     }
     func choose(_ candidate: Candidate) {
         guard candidateGeneration == generation, candidates.contains(candidate), let document else { return }
@@ -740,12 +751,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 insertText(candidate.text)
             }
             else {
-                // One host insertion replaces and commits the marked spelling.
-                // A temporary Chinese marked range followed by unmark/re-mark
-                // can be coalesced by a remote editor with the remainder.
-                document.commitMarkedText(candidate.text)
                 composition.consume(candidate.consumed)
-                if !composition.raw.isEmpty { syncMarkedText() }
+                guard document.commitMarkedText(candidate.text, remaining: composition.raw) else { return }
             }
             if !spelling.isEmpty { learn(candidate, raw: spelling, phrase: phrase) }
         } else {

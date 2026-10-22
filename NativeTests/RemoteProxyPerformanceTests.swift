@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import SwiftUI
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
     func testSegmentedNamesLearnWholeSpellingAndInitialsWithRealUIKitTextStorage() async throws {
@@ -322,7 +323,8 @@ import UIKit
             XCTAssertEqual(proxy.textView.text, "前文🙂" + chinese)
             XCTAssertEqual(controller.contextBefore, "前文🙂" + chinese)
             XCTAssertNil(proxy.textView.markedTextRange)
-            XCTAssertEqual(proxy.markedWrites.count, writes, "Commit must not send an obsolete pinyin frame")
+            XCTAssertTrue(proxy.markedWrites.dropFirst(writes).allSatisfy(\.isEmpty),
+                "Commit may clear the keyboard's existing mark, but must not send an obsolete pinyin frame")
             XCTAssertEqual(proxy.insertedTexts.count, inserts + 1)
             await Task.yield()
             XCTAssertEqual(proxy.textView.text, "前文🙂" + chinese)
@@ -364,6 +366,234 @@ import UIKit
         await Task.yield()
         XCTAssertEqual(proxy.textView.text, "办公机", "A pending spelling cannot reappear as ji机")
         print("PARTIAL_CANDIDATE_COMMIT actualUITextView=true sourceCandidates=true officeRetained=true rawJiReplaced=true")
+    }
+    func testPartialConversionPreservesItsDraftAcrossDelayedAcknowledgements() {
+        let initial = HostTextSnapshot(before: "前文🙂", after: "｜后文", document: "partial-field")
+        var state = HostTextState(initial)
+        state.setMarked("jintiannichifanlema", now: 1)
+        let spellingAcknowledgement = state.snapshot
+        state.commitMarked("今天你", remaining: "chifanlema", now: 1.1)
+        let remainder = state.snapshot
+        XCTAssertEqual(remainder.before, "前文🙂今天你chifanlema")
+        XCTAssertTrue(state.hasMarkedText)
+        XCTAssertEqual(state.reconcile(spellingAcknowledgement, now: 3), .ownEdit,
+            "A pre-conversion acknowledgement must remain owned while the remainder is being converted")
+        XCTAssertEqual(state.snapshot, remainder)
+        XCTAssertEqual(state.reconcile(remainder, now: 3.1), .ownEdit)
+        var selectionChange = remainder; selectionChange.selected = "后文"
+        XCTAssertEqual(state.reconcile(selectionChange, now: 3.2), .externalEdit,
+            "Retaining conversion acknowledgements must not suppress a real external selection")
+        XCTAssertFalse(state.hasMarkedText)
+        XCTAssertEqual(state.reconcile(spellingAcknowledgement, now: 3.3), .externalEdit,
+            "The old conversion chain must be discarded after an external edit")
+    }
+    func testPartialConversionOldWholeDraftCallbackCannotUnmarkRemainderAfterOneSecond() async throws {
+        let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent && proxy.before == "jintiannichifanlema" }
+        model.chooseDisplayed(Candidate(text: "今天你", reading: "jintianni", consumed: 9), context: model.candidateContext)
+        try await waitFor { proxy.before == "今天你chifanlema" && model.candidatesAreCurrent }
+        let unmarks = proxy.unmarkWrites
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        proxy.visibleBefore = "jintiannichifanlema"
+        let reads = proxy.contextReads
+        controller.selectionDidChange(nil); controller.textDidChange(nil)
+        try await waitFor { proxy.contextReads > reads }
+        XCTAssertEqual(model.composition.raw, "chifanlema")
+        XCTAssertEqual(controller.contextBefore, "今天你chifanlema")
+        XCTAssertEqual(proxy.markedLength, 10); XCTAssertEqual(proxy.unmarkWrites, unmarks)
+        XCTAssertTrue(model.candidatesAreCurrent); XCTAssertFalse(model.candidates.isEmpty)
+        proxy.visibleBefore = nil
+        model.chooseDisplayed(Candidate(text: "吃饭了吗", reading: "chifanlema", consumed: 10), context: model.candidateContext)
+        XCTAssertEqual(proxy.before, "今天你吃饭了吗"); XCTAssertTrue(model.composition.isEmpty)
+        print("PARTIAL_OLD_ACK_REGRESSION delayedWholeDraftSeconds=1.1 remainderRetained=true protocolFixtureOnly=true")
+    }
+    func testPartialConversionWithRealUITextFieldSurvivesIdleAndSelectionCallbacks() async throws {
+        let field = UITextField(frame: CGRect(x: 20, y: 100, width: 330, height: 48))
+        field.borderStyle = .roundedRect; field.text = "前文🙂｜后文"
+        field.inputView = UIView(frame: .zero); field.autocorrectionType = .no; field.spellCheckingType = .no
+        let host = UIViewController(); host.loadViewIfNeeded(); host.view.addSubview(field)
+        let window = try makeHostWindow(host)
+        defer { field.resignFirstResponder(); window.isHidden = true }
+        XCTAssertTrue(field.becomeFirstResponder())
+        let position = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: "前文🙂".utf16.count))
+        field.selectedTextRange = field.textRange(from: position, to: position)
+        try await assertPartialConversionSurvivesIdle(in: UIKitFieldDocumentProxy(field), name: "UITextField")
+    }
+    func testPartialConversionWithRealUITextViewSurvivesIdleAndSelectionCallbacks() async throws {
+        let textView = UITextView(frame: CGRect(x: 20, y: 100, width: 330, height: 140))
+        textView.text = "前文🙂｜后文"; textView.inputView = UIView(frame: .zero)
+        textView.autocorrectionType = .no; textView.spellCheckingType = .no
+        let host = UIViewController(); host.loadViewIfNeeded(); host.view.addSubview(textView)
+        let window = try makeHostWindow(host)
+        defer { textView.resignFirstResponder(); window.isHidden = true }
+        XCTAssertTrue(textView.becomeFirstResponder())
+        textView.selectedRange = NSRange(location: "前文🙂".utf16.count, length: 0)
+        try await assertPartialConversionSurvivesIdle(in: UIKitFieldDocumentProxy(textView), name: "UITextView")
+    }
+    func testPartialConversionInTheAppsActualSwiftUIAppearanceFieldSurvivesIdle() async throws {
+        let suite = "clear.partial.app-field." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let preferences = Preferences(store: SettingsStore(defaults: defaults))
+        let host = UIHostingController(rootView: AppAppearanceDetail(item: .backgroundColor).environmentObject(preferences))
+        let window = try makeHostWindow(host)
+        defer { window.endEditing(true); window.isHidden = true; defaults.removePersistentDomain(forName: suite) }
+        try await waitFor { self.descendants(host.view).contains { $0 is UITextField && $0.accessibilityIdentifier == "appearance.hex" } }
+        let field = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UITextField }.first { $0.accessibilityIdentifier == "appearance.hex" })
+        // Exercise the production SwiftUI field and its binding/delegate. Do not
+        // replace its delegate with a simplified test editor or TypingLab.
+        field.inputView = UIView(frame: .zero)
+        field.text = "前文🙂｜后文"; field.sendActions(for: .editingChanged)
+        XCTAssertTrue(field.becomeFirstResponder())
+        let position = try XCTUnwrap(field.position(from: field.beginningOfDocument, offset: "前文🙂".utf16.count))
+        field.selectedTextRange = field.textRange(from: position, to: position)
+        try await assertPartialConversionSurvivesIdle(in: UIKitFieldDocumentProxy(field), name: "AppAppearanceDetail.SwiftUI.TextField")
+        XCTAssertEqual(field.text, "前文🙂今天你吃饭了吗｜后文")
+    }
+    private func makeHostWindow(_ host: UIViewController) throws -> UIWindow {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host; window.makeKeyAndVisible()
+        host.loadViewIfNeeded(); host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+        return window
+    }
+    private func assertPartialConversionSurvivesIdle(in proxy: UIKitFieldDocumentProxy, name: String) async throws {
+        let controller = ProxyKeyboardController(); controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false
+        model.settings.automaticClipboard = false; model.settings.predictions = false
+        defer { proxy.onMutation = nil; model.suspend() }
+        // UIKit owns text and marked ranges. These injected notifications test
+        // delayed acknowledgement order, not a real extension/remote connection.
+        proxy.onMutation = { [weak controller] in
+            controller?.textDidChange(nil); controller?.selectionDidChange(nil)
+        }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent && proxy.markedText == "jintiannichifanlema" }
+        // Isolate conversion transport from dictionary coverage/ranking; the
+        // public displayed-choice path still validates the live field/context.
+        let prefix = Candidate(text: "今天你", reading: "jintianni", consumed: 9)
+        model.chooseDisplayed(prefix, context: model.candidateContext)
+        try await waitFor { proxy.text == "前文🙂今天你chifanlema｜后文" && proxy.markedText == "chifanlema" && model.candidatesAreCurrent }
+        let unmarks = proxy.unmarkWrites
+        for delay in [40_000_000, 410_000_000, 800_000_000] as [UInt64] {
+            try await Task.sleep(nanoseconds: delay)
+            controller.selectionDidChange(nil); controller.textDidChange(nil)
+        }
+        // Cross both the controller's 350ms idle read and the old one-second
+        // acknowledgement lease before selecting the remainder.
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(model.composition.raw, "chifanlema", name)
+        XCTAssertEqual(proxy.markedText, "chifanlema", name)
+        XCTAssertEqual(proxy.text, "前文🙂今天你chifanlema｜后文", name)
+        XCTAssertEqual(controller.contextBefore, "前文🙂今天你chifanlema", name)
+        XCTAssertEqual(controller.contextAfter, "｜后文", name)
+        XCTAssertEqual(proxy.unmarkWrites, unmarks, "Idle callbacks must not commit the remaining pinyin in \(name)")
+        XCTAssertTrue(model.candidatesAreCurrent); XCTAssertFalse(model.candidates.isEmpty)
+        let meal = Candidate(text: "吃饭", reading: "chifan", consumed: 6)
+        model.chooseDisplayed(meal, context: model.candidateContext)
+        try await waitFor { proxy.markedText == "lema" && model.candidatesAreCurrent }
+        model.chooseDisplayed(Candidate(text: "了吗", reading: "lema", consumed: 4), context: model.candidateContext)
+        try await waitFor { proxy.text == "前文🙂今天你吃饭了吗｜后文" }
+        XCTAssertTrue(model.composition.isEmpty); XCTAssertNil(proxy.input.markedTextRange)
+        XCTAssertEqual(proxy.insertedTexts, ["今天你", "吃饭", "了吗"])
+        XCTAssertEqual(proxy.deleteWrites, 0, "Conversion must never delete unrelated host text")
+        print("PARTIAL_CONVERSION_UIKIT host=\(name) actualStorage=true injectedCallbackOrder=true idleSeconds=1.65 literalRemainders=0 deleteRepairs=0 remoteProcessVerified=false")
+    }
+    func testBufferedMarkedHostClearsOnlyItsDraftBeforeChineseInsertion() async throws {
+        let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { proxy.marked == "nihao" && model.candidatesAreCurrent }
+        XCTAssertEqual(proxy.committed, "前文🙂", "This adapter buffers marked text without displaying it in its committed editor")
+        model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
+        try await waitFor { proxy.committed == "前文🙂你好" }
+        XCTAssertEqual(proxy.insertedTexts, ["你好"])
+        XCTAssertTrue(proxy.marked.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0); XCTAssertEqual(proxy.deleteWrites, 0)
+        XCTAssertTrue(proxy.events.suffix(2).elementsEqual(["mark:", "insert:你好"]),
+            "Buffered editors require the owned mark to be cleared before insert; unmark would flush nihao")
+        print("BUFFERED_MARKED_PROTOCOL fixtureOnly=true clearBeforeInsert=true unrelatedDeletes=0 realRemoteHostVerified=false")
+    }
+    func testDocumentSwitchInsideEmptyMarkCannotReceiveOldChineseOrRemainder() async throws {
+        let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
+        try await waitFor { proxy.marked == "jintiannichifanlema" && model.candidatesAreCurrent }
+        let replacement = "另一个字段原文🙂"
+        proxy.onEmptyMarked = {
+            proxy.onEmptyMarked = nil
+            proxy.identity = UUID(); proxy.committed = replacement; proxy.marked = "newdraft"
+            controller.selectionDidChange(nil); controller.textDidChange(nil)
+            // A nested key still carries the old local ledger identity until
+            // reconciliation. Aborting conversion must discard it as well.
+            model.handle(.text("x"))
+        }
+        model.chooseDisplayed(Candidate(text: "今天你", reading: "jintianni", consumed: 9), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, replacement)
+        XCTAssertTrue(proxy.insertedTexts.isEmpty, "A field switch serviced inside clear-mark must abort the old Chinese insertion")
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(proxy.committed, replacement)
+        XCTAssertTrue(proxy.insertedTexts.isEmpty); XCTAssertEqual(proxy.marked, "newdraft")
+        XCTAssertFalse(proxy.events.contains("mark:chifanlema"), "The old remainder must never be sent to the newly connected field")
+        XCTAssertEqual(proxy.unmarkWrites, 0, "The new field owns its own marked range; abort must not unmark it")
+        XCTAssertEqual(proxy.deleteWrites, 0)
+        XCTAssertTrue(model.composition.isEmpty)
+        print("CLEAR_MARK_DOCUMENT_SWITCH protocolFixtureOnly=true chineseInsertions=0 remainderWrites=0 newFieldUnmarks=0")
+    }
+    func testVisibleCandidateCannotReplaceANewSelectionBeforeIdleReconciliationInRealUITextView() async throws {
+        try await assertImmediateExternalSelectionRejectsOldCandidate(NSRange(location: 0, length: 2), name: "selected-prefix")
+    }
+    func testVisibleCandidateCannotInsertAtAMovedCaretBeforeIdleReconciliationInRealUITextView() async throws {
+        try await assertImmediateExternalSelectionRejectsOldCandidate(NSRange(location: 0, length: 0), name: "moved-caret")
+    }
+    private func assertImmediateExternalSelectionRejectsOldCandidate(_ range: NSRange, name: String) async throws {
+        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
+        proxy.textView.text = "前文🙂｜后文🙂"
+        proxy.textView.selectedRange = NSRange(location: "前文🙂".utf16.count, length: 0)
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { proxy.textView.text == "前文🙂nihao｜后文🙂" && model.candidatesAreCurrent }
+        XCTAssertNotNil(proxy.textView.markedTextRange)
+        let candidate = try XCTUnwrap(model.candidates.first { $0.text == "你好" }), context = model.candidateContext
+        proxy.textView.selectedRange = range
+        let preservedText = try XCTUnwrap(proxy.textView.text), preservedSelection = proxy.textView.selectedRange
+        let inserts = proxy.insertedTexts.count, deletes = proxy.deleteWrites
+        controller.selectionDidChange(nil)
+        // Tap in this same turn, before the normal 350ms host read. Both of the
+        // model's 16ms validation retries must remain unable to modify the field.
+        model.chooseDisplayed(candidate, context: context)
+        XCTAssertEqual(proxy.textView.text, preservedText)
+        XCTAssertEqual(proxy.textView.selectedRange, preservedSelection)
+        try await Task.sleep(nanoseconds: 90_000_000)
+        XCTAssertEqual(proxy.insertedTexts.count, inserts, "An old candidate must not insert after either retry: " + name)
+        XCTAssertEqual(proxy.deleteWrites, deletes)
+        XCTAssertEqual(proxy.textView.text, preservedText)
+        XCTAssertEqual(proxy.textView.selectedRange, preservedSelection, "Candidate validation must preserve the user's new selection: " + name)
+        // The eventual reconciliation may cancel composition, but it must not
+        // change the user's actual caret/selection or any host text either.
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(proxy.insertedTexts.count, inserts); XCTAssertEqual(proxy.deleteWrites, deletes)
+        XCTAssertEqual(proxy.textView.text, preservedText)
+        XCTAssertEqual(proxy.textView.selectedRange, preservedSelection)
+        print("CANDIDATE_SELECTION_SAFETY actualUITextView=true case=\(name) immediateTap=true retriesChecked=2 chineseInsertions=0 hostDeletes=0")
     }
     func testMarkedTextBurstSendsLatestSpellingAndCommitFlushesInOrder() async throws {
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()
@@ -1210,13 +1440,83 @@ import UIKit
     override var textDocumentProxy: UITextDocumentProxy { if let proxy { return proxy }; return super.textDocumentProxy }
 }
 
+// A generic proxy over actual UIKit UITextInput storage. The production SwiftUI
+// TextField keeps its original delegate and binding; only transport notifications
+// are injected by the test. This is not an out-of-process textDocumentProxy.
+@MainActor private final class UIKitFieldDocumentProxy: NSObject, UITextDocumentProxy {
+    let input: UIView & UITextInput
+    let documentIdentifier = UUID()
+    var insertedTexts: [String] = [], markedWrites: [String] = []
+    var unmarkWrites = 0, deleteWrites = 0
+    var onMutation: (() -> Void)?
+    init(_ input: UIView & UITextInput) { self.input = input; super.init() }
+    var text: String {
+        guard let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument) else { return "" }
+        return input.text(in: range) ?? ""
+    }
+    var markedText: String? { input.markedTextRange.flatMap { input.text(in: $0) } }
+    var documentContextBeforeInput: String? {
+        guard let selection = input.selectedTextRange,
+              let range = input.textRange(from: input.beginningOfDocument, to: selection.start) else { return nil }
+        return input.text(in: range)
+    }
+    var documentContextAfterInput: String? {
+        guard let selection = input.selectedTextRange,
+              let range = input.textRange(from: selection.end, to: input.endOfDocument) else { return nil }
+        return input.text(in: range)
+    }
+    var selectedText: String? { input.selectedTextRange.flatMap { input.text(in: $0) } }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { input.hasText }
+    func insertText(_ text: String) { insertedTexts.append(text); input.insertText(text); onMutation?() }
+    func deleteBackward() { deleteWrites += 1; input.deleteBackward(); onMutation?() }
+    func setMarkedText(_ text: String, selectedRange: NSRange) {
+        markedWrites.append(text); input.setMarkedText(text, selectedRange: selectedRange); onMutation?()
+    }
+    func unmarkText() { unmarkWrites += 1; input.unmarkText(); onMutation?() }
+    func adjustTextPosition(byCharacterOffset offset: Int) {
+        guard let selection = input.selectedTextRange,
+              let position = input.position(from: selection.end, offset: offset) else { return }
+        input.selectedTextRange = input.textRange(from: position, to: position); onMutation?()
+    }
+}
+
+// Protocol regression for a remote-style editor which buffers marked spelling
+// and flushes that buffer if insertText arrives before an explicit empty mark.
+// This intentionally models the reported ordering failure; it is not evidence
+// that a particular desktop or third-party editor has been exercised.
+@MainActor private final class BufferedMarkedDocumentProxy: NSObject, UITextDocumentProxy {
+    var identity = UUID()
+    var documentIdentifier: UUID { identity }
+    var committed = "前文🙂", marked = ""
+    var insertedTexts: [String] = [], events: [String] = []
+    var unmarkWrites = 0, deleteWrites = 0
+    var onEmptyMarked: (() -> Void)?
+    var documentContextBeforeInput: String? { committed }
+    var documentContextAfterInput: String? { "" }
+    var selectedText: String? { nil }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { !committed.isEmpty || !marked.isEmpty }
+    func insertText(_ text: String) {
+        events.append("insert:" + text); insertedTexts.append(text)
+        committed += marked + text; marked = ""
+    }
+    func setMarkedText(_ text: String, selectedRange: NSRange) {
+        events.append("mark:" + text); marked = text
+        if text.isEmpty { onEmptyMarked?() }
+    }
+    func unmarkText() { unmarkWrites += 1; events.append("unmark"); committed += marked; marked = "" }
+    func deleteBackward() { deleteWrites += 1; if !committed.isEmpty { committed.removeLast() } }
+    func adjustTextPosition(byCharacterOffset offset: Int) {}
+}
+
 // Drive the production controller with real UIKit text storage. This checks
 // marked-range replacement independently of the delayed-proxy test double.
 @MainActor private final class UIKitDocumentProxy: NSObject, UITextDocumentProxy {
     let textView = UITextView()
     let documentIdentifier = UUID()
     var markedWrites: [String] = [], insertedTexts: [String] = []
-    var unmarkWrites = 0
+    var unmarkWrites = 0, deleteWrites = 0
     var afterInsert: (() -> Void)?
     override init() {
         super.init(); textView.inputView = UIView(frame: .zero)
@@ -1232,7 +1532,7 @@ import UIKit
     var documentInputMode: UITextInputMode? { nil }
     var hasText: Bool { textView.hasText }
     func insertText(_ text: String) { insertedTexts.append(text); textView.insertText(text); afterInsert?() }
-    func deleteBackward() { textView.deleteBackward() }
+    func deleteBackward() { deleteWrites += 1; textView.deleteBackward() }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
         markedWrites.append(text); textView.setMarkedText(text, selectedRange: selectedRange)
     }

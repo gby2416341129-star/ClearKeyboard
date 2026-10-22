@@ -4,6 +4,7 @@ import UIKit
 struct CustomizationView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var showToolbarEditor = false
+    @State private var showSyncDetails = false
     var body: some View {
         AppPage(title: "定制") {
             AppSectionTitle(title: "玻璃与颜色")
@@ -46,9 +47,15 @@ struct CustomizationView: View {
                 Button { showToolbarEditor = true } label: { AppRow(title: "快捷工具", detail: "排列与选择", symbol: "rectangle.3.group") }
                     .buttonStyle(.plain).accessibilityIdentifier("custom.toolbarEditor")
             }
-            Text(preferences.appearanceSyncStatus.title).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4).accessibilityIdentifier("custom.footer")
+            HStack(spacing: 12) {
+                Text(preferences.appearanceSyncStatus.title).font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button { showSyncDetails = true } label: { Image(systemName: "info.circle") }
+                    .accessibilityLabel("外观同步详情")
+            }.padding(.horizontal, 4).accessibilityIdentifier("custom.footer")
         }.accessibilityIdentifier("custom.page").tint(AppPalette.accent)
             .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView().tint(AppPalette.accent) }
+            .sheet(isPresented: $showSyncDetails) { AppearanceSyncDetails().environmentObject(preferences) }
             .onAppear { preferences.reload() }
     }
     private func detail(_ item: AppearanceItem) -> String {
@@ -58,6 +65,37 @@ struct CustomizationView: View {
         case .candidateSize: return preferences.settings.resolvedCandidateTextSize.title
         default: return item.colorPath.flatMap { preferences.settings[keyPath: $0] } ?? "默认"
         }
+    }
+}
+
+private struct AppearanceSyncDetails: View {
+    @EnvironmentObject private var preferences: Preferences
+    @Environment(\.dismiss) private var dismiss
+    private var diagnostics: AppearanceSyncDiagnostics { preferences.appearanceSyncDiagnostics }
+    private var diagnosticText: String {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return (try? encoder.encode(diagnostics)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+    var body: some View {
+        NavigationStack {
+            AppPage(title: "外观同步") {
+                AppCard {
+                    Label(preferences.appearanceSyncStatus.title, systemImage:
+                        preferences.appearanceSyncStatus == .receivedByKeyboard ? "checkmark.circle" : "arrow.triangle.2.circlepath")
+                    Divider()
+                    LabeledContent("共享存储", value: diagnostics.backend.containerAvailable ? "可用" : "尚未连接")
+                    if let receiver = diagnostics.expectedReceiver {
+                        LabeledContent("键盘版本", value: receiver.version + " (" + receiver.build + ")")
+                    }
+                }
+                Button {
+                    UIPasteboard.general.string = diagnosticText
+                } label: { Label("复制同步信息", systemImage: "doc.on.doc") }
+                    .buttonStyle(PrimaryAppButton()).accessibilityIdentifier("appearance.copySyncDiagnostics")
+                Text("同步信息不包含输入内容或剪贴板记录。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }.tint(AppPalette.accent)
     }
 }
 
