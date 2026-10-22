@@ -5,6 +5,10 @@ import UIKit
 /// No local KeyboardViewController, inputView override or simulated shell is used.
 @MainActor final class KeyboardShellUITests: XCTestCase {
     private enum Source: String { case english, emoji }
+    private struct ShellCapture {
+        let rootFrameAX: CGRect
+        let keyboardFrameAX: CGRect?
+    }
     private let appID = ProcessInfo.processInfo.environment["CLEAR_SHELL_APP_BUNDLE_ID"] ?? "com.example.clearkeyboard"
     private var samples: [[String: Any]] = []
     private var discrepancies: [String] = []
@@ -239,18 +243,31 @@ import UIKit
             throw unavailable("Literal connection proof needs the extension's English mode", in: app)
         }
     }
-    private func captureCustom(_ app: XCUIApplication, field: XCUIElement, name: String) throws -> (CGRect, CGRect) {
+    private func attachJSON(_ value: [String: Any], name: String) {
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return }
+        let attachment = XCTAttachment(string: text)
+        attachment.name = name + ".json"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+    private func captureCustom(_ app: XCUIApplication, field: XCUIElement, name: String) throws -> ShellCapture {
         bounded()
         guard key(app, "q").waitForExistence(timeout: 8) else {
             throw unavailable("Installed extension keys did not appear inside clear.keyboard.root", in: app)
         }
         try ensureCustomEnglish(app)
+        // Preserve actual pixels and AX before any assertion can abort XCTest.
+        // Cross-process extension AX frames can be local to its own 0-origin.
+        screen(name + "-before-validation")
+        attachTree(app, name + "-before-validation")
         let root = self.root(in: app)
         let runtime = control(app, "clear.keyboard.runtime")
         guard root.waitForExistence(timeout: 4), runtime.waitForExistence(timeout: 4) else {
             throw unavailable("Actual extension root/.appex metadata unavailable; an App preview is not proof", in: app)
         }
         let payload = try XCTUnwrap(runtime.value as? String, "The DEBUG extension runtime element must expose JSON")
+        let rawMetadata = XCTAttachment(string: payload)
+        rawMetadata.name = name + "-runtime.json"; rawMetadata.lifetime = .keepAlways; add(rawMetadata)
+        print("ACTUAL_EXTENSION_RUNTIME " + name + " " + payload)
         let metadata = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any])
         XCTAssertEqual(metadata["bundleExtension"] as? String, "appex")
         let identifier = try XCTUnwrap(metadata["bundleIdentifier"] as? String)
@@ -274,31 +291,37 @@ import UIKit
         }
 #endif
         let keyboard = app.keyboards.firstMatch
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 4), "Host keyboard AX frame missing; external shell cannot be measured")
+        let keyboardFrame: CGRect? = keyboard.exists ? keyboard.frame : nil
         let q = key(app, "q"), a = key(app, "a"), z = key(app, "z")
-        for element in [root, keyboard, q, a, z] {
+        for element in [root, q, a, z] {
             XCTAssertTrue(element.frame.width.isFinite && element.frame.height.isFinite && element.frame.width > 0 && element.frame.height > 0)
         }
-        screen(name)
-        attachTree(app, name)
-        let rootFrame = root.frame, keyboardFrame = keyboard.frame
-        let screenImage = XCUIScreen.main.screenshot().image
-        let pixelWidth = screenImage.cgImage?.width ?? Int(screenImage.size.width * screenImage.scale)
-        let pixelHeight = screenImage.cgImage?.height ?? Int(screenImage.size.height * screenImage.scale)
+        let image = XCUIScreen.main.screenshot().image
+        let pixelWidth = image.cgImage?.width ?? Int(image.size.width * image.scale)
+        let pixelHeight = image.cgImage?.height ?? Int(image.size.height * image.scale)
         var sample: [String: Any] = ["name": name, "runtime": metadata,
             "screenSizePoints": [Double(UIScreen.main.bounds.width), Double(UIScreen.main.bounds.height)],
             "screenPixels": [pixelWidth, pixelHeight],
             "screenshotPixelsPerPoint": Double(pixelWidth) / Double(UIScreen.main.bounds.width),
-            "rootFrame": jsonRect(rootFrame), "keyboardFrameAX": jsonRect(keyboardFrame),
-            "qFrame": jsonRect(q.frame), "aFrame": jsonRect(a.frame), "zFrame": jsonRect(z.frame),
-            "rootTopMinusKeyboardTop": Double(rootFrame.minY - keyboardFrame.minY),
-            "keyboardBottomMinusRootBottom": Double(keyboardFrame.maxY - rootFrame.maxY),
-            "outerFrameSource": "public-XCUIElement-keyboard-AX-not-private-host-constraints",
+            "rootFrameAX": jsonRect(root.frame),
+            "rootFrameCoordinateSpace": "XCUI-reported-may-be-extension-local-not-verified-screen-space",
+            "qFrameAX": jsonRect(q.frame), "aFrameAX": jsonRect(a.frame), "zFrameAX": jsonRect(z.frame),
+            "outerFrameAvailable": keyboardFrame != nil,
+            "outerFrameSource": keyboardFrame == nil ? "unavailable-no-Keyboard-AX-role" : "public-Keyboard-AX-role-not-verified-complete-system-chrome",
+            "rootTopMinusKeyboardTop": NSNull(), "keyboardBottomMinusRootBottom": NSNull(),
+            "geometryVerified": false, "coverageResolved": false,
+            "captureCompleted": false, "qReachedFocusedHost": false,
             "nativeChromeGeometryFixed": false]
-        // The metadata establishes .appex identity; this is the separate proof
-        // that its real textDocumentProxy is connected to this focused host.
+        if let keyboardFrame { sample["keyboardFrameAX"] = jsonRect(keyboardFrame) }
+        else { sample["keyboardFrameAX"] = NSNull() }
         let old = field.value as? String ?? ""
+        sample["hostValueBeforeQ"] = old
         let oldQ = old.lowercased().filter { $0 == "q" }.count
+        let index = samples.count
+        samples.append(sample)
+        attachJSON(sample, name: name + "-before-q")
+        // Use the real key's original tap API. Never compensate its AX position
+        // with a guessed host offset, window height or the reported 17pt band.
         q.tap()
         let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             let current = field.value as? String ?? ""
@@ -306,19 +329,27 @@ import UIKit
         }, object: nil)
         let result = XCTWaiter.wait(for: [inserted], timeout: 5)
         sample["qReachedFocusedHost"] = result == .completed
-        samples.append(sample)
+        sample["hostValueAfterQ"] = field.value as? String ?? ""
+        sample["captureCompleted"] = true
+        samples[index] = sample
+        attachJSON(sample, name: name + "-after-q")
+        screen(name + "-after-q")
+        attachTree(app, name + "-after-q")
+        print("CONNECTED_KEYBOARD_SHELL " + name + " qReachedFocusedHost=" + String(result == .completed) + " metadata=" + payload)
         XCTAssertEqual(result, .completed, "A real custom-keyboard Q tap did not reach the focused host")
-        print("CONNECTED_KEYBOARD_SHELL " + name + " root=" + String(describing: rootFrame) + " keyboardAX=" + String(describing: keyboardFrame) + " metadata=" + payload)
-        return (rootFrame, keyboardFrame)
+        return ShellCapture(rootFrameAX: root.frame, keyboardFrameAX: keyboardFrame)
     }
-    private func compare(_ previous: (CGRect, CGRect), _ current: (CGRect, CGRect), name: String) {
-        let metrics: [(String, CGFloat, CGFloat)] = [
-            ("rootHeight", previous.0.height, current.0.height),
-            ("rootWidth", previous.0.width, current.0.width),
-            ("hostKeyboardHeightAX", previous.1.height, current.1.height),
-            ("topGapAX", previous.0.minY - previous.1.minY, current.0.minY - current.1.minY),
-            ("bottomGapAX", previous.1.maxY - previous.0.maxY, current.1.maxY - current.0.maxY)
+    private func compare(_ previous: ShellCapture, _ current: ShellCapture, name: String) {
+        // Compare dimensions only. Extension AX positions may be local while
+        // host AX positions are global; subtracting their origins invents gaps.
+        var metrics: [(String, CGFloat, CGFloat)] = [
+            ("rootAXHeight", previous.rootFrameAX.height, current.rootFrameAX.height),
+            ("rootAXWidth", previous.rootFrameAX.width, current.rootFrameAX.width)
         ]
+        if let first = previous.keyboardFrameAX, let second = current.keyboardFrameAX {
+            metrics.append(("hostKeyboardAXHeight", first.height, second.height))
+            metrics.append(("hostKeyboardAXWidth", first.width, second.width))
+        }
         for (metric, first, second) in metrics where abs(first - second) > 1 {
             discrepancies.append("\(name): \(metric) changed \(first) -> \(second) points")
         }
@@ -335,6 +366,9 @@ import UIKit
         // condition described in the 17pt system-shell regression report.
         XCUIDevice.shared.press(.home)
         app.activate()
+        guard app.wait(for: .runningForeground, timeout: 8) else {
+            throw unavailable("Focused Home/return host did not enter the foreground", in: app)
+        }
         let returned = try captureCustom(app, field: field, name: host + "-focused-home-return")
         compare(emoji, returned, name: host + " focused Home/return")
     }
@@ -361,6 +395,12 @@ import UIKit
                 "fullAccessChangedByDiagnostic": false,
                 "actualExtensionConnected": connected, "hostLimitations": hostLimitations,
                 "mandatorySafariTransitionsVerified": safariCompleted,
+                "capturesCompleted": samples.filter { $0["captureCompleted"] as? Bool == true }.count,
+                "mandatorySafariCapturesCompleted": samples.filter {
+                    ($0["name"] as? String)?.hasPrefix("safari-") == true && $0["captureCompleted"] as? Bool == true
+                }.count == 3,
+                "geometryVerified": false, "coverageResolved": false,
+                "geometryVerification": "not-verified-AX-coordinate-spaces-and-system-chrome-require-full-screen-review",
                 "nativeChromeGeometryFixed": false, "simulatedChromeUsed": false,
                 "limits": "AX keyboard frames may omit system chrome; full-screen captures require review. This diagnostic does not establish physical iPhone behavior."]
             if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]),
@@ -381,6 +421,16 @@ import UIKit
 
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         safari.activate()
+        if !safari.wait(for: .runningForeground, timeout: 8) {
+            // One bounded relaunch may restore the already opened local URL.
+            // A missing foreground is infrastructure evidence, not a DOM miss.
+            safari.launch()
+        }
+        guard safari.wait(for: .runningForeground, timeout: 8) else {
+            throw unavailable("Safari did not enter the foreground after activate and one launch", in: safari)
+        }
+        screen("safari-foreground-before-field")
+        attachTree(safari, "safari-foreground-before-field")
         for title in ["Continue", "Continue", "Start Browsing", "Not Now"] {
             if safari.buttons[title].exists && safari.buttons[title].isHittable { safari.buttons[title].tap() }
         }
@@ -398,6 +448,9 @@ import UIKit
             throw unavailable("The Safari DOM field, rather than the address bar, must own focus", in: safari)
         }
         try sequence(in: safari, field: safariField, host: "safari-search-field")
+        XCTAssertEqual(samples.filter {
+            ($0["name"] as? String)?.hasPrefix("safari-") == true && $0["qReachedFocusedHost"] as? Bool == true
+        }.count, 3, "All English/Emoji/focused-Home Safari transitions need real Q delivery")
         // The actual App field uses asciiCapable. Some system keyboards omit
         // Emoji or the picker for that trait. Record a restriction explicitly;
         // never substitute the noninteractive appearance-preview keys.
@@ -408,3 +461,4 @@ import UIKit
         XCTAssertTrue(discrepancies.isEmpty, "Connected host shell is inconsistent across transitions:\n" + discrepancies.joined(separator: "\n"))
     }
 }
+
