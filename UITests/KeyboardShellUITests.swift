@@ -274,8 +274,10 @@ import UIKit
         XCTAssertTrue(identifier.hasPrefix(appID + "."), "This is not the containing App's installed extension")
         XCTAssertGreaterThan((metadata["pid"] as? NSNumber)?.intValue ?? 0, 0)
         XCTAssertEqual(metadata["hostActive"] as? Bool, true)
-#if SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT
-#if SHELL_AB_DEFAULT_ROOT
+#if SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT
+#if SHELL_AB_HOST_SIZED_ROOT
+        let expectedRecipe = "host-sized-default-root", expectedStyle = UIInputView.Style.default.rawValue
+#elseif SHELL_AB_DEFAULT_ROOT
         let expectedRecipe = "default-root", expectedStyle = UIInputView.Style.default.rawValue
 #else
         let expectedRecipe = "keyboard-root", expectedStyle = UIInputView.Style.keyboard.rawValue
@@ -289,23 +291,72 @@ import UIKit
                 XCTAssertEqual(actual, expected, accuracy: 0.002, "The runtime must prove the A/B root tint, not merely its compile flag")
             }
         }
+#if SHELL_AB_HOST_SIZED_ROOT
+        let expectedRelation = NSLayoutConstraint.Relation.greaterThanOrEqual.rawValue
+        let expectedSelfSizing = false
+#else
+        let expectedRelation = NSLayoutConstraint.Relation.equal.rawValue
+        let expectedSelfSizing = true
+#endif
+        // Verify the actual installed policy, not a recipe string alone.
+        XCTAssertEqual((metadata["rootHeightConstraintRelationRawValue"] as? NSNumber)?.intValue, expectedRelation)
+        XCTAssertEqual(metadata["inputViewAllowsSelfSizing"] as? Bool, expectedSelfSizing)
+        XCTAssertEqual(metadata["rootHeightConstraintIsActive"] as? Bool, true)
+        XCTAssertEqual(metadata["rootHeightConstraintFirstItemIsRoot"] as? Bool, true)
+        XCTAssertEqual(metadata["rootHeightConstraintSecondItemIsNil"] as? Bool, true)
+        XCTAssertEqual((metadata["rootHeightConstraintFirstAttributeRawValue"] as? NSNumber)?.intValue, NSLayoutConstraint.Attribute.height.rawValue)
+        XCTAssertEqual((metadata["rootHeightConstraintPriority"] as? NSNumber)?.doubleValue ?? -1, Double(UILayoutPriority.required.rawValue), accuracy: 0.01)
+        let rootBounds = try XCTUnwrap(metadata["rootBounds"] as? [Double])
+        let surfaceBounds = try XCTUnwrap(metadata["surfaceBounds"] as? [Double])
+        XCTAssertEqual(rootBounds.count, 4)
+        XCTAssertEqual(surfaceBounds.count, 4)
+        guard rootBounds.count == 4, surfaceBounds.count == 4 else {
+            throw unavailable("Actual root/surface CGRect metadata is malformed", in: app)
+        }
+        let logicalHeight = surfaceBounds[3]
+        XCTAssertEqual(logicalHeight, 276, accuracy: 0.5, "The public-root experiment must preserve ordinary key-row content height")
+        XCTAssertEqual((metadata["rootHeightConstraintConstant"] as? NSNumber)?.doubleValue ?? -1, logicalHeight, accuracy: 0.5)
+#if SHELL_AB_HOST_SIZED_ROOT
+        XCTAssertGreaterThanOrEqual(rootBounds[3], logicalHeight - 0.5)
+#else
+        XCTAssertEqual(rootBounds[3], logicalHeight, accuracy: 0.5)
+#endif
 #endif
         let keyboard = app.keyboards.firstMatch
         let keyboardFrame: CGRect? = keyboard.exists ? keyboard.frame : nil
         let q = key(app, "q"), a = key(app, "a"), z = key(app, "z")
-        for element in [root, q, a, z] {
-            XCTAssertTrue(element.frame.width.isFinite && element.frame.height.isFinite && element.frame.width > 0 && element.frame.height > 0)
+        // Each remote AX frame is read once. Repeated frame getter queries can
+        // add seconds but do not make an unknown coordinate space trustworthy.
+        let rootFrame = root.frame, qFrame = q.frame, aFrame = a.frame, zFrame = z.frame
+        let hostFrame = app.frame
+        for frame in [rootFrame, qFrame, aFrame, zFrame] {
+            XCTAssertTrue(frame.width.isFinite && frame.height.isFinite && frame.width > 0 && frame.height > 0)
+        }
+        var controls: [String: Any] = [:]
+        for identifier in ["key.language", "key.space", "key.return"] {
+            let element = control(app, identifier)
+            if element.exists { controls[identifier] = jsonRect(element.frame) }
+        }
+        var nativeFooter: [String: Any] = [:]
+        for label in ["Next keyboard", "Dictate"] {
+            let element = app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+            if element.exists { nativeFooter[label] = jsonRect(element.frame) }
         }
         let image = XCUIScreen.main.screenshot().image
         let pixelWidth = image.cgImage?.width ?? Int(image.size.width * image.scale)
         let pixelHeight = image.cgImage?.height ?? Int(image.size.height * image.scale)
         var sample: [String: Any] = ["name": name, "runtime": metadata,
-            "screenSizePoints": [Double(UIScreen.main.bounds.width), Double(UIScreen.main.bounds.height)],
+            "screenSizePoints": [Double(hostFrame.width), Double(hostFrame.height)],
+            "screenSizePointsSource": "public-host-app-AX-frame-not-UITest-runner-UIScreen",
+            "hostAppFrameAX": jsonRect(hostFrame),
             "screenPixels": [pixelWidth, pixelHeight],
-            "screenshotPixelsPerPoint": Double(pixelWidth) / Double(UIScreen.main.bounds.width),
-            "rootFrameAX": jsonRect(root.frame),
+            "screenshotPixelsPerPoint": Double(pixelWidth) / Double(hostFrame.width),
+            "rootFrameAX": jsonRect(rootFrame),
             "rootFrameCoordinateSpace": "XCUI-reported-may-be-extension-local-not-verified-screen-space",
-            "qFrameAX": jsonRect(q.frame), "aFrameAX": jsonRect(a.frame), "zFrameAX": jsonRect(z.frame),
+            "qFrameAX": jsonRect(qFrame), "aFrameAX": jsonRect(aFrame), "zFrameAX": jsonRect(zFrame),
+            "bottomControlFramesAX": controls, "nativeFooterControlFramesAX": nativeFooter,
+            "nativeFooterOverlapVerified": false,
+            "nativeFooterFrameCoordinateSpace": "public-AX-raw-unverified-against-extension-AX; full-screen-review-required",
             "outerFrameAvailable": keyboardFrame != nil,
             "outerFrameSource": keyboardFrame == nil ? "unavailable-no-Keyboard-AX-role" : "public-Keyboard-AX-role-not-verified-complete-system-chrome",
             "rootTopMinusKeyboardTop": NSNull(), "keyboardBottomMinusRootBottom": NSNull(),
@@ -337,7 +388,7 @@ import UIKit
         attachTree(app, name + "-after-q")
         print("CONNECTED_KEYBOARD_SHELL " + name + " qReachedFocusedHost=" + String(result == .completed) + " metadata=" + payload)
         XCTAssertEqual(result, .completed, "A real custom-keyboard Q tap did not reach the focused host")
-        return ShellCapture(rootFrameAX: root.frame, keyboardFrameAX: keyboardFrame)
+        return ShellCapture(rootFrameAX: rootFrame, keyboardFrameAX: keyboardFrame)
     }
     private func compare(_ previous: ShellCapture, _ current: ShellCapture, name: String) {
         // Compare dimensions only. Extension AX positions may be local while
@@ -451,7 +502,7 @@ import UIKit
         XCTAssertEqual(samples.filter {
             ($0["name"] as? String)?.hasPrefix("safari-") == true && $0["qReachedFocusedHost"] as? Bool == true
         }.count, 3, "All English/Emoji/focused-Home Safari transitions need real Q delivery")
-#if !SHELL_AB_DEFAULT_ROOT && !SHELL_AB_KEYBOARD_ROOT
+#if !SHELL_AB_DEFAULT_ROOT && !SHELL_AB_KEYBOARD_ROOT && !SHELL_AB_HOST_SIZED_ROOT
         // The actual App field uses asciiCapable. Some system keyboards omit
         // Emoji or the picker for that trait. Record a restriction explicitly;
         // never substitute the noninteractive appearance-preview keys.

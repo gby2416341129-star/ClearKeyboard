@@ -46,23 +46,25 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var layoutLogCount = 0
     private let hostLog = OSLog(subsystem: "ClearKeyboard", category: "HostWrite")
 
-#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT)
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT)
     // Isolated diagnostic only: public root construction and a fixed test tint.
     // Do not inspect or alter UIKit's external shell, cap or globe container.
     private static var shellABBlue: UIColor {
         UIColor(red: 85.0 / 255.0, green: 141.0 / 255.0, blue: 242.0 / 255.0, alpha: 1)
     }
     private var shellABRecipe: String {
-#if SHELL_AB_DEFAULT_ROOT && SHELL_AB_KEYBOARD_ROOT
+#if (SHELL_AB_DEFAULT_ROOT && SHELL_AB_KEYBOARD_ROOT) || (SHELL_AB_HOST_SIZED_ROOT && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT))
 #error("Select exactly one public keyboard-shell recipe")
 #elseif SHELL_AB_DEFAULT_ROOT
         return "default-root"
+#elseif SHELL_AB_HOST_SIZED_ROOT
+        return "host-sized-default-root"
 #else
         return "keyboard-root"
 #endif
     }
     override func loadView() {
-#if SHELL_AB_DEFAULT_ROOT
+#if SHELL_AB_DEFAULT_ROOT || SHELL_AB_HOST_SIZED_ROOT
         let root = UIInputView(frame: .zero, inputViewStyle: .default)
 #else
         let root = UIInputView(frame: .zero, inputViewStyle: .keyboard)
@@ -76,7 +78,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear; view.isOpaque = false
-#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT)
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT)
         // The normal initializer deliberately clears the root. Reapply the
         // experiment tint here, before adding the unchanged internal backdrop.
         view.backgroundColor = Self.shellABBlue
@@ -120,11 +122,24 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         surface.translatesAutoresizingMaskIntoConstraints = false
         let contentHeight = surface.heightAnchor.constraint(equalToConstant: surface.desiredHeight)
         contentHeight.identifier = "clear.keyboard.surface-height"; surfaceHeightConstraint = contentHeight
+#if DEBUG && SHELL_AB_HOST_SIZED_ROOT
+        // Isolated geometry experiment: let UIKit allocate the primary view.
+        // Keep the existing key pitch and reserve only this view's public safe
+        // area. A zero bottom inset does not prove a system footer is included.
+        NSLayoutConstraint.activate([
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            surface.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor),
+            contentHeight
+        ])
+#else
         NSLayoutConstraint.activate([
             surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             surface.bottomAnchor.constraint(equalTo: view.bottomAnchor), contentHeight
         ])
+#endif
         surface.onHeightChange = { [weak self] height in self?.updateHeight(height) }
         updateHeight(surface.desiredHeight)
 
@@ -184,7 +199,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             "windowBounds": rect(view.window?.bounds ?? .zero),
             "safeAreaInsets": [Double(inset.top), Double(inset.left), Double(inset.bottom), Double(inset.right)]
         ]
-#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT)
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT)
         var abEvidence = evidence
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         let color = view.backgroundColor?.resolvedColor(with: traitCollection)
@@ -201,6 +216,28 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             guard color?.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a) == true else { return [] }
             return [Double(r), Double(g), Double(b), Double(a)]
         }
+        // Public read-only guide values are diagnostic hints, not evidence
+        // that a guide owns or exposes the external native footer.
+        abEvidence["rootSafeAreaLayoutFrame"] = rect(view.safeAreaLayoutGuide.layoutFrame)
+        abEvidence["rootKeyboardLayoutFrame"] = rect(view.keyboardLayoutGuide.layoutFrame)
+        abEvidence["surfaceBounds"] = rect(surface.bounds)
+        abEvidence["surfaceFrameInRoot"] = rect(surface.convert(surface.bounds, to: view))
+        abEvidence["rootHeightConstraintMode"] = heightConstraint.map { String(describing: $0.relation) } ?? "missing"
+        abEvidence["rootHeightConstraintConstant"] = Double(heightConstraint?.constant ?? -1)
+        abEvidence["rootHeightConstraintPriority"] = Double(heightConstraint?.priority.rawValue ?? -1)
+        if let constraint = heightConstraint {
+            abEvidence["rootHeightConstraintRelationRawValue"] = constraint.relation.rawValue
+            abEvidence["rootHeightConstraintIsActive"] = constraint.isActive
+            abEvidence["rootHeightConstraintFirstItemIsRoot"] = (constraint.firstItem as? UIView) === view
+            abEvidence["rootHeightConstraintSecondItemIsNil"] = constraint.secondItem == nil
+            abEvidence["rootHeightConstraintFirstAttributeRawValue"] = constraint.firstAttribute.rawValue
+        } else {
+            abEvidence["rootHeightConstraintRelationRawValue"] = NSNull()
+            abEvidence["rootHeightConstraintIsActive"] = false
+            abEvidence["rootHeightConstraintFirstItemIsRoot"] = false
+            abEvidence["rootHeightConstraintSecondItemIsNil"] = NSNull()
+            abEvidence["rootHeightConstraintFirstAttributeRawValue"] = NSNull()
+        }
         abEvidence["rootClipsToBounds"] = view.clipsToBounds
         abEvidence["rootLayerMasksToBounds"] = view.layer.masksToBounds
         abEvidence["rootIsOpaque"] = view.isOpaque
@@ -209,8 +246,64 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         abEvidence["rootBackdropLayerMasksToBounds"] = rootBackdrop.layer.masksToBounds
         abEvidence["rootBackdropIsOpaque"] = rootBackdrop.isOpaque
         abEvidence["rootBackdropBackgroundRGBA"] = resolvedRGBA(rootBackdrop.backgroundColor, traits: rootBackdrop.traitCollection)
+        // Only these two direct children belong to our GlassBackdrop. Do not
+        // inspect UIKit's effect internals, host shell or private ancestors.
+        abEvidence["ownedBackdropReadScope"] = "two-direct-owned-children-only"
+        abEvidence["ownedBackdropChildCount"] = rootBackdrop.subviews.count
+        abEvidence["ownedBackdropChildren"] = Array(rootBackdrop.subviews.prefix(2)).enumerated().map { pair -> [String: Any] in
+            let (index, child) = pair
+            var childEvidence: [String: Any] = [
+                "role": index == 0 ? "material" : "wash",
+                "publicClass": String(describing: type(of: child)),
+                "bounds": rect(child.bounds),
+                "frameInBackdrop": rect(child.frame),
+                "alpha": Double(child.alpha),
+                "isHidden": child.isHidden,
+                "isOpaque": child.isOpaque,
+                "clipsToBounds": child.clipsToBounds,
+                "layerMasksToBounds": child.layer.masksToBounds,
+                "backgroundRGBA": resolvedRGBA(child.backgroundColor, traits: child.traitCollection)
+            ]
+            if let effectView = child as? UIVisualEffectView {
+                childEvidence["expectedOwnedRoleType"] = index == 0
+                childEvidence["effectPresent"] = effectView.effect != nil
+                childEvidence["effectPublicClass"] = effectView.effect.map { String(describing: type(of: $0)) } ?? "none"
+            } else {
+                childEvidence["expectedOwnedRoleType"] = index == 1
+                childEvidence["effectPresent"] = false
+                childEvidence["effectPublicClass"] = "not-an-effect-view"
+            }
+            if let mask = child.mask {
+                childEvidence["maskBounds"] = rect(mask.bounds)
+                childEvidence["maskFrame"] = rect(mask.frame)
+                childEvidence["maskAlpha"] = Double(mask.alpha)
+                childEvidence["maskBackgroundRGBA"] = resolvedRGBA(mask.backgroundColor, traits: mask.traitCollection)
+            } else {
+                childEvidence["maskBounds"] = NSNull()
+                childEvidence["maskFrame"] = NSNull()
+                childEvidence["maskAlpha"] = NSNull()
+                childEvidence["maskBackgroundRGBA"] = NSNull()
+            }
+            if let window = view.window {
+                childEvidence["frameInWindow"] = rect(child.convert(child.bounds, to: window))
+            } else { childEvidence["frameInWindow"] = NSNull() }
+            return childEvidence
+        }
+        // Appearance inputs only. No draft, candidates, proxy or typed content.
+        abEvidence["backgroundAppearanceInputs"] = [
+            "glass": model.settings.glass.rawValue,
+            "backgroundResolvedStrength": model.settings.resolvedBackgroundGlassStrength,
+            "backgroundStrengthWasExplicit": model.settings.backgroundGlassStrength != nil,
+            "backgroundHex": model.settings.backgroundColorHex ?? "auto",
+            "glassOpacity": model.settings.glassOpacity,
+            "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
+            "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled
+        ] as [String: Any]
         if let window = view.window {
             let windowInsets = window.safeAreaInsets
+            abEvidence["windowSafeAreaLayoutFrame"] = rect(window.safeAreaLayoutGuide.layoutFrame)
+            abEvidence["windowKeyboardLayoutFrame"] = rect(window.keyboardLayoutGuide.layoutFrame)
+            abEvidence["surfaceFrameInWindow"] = rect(surface.convert(surface.bounds, to: window))
             abEvidence["rootFrameInWindow"] = rect(view.convert(view.bounds, to: window))
             abEvidence["rootBackdropFrameInWindow"] = rect(rootBackdrop.convert(rootBackdrop.bounds, to: window))
             abEvidence["windowSafeAreaInsets"] = [Double(windowInsets.top), Double(windowInsets.left), Double(windowInsets.bottom), Double(windowInsets.right)]
@@ -226,6 +319,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             abEvidence["windowIsOpaque"] = NSNull()
         }
         if let actualInputView = inputView {
+            abEvidence["inputViewAllowsSelfSizing"] = actualInputView.allowsSelfSizing
             abEvidence["inputViewClass"] = String(describing: type(of: actualInputView))
             abEvidence["inputViewStyle"] = actualInputView.inputViewStyle.rawValue
         } else {
@@ -250,8 +344,16 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if abs((surfaceHeightConstraint?.constant ?? 0) - height) > 0.5 { surfaceHeightConstraint?.constant = height }
         view.translatesAutoresizingMaskIntoConstraints = false
         if heightConstraint == nil {
+#if DEBUG && SHELL_AB_HOST_SIZED_ROOT
+            // A minimum protects keys without asserting that content height is
+            // the full allocated backdrop height. Do not use a window, native
+            // shell, historical 17pt cap or footer constant as the root size.
+            let constraint = view.heightAnchor.constraint(greaterThanOrEqualToConstant: height)
+            constraint.identifier = "clear.keyboard.minimum-content-height"
+#else
             let constraint = view.heightAnchor.constraint(equalToConstant: height)
             constraint.identifier = "clear.keyboard.content-height"
+#endif
             constraint.priority = .required; constraint.isActive = true; heightConstraint = constraint
         } else if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
         let hostWidth = KeyboardGeometry.fittingWidth(primary: view.bounds.width,
@@ -265,7 +367,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             constraint.identifier = "clear.keyboard.system-width"; constraint.priority = .defaultHigh
             constraint.isActive = true; widthConstraint = constraint
         } else if abs((widthConstraint?.constant ?? 0) - hostWidth) > 0.5 { widthConstraint?.constant = hostWidth }
+#if DEBUG && SHELL_AB_HOST_SIZED_ROOT
+        // UIKit chooses from the current layout instead of being told to use
+        // our exact fitting height. This is not a promise of any extra area.
+        if inputView?.allowsSelfSizing != false { inputView?.allowsSelfSizing = false }
+#else
         if inputView?.allowsSelfSizing != true { inputView?.allowsSelfSizing = true }
+#endif
     }
     override func viewWillDisappear(_ animated: Bool) {
         hostActive = false

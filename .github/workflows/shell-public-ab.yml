@@ -22,6 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - recipe: host-sized-default-root
+            condition: SHELL_AB_HOST_SIZED_ROOT
           - recipe: keyboard-root
             condition: SHELL_AB_KEYBOARD_ROOT
     env:
@@ -41,13 +43,15 @@ jobs:
           python3 - <<'PY'
           import hashlib,json,os,subprocess
           from pathlib import Path
-          conditions={'default-root':'SHELL_AB_DEFAULT_ROOT','keyboard-root':'SHELL_AB_KEYBOARD_ROOT'}
+          conditions={'host-sized-default-root':'SHELL_AB_HOST_SIZED_ROOT','keyboard-root':'SHELL_AB_KEYBOARD_ROOT'}
           recipe=os.environ['CLEAR_SHELL_AB_RECIPE']
           assert conditions[recipe]==os.environ['CLEAR_SHELL_AB_CONDITION']
           report=dict(schema=1,recipe=recipe,compilationConditions=['DEBUG',conditions[recipe]],
               sourceCommit=os.environ['GITHUB_SHA'],rootTint='#558DF2',
               productionSourceBaseline='23d8335f54310ea1d197d26c059ba43635ef54d4',
-              diagnosticScope='Mandatory Safari English/Emoji/focused-Home transitions; optional App HEX excluded under AB flags',
+              diagnosticScope='Mandatory Safari English/Emoji/focused-Home transitions; required actual sizing/material metadata; optional App HEX excluded under AB flags',
+              comparison='host-sized default style0 versus AB5 fixed default style0; parallel controlled fixed keyboard style1 repeat',
+              wholeCoverageResolved=False,geometryVerified=False,
               controllerSHA256=hashlib.sha256(Path('KeyboardExtension/KeyboardViewController.swift').read_bytes()).hexdigest(),
               resourceProfile='standard-prepare-rime-without-CoreML-export',
               simulatedChromeUsed=False,physicalDeviceTestRun=False,nativeChromeGeometryFixed=False,
@@ -130,8 +134,17 @@ jobs:
           xcrun xcresulttool get test-results summary --path .build/KeyboardShellResults.xcresult > .build/KeyboardShell/result-summary.json || true
           xcrun xcresulttool get test-results tests --path .build/KeyboardShellResults.xcresult > .build/KeyboardShell/result-tests.json || true
           xcrun xcresulttool export attachments --path .build/KeyboardShellResults.xcresult --output-path .build/KeyboardShell/Images || true
+          set +e
           xcrun simctl spawn "$TEST_DEVICE" log show --last 10m --style compact \
-            --predicate 'process == "ClearKeyboardExtension"' > .build/KeyboardShell/extension-process.log 2>&1 || true
+            --predicate 'process == "ClearKeyboardExtension"' > .build/KeyboardShell/extension-process.log 2>&1
+          EXTENSION_LOG_EXIT=$?
+          xcrun simctl spawn "$TEST_DEVICE" log show --last 10m --style compact \
+            --predicate 'eventMessage CONTAINS "Unable to simultaneously satisfy constraints" OR eventMessage CONTAINS "CLEAR_KEYBOARD_LAYOUT"' \
+            > .build/KeyboardShell/constraints-and-layout.log 2>&1
+          LAYOUT_LOG_EXIT=$?
+          printf '{"extensionLogExportExitCode":%s,"constraintLayoutLogExportExitCode":%s,"scope":"raw-public-simulator-logs-not-automatically-attributed-to-extension"}\n' \
+            "$EXTENSION_LOG_EXIT" "$LAYOUT_LOG_EXIT" > .build/KeyboardShell/log-export-status.json
+          set -e
           if [[ -f .build/KeyboardShell/result-summary.json ]]; then cat .build/KeyboardShell/result-summary.json; fi
           exit "$TEST_EXIT"
       - name: Upload the recipe evidence even when activation or measurement fails
