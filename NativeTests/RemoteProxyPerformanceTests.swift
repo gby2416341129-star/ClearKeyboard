@@ -564,7 +564,10 @@ import SwiftUI
     func testVisibleCandidateCannotInsertAtAMovedCaretBeforeIdleReconciliationInRealUITextView() async throws {
         try await assertImmediateExternalSelectionRejectsOldCandidate(NSRange(location: 0, length: 0), name: "moved-caret")
     }
-    private func assertImmediateExternalSelectionRejectsOldCandidate(_ range: NSRange, name: String) async throws {
+    func testSpaceCannotReplaceANewSelectionBeforeIdleReconciliationInRealUITextView() async throws {
+        try await assertImmediateExternalSelectionRejectsOldCandidate(NSRange(location: 0, length: 2), name: "space-selected-prefix", space: true)
+    }
+    private func assertImmediateExternalSelectionRejectsOldCandidate(_ range: NSRange, name: String, space: Bool = false) async throws {
         let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
         proxy.textView.text = "前文🙂｜后文🙂"
         proxy.textView.selectedRange = NSRange(location: "前文🙂".utf16.count, length: 0)
@@ -581,9 +584,11 @@ import SwiftUI
         let preservedText = try XCTUnwrap(proxy.textView.text), preservedSelection = proxy.textView.selectedRange
         let inserts = proxy.insertedTexts.count, deletes = proxy.deleteWrites
         controller.selectionDidChange(nil)
-        // Tap in this same turn, before the normal 350ms host read. Both of the
-        // model's 16ms validation retries must remain unable to modify the field.
-        model.chooseDisplayed(candidate, context: context)
+        // Commit in this same turn, before the normal 350ms host read. Explicit
+        // candidate activation may retry twice at 16ms; Space uses the separate
+        // commitComposition path and must enforce the same selection boundary.
+        if space { model.handle(.space) }
+        else { model.chooseDisplayed(candidate, context: context) }
         XCTAssertEqual(proxy.textView.text, preservedText)
         XCTAssertEqual(proxy.textView.selectedRange, preservedSelection)
         try await Task.sleep(nanoseconds: 90_000_000)
@@ -597,7 +602,7 @@ import SwiftUI
         XCTAssertEqual(proxy.insertedTexts.count, inserts); XCTAssertEqual(proxy.deleteWrites, deletes)
         XCTAssertEqual(proxy.textView.text, preservedText)
         XCTAssertEqual(proxy.textView.selectedRange, preservedSelection)
-        print("CANDIDATE_SELECTION_SAFETY actualUITextView=true case=\(name) immediateTap=true retriesChecked=2 chineseInsertions=0 hostDeletes=0")
+        print("CANDIDATE_SELECTION_SAFETY actualUITextView=true case=\(name) immediateCommit=true retriesChecked=\(space ? 0 : 2) chineseInsertions=0 hostDeletes=0")
     }
     func testMarkedTextBurstSendsLatestSpellingAndCommitFlushesInOrder() async throws {
         let proxy = DelayedDocumentProxy(), controller = ProxyKeyboardController()

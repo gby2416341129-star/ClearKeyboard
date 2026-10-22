@@ -319,6 +319,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         commitMarkedText(text, remaining: "")
     }
     @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool {
+        // Space, punctuation and mode changes can commit without a ribbon tap.
+        // Give those entry points the same unresolved-selection protection.
+        if candidateSelectionNeedsValidation,
+           !validateCandidate(before: contextBefore, after: contextAfter, identity: documentIdentity) {
+            model?.cursorChanged(unmarkDraft: false)
+            return false
+        }
         beginHostWrite(); defer { endHostWrite() }
         let originalState = hostState, notifications = hostNotificationRevision
         markedFrame.cancel(); pendingMarkedText.discard()
