@@ -10,6 +10,7 @@ import UIKit
     private var discrepancies: [String] = []
     private var hostLimitations: [String] = []
     private var settingsListVerified = false
+    private var settingsNativeListVerifiedBeforeAdd = false
     private var settingsAddPerformed = false
     private var started = Date()
     private struct EvidenceUnavailable: Error, CustomStringConvertible {
@@ -60,12 +61,21 @@ import UIKit
         app.cells.staticTexts.matching(identifier: label).firstMatch
     }
     private func tapSettingsText(_ label: String, in app: XCUIApplication) throws {
-        let target = settingsText(label, in: app)
-        reveal(target, in: app)
-        guard target.waitForExistence(timeout: 4), target.isHittable else {
-            throw unavailable("Settings row is unavailable: " + label, in: app)
+        // Settings rows can expose their title as StaticText, Button or
+        // Cell. All alternatives remain scoped to cells, never a nav title.
+        let exact = NSPredicate(format: "label == %@ OR identifier == %@", label, label)
+        let candidates = [settingsText(label, in: app),
+                          app.cells.matching(exact).firstMatch,
+                          app.cells.buttons.matching(exact).firstMatch]
+        // A virtualized row may not exist until scrolling creates it. Keep
+        // the original bounded reveal behavior across all scoped variants.
+        for attempt in 0...5 {
+            if let target = candidates.first(where: { $0.exists && $0.isHittable }) {
+                target.tap(); return
+            }
+            if attempt < 5 { app.swipeUp() }
         }
-        target.tap()
+        throw unavailable("Settings row is not hittable: " + label, in: app)
     }
     private func enableKeyboardInSystemSettings() throws {
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
@@ -73,8 +83,9 @@ import UIKit
         guard settings.wait(for: .runningForeground, timeout: 8) else {
             throw unavailable("System Settings did not enter the foreground", in: settings)
         }
-        let addPredicate = NSPredicate(format: "label BEGINSWITH %@", "Add New Keyboard")
-        func addRow() -> XCUIElement { settings.cells.staticTexts.matching(addPredicate).firstMatch }
+        // Observed iOS 26.4 AX: the enabled-list Add control is Cell
+        // AddNewKeyboard containing a Button, not a StaticText descendant.
+        func addRow() -> XCUIElement { settings.cells.matching(identifier: "AddNewKeyboard").firstMatch }
         let keyboardsRow = settings.cells.matching(identifier: "KEYBOARDS").firstMatch
         // Settings can restore a previous navigation stack. Walk back only
         // through its visible navigation control to a positively known page.
@@ -97,10 +108,23 @@ import UIKit
         guard addRow().waitForExistence(timeout: 6) else {
             throw unavailable("Settings exposed no enabled-keyboard list; preference readback is not UI activation proof", in: settings)
         }
-        let clearRow = settings.staticTexts.matching(NSPredicate(format: "label == '澈' OR label BEGINSWITH '澈 —' OR label BEGINSWITH '澈 -'")).firstMatch
-        guard !clearRow.exists else {
-            throw unavailable("Expected native-only simulator preparation before the actual Settings Add Keyboard action", in: settings)
+        // Initial native configuration is verified here in the actual UI,
+        // never inferred from an absent defaults key or prepared by mutation.
+        func listed(_ predicate: NSPredicate) -> Bool {
+            settings.cells.matching(predicate).firstMatch.exists ||
+            settings.cells.staticTexts.matching(predicate).firstMatch.exists ||
+            settings.cells.buttons.matching(predicate).firstMatch.exists
         }
+        let english = NSPredicate(format: "label BEGINSWITH[c] 'English'")
+        let emoji = NSPredicate(format: "label == 'Emoji'")
+        let clear = NSPredicate(format: "label == '澈' OR label BEGINSWITH '澈 —' OR label BEGINSWITH '澈 -'")
+        guard listed(english), listed(emoji), !listed(clear) else {
+            throw unavailable("Before Add, the actual enabled-keyboard list must contain English and Emoji with no 澈", in: settings)
+        }
+        settingsNativeListVerifiedBeforeAdd = true
+        screen("system-settings-native-keyboards-before-add")
+        attachTree(settings, "system-settings-native-keyboards-before-add")
+        print("KEYBOARD_SETTINGS_BEFORE_ADD english=true emoji=true clear=false preferenceReadbackAloneAccepted=false")
         addRow().tap()
         try tapSettingsText("澈", in: settings)
         settingsAddPerformed = true
@@ -115,13 +139,14 @@ import UIKit
             }
             back.tap()
         }
-        guard addRow().waitForExistence(timeout: 5), clearRow.waitForExistence(timeout: 5) else {
-            throw unavailable("澈 was not confirmed in the actual enabled-keyboard list", in: settings)
+        guard addRow().waitForExistence(timeout: 5) else {
+            throw unavailable("Could not confirm the enabled-keyboard list after Add", in: settings)
         }
-        let english = settings.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] 'English'")).firstMatch
-        let emoji = settings.staticTexts.matching(NSPredicate(format: "label == 'Emoji'")).firstMatch
-        guard english.exists, emoji.exists else {
-            throw unavailable("The Settings list must contain English, Emoji and 澈 for both transition tests", in: settings)
+        let added = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            listed(clear) && listed(english) && listed(emoji)
+        }, object: nil)
+        guard XCTWaiter.wait(for: [added], timeout: 5) == .completed else {
+            throw unavailable("The actual Settings list did not confirm English, Emoji and 澈 after Add", in: settings)
         }
         settingsListVerified = true
         screen("system-settings-enabled-keyboards")
@@ -331,6 +356,7 @@ import UIKit
                 "runtimeOS": UIDevice.current.systemVersion, "elapsedSeconds": Date().timeIntervalSince(started),
                 "verification": connected ? "installed-extension-system-picker-and-real-host-input" : "not-verified",
                 "systemSettingsKeyboardListVerified": settingsListVerified,
+                "systemSettingsNativeOnlyListVerifiedBeforeAdd": settingsNativeListVerifiedBeforeAdd,
                 "systemSettingsAddKeyboardPerformed": settingsAddPerformed,
                 "fullAccessChangedByDiagnostic": false,
                 "actualExtensionConnected": connected, "hostLimitations": hostLimitations,
@@ -359,14 +385,15 @@ import UIKit
             if safari.buttons[title].exists && safari.buttons[title].isHittable { safari.buttons[title].tap() }
         }
         // The workflow opens this existing local HTTP fixture before the test.
-        let search = safari.webViews.searchFields.matching(identifier: "Safari search size check").firstMatch
-        let fallback = safari.webViews.textFields.matching(identifier: "Safari search size check").firstMatch
+        let fieldLabel = NSPredicate(format: "label == %@", "Safari search size check")
+        let search = safari.webViews.searchFields.matching(fieldLabel).firstMatch
+        let fallback = safari.webViews.textFields.matching(fieldLabel).firstMatch
         let safariField = search.waitForExistence(timeout: 4) ? search : fallback
         guard safariField.waitForExistence(timeout: 5) else {
             throw unavailable("Safari HTTP fixture was not prepared", in: safari)
         }
         safariField.tap()
-        let focused = safari.webViews.staticTexts["Editing: Safari search size check"].firstMatch
+        let focused = safari.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "Editing: Safari search size check")).firstMatch
         guard focused.waitForExistence(timeout: 3) else {
             throw unavailable("The Safari DOM field, rather than the address bar, must own focus", in: safari)
         }

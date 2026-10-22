@@ -562,7 +562,7 @@ import SwiftUI
             snapshot(keyboardWindow, name: "public-input-host-context-\(style == .dark ? "dark" : "light")")
         }
     }
-    func testOwnedColorDoesNotPaintOutsideSimulatedHostBounds() async throws {
+    func testControlledInputHostKeepsOwnedFramesAndCapturesMaterialContext() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene), host = UIViewController()
@@ -570,7 +570,7 @@ import SwiftUI
         window.rootViewController = host; window.makeKeyAndVisible()
         defer { window.isHidden = true; previousWindow?.makeKey() }
         let caption = UILabel(frame: CGRect(x: 20, y: 42, width: 393, height: 48))
-        caption.text = "受控不透明底板：上 17pt / 下 74pt\n只检查自绘边界，非远程键盘宿主"
+        caption.text = "受控不透明底板：上 17pt / 下 74pt\n仅布局与材质参考，非远程键盘宿主"
         caption.numberOfLines = 2; caption.font = .systemFont(ofSize: 13); host.view.addSubview(caption)
         let controller = KeyboardViewController(nibName: nil, bundle: nil)
         host.addChild(controller); controller.loadViewIfNeeded()
@@ -624,19 +624,14 @@ import SwiftUI
                 backdrop.isHidden = true; let baseline = materialImage(shell)
                 backdrop.isHidden = false; let blended = materialImage(shell)
                 let x = shell.bounds.midX
-                // This fixture can establish only our drawing boundary. It
-                // deliberately makes no assertion that an external native shell
-                // acquired the selected skin color.
-                if material == .solid {
-                    // Exact pixel equality is meaningful for opaque drawing.
-                    // Live blur compositor samples are not a boundary oracle;
-                    // all variants still require the backdrop's explicit clip.
-                    for outside in [input.frame.minY - 1, input.frame.maxY + 1] {
-                        let actual = try materialPixel(blended, at: CGPoint(x: x, y: outside))
-                        let original = try materialPixel(baseline, at: CGPoint(x: x, y: outside))
-                        XCTAssertEqual(pixelDistance(actual, original), 0,
-                            "Owned backdrop drawing must leave the opaque external test pixels unchanged")
-                    }
+                // A whole UIInputView drawHierarchy snapshot at 1x can mix
+                // compositor changes with resampling beside a 3x owned edge.
+                // Keep these raw observations for diagnosis; they are neither
+                // an owner-only drawing oracle nor proof of native shell tint.
+                for outside in [input.frame.minY - 1, input.frame.maxY + 1] {
+                    let actual = try materialPixel(blended, at: CGPoint(x: x, y: outside))
+                    let original = try materialPixel(baseline, at: CGPoint(x: x, y: outside))
+                    print("CONTROLLED_INPUT_HOST_PIXEL style=\(style.rawValue) case=\(name) material=\(material) color=\(color ?? "default") sample=\(CGPoint(x: x, y: outside)) baselineRGBA=\(original) visibleRGBA=\(actual) maxRGBDelta=\(pixelDistance(actual, original)) rendererScale=1 screenScale=\(window.screen.scale) externalNativePaintOracle=false")
                 }
                 if name == "blue-solid" {
                     let center = try materialPixel(materialImage(backdrop), at: CGPoint(x: input.bounds.midX, y: input.bounds.midY))
@@ -648,6 +643,119 @@ import SwiftUI
                 }
                 snapshot(host.view, name: "controlled-owned-color-boundary-\(style == .dark ? "dark" : "light")-\(name)")
                 print("SIMULATED_MATERIAL_SHELL style=\(style.rawValue) case=\(name) cap=17 footer=74 root=\(input.frame) keyPitch=\(q.bounds.height) actualRemoteHostVerified=false")
+            }
+        }
+    }
+    func testSolidBackdropStaysWithinOwnedBoundsAtNativeScaleAndResets() throws {
+        let scale = UIScreen.main.scale
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 160, height: 128))
+        host.isOpaque = true
+        let backdrop = GlassBackdrop()
+        host.addSubview(backdrop)
+
+        struct Pixels {
+            let width: Int
+            let height: Int
+            let rgba: [UInt8]
+            func at(_ x: Int, _ y: Int) -> [UInt8] {
+                let index = (y * width + x) * 4
+                return Array(rgba[index..<(index + 4)])
+            }
+        }
+        func rendered() throws -> Pixels {
+            host.layoutIfNeeded(); backdrop.layoutIfNeeded()
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = scale; format.preferredRange = .standard; format.opaque = true
+            // No responder, UIInputView, live material, rounded shell, screenshot
+            // resampling or render-server snapshot participates in this oracle.
+            let image = UIGraphicsImageRenderer(bounds: host.bounds, format: format).image { context in
+                host.layer.render(in: context.cgContext)
+            }
+            let cg = try XCTUnwrap(image.cgImage)
+            XCTAssertEqual(cg.width, Int(host.bounds.width * scale))
+            XCTAssertEqual(cg.height, Int(host.bounds.height * scale))
+            var bytes = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+            try bytes.withUnsafeMutableBytes { raw in
+                let context = try XCTUnwrap(CGContext(data: raw.baseAddress,
+                    width: cg.width, height: cg.height, bitsPerComponent: 8,
+                    bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                context.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(cg.width), height: CGFloat(cg.height)))
+            }
+            return Pixels(width: cg.width, height: cg.height, rgba: bytes)
+        }
+
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            host.overrideUserInterfaceStyle = style
+            // Fixed opaque RGB colors keep the outside reference independent of
+            // a native material or an asynchronously resolved dynamic UIColor.
+            host.backgroundColor = style == .dark
+                ? UIColor(red: 23.0 / 255, green: 29.0 / 255, blue: 37.0 / 255, alpha: 1)
+                : UIColor(red: 241.0 / 255, green: 237.0 / 255, blue: 229.0 / 255, alpha: 1)
+            for size in [CGSize(width: 96, height: 64), CGSize(width: 112, height: 84), CGSize(width: 96, height: 64)] {
+                // Native-pixel-aligned and centered, including after resize back to
+                // the original size. No pixels straddle a fractional owned edge.
+                backdrop.frame = CGRect(x: (host.bounds.width - size.width) / 2,
+                                        y: (host.bounds.height - size.height) / 2,
+                                        width: size.width, height: size.height)
+                for value in [backdrop.frame.minX, backdrop.frame.minY,
+                              backdrop.frame.maxX, backdrop.frame.maxY] {
+                    XCTAssertEqual(value * scale, (value * scale).rounded(), accuracy: 0.0001)
+                }
+                var settings = testSettings()
+                settings.glass = .solid; settings.backgroundColorHex = "#0057FF"
+                backdrop.apply(settings, systemBacked: true)
+                backdrop.layoutIfNeeded()
+                XCTAssertTrue(backdrop.clipsToBounds)
+                XCTAssertTrue(backdrop.subviews.compactMap { $0 as? UIVisualEffectView }.allSatisfy { $0.effect == nil },
+                              "The deterministic layer-render oracle applies only to solid output")
+
+                backdrop.isHidden = true; let baseline = try rendered()
+                backdrop.isHidden = false; let painted = try rendered()
+                let minX = Int((backdrop.frame.minX * scale).rounded())
+                let minY = Int((backdrop.frame.minY * scale).rounded())
+                let maxX = Int((backdrop.frame.maxX * scale).rounded())
+                let maxY = Int((backdrop.frame.maxY * scale).rounded())
+                let band = 4 // Four physical pixels, not a guessed native cap size.
+                var changedOutside = 0
+                for y in (minY - band)..<(maxY + band) {
+                    for x in (minX - band)..<(maxX + band)
+                        where x < minX || x >= maxX || y < minY || y >= maxY {
+                        if painted.at(x, y) != baseline.at(x, y) { changedOutside += 1 }
+                    }
+                }
+                XCTAssertEqual(changedOutside, 0,
+                               "Every pixel in all four exterior bands must retain the opaque reference exactly")
+                // Inspect first/last interior pixel rows and columns as well as the
+                // center, so a blank or accidentally hidden backdrop cannot pass.
+                for y in [minY, (minY + maxY) / 2, maxY - 1] {
+                    for x in [minX, (minX + maxX) / 2, maxX - 1] {
+                        let blue = painted.at(x, y)
+                        XCTAssertLessThan(blue[0], 15); XCTAssertGreaterThan(blue[1], 70)
+                        XCTAssertLessThan(blue[1], 105); XCTAssertGreaterThan(blue[2], 240)
+                        XCTAssertEqual(blue[3], 255)
+                    }
+                }
+
+                // Sensitivity control: a known opaque sibling deliberately crosses
+                // every owned edge. It must change the exterior pixels. This guards
+                // the coordinate mapping and reference capture against a vacuous
+                // always-zero result, without changing the production backdrop.
+                let overdraw = UIView(frame: backdrop.frame.insetBy(dx: -2 / scale, dy: -2 / scale))
+                overdraw.backgroundColor = .magenta; overdraw.isOpaque = true
+                host.addSubview(overdraw)
+                let spilled = try rendered()
+                overdraw.removeFromSuperview()
+                for point in [(minX - 1, (minY + maxY) / 2), (maxX, (minY + maxY) / 2),
+                              ((minX + maxX) / 2, minY - 1), ((minX + maxX) / 2, maxY)] {
+                    XCTAssertNotEqual(spilled.at(point.0, point.1), baseline.at(point.0, point.1),
+                                      "The oracle must detect a known opaque spill on every side")
+                }
+
+                backdrop.apply(testSettings(), systemBacked: true)
+                let reset = try rendered()
+                XCTAssertEqual(reset.rgba, baseline.rgba,
+                               "Resetting the selected skin must restore the complete opaque reference, including interior pixels")
             }
         }
     }

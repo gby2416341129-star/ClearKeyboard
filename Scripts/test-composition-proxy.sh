@@ -81,7 +81,8 @@ xcrun xcresulttool get test-results summary --path .build/CompositionResults.xcr
 xcrun xcresulttool get test-results tests --path .build/CompositionResults.xcresult || true
 if [ "$TEST_EXIT" -ne 0 ]; then
   xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'CandidateAnimationRuntimeTests/testCandidateHandoffVisualSamplesAndSettledInk()' || true
-  xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'KeyboardRuntimeTests/testOwnedColorDoesNotPaintOutsideSimulatedHostBounds()' || true
+  xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'KeyboardRuntimeTests/testControlledInputHostKeepsOwnedFramesAndCapturesMaterialContext()' || true
+  xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'KeyboardRuntimeTests/testSolidBackdropStaysWithinOwnedBoundsAtNativeScaleAndResets()' || true
   xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'CustomizationRuntimeTests/testObservedAppearancePagesUpdateTheirActualRenderedKeyboard()' || true
   xcrun xcresulttool export diagnostics --path .build/CompositionResults.xcresult --output-path .build/CompositionDiagnostics || true
   python3 - <<'PY'
