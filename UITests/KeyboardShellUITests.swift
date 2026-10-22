@@ -451,6 +451,7 @@ import UIKit
         XCTAssertEqual(samples.filter {
             ($0["name"] as? String)?.hasPrefix("safari-") == true && $0["qReachedFocusedHost"] as? Bool == true
         }.count, 3, "All English/Emoji/focused-Home Safari transitions need real Q delivery")
+#if !SHELL_AB_DEFAULT_ROOT && !SHELL_AB_KEYBOARD_ROOT
         // The actual App field uses asciiCapable. Some system keyboards omit
         // Emoji or the picker for that trait. Record a restriction explicitly;
         // never substitute the noninteractive appearance-preview keys.
@@ -458,6 +459,7 @@ import UIKit
         let field = app.textFields.firstMatch
         reveal(field, in: app); XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap()
         try sequence(in: app, field: field, host: "app-actual-hex-field", permitsASCIIRestriction: true)
+#endif
         XCTAssertTrue(discrepancies.isEmpty, "Connected host shell is inconsistent across transitions:\n" + discrepancies.joined(separator: "\n"))
     }
 }

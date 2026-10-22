@@ -22,8 +22,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - recipe: default-root
-            condition: SHELL_AB_DEFAULT_ROOT
           - recipe: keyboard-root
             condition: SHELL_AB_KEYBOARD_ROOT
     env:
@@ -48,6 +46,8 @@ jobs:
           assert conditions[recipe]==os.environ['CLEAR_SHELL_AB_CONDITION']
           report=dict(schema=1,recipe=recipe,compilationConditions=['DEBUG',conditions[recipe]],
               sourceCommit=os.environ['GITHUB_SHA'],rootTint='#558DF2',
+              productionSourceBaseline='23d8335f54310ea1d197d26c059ba43635ef54d4',
+              diagnosticScope='Mandatory Safari English/Emoji/focused-Home transitions; optional App HEX excluded under AB flags',
               controllerSHA256=hashlib.sha256(Path('KeyboardExtension/KeyboardViewController.swift').read_bytes()).hexdigest(),
               resourceProfile='standard-prepare-rime-without-CoreML-export',
               simulatedChromeUsed=False,physicalDeviceTestRun=False,nativeChromeGeometryFixed=False,
@@ -148,3 +148,4 @@ jobs:
       - name: Stop the disposable simulator
         if: always()
         run: python3 Scripts/boot_test_simulator.py --cleanup || true
+

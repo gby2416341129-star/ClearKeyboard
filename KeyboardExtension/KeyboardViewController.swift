@@ -194,6 +194,44 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         abEvidence["shellABActualRootRGBA"] = hasRGBA ? [Double(red), Double(green), Double(blue), Double(alpha)] : []
         abEvidence["shellABActualRootClass"] = String(describing: type(of: view!))
         abEvidence["shellABActualInputViewStyle"] = inputView?.inputViewStyle.rawValue ?? -1
+        // Read-only extension-owned geometry and UIWindow diagnostics.
+        // Nothing here changes the window, ancestors, clipping or material.
+        func resolvedRGBA(_ color: UIColor?, traits: UITraitCollection) -> [Double] {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            guard color?.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a) == true else { return [] }
+            return [Double(r), Double(g), Double(b), Double(a)]
+        }
+        abEvidence["rootClipsToBounds"] = view.clipsToBounds
+        abEvidence["rootLayerMasksToBounds"] = view.layer.masksToBounds
+        abEvidence["rootIsOpaque"] = view.isOpaque
+        abEvidence["rootBackdropBounds"] = rect(rootBackdrop.bounds)
+        abEvidence["rootBackdropClipsToBounds"] = rootBackdrop.clipsToBounds
+        abEvidence["rootBackdropLayerMasksToBounds"] = rootBackdrop.layer.masksToBounds
+        abEvidence["rootBackdropIsOpaque"] = rootBackdrop.isOpaque
+        abEvidence["rootBackdropBackgroundRGBA"] = resolvedRGBA(rootBackdrop.backgroundColor, traits: rootBackdrop.traitCollection)
+        if let window = view.window {
+            let windowInsets = window.safeAreaInsets
+            abEvidence["rootFrameInWindow"] = rect(view.convert(view.bounds, to: window))
+            abEvidence["rootBackdropFrameInWindow"] = rect(rootBackdrop.convert(rootBackdrop.bounds, to: window))
+            abEvidence["windowSafeAreaInsets"] = [Double(windowInsets.top), Double(windowInsets.left), Double(windowInsets.bottom), Double(windowInsets.right)]
+            abEvidence["windowBackgroundRGBA"] = resolvedRGBA(window.backgroundColor, traits: window.traitCollection)
+            abEvidence["windowHasBackgroundColor"] = window.backgroundColor != nil
+            abEvidence["windowIsOpaque"] = window.isOpaque
+        } else {
+            abEvidence["rootFrameInWindow"] = NSNull()
+            abEvidence["rootBackdropFrameInWindow"] = NSNull()
+            abEvidence["windowSafeAreaInsets"] = NSNull()
+            abEvidence["windowBackgroundRGBA"] = NSNull()
+            abEvidence["windowHasBackgroundColor"] = false
+            abEvidence["windowIsOpaque"] = NSNull()
+        }
+        if let actualInputView = inputView {
+            abEvidence["inputViewClass"] = String(describing: type(of: actualInputView))
+            abEvidence["inputViewStyle"] = actualInputView.inputViewStyle.rawValue
+        } else {
+            abEvidence["inputViewClass"] = NSNull()
+            abEvidence["inputViewStyle"] = NSNull()
+        }
         abEvidence["shellABUsesOnlyPublicRootAPI"] = true
         abEvidence["shellABExternalChromeModified"] = false
         if let data = try? JSONSerialization.data(withJSONObject: abEvidence, options: [.sortedKeys]),
@@ -642,3 +680,4 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         return true
     }
 }
+
