@@ -6,6 +6,16 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var model: KeyboardModel!
     private var surface: KeyboardSurface!
     private let rootBackdrop = GlassBackdrop()
+#if DEBUG && SHELL_CUSTOM_BACKGROUND
+    private var customBackgroundQueries = 0
+    // Isolated compatibility experiment for the selector found in the installed
+    // iOS 27 runtime. Never included in an IPA or normal Release configuration.
+    @objc(_usesCustomBackground) dynamic func diagnosticUsesCustomBackground() -> Bool {
+        customBackgroundQueries += 1
+        NSLog("CUSTOM_BACKGROUND_QUERY count=%d result=1", customBackgroundQueries)
+        return true
+    }
+#endif
 #if DEBUG && SHELL_OVERSCAN
     private let overscanPaint = UIView()
 #endif
@@ -240,6 +250,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let color = view.backgroundColor?.resolvedColor(with: traitCollection)
         let hasRGBA = color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true
         abEvidence["shellABRecipe"] = shellABRecipe
+#if SHELL_CUSTOM_BACKGROUND
+        abEvidence["customBackgroundHookQueries"] = customBackgroundQueries
+        abEvidence["customBackgroundHookResult"] = true
+#endif
+#if SHELL_OVERSCAN
+        abEvidence["overscanRequestedFrame"] = rect(overscanPaint.frame)
+#endif
 #if SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
         abEvidence["shellABRequestedRootHex"] = "clear"
 #else
