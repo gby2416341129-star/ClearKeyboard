@@ -56,7 +56,17 @@ int main(int argc, char **argv) {
             protocols[name] = entries;
         }
         free(plist);
-        NSDictionary *report = @{@"os":NSProcessInfo.processInfo.operatingSystemVersionString, @"classes":classes, @"protocols":protocols, @"metadataOnly":@YES};
+        NSMutableDictionary *bodies = [NSMutableDictionary new];
+        for (NSArray *entry in @[@[@"UIInputViewController", @"_usesCustomBackground"], @[@"UIInputView", @"_additionalClipHeight"], @[@"UIInputView", @"backgroundEdgeInsets"], @[@"UIInputView", @"_suppressBackgroundStyling"]]) {
+            Method method = class_getInstanceMethod(NSClassFromString(entry[0]), NSSelectorFromString(entry[1]));
+            if (!method) continue;
+            IMP implementation = method_getImplementation(method);
+            const unsigned char *bytes = (const unsigned char *)implementation;
+            NSMutableString *hex = [NSMutableString new];
+            for (NSUInteger i = 0; i < 192; i++) [hex appendFormat:@"%02x", bytes[i]];
+            bodies[[entry componentsJoinedByString:@" "]] = @{@"type":@(method_getTypeEncoding(method)), @"arm64Code192Bytes":hex};
+        }
+        NSDictionary *report = @{@"os":NSProcessInfo.processInfo.operatingSystemVersionString, @"classes":classes, @"protocols":protocols, @"metadataOnly":@YES, @"methodBodies":bodies};
         NSError *error = nil;
         NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted | NSJSONWritingSortedKeys error:&error];
         if (!data) { fprintf(stderr, "%s\n", error.description.UTF8String); return 1; }
