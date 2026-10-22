@@ -50,7 +50,11 @@ jobs:
               sourceCommit=os.environ['GITHUB_SHA'],rootTint='#558DF2',
               controllerSHA256=hashlib.sha256(Path('KeyboardExtension/KeyboardViewController.swift').read_bytes()).hexdigest(),
               resourceProfile='standard-prepare-rime-without-CoreML-export',
-              simulatedChromeUsed=False,physicalDeviceTestRun=False,nativeChromeGeometryFixed=False)
+              simulatedChromeUsed=False,physicalDeviceTestRun=False,nativeChromeGeometryFixed=False,
+              evidencePolicy=dict(staticAttachmentsPreserved=True,xcresultBundleUploaded=False,
+                  screenRecordingsUploaded=False,
+                  omitted=['duplicate xcresult bundle','exported MP4 screen recordings'],
+                  reason='Keep every exported PNG, AX/text, manifest, result JSON and log without duplicate video/bundle payloads'))
           Path('.build/ShellAB/recipe.json').write_text(json.dumps(report,indent=2)+'\n')
           print('SHELL_PUBLIC_AB_RECIPE '+json.dumps(report),flush=True)
           inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j'],text=True))
@@ -138,7 +142,7 @@ jobs:
           path: |
             .build/ShellAB
             .build/KeyboardShell
-            .build/KeyboardShellResults.xcresult
+            !.build/KeyboardShell/**/*.mp4
           if-no-files-found: error
           retention-days: 7
       - name: Stop the disposable simulator

@@ -60,12 +60,21 @@ import UIKit
         app.cells.staticTexts.matching(identifier: label).firstMatch
     }
     private func tapSettingsText(_ label: String, in app: XCUIApplication) throws {
-        let target = settingsText(label, in: app)
-        reveal(target, in: app)
-        guard target.waitForExistence(timeout: 4), target.isHittable else {
-            throw unavailable("Settings row is unavailable: " + label, in: app)
+        // Settings rows can expose their title as StaticText, Button or
+        // Cell. All alternatives remain scoped to cells, never a nav title.
+        let exact = NSPredicate(format: "label == %@ OR identifier == %@", label, label)
+        let candidates = [settingsText(label, in: app),
+                          app.cells.matching(exact).firstMatch,
+                          app.cells.buttons.matching(exact).firstMatch]
+        // A virtualized row may not exist until scrolling creates it. Keep
+        // the original bounded reveal behavior across all scoped variants.
+        for attempt in 0...5 {
+            if let target = candidates.first(where: { $0.exists && $0.isHittable }) {
+                target.tap(); return
+            }
+            if attempt < 5 { app.swipeUp() }
         }
-        target.tap()
+        throw unavailable("Settings row is not hittable: " + label, in: app)
     }
     private func enableKeyboardInSystemSettings() throws {
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
@@ -73,8 +82,9 @@ import UIKit
         guard settings.wait(for: .runningForeground, timeout: 8) else {
             throw unavailable("System Settings did not enter the foreground", in: settings)
         }
-        let addPredicate = NSPredicate(format: "label BEGINSWITH %@", "Add New Keyboard")
-        func addRow() -> XCUIElement { settings.cells.staticTexts.matching(addPredicate).firstMatch }
+        // Observed iOS 26.4 AX: the enabled-list Add control is Cell
+        // AddNewKeyboard containing a Button, not a StaticText descendant.
+        func addRow() -> XCUIElement { settings.cells.matching(identifier: "AddNewKeyboard").firstMatch }
         let keyboardsRow = settings.cells.matching(identifier: "KEYBOARDS").firstMatch
         // Settings can restore a previous navigation stack. Walk back only
         // through its visible navigation control to a positively known page.

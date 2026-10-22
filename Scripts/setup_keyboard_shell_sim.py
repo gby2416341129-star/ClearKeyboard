@@ -102,6 +102,30 @@ def prepare(args, report):
     actual = report["keyboardsAfterRestart"] or []
     if extension_id in actual or not any(item.startswith("en_") for item in actual) or not any(item.startswith("emoji@") for item in actual):
         raise RuntimeError("Native-only keyboard preparation did not survive simulator restart")
+    # A rendered SpringBoard does not prove LaunchServices is ready after
+    # this second reboot. Require the real app-service inventory before the
+    # workflow attempts openurl or the Settings UI. Do not retry URLs blindly.
+    report["appServiceReadiness"] = dict(listappsCompleted=False,
+                                         preferencesInstalled=False, safariInstalled=False,
+                                         timeoutSeconds=45)
+    try:
+        listed = sim(args.device, "listapps", timeout=45, check=False)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Restarted simulator app-service inventory timed out after 45 seconds") from error
+    if listed.returncode:
+        raise RuntimeError("Restarted simulator app-service inventory failed: " + listed.stderr[-800:])
+    converted = subprocess.run(["/usr/bin/plutil", "-convert", "json", "-o", "-", "--", "-"],
+                               input=listed.stdout, capture_output=True, text=True, timeout=15)
+    if converted.returncode:
+        raise RuntimeError("Could not decode restarted simulator app-service inventory: " + converted.stderr[-800:])
+    apps = json.loads(converted.stdout)
+    if not isinstance(apps, dict):
+        raise RuntimeError("Restarted simulator app-service inventory is not a dictionary")
+    app_service = dict(listappsCompleted=True, preferencesInstalled="com.apple.Preferences" in apps,
+                       safariInstalled="com.apple.mobilesafari" in apps, timeoutSeconds=45)
+    report["appServiceReadiness"] = app_service
+    if not app_service["preferencesInstalled"] or not app_service["safariInstalled"]:
+        raise RuntimeError("Restarted simulator app services did not register both Settings and Safari")
     readiness = args.output.parent / "keyboard-shell-readiness.png"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(4):
