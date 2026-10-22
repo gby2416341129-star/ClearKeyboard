@@ -625,5 +625,32 @@ import UIKit
 #endif
         XCTAssertTrue(discrepancies.isEmpty, "Connected host shell is inconsistent across transitions:\n" + discrepancies.joined(separator: "\n"))
     }
+#if SHELL_NATIVE_HOST
+    func testConnectedNativeEditorBackground() throws {
+        continueAfterFailure = false; started = Date()
+        let app = clear
+        app.launchArguments = ["--shell-native-host"]
+        defer {
+            screen("native-host-final-state")
+            attachJSON(["schema": 1, "host": "native-containing-app-editor",
+                "samples": samples, "geometryDiscrepancies": discrepancies,
+                "runtimeOS": UIDevice.current.systemVersion,
+                "systemSettingsAddKeyboardPerformed": settingsAddPerformed,
+                "localKeyboardOrShellDrawn": false, "SafariTestRun": false,
+                "coverageResolved": false, "physicalDeviceTestRun": false],
+                name: "native-host-connected-measurements")
+        }
+        app.launch()
+        try enableKeyboardInSystemSettings()
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        let field = app.textViews["shell.host.input"]
+        XCTAssertTrue(field.waitForExistence(timeout: 8)); field.tap()
+        try sequence(in: app, field: field, host: "native-app-field")
+        XCTAssertEqual(samples.filter { $0["qReachedFocusedHost"] as? Bool == true }.count, 3)
+        XCTAssertTrue(discrepancies.isEmpty)
+    }
+#endif
+
 }
 

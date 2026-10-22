@@ -1,8 +1,7 @@
 name: Verify keyboard background outsets and custom backdrop
 
 on:
-  push:
-    branches: [codex/keyboard-shell-public-ab-20261022]
+  workflow_dispatch:
 
 permissions:
   contents: read

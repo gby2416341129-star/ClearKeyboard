@@ -18,6 +18,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
 #endif
 #if DEBUG && SHELL_OVERSCAN
     private let overscanPaint = UIView()
+    private weak var configuredOverscanWindow: UIWindow?
+    private var overscanLogCount = 0
 #endif
 #if DEBUG
     // Test evidence from the actual extension process, without exposing typed
@@ -201,11 +203,14 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // Diagnostic fixed extents only. Screenshots must establish whether
         // the compositor accepts them and whether the native globe stays usable.
         // Do not infer the actual shell allocation from these requested bounds.
-        overscanPaint.frame = view.bounds.insetBy(dx: -32, dy: -96)
-        view.clipsToBounds = false
-        view.window?.clipsToBounds = false
-        view.window?.isOpaque = false
-        view.window?.backgroundColor = .clear
+        let requestedPaintFrame = view.bounds.insetBy(dx: -32, dy: -96)
+        if overscanPaint.frame != requestedPaintFrame { overscanPaint.frame = requestedPaintFrame }
+        if let window = view.window, configuredOverscanWindow !== window {
+            configuredOverscanWindow = window
+            window.clipsToBounds = false
+            window.isOpaque = false
+            window.backgroundColor = .clear
+        }
 #endif
         // A cached host frame is provisional, especially when Safari changes input traits.
         // Keep the requested key pitch while UIKit negotiates the remote view's final height.
@@ -231,7 +236,10 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         }
         let inset = view.safeAreaInsets
 #if DEBUG && SHELL_OVERSCAN
+        if overscanLogCount < 8 {
+            overscanLogCount += 1
         NSLog("OVERSCAN_REQUEST root=%@ window=%@ paint=%@ windowClipped=%d", NSCoder.string(for: view.bounds), NSCoder.string(for: view.window?.bounds ?? .zero), NSCoder.string(for: overscanPaint.frame), view.window?.clipsToBounds == true ? 1 : 0)
+        }
 #endif
         let evidence: [String: Any] = [
             "bundleExtension": Bundle.main.bundleURL.pathExtension,
@@ -255,6 +263,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         abEvidence["customBackgroundHookResult"] = true
 #endif
 #if SHELL_OVERSCAN
+        abEvidence["overscanWindowConfigured"] = configuredOverscanWindow === view.window
         abEvidence["overscanRequestedFrame"] = rect(overscanPaint.frame)
 #endif
 #if SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
