@@ -59,6 +59,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var deferredContext: CandidateContext?
     private var deferredActions: [KeyAction] = []
     private var deferredPreview: Composition?
+    private var deferredVisibleContext: CandidateContext?
     private var documentEditDepth = 0
     private var drainingDocumentKeys = false
     private var pendingDocumentKeys: [(KeyAction, String)] = []
@@ -415,9 +416,17 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 guard let self else { return }
                 switch result {
                 case .success(let engine):
+                    // Confirm can be pressed before engine startup completes.
+                    // Rebase only to the exact context our queued-letter preview
+                    // wrote, so loading cannot silently drop those later keys.
+                    if self.awaitingCommit {
+                        if self.deferredVisibleContext == self.activeCandidateContext() {
+                            self.deferredContext = self.deferredVisibleContext
+                        } else { self.cancelDeferredActions() }
+                    }
                     self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
                     self.resumeDeferredActions()
-                case .failure: self.engineState = "词库不可用 · 可继续输入英文"; self.onChange?()
+                case .failure: self.cancelDeferredActions(); self.engineState = "词库不可用 · 可继续输入英文"; self.onChange?()
                 }
             }
             if warm, case .success(let engine) = result {
@@ -555,10 +564,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if var preview = deferredPreview {
                 switch action {
                 case .text(let text) where text.first?.isLetter == true || text == "'":
-                    if preview.append(text) { deferredPreview = preview; document?.setMarkedText(composition.raw + preview.raw) }
+                    if preview.append(text) {
+                        deferredPreview = preview; document?.setMarkedText(composition.raw + preview.raw)
+                        deferredVisibleContext = activeCandidateContext()
+                    }
                 case .delete where !preview.raw.isEmpty:
                     preview.deleteBackward(); deferredPreview = preview
                     document?.setMarkedText(composition.raw + preview.raw)
+                    deferredVisibleContext = activeCandidateContext()
                 default: deferredPreview = nil
                 }
             }
@@ -783,17 +796,19 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
     }
     private func cancelDeferredActions() {
-        awaitingCommit = false; deferredContext = nil; deferredActions = []; deferredPreview = nil
+        awaitingCommit = false; deferredContext = nil; deferredActions = []; deferredPreview = nil; deferredVisibleContext = nil
     }
     private func deferUntilCandidates(_ action: KeyAction) {
         awaitingCommit = true; deferredContext = requestedContext; deferredActions.append(action)
         deferredPreview = Composition()
+        deferredVisibleContext = activeCandidateContext()
         // Reuse the in-flight current query. Cancelling it and enqueuing the
         // identical sentence again used to stall space and every following key.
     }
     private func resumeDeferredActions() {
         guard !awaitingCommit else { return }
         deferredPreview = nil
+        deferredVisibleContext = nil
         deferredContext = nil
         let pending = deferredActions; deferredActions = []
         for action in pending { handle(action) }
@@ -909,7 +924,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if deferredContext == context && !automaticChoiceIsReady { return }
         awaitingCommit = false
         if deferredContext == context { resumeDeferredActions() }
-        else { deferredActions = []; deferredContext = nil; deferredPreview = nil }
+        else { deferredActions = []; deferredContext = nil; deferredPreview = nil; deferredVisibleContext = nil }
     }
     private func trackPhrase(_ candidate: Candidate) -> PhraseLearning.Choice? {
         guard settings.learnChoices, let document else { phraseLearning.reset(); return nil }

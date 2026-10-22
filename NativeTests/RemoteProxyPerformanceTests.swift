@@ -1482,6 +1482,17 @@ import SwiftUI
         XCTAssertTrue(document.marked.isEmpty)
         model.handle(.enter)
         XCTAssertEqual(document.before, "你好\n", "An empty composition retains the editor's return behavior")
+        let coldDocument = WordLookupDocument()
+        let coldModel = KeyboardModel(document: coldDocument, settings: settings)
+        defer { coldModel.suspend() }
+        // No await: engine installation cannot have reached its main callback.
+        for letter in "nihao" { coldModel.handle(.text(String(letter))) }
+        coldModel.handle(.enter)
+        for letter in "zaijian" { coldModel.handle(.text(String(letter))) }
+        coldModel.handle(.space)
+        XCTAssertFalse(coldDocument.marked.isEmpty, "Startup must not commit queued spelling as literal text")
+        try await waitFor { coldDocument.before == "你好再见" && coldModel.composition.isEmpty }
+        XCTAssertTrue(coldDocument.marked.isEmpty, "Cold confirmation and queued letters must replay exactly once")
     }
     func testContextualShortSpellingDoesNotWaitForTheWordLookupWorker() async throws {
         let document = WordLookupDocument(); document.before = "办公"
