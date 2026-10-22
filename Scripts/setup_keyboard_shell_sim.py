@@ -26,21 +26,6 @@ def sim(device, *args, timeout=45, check=True):
     return command(["xcrun", "simctl", *args[:1], device, *args[1:]], timeout, check)
 
 
-def keyboard_preferences(device):
-    result = sim(device, "spawn", "defaults", "read", ".GlobalPreferences", "AppleKeyboards", check=False)
-    if result.returncode:
-        return None
-    # defaults prints an OpenStep plist; Apple's converter understands that form.
-    converted = subprocess.run(["/usr/bin/plutil", "-convert", "json", "-o", "-", "--", "-"],
-                               input=result.stdout, capture_output=True, text=True, timeout=15)
-    if converted.returncode:
-        raise RuntimeError("Could not decode simulator AppleKeyboards: " + converted.stderr[-800:])
-    value = json.loads(converted.stdout)
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise RuntimeError("Simulator AppleKeyboards is not a string array")
-    return value
-
-
 def info(path):
     with (path / "Info.plist").open("rb") as stream:
         return plistlib.load(stream)
@@ -77,55 +62,42 @@ def prepare(args, report):
                   preferenceIsTestInfrastructure=True, actualExtensionLaunched=False,
                   systemSettingsKeyboardListVerified=False, systemKeyboardPickerVerified=False,
                   preferenceWritesIncludeCustomKeyboard=False,
-                  registrationEvidence="Native-only preference preparation; UI tests must actually Add the custom keyboard in System Settings and prove extension input")
+                  registrationEvidence="Installed App and extension identity only; initial keyboard configuration is unverified until actual System Settings confirms English and Emoji without 澈, performs Add, and the extension delivers input")
     if device["state"] != "Booted":
-        sim(args.device, "boot", timeout=30)
-        sim(args.device, "bootstatus", "-b", timeout=120)
+        raise RuntimeError("Setup requires the already booted, readiness-checked simulator")
     sim(args.device, "install", str(app), timeout=90)
     installed = Path(sim(args.device, "get_app_container", app_id, "app").stdout.strip())
     installed_extension = installed / "PlugIns" / extension.name
     if info(installed_extension)["CFBundleIdentifier"] != extension_id:
         raise RuntimeError("Installed keyboard does not match the built extension")
-    report["keyboardsBefore"] = keyboard_preferences(args.device)
-    # Do not pre-enable the custom keyboard by writing its identifier. That
-    # readback did not establish actual service activation on the tested OS.
-    # The UI test must perform Add New Keyboard -> 澈 in System Settings.
-    wanted = ["en_US@sw=QWERTY;hw=Automatic", "emoji@sw=Emoji"]
-    sim(args.device, "spawn", "defaults", "write", ".GlobalPreferences", "AppleKeyboards", "-array", *wanted)
-    if keyboard_preferences(args.device) != wanted:
-        raise RuntimeError("Keyboard preference readback differs from the requested array")
-    # A full simulator restart is intentional: keyboard pickers cache this list.
-    sim(args.device, "shutdown", timeout=45)
-    sim(args.device, "boot", timeout=30)
-    sim(args.device, "bootstatus", "-b", timeout=120)
-    report["keyboardsAfterRestart"] = keyboard_preferences(args.device)
-    actual = report["keyboardsAfterRestart"] or []
-    if extension_id in actual or not any(item.startswith("en_") for item in actual) or not any(item.startswith("emoji@") for item in actual):
-        raise RuntimeError("Native-only keyboard preparation did not survive simulator restart")
-    # A rendered SpringBoard does not prove LaunchServices is ready after
-    # this second reboot. Require the real app-service inventory before the
-    # workflow attempts openurl or the Settings UI. Do not retry URLs blindly.
+    # Do not read or mutate AppleKeyboards and do not restart the simulator.
+    # The actual Settings UI must establish the initial native list and then
+    # perform Add; installation and an absent preference key prove neither.
+    report.update(keyboardPrefsReadback=None, keyboardPrefsReadbackStatus="unverified-not-read",
+                  initialNativeKeyboardListVerified=False,
+                  preferenceWritesPerformed=False, simulatorRestartPerformed=False)
+    # Recheck public app services after installation. No URL is retried blindly.
     report["appServiceReadiness"] = dict(listappsCompleted=False,
                                          preferencesInstalled=False, safariInstalled=False,
                                          timeoutSeconds=45)
     try:
         listed = sim(args.device, "listapps", timeout=45, check=False)
     except subprocess.TimeoutExpired as error:
-        raise RuntimeError("Restarted simulator app-service inventory timed out after 45 seconds") from error
+        raise RuntimeError("Booted simulator app-service inventory timed out after 45 seconds") from error
     if listed.returncode:
-        raise RuntimeError("Restarted simulator app-service inventory failed: " + listed.stderr[-800:])
+        raise RuntimeError("Booted simulator app-service inventory failed: " + listed.stderr[-800:])
     converted = subprocess.run(["/usr/bin/plutil", "-convert", "json", "-o", "-", "--", "-"],
                                input=listed.stdout, capture_output=True, text=True, timeout=15)
     if converted.returncode:
-        raise RuntimeError("Could not decode restarted simulator app-service inventory: " + converted.stderr[-800:])
+        raise RuntimeError("Could not decode booted simulator app-service inventory: " + converted.stderr[-800:])
     apps = json.loads(converted.stdout)
     if not isinstance(apps, dict):
-        raise RuntimeError("Restarted simulator app-service inventory is not a dictionary")
+        raise RuntimeError("Booted simulator app-service inventory is not a dictionary")
     app_service = dict(listappsCompleted=True, preferencesInstalled="com.apple.Preferences" in apps,
                        safariInstalled="com.apple.mobilesafari" in apps, timeoutSeconds=45)
     report["appServiceReadiness"] = app_service
     if not app_service["preferencesInstalled"] or not app_service["safariInstalled"]:
-        raise RuntimeError("Restarted simulator app services did not register both Settings and Safari")
+        raise RuntimeError("Booted simulator app services did not register both Settings and Safari")
     readiness = args.output.parent / "keyboard-shell-readiness.png"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(4):
@@ -136,10 +108,10 @@ def prepare(args, report):
             if png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) > 100:
                 width, height = struct.unpack(">II", png[16:24])
                 if width >= 300 and height >= 300:
-                    report.update(status="prepared-for-ui-enable", readinessPixels=[width, height], readinessAttempts=attempt + 1)
+                    report.update(status="installed-awaiting-system-settings-verification", readinessPixels=[width, height], readinessAttempts=attempt + 1)
                     return
         time.sleep(1)
-    raise RuntimeError("Restarted simulator did not provide a live SpringBoard and usable screenshot")
+    raise RuntimeError("Booted simulator did not provide a live SpringBoard and usable screenshot")
 
 
 def main():

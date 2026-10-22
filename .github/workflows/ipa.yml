@@ -103,6 +103,24 @@ jobs:
           xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
       - name: Start the required iOS 26 simulator and verify UI services
         run: python3 Scripts/boot_test_simulator.py
+      - name: Check the isolated solid boundary before the longer suites
+        run: |
+          TEST_DEVICE="$(cat .build/composition-device-id)"
+          xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime \
+            -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
+            -derivedDataPath .build/Composition -resultBundlePath .build/SolidBoundaryResults.xcresult \
+            -destination-timeout 60 -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
+            -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testSolidBackdropStaysWithinOwnedBoundsAtNativeScaleAndResets \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
+      - name: Preserve the isolated solid-boundary result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-solid-boundary-diagnostic
+          path: .build/SolidBoundaryResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Compile the pinned Core ML model for the Apple accelerator
         run: |
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
