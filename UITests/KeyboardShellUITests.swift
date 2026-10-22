@@ -16,6 +16,8 @@ import UIKit
     private var settingsListVerified = false
     private var settingsNativeListVerifiedBeforeAdd = false
     private var settingsAddPerformed = false
+    private var safariWarmupVerifiedBeforeSettings = false
+    private var safariReturnedToPreparedFixture = false
     private var started = Date()
     private struct EvidenceUnavailable: Error, CustomStringConvertible {
         let description: String
@@ -249,6 +251,92 @@ import UIKit
         let attachment = XCTAttachment(string: text)
         attachment.name = name + ".json"; attachment.lifetime = .keepAlways; add(attachment)
     }
+    private func preparedSafariField(_ safari: XCUIApplication, phase: String) throws -> XCUIElement {
+        // The workflow opened one exact local URL. Confirm its real DOM;
+        // foreground or an HTTP access log alone does not prove readiness.
+        screen(phase + "-foreground")
+        attachTree(safari, phase + "-foreground")
+        for title in ["Continue", "Continue", "Start Browsing", "Not Now"] {
+            if safari.buttons[title].exists && safari.buttons[title].isHittable { safari.buttons[title].tap() }
+        }
+        let fieldLabel = NSPredicate(format: "label == %@", "Safari search size check")
+        let search = safari.webViews.searchFields.matching(fieldLabel).firstMatch
+        let fallback = safari.webViews.textFields.matching(fieldLabel).firstMatch
+        let field = search.waitForExistence(timeout: 4) ? search : fallback
+        guard field.waitForExistence(timeout: 5) else {
+            throw unavailable("Safari's exact local fixture DOM is unavailable during " + phase, in: safari)
+        }
+        return field
+    }
+#if SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
+    private func assertMaterialExperiment(_ metadata: [String: Any]) throws {
+        XCTAssertEqual(metadata["materialABForcedAppearance"] as? Bool, true)
+        XCTAssertEqual(metadata["materialABActualNativeDefault"] as? Bool, false)
+        XCTAssertEqual(metadata["materialABAppGroupSynchronizationVerified"] as? Bool, false)
+        XCTAssertEqual(metadata["materialABModelSettingsMutatedByDiagnostic"] as? Bool, false)
+        XCTAssertEqual(metadata["materialABAppearanceSource"] as? String,
+            "extension-owned-in-process-copy-through-production-GlassBackdrop.apply")
+        XCTAssertEqual((metadata["materialABRootAlpha"] as? NSNumber)?.doubleValue ?? -1, 1, accuracy: 0.002)
+        XCTAssertEqual((metadata["materialABBackdropAlpha"] as? NSNumber)?.doubleValue ?? -1, 1, accuracy: 0.002)
+        let observed = try XCTUnwrap(metadata["materialABObservedModelAppearance"] as? [String: Any])
+        XCTAssertEqual(observed["glass"] as? String, "clear")
+        XCTAssertEqual(observed["keyHex"] as? String, "auto")
+        XCTAssertEqual(observed["hand"] as? String, "full")
+        XCTAssertEqual((observed["keyResolvedStrength"] as? NSNumber)?.doubleValue ?? -1, 0.55, accuracy: 0.002)
+        XCTAssertEqual((observed["keyHeight"] as? NSNumber)?.doubleValue ?? -1, 50, accuracy: 0.002)
+        let applied = try XCTUnwrap(metadata["materialABActualAppliedBackgroundSettings"] as? [String: Any])
+        XCTAssertEqual(applied["glass"] as? String, "clear")
+        XCTAssertEqual(applied["backgroundHex"] as? String, "#558DF2")
+        XCTAssertEqual(applied["backgroundStrengthWasExplicit"] as? Bool, true)
+        XCTAssertEqual(applied["systemBacked"] as? Bool, true)
+        XCTAssertEqual((applied["glassOpacity"] as? NSNumber)?.doubleValue ?? -1, 0.52, accuracy: 0.002)
+        XCTAssertEqual((applied["backgroundResolvedStrength"] as? NSNumber)?.doubleValue ?? -1, 0.52, accuracy: 0.002)
+        let environment = try XCTUnwrap(metadata["backgroundAppearanceInputs"] as? [String: Any])
+        XCTAssertEqual(environment["reduceTransparency"] as? Bool, false, "Reduced transparency would invalidate the blur comparison")
+        XCTAssertEqual(environment["lowPowerMode"] as? Bool, false, "Low power would invalidate the blur comparison")
+        let children = try XCTUnwrap(metadata["ownedBackdropChildren"] as? [[String: Any]])
+        XCTAssertEqual(children.count, 2)
+        let material = try XCTUnwrap(children.first { $0["role"] as? String == "material" })
+        let wash = try XCTUnwrap(children.first { $0["role"] as? String == "wash" })
+#if SHELL_MATERIAL_A
+        let expectedEffect = true
+#else
+        let expectedEffect = false
+#endif
+#if SHELL_MATERIAL_C
+        let expectedWashAlpha = 1.0
+#else
+        let expectedWashAlpha = 0.55
+#endif
+        XCTAssertEqual(material["effectPresent"] as? Bool, expectedEffect)
+        if expectedEffect { XCTAssertNotEqual(material["effectPublicClass"] as? String, "none") }
+        XCTAssertEqual((material["maskAlpha"] as? NSNumber)?.doubleValue ?? -1, 0.52, accuracy: 0.002)
+        let rootBounds = try XCTUnwrap(metadata["rootBackdropBounds"] as? [Double])
+        XCTAssertEqual(rootBounds.count, 4)
+        for child in [material, wash] {
+            XCTAssertEqual(child["isHidden"] as? Bool, false)
+            XCTAssertEqual((child["alpha"] as? NSNumber)?.doubleValue ?? -1, 1, accuracy: 0.002)
+            let frame = try XCTUnwrap(child["frameInBackdrop"] as? [Double])
+            XCTAssertEqual(frame.count, 4)
+            if frame.count == 4 && rootBounds.count == 4 {
+                for (actual, expected) in zip(frame, rootBounds) { XCTAssertEqual(actual, expected, accuracy: 0.5) }
+            }
+        }
+        let maskFrame = try XCTUnwrap(material["maskFrame"] as? [Double])
+        XCTAssertEqual(maskFrame.count, 4)
+        if maskFrame.count == 4 && rootBounds.count == 4 {
+            for (actual, expected) in zip(maskFrame, rootBounds) { XCTAssertEqual(actual, expected, accuracy: 0.5) }
+        }
+        XCTAssertTrue(wash["maskBounds"] is NSNull, "Tint must have no coverage mask")
+        let rgba = try XCTUnwrap(wash["backgroundRGBA"] as? [Double])
+        XCTAssertEqual(rgba.count, 4)
+        if rgba.count == 4 {
+            for (actual, expected) in zip(rgba, [85.0 / 255.0, 141.0 / 255.0, 242.0 / 255.0, expectedWashAlpha]) {
+                XCTAssertEqual(actual, expected, accuracy: 0.002, "Assert actual wash color alpha; view alpha must stay 1")
+            }
+        }
+    }
+#endif
     private func captureCustom(_ app: XCUIApplication, field: XCUIElement, name: String) throws -> ShellCapture {
         bounded()
         guard key(app, "q").waitForExistence(timeout: 8) else {
@@ -274,8 +362,14 @@ import UIKit
         XCTAssertTrue(identifier.hasPrefix(appID + "."), "This is not the containing App's installed extension")
         XCTAssertGreaterThan((metadata["pid"] as? NSNumber)?.intValue ?? 0, 0)
         XCTAssertEqual(metadata["hostActive"] as? Bool, true)
-#if SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT
-#if SHELL_AB_HOST_SIZED_ROOT
+#if SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT || SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
+#if SHELL_MATERIAL_A
+        let expectedRecipe = "material-a-blur-tint055", expectedStyle = UIInputView.Style.default.rawValue
+#elseif SHELL_MATERIAL_B
+        let expectedRecipe = "material-b-no-blur-tint055", expectedStyle = UIInputView.Style.default.rawValue
+#elseif SHELL_MATERIAL_C
+        let expectedRecipe = "material-c-no-blur-opaque", expectedStyle = UIInputView.Style.default.rawValue
+#elseif SHELL_AB_HOST_SIZED_ROOT
         let expectedRecipe = "host-sized-default-root", expectedStyle = UIInputView.Style.default.rawValue
 #elseif SHELL_AB_DEFAULT_ROOT
         let expectedRecipe = "default-root", expectedStyle = UIInputView.Style.default.rawValue
@@ -286,11 +380,17 @@ import UIKit
         XCTAssertEqual((metadata["shellABActualInputViewStyle"] as? NSNumber)?.intValue, expectedStyle)
         let rgba = try XCTUnwrap(metadata["shellABActualRootRGBA"] as? [Double])
         XCTAssertEqual(rgba.count, 4)
+#if SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
+        if rgba.count == 4 { XCTAssertEqual(rgba[3], 0, accuracy: 0.002, "Material recipes require a transparent root, not forced root blue") }
+        XCTAssertEqual(metadata["shellABActualRootClass"] as? String, "UIInputView")
+        try assertMaterialExperiment(metadata)
+#else
         if rgba.count == 4 {
             for (actual, expected) in zip(rgba, [85.0 / 255.0, 141.0 / 255.0, 242.0 / 255.0, 1.0]) {
                 XCTAssertEqual(actual, expected, accuracy: 0.002, "The runtime must prove the A/B root tint, not merely its compile flag")
             }
         }
+#endif
 #if SHELL_AB_HOST_SIZED_ROOT
         let expectedRelation = NSLayoutConstraint.Relation.greaterThanOrEqual.rawValue
         let expectedSelfSizing = false
@@ -443,6 +543,9 @@ import UIKit
                 "systemSettingsKeyboardListVerified": settingsListVerified,
                 "systemSettingsNativeOnlyListVerifiedBeforeAdd": settingsNativeListVerifiedBeforeAdd,
                 "systemSettingsAddKeyboardPerformed": settingsAddPerformed,
+                "safariWarmupDOMVerifiedBeforeSettings": safariWarmupVerifiedBeforeSettings,
+                "safariReturnedToPreparedFixtureAfterSettings": safariReturnedToPreparedFixture,
+                "safariActivationStrategy": "workflow-openurl; prewarm-and-verify-DOM-before-Settings; activate-only-return-no-launch-retry",
                 "fullAccessChangedByDiagnostic": false,
                 "actualExtensionConnected": connected, "hostLimitations": hostLimitations,
                 "mandatorySafariTransitionsVerified": safariCompleted,
@@ -460,39 +563,39 @@ import UIKit
                 attachment.lifetime = .keepAlways; add(attachment)
             }
         }
-        // Set the appearance before leaving the containing App, but do not
-        // focus its ASCII-only HEX field until Safari has proved activation.
+        // Warm the already opened real Safari fixture before Settings can
+        // displace it. Do not focus a field or enable any custom keyboard yet.
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        attachJSON(["phase": "before-Safari-warmup-activate", "settingsAddPerformed": false], name: "safari-activation-phase")
+        safari.activate()
+        guard safari.wait(for: .runningForeground, timeout: 8) else {
+            throw unavailable("Safari did not enter the foreground during pre-Settings warmup", in: safari)
+        }
+        _ = try preparedSafariField(safari, phase: "safari-warmup-before-settings")
+        safariWarmupVerifiedBeforeSettings = true
+        attachJSON(["phase": "Safari-warmup-DOM-verified", "settingsAddPerformed": false], name: "safari-activation-phase")
+
+        // Set the appearance before leaving the containing App, but keep its
+        // ASCII-only HEX field unfocused throughout the mandatory Safari test.
         app.launch()
+#if !SHELL_MATERIAL_A && !SHELL_MATERIAL_B && !SHELL_MATERIAL_C
         XCTAssertTrue(app.tabBars.buttons["定制"].waitForExistence(timeout: 8)); app.tabBars.buttons["定制"].tap()
         let entry = elements(app, identifier: "custom.edit.backgroundColor").firstMatch
         reveal(entry, in: app); XCTAssertTrue(entry.isHittable); entry.tap()
         let blue = app.buttons["#558DF2"]
         reveal(blue, in: app); XCTAssertTrue(blue.isHittable); blue.tap()
+#endif
         try enableKeyboardInSystemSettings()
 
-        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        attachJSON(["phase": "before-Safari-return-activate", "settingsAddPerformed": settingsAddPerformed], name: "safari-activation-phase")
+        // Return to the already verified page. A failed activate is evidence;
+        // do not add a cold launch that can hang or replace the tested state.
         safari.activate()
-        if !safari.wait(for: .runningForeground, timeout: 8) {
-            // One bounded relaunch may restore the already opened local URL.
-            // A missing foreground is infrastructure evidence, not a DOM miss.
-            safari.launch()
-        }
         guard safari.wait(for: .runningForeground, timeout: 8) else {
-            throw unavailable("Safari did not enter the foreground after activate and one launch", in: safari)
+            throw unavailable("Prepared Safari did not return to the foreground after Settings", in: safari)
         }
-        screen("safari-foreground-before-field")
-        attachTree(safari, "safari-foreground-before-field")
-        for title in ["Continue", "Continue", "Start Browsing", "Not Now"] {
-            if safari.buttons[title].exists && safari.buttons[title].isHittable { safari.buttons[title].tap() }
-        }
-        // The workflow opens this existing local HTTP fixture before the test.
-        let fieldLabel = NSPredicate(format: "label == %@", "Safari search size check")
-        let search = safari.webViews.searchFields.matching(fieldLabel).firstMatch
-        let fallback = safari.webViews.textFields.matching(fieldLabel).firstMatch
-        let safariField = search.waitForExistence(timeout: 4) ? search : fallback
-        guard safariField.waitForExistence(timeout: 5) else {
-            throw unavailable("Safari HTTP fixture was not prepared", in: safari)
-        }
+        let safariField = try preparedSafariField(safari, phase: "safari-return-after-settings")
+        safariReturnedToPreparedFixture = true
         safariField.tap()
         let focused = safari.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "Editing: Safari search size check")).firstMatch
         guard focused.waitForExistence(timeout: 3) else {
@@ -502,7 +605,7 @@ import UIKit
         XCTAssertEqual(samples.filter {
             ($0["name"] as? String)?.hasPrefix("safari-") == true && $0["qReachedFocusedHost"] as? Bool == true
         }.count, 3, "All English/Emoji/focused-Home Safari transitions need real Q delivery")
-#if !SHELL_AB_DEFAULT_ROOT && !SHELL_AB_KEYBOARD_ROOT && !SHELL_AB_HOST_SIZED_ROOT
+#if !SHELL_AB_DEFAULT_ROOT && !SHELL_AB_KEYBOARD_ROOT && !SHELL_AB_HOST_SIZED_ROOT && !SHELL_MATERIAL_A && !SHELL_MATERIAL_B && !SHELL_MATERIAL_C
         // The actual App field uses asciiCapable. Some system keyboards omit
         // Emoji or the picker for that trait. Record a restriction explicitly;
         // never substitute the noninteractive appearance-preview keys.

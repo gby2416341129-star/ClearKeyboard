@@ -46,15 +46,21 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var layoutLogCount = 0
     private let hostLog = OSLog(subsystem: "ClearKeyboard", category: "HostWrite")
 
-#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT)
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT || SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C)
     // Isolated diagnostic only: public root construction and a fixed test tint.
     // Do not inspect or alter UIKit's external shell, cap or globe container.
     private static var shellABBlue: UIColor {
         UIColor(red: 85.0 / 255.0, green: 141.0 / 255.0, blue: 242.0 / 255.0, alpha: 1)
     }
     private var shellABRecipe: String {
-#if (SHELL_AB_DEFAULT_ROOT && SHELL_AB_KEYBOARD_ROOT) || (SHELL_AB_HOST_SIZED_ROOT && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT))
+#if (SHELL_AB_DEFAULT_ROOT && SHELL_AB_KEYBOARD_ROOT) || (SHELL_AB_HOST_SIZED_ROOT && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT)) || ((SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C) && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT)) || (SHELL_MATERIAL_A && SHELL_MATERIAL_B) || (SHELL_MATERIAL_A && SHELL_MATERIAL_C) || (SHELL_MATERIAL_B && SHELL_MATERIAL_C)
 #error("Select exactly one public keyboard-shell recipe")
+#elseif SHELL_MATERIAL_A
+        return "material-a-blur-tint055"
+#elseif SHELL_MATERIAL_B
+        return "material-b-no-blur-tint055"
+#elseif SHELL_MATERIAL_C
+        return "material-c-no-blur-opaque"
 #elseif SHELL_AB_DEFAULT_ROOT
         return "default-root"
 #elseif SHELL_AB_HOST_SIZED_ROOT
@@ -64,12 +70,16 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
 #endif
     }
     override func loadView() {
-#if SHELL_AB_DEFAULT_ROOT || SHELL_AB_HOST_SIZED_ROOT
+#if SHELL_AB_DEFAULT_ROOT || SHELL_AB_HOST_SIZED_ROOT || SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
         let root = UIInputView(frame: .zero, inputViewStyle: .default)
 #else
         let root = UIInputView(frame: .zero, inputViewStyle: .keyboard)
 #endif
+#if SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
+        root.backgroundColor = .clear
+#else
         root.backgroundColor = Self.shellABBlue
+#endif
         root.isOpaque = false
         inputView = root
     }
@@ -113,6 +123,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             rootBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
             rootBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+#if DEBUG && (SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C)
+        rootBackdrop.materialABExperimentEnabled = true
+#endif
         surface = KeyboardSurface(model: model, systemBacked: true, backgroundBackdrop: rootBackdrop)
         surface.configureGlobe = { [weak self] button in
             guard let self else { return }
@@ -199,13 +212,17 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             "windowBounds": rect(view.window?.bounds ?? .zero),
             "safeAreaInsets": [Double(inset.top), Double(inset.left), Double(inset.bottom), Double(inset.right)]
         ]
-#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT)
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT || SHELL_AB_HOST_SIZED_ROOT || SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C)
         var abEvidence = evidence
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         let color = view.backgroundColor?.resolvedColor(with: traitCollection)
         let hasRGBA = color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true
         abEvidence["shellABRecipe"] = shellABRecipe
+#if SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
+        abEvidence["shellABRequestedRootHex"] = "clear"
+#else
         abEvidence["shellABRequestedRootHex"] = "#558DF2"
+#endif
         abEvidence["shellABActualRootRGBA"] = hasRGBA ? [Double(red), Double(green), Double(blue), Double(alpha)] : []
         abEvidence["shellABActualRootClass"] = String(describing: type(of: view!))
         abEvidence["shellABActualInputViewStyle"] = inputView?.inputViewStyle.rawValue ?? -1
@@ -299,6 +316,35 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             "reduceTransparency": UIAccessibility.isReduceTransparencyEnabled,
             "lowPowerMode": ProcessInfo.processInfo.isLowPowerModeEnabled
         ] as [String: Any]
+#if SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C
+        abEvidence["materialABForcedAppearance"] = rootBackdrop.materialABExperimentEnabled
+        abEvidence["materialABAppearanceSource"] = "extension-owned-in-process-copy-through-production-GlassBackdrop.apply"
+        abEvidence["materialABAppGroupSynchronizationVerified"] = false
+        abEvidence["materialABModelSettingsMutatedByDiagnostic"] = false
+        if let actualNativeDefault = rootBackdrop.materialABActualNativeDefault {
+            abEvidence["materialABActualNativeDefault"] = actualNativeDefault
+        } else { abEvidence["materialABActualNativeDefault"] = NSNull() }
+        abEvidence["materialABObservedModelAppearance"] = [
+            "glass": model.settings.glass.rawValue,
+            "backgroundHex": model.settings.backgroundColorHex ?? "auto",
+            "keyHex": model.settings.keyColorHex ?? "auto",
+            "keyResolvedStrength": model.settings.resolvedKeyGlassStrength,
+            "keyHeight": model.settings.keyHeight,
+            "hand": model.settings.hand.rawValue
+        ] as [String: Any]
+        if let applied = rootBackdrop.materialABAppliedBackgroundSettings {
+            abEvidence["materialABActualAppliedBackgroundSettings"] = [
+                "glass": applied.glass.rawValue,
+                "glassOpacity": applied.glassOpacity,
+                "backgroundResolvedStrength": applied.resolvedBackgroundGlassStrength,
+                "backgroundStrengthWasExplicit": applied.backgroundGlassStrength != nil,
+                "backgroundHex": applied.backgroundColorHex ?? "auto",
+                "systemBacked": rootBackdrop.materialABActualSystemBacked ?? false
+            ] as [String: Any]
+        } else { abEvidence["materialABActualAppliedBackgroundSettings"] = NSNull() }
+        abEvidence["materialABRootAlpha"] = Double(view.alpha)
+        abEvidence["materialABBackdropAlpha"] = Double(rootBackdrop.alpha)
+#endif
         if let window = view.window {
             let windowInsets = window.safeAreaInsets
             abEvidence["windowSafeAreaLayoutFrame"] = rect(window.safeAreaLayoutGuide.layoutFrame)

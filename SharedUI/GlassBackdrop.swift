@@ -8,6 +8,15 @@ final class GlassBackdrop: UIView {
     private var strength: CGFloat = -1
     private var maskSize = CGSize.zero
     private var masksNeedUpdate = true
+#if DEBUG && (SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C)
+    // Enabled only on the actual extension's owned root backdrop. These
+    // settings are an in-process diagnostic copy, never AppGroup delivery.
+    var materialABExperimentEnabled = false
+    private var materialABApplyingCopy = false
+    private(set) var materialABAppliedBackgroundSettings: KeyboardSettings?
+    private(set) var materialABActualNativeDefault: Bool?
+    private(set) var materialABActualSystemBacked: Bool?
+#endif
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(material); addSubview(wash)
@@ -36,6 +45,25 @@ final class GlassBackdrop: UIView {
         }
     }
     func apply(_ settings: KeyboardSettings, systemBacked: Bool = false) {
+#if DEBUG && (SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C)
+        if materialABExperimentEnabled && !materialABApplyingCopy {
+            var forced = settings
+            forced.glass = .clear
+            forced.glassOpacity = 0.52
+            forced.backgroundGlassStrength = 0.52
+            forced.backgroundColorHex = "#558DF2"
+            // Re-enter the unchanged production apply body with a copy. Do not
+            // mutate KeyboardModel, preferences or the App appearance link.
+            materialABApplyingCopy = true
+            defer { materialABApplyingCopy = false }
+            apply(forced, systemBacked: systemBacked)
+            return
+        }
+        if materialABExperimentEnabled {
+            materialABAppliedBackgroundSettings = settings
+            materialABActualSystemBacked = systemBacked
+        }
+#endif
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled || settings.glass == .solid
         // The untouched system appearance needs no second background. An
         // explicit glass adjustment or skin still applies only to our bounds;
@@ -43,6 +71,9 @@ final class GlassBackdrop: UIView {
         let nativeDefault = systemBacked && settings.glass == .clear &&
             settings.backgroundColorHex == nil && settings.backgroundGlassStrength == nil &&
             settings.glassOpacity == KeyboardSettings().glassOpacity
+#if DEBUG && (SHELL_MATERIAL_A || SHELL_MATERIAL_B || SHELL_MATERIAL_C)
+        if materialABExperimentEnabled { materialABActualNativeDefault = nativeDefault }
+#endif
         isOpaque = false; backgroundColor = .clear
         let signature = "\(settings.glass)-\(reduced)-\(nativeDefault)"
         if signature != effectSignature {
@@ -53,6 +84,11 @@ final class GlassBackdrop: UIView {
             // On iOS 26, UIGlassEffect ignores the intensity mask here and draws
             // its own rim. UIInputView already supplies the outer native glass.
             UIView.performWithoutAnimation { material.effect = target }
+#if DEBUG && (SHELL_MATERIAL_B || SHELL_MATERIAL_C)
+            // B changes only this owned background effect relative to A.
+            // The mask, tint, geometry and separate key material are retained.
+            if materialABExperimentEnabled { UIView.performWithoutAnimation { material.effect = nil } }
+#endif
         }
         // Modulate the effect's own mask, keeping the effect view opaque and
         // avoiding an indefinitely paused animator that prevents UI quiescence.
@@ -63,6 +99,11 @@ final class GlassBackdrop: UIView {
         wash.backgroundColor = nativeDefault ? .clear : reduced
             ? (settings.backgroundTintColor ?? .secondarySystemBackground)
             : settings.backgroundTintColor?.withAlphaComponent(settings.backgroundTintOpacity)
+#if DEBUG && SHELL_MATERIAL_C
+        // C diagnoses paint coverage only. Do not select .solid: key faces and
+        // the key material must remain the same clear preset as A and B.
+        if materialABExperimentEnabled { wash.backgroundColor = settings.backgroundTintColor?.withAlphaComponent(1) }
+#endif
         updateMasks()
     }
 }
@@ -97,6 +138,7 @@ final class KeyButton: UIButton {
     private var interactionActive = false
     private var shiftSymbol = ""
     private var shadowSize = CGSize.zero
+    private var appearanceSettings: KeyboardSettings?
 
     init(key: KeyboardKey) {
         self.key = key; super.init(frame: .zero)
@@ -148,8 +190,19 @@ final class KeyButton: UIButton {
             let swipe = UIPanGestureRecognizer(target: self, action: #selector(deletionGesture(_:)))
             swipe.maximumNumberOfTouches = 1; addGestureRecognizer(swipe)
         }
+        // A parent's trait callback can run before this key inherits the new
+        // traits. Recompute its fixed face on the key's own transition so the
+        // dynamic legend cannot change to white over a stale light face.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (key: KeyButton, _: UITraitCollection) in
+            if let settings = key.appearanceSettings { key.applyAppearance(settings) }
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { stopTracking() }
+        else if let settings = appearanceSettings { applyAppearance(settings) }
+    }
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         // Once this key owns a finger, tolerate the small release drift of fast
         // taps. Initial hit testing still uses the original, non-overlapping cells.
@@ -176,6 +229,12 @@ final class KeyButton: UIButton {
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; haptics = settings.haptics
+        appearanceSettings = settings; applyAppearance(settings)
+        pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
+        updateShift(active: active, capsLocked: capsLocked)
+        if let title { updateTitle(title) }
+    }
+    private func applyAppearance(_ settings: KeyboardSettings) {
         let dark = traitCollection.userInterfaceStyle == .dark
         let utility = key.action == .shift || key.action == .delete || (key.units == 1.5 && key.label.count > 1)
         let reduced = settings.glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -192,12 +251,9 @@ final class KeyButton: UIButton {
         plate.layer.borderColor = UIColor.white.withAlphaComponent(dark ? 0.18 : 0.65).cgColor
         plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.10
         plate.layer.shadowRadius = 0.5; plate.layer.shadowOffset = CGSize(width: 0, height: 0.5)
-        pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
         let ink = settings.keyInkColor(utility: utility)
         caption.textColor = ink
         icon.tintColor = ink
-        updateShift(active: active, capsLocked: capsLocked)
-        if let title { updateTitle(title) }
     }
     func updateTitle(_ title: String) {
         if caption.text != title { caption.text = title; accessibilityLabel = title }
@@ -291,6 +347,5 @@ final class KeyButton: UIButton {
         if draggingCursor { draggingCursor = false; onCursorEnded?() }
         cancelPress()
     }
-    override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { stopTracking() } }
     deinit { repeatTimer?.invalidate(); repeatStart?.cancel(); cursorDisplayLink?.invalidate() }
 }

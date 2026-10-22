@@ -22,6 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - recipe: material-a-blur-tint055
+            condition: SHELL_MATERIAL_A
+          - recipe: material-b-no-blur-tint055
+            condition: SHELL_MATERIAL_B
+          - recipe: material-c-no-blur-opaque
+            condition: SHELL_MATERIAL_C
           - recipe: host-sized-default-root
             condition: SHELL_AB_HOST_SIZED_ROOT
           - recipe: keyboard-root
@@ -43,14 +49,22 @@ jobs:
           python3 - <<'PY'
           import hashlib,json,os,subprocess
           from pathlib import Path
-          conditions={'host-sized-default-root':'SHELL_AB_HOST_SIZED_ROOT','keyboard-root':'SHELL_AB_KEYBOARD_ROOT'}
+          conditions={'material-a-blur-tint055': 'SHELL_MATERIAL_A', 'material-b-no-blur-tint055': 'SHELL_MATERIAL_B', 'material-c-no-blur-opaque': 'SHELL_MATERIAL_C', 'host-sized-default-root': 'SHELL_AB_HOST_SIZED_ROOT', 'keyboard-root': 'SHELL_AB_KEYBOARD_ROOT'}
           recipe=os.environ['CLEAR_SHELL_AB_RECIPE']
           assert conditions[recipe]==os.environ['CLEAR_SHELL_AB_CONDITION']
           report=dict(schema=1,recipe=recipe,compilationConditions=['DEBUG',conditions[recipe]],
-              sourceCommit=os.environ['GITHUB_SHA'],rootTint='#558DF2',
-              productionSourceBaseline='23d8335f54310ea1d197d26c059ba43635ef54d4',
+              sourceCommit=os.environ['GITHUB_SHA'],rootTint='transparent' if recipe.startswith('material-') else '#558DF2',
+              forcedAppearance=recipe.startswith('material-'),settingsSynchronizationVerified=False,
+              modelSettingsChangedByDiagnostic=False,
+              appearanceSource='DEBUG-owned-background-copy-no-persistence' if recipe.startswith('material-') else 'original-App-blue-selection-and-AB7-root-blue',
+              backgroundExperiment=dict(hex='#558DF2',glass='clear',resolvedStrength=0.52,
+                  washAlpha=1 if recipe=='material-c-no-blur-opaque' else 0.55,
+                  effectPresent=recipe=='material-a-blur-tint055') if recipe.startswith('material-') else None,
+              productionSourceBaseline='4361d7463fe274eff6ca810fc05d5a8f39faff4c',
               diagnosticScope='Mandatory Safari English/Emoji/focused-Home transitions; required actual sizing/material metadata; optional App HEX excluded under AB flags',
-              comparison='host-sized default style0 versus AB5 fixed default style0; parallel controlled fixed keyboard style1 repeat',
+              comparison='material A/B/C share default style0, fixed276, transparent root; host-sized fourth retains AB7 blue/root minimum geometry; fifth repeats AB7 fixed keyboard style1; historical AB5 fixed-default-blue remains separate from transparent-root material controls',
+              glassBackdropSHA256=hashlib.sha256(Path('SharedUI/GlassBackdrop.swift').read_bytes()).hexdigest(),
+              fixtureSHA256=hashlib.sha256(Path('UITests/KeyboardShellUITests.swift').read_bytes()).hexdigest(),
               wholeCoverageResolved=False,geometryVerified=False,
               controllerSHA256=hashlib.sha256(Path('KeyboardExtension/KeyboardViewController.swift').read_bytes()).hexdigest(),
               resourceProfile='standard-prepare-rime-without-CoreML-export',
@@ -110,13 +124,67 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           python3 - <<'PY'
-          import time,urllib.request
-          for attempt in range(30):
-              try:
-                  with urllib.request.urlopen('http://127.0.0.1:8765/safari-fixture.html',timeout=1) as response:assert response.status==200
-                  break
-              except OSError:time.sleep(0.1)
-          else:raise RuntimeError('Keyboard shell Safari fixture did not start')
+          """Bounded client-side verification of the exact local Safari fixture bytes."""
+          import hashlib,json,subprocess,sys,time
+          from pathlib import Path
+
+          WORKER = r'''
+          import hashlib,json,sys,urllib.request
+          url,size,digest,timeout=sys.argv[1],int(sys.argv[2]),sys.argv[3],float(sys.argv[4])
+          opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          request=urllib.request.Request(url,headers={'Accept-Encoding':'identity','Connection':'close'})
+          with opener.open(request,timeout=timeout) as response:
+              body=response.read(size+1)
+              assert response.status==200, 'HTTP status mismatch'
+              assert response.geturl()==url, 'Unexpected redirect'
+              assert len(body)==size, 'Fixture body length mismatch'
+              actual=hashlib.sha256(body).hexdigest()
+              assert actual==digest, 'Fixture body SHA256 mismatch'
+              print(json.dumps(dict(status=response.status,bytes=len(body),sha256=actual,completeBodyVerified=True)))
+          '''
+
+          def wait_for_fixture(url,fixture_path,report_path,budget=45):
+              expected=Path(fixture_path).read_bytes()
+              assert 0<len(expected)<1024*1024, 'Fixture size outside diagnostic bound'
+              digest=hashlib.sha256(expected).hexdigest()
+              started=time.monotonic(); deadline=started+budget
+              report=dict(schema=1,url=url,proxyDisabled=True,expectedBytes=len(expected),expectedSHA256=digest,
+                  totalBudgetSeconds=budget,singleSocketTimeoutSeconds=8,singleProcessBudgetSeconds=10,
+                  clientCompleteBodyVerified=False,attempts=[])
+              target=Path(report_path); target.parent.mkdir(parents=True,exist_ok=True)
+              def save():
+                  report['elapsedSeconds']=round(time.monotonic()-started,3)
+                  target.write_text(json.dumps(report,indent=2)+'\n',encoding='utf8')
+              save()
+              while time.monotonic()<deadline:
+                  remaining=deadline-time.monotonic()
+                  row=dict(attempt=len(report['attempts'])+1)
+                  try:
+                      result=subprocess.run([sys.executable,'-c',WORKER,url,str(len(expected)),digest,str(min(8,remaining))],
+                          capture_output=True,text=True,timeout=min(10,remaining))
+                      row['exitCode']=result.returncode
+                      if result.returncode==0:
+                          payload=json.loads(result.stdout)
+                          assert payload['completeBodyVerified'] is True and payload['sha256']==digest
+                          row['response']=payload
+                          report['clientCompleteBodyVerified']=True
+                      else:
+                          row['error']=result.stderr[-1200:]
+                  except (subprocess.TimeoutExpired,OSError,ValueError,AssertionError) as error:
+                      row['error']=type(error).__name__+': '+str(error)[-1200:]
+                  report['attempts'].append(row); save()
+                  if report['clientCompleteBodyVerified']:
+                      print('KEYBOARD_SHELL_HTTP_READY '+json.dumps(report),flush=True)
+                      return report
+                  remaining=deadline-time.monotonic()
+                  if remaining>0:time.sleep(min(0.25,remaining))
+              save()
+              print('KEYBOARD_SHELL_HTTP_NOT_READY '+json.dumps(report),flush=True)
+              raise RuntimeError('Safari fixture client could not verify the complete expected body within the total readiness budget')
+
+          if __name__=='__main__':
+              wait_for_fixture('http://127.0.0.1:8765/safari-fixture.html',Path('UITests/safari-fixture.html'),
+                  Path('.build/KeyboardShell/http-fixture-readiness.json'))
           PY
           xcrun simctl openurl "$TEST_DEVICE" 'http://127.0.0.1:8765/safari-fixture.html'
           set +e
