@@ -8,7 +8,7 @@ ALLOWED={
     'Config/Project.xcconfig','KeyboardExtension/KeyboardViewController.swift',
     'SharedUI/AppearanceEditor.swift','SharedUI/GlassBackdrop.swift',
     'SharedUI/KeyboardModel.swift','SharedUI/AppearanceSync.swift','SharedUI/AppearanceSettingsLink.swift',
-    'SharedUI/CandidateScrollView.swift','SharedUI/KeyboardSurface.swift',
+    'SharedUI/CandidateScrollView.swift','SharedUI/KeyboardSurface.swift','SharedUI/ClipboardPanel.swift',
     'SharedUI/KeyboardAppearancePreview.swift','SharedUI/SharedStorage.swift',
     'NativeTests/UnifiedRepairTests.swift','NativeTests/CustomizationRuntimeTests.swift',
     'UITests/AppUITests.swift','NativeTests/AppearanceSyncRuntimeTests.swift','NativeTests/AppearanceReceiverRuntimeTests.swift',
