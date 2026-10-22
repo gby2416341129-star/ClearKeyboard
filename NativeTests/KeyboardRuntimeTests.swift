@@ -828,6 +828,48 @@ import SwiftUI
         let q = try XCTUnwrap(keys.first { $0.key.action == .text("q") })
         let a = try XCTUnwrap(keys.first { $0.key.action == .text("a") })
         let shift = try XCTUnwrap(keys.first { $0.key.action == .shift })
+        func assertRenderedContrast(_ key: KeyButton, phase: String, expectedDarkFace: Bool? = nil) throws {
+            settleLayout(key)
+            let face = try XCTUnwrap(descendants(key).first { $0.accessibilityIdentifier == "key.face" })
+            let image = materialImage(key)
+            let bitmap = try XCTUnwrap(image.cgImage)
+            let faceRect = face.convert(face.bounds, to: key)
+            // Sample the actual solid face above the glyph, then inspect the
+            // rendered central glyph area. Resolving a UIColor alone missed
+            // the fixed light face / dynamic white legend mismatch.
+            let base = try materialPixel(image, at: CGPoint(x: faceRect.midX, y: faceRect.minY + 3))
+            XCTAssertGreaterThan(base[3], 250, phase)
+            if let expectedDarkFace {
+                if expectedDarkFace { XCTAssertLessThan(base.prefix(3).max() ?? 255, 160, phase) }
+                else { XCTAssertGreaterThan(base.prefix(3).min() ?? 0, 200, phase) }
+            }
+            var pixels = [UInt8](repeating: 0, count: bitmap.width * bitmap.height * 4)
+            try pixels.withUnsafeMutableBytes { bytes in
+                let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: bitmap.width, height: bitmap.height,
+                    bitsPerComponent: 8, bytesPerRow: bitmap.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                context.draw(bitmap, in: CGRect(x: 0, y: 0, width: bitmap.width, height: bitmap.height))
+            }
+            func luminance(_ red: Int, _ green: Int, _ blue: Int) -> Double {
+                func linear(_ byte: Int) -> Double {
+                    let value = Double(byte) / 255
+                    return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+                }
+                return linear(red) * 0.2126 + linear(green) * 0.7152 + linear(blue) * 0.0722
+            }
+            let background = luminance(base[0], base[1], base[2])
+            let glyphArea = faceRect.insetBy(dx: 8, dy: 8).intersection(key.bounds)
+            var visibleInkPixels = 0
+            for y in max(0, Int(ceil(glyphArea.minY)))..<min(bitmap.height, Int(floor(glyphArea.maxY))) {
+                for x in max(0, Int(ceil(glyphArea.minX)))..<min(bitmap.width, Int(floor(glyphArea.maxX))) {
+                    let offset = (y * bitmap.width + x) * 4
+                    let ink = luminance(Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2]))
+                    let ratio = (max(ink, background) + 0.05) / (min(ink, background) + 0.05)
+                    if pixels[offset + 3] > 240 && ratio >= 4.5 { visibleInkPixels += 1 }
+                }
+            }
+            XCTAssertGreaterThanOrEqual(visibleInkPixels, 4, "\(phase): rendered letters and symbols must remain distinct from their actual face")
+        }
         for style in [UIUserInterfaceStyle.light, .dark] {
             window.overrideUserInterfaceStyle = style; host.view.backgroundColor = .systemBackground
             var settings = testSettings(); settings.glass = .solid; settings.backgroundColorHex = "#0057FF"
@@ -861,8 +903,33 @@ import SwiftUI
             let color = try materialPixel(materialImage(backdrop), at: CGPoint(x: backdrop.bounds.midX, y: backdrop.bounds.midY))
             XCTAssertGreaterThan(color[0], 240); XCTAssertLessThan(color[2], 80)
             XCTAssertTrue(preview.accessibilityValue?.contains("backgroundColor:#FF5733") == true)
+            try assertRenderedContrast(q, phase: "preview \(style) Q", expectedDarkFace: style == .dark)
+            try assertRenderedContrast(shift, phase: "preview \(style) Shift", expectedDarkFace: style == .dark)
             snapshot(preview, name: "preview-proportional-\(style == .dark ? "dark" : "light")")
         }
+        // No settings write accompanies this trait change. A key must update
+        // from its own inherited trait, not wait for a parent's render pass.
+        window.overrideUserInterfaceStyle = .light; settleLayout(window)
+        try assertRenderedContrast(q, phase: "dark-to-light Q", expectedDarkFace: false)
+        try assertRenderedContrast(shift, phase: "dark-to-light Shift", expectedDarkFace: false)
+
+        // Cold SwiftUI previews can receive settings before joining a window.
+        // Their initial unspecified/light face must not survive dark adoption.
+        window.overrideUserInterfaceStyle = .dark
+        let cold = KeyboardAppearancePreview(frame: CGRect(x: 20, y: 100, width: 350, height: 230))
+        var coldSettings = testSettings(); coldSettings.glass = .solid; coldSettings.backgroundColorHex = "#FF5733"
+        cold.apply(coldSettings)
+        host.view.addSubview(cold); cold.frame.size = cold.fittingSize(forWidth: 350); settleLayout(cold)
+        let coldKeys = descendants(cold).compactMap { $0 as? KeyButton }
+        let coldQ = try XCTUnwrap(coldKeys.first { $0.key.action == .text("q") })
+        let coldShift = try XCTUnwrap(coldKeys.first { $0.key.action == .shift })
+        try assertRenderedContrast(coldQ, phase: "apply-before-window dark Q", expectedDarkFace: true)
+        try assertRenderedContrast(coldShift, phase: "apply-before-window dark Shift", expectedDarkFace: true)
+        snapshot(cold, name: "preview-contrast-cold-dark")
+        coldSettings.keyColorHex = "#FFFFFF"; cold.apply(coldSettings); settleLayout(cold)
+        try assertRenderedContrast(coldQ, phase: "explicit white key dark Q")
+        try assertRenderedContrast(coldShift, phase: "explicit white key dark Shift")
+        snapshot(cold, name: "preview-contrast-cold-dark-white-keys")
     }
     func testKeyboardObeysHostWidthInsideALargerWindow() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
