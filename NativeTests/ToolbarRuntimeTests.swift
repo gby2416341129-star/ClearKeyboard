@@ -173,7 +173,7 @@ import UIKit
         let brand = try XCTUnwrap(views(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "toolbar.tools" })
         brand.sendActions(for: .touchUpInside); layout(surface)
         let toggle = try XCTUnwrap(views(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "keyboard.compatibleInput" })
-        XCTAssertTrue(toggle.configuration?.title?.contains("自动") == true)
+        XCTAssertTrue(toggle.configuration?.title?.contains("关") == true)
         toggle.sendActions(for: .touchUpInside)
         XCTAssertEqual(fixture.model.settings.localPinyinComposition, true)
         XCTAssertEqual(fixture.model.settings.toolbar, all, "Compatibility is not a fifth pinnable toolbar tool")

@@ -27,9 +27,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var markedImmediateScheduled = false
     private var sentMarkedDraft = false
     private enum MarkedTransport: Equatable { case none, local, host }
-    // A nil/nil proxy cannot demonstrate that it owns a replaceable marked
-    // range. Some remote clients buffer these calls as literal keystrokes and
-    // ignore an empty mark. Keep such spelling inside the keyboard instead.
+    // Context getters may temporarily return nil in ordinary native fields.
+    // They do not establish whether a field supports marked text. Only the
+    // explicitly enabled compatibility option keeps spelling inside the keyboard.
     private var markedTransport = MarkedTransport.none
     private var markedDraft = ""
     private var readableHostContext = false
@@ -262,20 +262,21 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         }
         let now = ProcessInfo.processInfo.systemUptime
         let wasReadable = readableHostContext
-        let transportAccepted = !read.connected || observeContextReadability(actual)
+        if read.connected { readableHostContext = actual.available }
         let outcome: HostTextState.Reconciliation
-        if !transportAccepted || (read.connected && !actual.available && !actual.selected.isEmpty) {
+        if read.connected && !actual.available && !actual.selected.isEmpty {
             hostState = HostTextState(actual); outcome = .externalEdit
         } else if read.connected, !wasReadable, actual.available, actual.selected.isEmpty,
-                  actual.document == hostState.snapshot.document, markedTransport == .local, !markedDraft.isEmpty {
-            // Context becoming readable is not a request to flush local pinyin.
-            // Rebase the local-only mark on the newly exposed real boundary.
-            rebaseLocalDraft(on: actual)
+                  actual.document == hostState.snapshot.document, !markedDraft.isEmpty,
+                  markedTransport == .local || actual.before.hasSuffix(markedDraft) {
+            // Native fields can first expose their real surrounding text only
+            // after marking starts. Adopt that boundary without committing or
+            // dropping the visible spelling and its Chinese candidates.
+            rebaseDraft(on: actual)
             outcome = .compositionContextChanged
         } else { outcome = hostState.reconcile(actual, now: now) }
         guard outcome != .unavailable else {
-            // A connected nil/nil field is a supported local-composition mode,
-            // not a transient disconnection to poll every 350 ms indefinitely.
+            // No context is not an external edit or a reason to switch modes.
             if !read.connected { needsHostRefresh = true; scheduleHostRefresh() }
             return
         }
@@ -339,9 +340,18 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
                 available: actualBefore != nil || actualAfter != nil)
             guard revision == hostRefreshGeneration else { return false }
             let wasReadable = readableHostContext
-            guard observeContextReadability(actual) else { return false }
-            if !wasReadable, actual.available, actualSelected.isEmpty, markedTransport == .local {
-                rebaseLocalDraft(on: actual); model?.refreshCandidates()
+            readableHostContext = actual.available
+            if !wasReadable, actual.available, actualSelected.isEmpty,
+               markedTransport == .local || (!markedDraft.isEmpty && actual.before.hasSuffix(markedDraft)) {
+                rebaseDraft(on: actual)
+                if markedTransport == .host {
+                    // The host just exposed the exact native draft being
+                    // selected. Its newly readable prefix does not invalidate
+                    // that choice or require the user to tap twice.
+                    candidateSelectionNeedsValidation = false
+                    return true
+                }
+                model?.refreshCandidates()
                 return false // The old ribbon describes the previous boundary.
             }
             guard actualSelected.isEmpty,
@@ -367,7 +377,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     var selectedText: String { hostState.snapshot.selected }
     var usesLocalPinyinComposition: Bool {
         if markedTransport != .none { return markedTransport == .local }
-        return model?.settings.localPinyinComposition == true || !readableHostContext
+        return model?.settings.localPinyinComposition == true
     }
     var fullAccess: Bool { hasFullAccess }
     var needsGlobe: Bool { hostNeedsGlobe }
@@ -452,19 +462,21 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let selected = textDocumentProxy.selectedText ?? ""
         let actual = HostTextSnapshot(before: before ?? "", after: after ?? "", selected: selected,
             document: identity, available: before != nil || after != nil)
-        // Local composition needs only a stable field and no reported selection.
-        // A native marked transaction losing its readable context cannot prove
-        // that a clear-mark was honoured; abort rather than append a conversion.
+        // A reported field/selection change still aborts the transaction. A
+        // temporarily missing context alone must not turn native pinyin literal.
         guard revision == hostNotificationRevision else { return false }
         let wasReadable = readableHostContext
         readableHostContext = actual.available
         if !requiresReadable, !wasReadable, actual.available, selected.isEmpty {
             // The client first exposed its real boundary while acknowledging
             // our selected Chinese. Keep the remainder local at that boundary.
-            rebaseLocalDraft(on: actual)
+            rebaseDraft(on: actual)
             return true
         }
-        return selected.isEmpty && ((!actual.available && !requiresReadable) || expected.accepts(expected.snapshot, actual: actual))
+        // Native fields can temporarily omit context while processing our own
+        // mark/insert callbacks. A stable field with no reported selection must
+        // retain its composition; nil is not a failed marked-text transaction.
+        return selected.isEmpty && (!actual.available || !expected.snapshot.available || expected.accepts(expected.snapshot, actual: actual))
     }
     func setMarkedText(_ text: String) {
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
@@ -491,24 +503,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         hostState.setMarked(""); hostState.unmark()
         model?.cursorChanged(unmarkDraft: false)
     }
-    private func rebaseLocalDraft(on actual: HostTextSnapshot) {
-        hostState = HostTextState(actual)
-        if !markedDraft.isEmpty { hostState.setMarked(markedDraft) }
-    }
-    /// Use an already captured snapshot, never another proxy read on a key.
-    /// The transport remains local if context becomes available mid-draft.
-    private func observeContextReadability(_ actual: HostTextSnapshot) -> Bool {
-        readableHostContext = actual.available
-        guard actual.document == hostState.snapshot.document, !actual.available,
-              markedTransport == .host, !markedDraft.isEmpty else { return true }
-        if sentMarkedDraft {
-            // The old raw spelling may already be literal in the client. We
-            // cannot retract it safely and must not append Chinese after it.
-            abandonDraftWithoutHostWrite(); hostState = HostTextState(actual)
-            return false
+    private func rebaseDraft(on actual: HostTextSnapshot) {
+        var boundary = actual
+        if markedTransport == .host, !markedDraft.isEmpty, boundary.before.hasSuffix(markedDraft) {
+            boundary.before.removeLast(markedDraft.count)
         }
-        cancelQueuedMarkedWrites(); markedTransport = .local
-        return true
+        hostState = HostTextState(boundary)
+        if !markedDraft.isEmpty { hostState.setMarked(markedDraft) }
     }
     private func enqueueMarkedText(_ text: String) {
         pendingMarkedText.replace(with: text)

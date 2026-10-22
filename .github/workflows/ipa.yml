@@ -113,6 +113,11 @@ jobs:
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
             -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testSolidBackdropStaysWithinOwnedBoundsAtNativeScaleAndResets \
             -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testAppearancePreviewUsesOneUniformlyScaledKeyboardCanvas \
+            -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNativeDraftSurvivesTransientNilContextWithoutLosingChineseCandidates \
+            -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextFieldSurvivesIdleAndSelectionCallbacks \
+            -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextViewSurvivesIdleAndSelectionCallbacks \
+            -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionInTheAppsActualSwiftUIAppearanceFieldSurvivesIdle \
+            -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testEnterConfirmsChineseWithoutBlockingOrFlushingRawSpelling \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
       - name: Preserve the focused appearance result
         if: always()
@@ -275,8 +280,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.51')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 54')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.52')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 55')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

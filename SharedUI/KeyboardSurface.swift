@@ -675,7 +675,7 @@ import SwiftUI
         buildGrid(items, in: stack, identifiers: [compatibilityInputTitle: "keyboard.compatibleInput"]); render()
     }
     private var compatibilityInputTitle: String {
-        model.settings.localPinyinComposition == true ? "兼容输入 · 开" : "兼容输入 · 自动"
+        model.settings.localPinyinComposition == true ? "兼容输入 · 开" : "兼容输入 · 关"
     }
     func toggleLocalPinyinComposition() {
         guard model.composition.isEmpty else { return }

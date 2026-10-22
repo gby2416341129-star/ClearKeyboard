@@ -40,7 +40,7 @@ public enum ToolbarTool: String, Codable, CaseIterable, Identifiable {
 
 public struct KeyboardSettings: Codable, Equatable {
     public var language: InputLanguage = .chinese
-    /// Nil/false select host detection. True keeps provisional pinyin local.
+    /// Nil/false use normal inline marked text. True explicitly keeps pinyin local.
     public var localPinyinComposition: Bool? = nil
     public var glass: GlassPreset = .clear
     public var accent: Accent = .ocean

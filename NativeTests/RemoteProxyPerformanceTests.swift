@@ -157,7 +157,7 @@ import SwiftUI
             model.chooseDisplayed(candidate, context: model.candidateContext)
             try await waitFor { proxy.textView.text == candidate.text + remainder.raw }
             XCTAssertEqual(model.composition.raw, remainder.raw)
-            model.handle(.enter)
+            model.finishCompositionAsTyped()
             XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw)
             XCTAssertNil(proxy.textView.markedTextRange)
             XCTAssertTrue(model.composition.isEmpty)
@@ -467,10 +467,12 @@ import SwiftUI
         return window
     }
     private func assertPartialConversionSurvivesIdle(in proxy: UIKitFieldDocumentProxy, name: String) async throws {
+        proxy.hidesContext = true
         let controller = ProxyKeyboardController(); controller.proxy = proxy; controller.loadViewIfNeeded()
         let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
         model.settings.language = .chinese; model.settings.learnChoices = false
         model.settings.automaticClipboard = false; model.settings.predictions = false
+        model.settings.localPinyinComposition = nil
         defer { proxy.onMutation = nil; model.suspend() }
         // UIKit owns text and marked ranges. These injected notifications test
         // delayed acknowledgement order, not a real extension/remote connection.
@@ -480,11 +482,15 @@ import SwiftUI
         try await waitFor { model.engineState == "离线就绪" }
         for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
         try await waitFor { model.candidatesAreCurrent && proxy.markedText == "jintiannichifanlema" }
+        XCTAssertFalse(controller.usesLocalPinyinComposition, "Missing context must not activate compatibility in a native field")
         // Isolate conversion transport from dictionary coverage/ranking; the
         // public displayed-choice path still validates the live field/context.
         let prefix = Candidate(text: "今天你", reading: "jintianni", consumed: 9)
         model.chooseDisplayed(prefix, context: model.candidateContext)
         try await waitFor { proxy.text == "前文🙂今天你chifanlema｜后文" && proxy.markedText == "chifanlema" && model.candidatesAreCurrent }
+        proxy.hidesContext = false
+        controller.selectionDidChange(nil); controller.textDidChange(nil)
+        try await Task.sleep(nanoseconds: 450_000_000)
         let unmarks = proxy.unmarkWrites
         for delay in [40_000_000, 410_000_000, 800_000_000] as [UInt64] {
             try await Task.sleep(nanoseconds: delay)
@@ -518,7 +524,8 @@ import SwiftUI
             if hidesContext { proxy.onMutation = { [weak controller] in controller?.selectionDidChange(nil); controller?.textDidChange(nil) } }
             let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
             model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
-            defer { model.suspend() }
+            model.settings.localPinyinComposition = hidesContext
+            defer { model.settings.localPinyinComposition = nil; model.suspend() }
             try await waitFor { model.engineState == "离线就绪" }
             for character in "nihao" { model.handle(.text(String(character))) }
             try await waitFor { model.candidatesAreCurrent && (hidesContext || proxy.marked == "nihao") }
@@ -550,7 +557,7 @@ import SwiftUI
     func testUnreadableHostKeepsSpellingLocalAndInsertsOnlyChosenChinese() async throws {
         let proxy = UnclearableMarkedDocumentProxy()
         let (controller, model) = try await unclearableHost(proxy)
-        defer { model.suspend() }
+        defer { model.settings.localPinyinComposition = nil; model.suspend() }
         proxy.contextReads = 0
         for character in "nichifanlema" { model.handle(.text(String(character))) }
         XCTAssertEqual(proxy.contextReads, 0, "Local composition must not add synchronous proxy reads per key")
@@ -570,7 +577,7 @@ import SwiftUI
     func testUnreadablePartialConversionsSurviveDelayedOwnSelectionAcknowledgement() async throws {
         let proxy = UnclearableMarkedDocumentProxy()
         let (controller, model) = try await unclearableHost(proxy)
-        defer { model.suspend() }
+        defer { model.settings.localPinyinComposition = nil; model.suspend() }
         proxy.onMutation = { [weak controller] in controller?.selectionDidChange(nil); controller?.textDidChange(nil) }
         for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
         try await waitFor { model.candidatesAreCurrent }
@@ -592,13 +599,13 @@ import SwiftUI
     func testUnreadableSpacePunctuationRawCommitCancellationAndEnglishStayOrdered() async throws {
         let proxy = UnclearableMarkedDocumentProxy()
         let (controller, model) = try await unclearableHost(proxy)
-        defer { model.suspend(); _ = controller }
+        defer { model.settings.localPinyinComposition = nil; model.suspend(); _ = controller }
         for character in "nihao" { model.handle(.text(String(character))) }
         try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "你好" }
         model.handle(.space)
         XCTAssertEqual(proxy.committed, "前文🙂你好")
         for character in "zaigansha" { model.handle(.text(String(character))) }
-        model.handle(.enter)
+        model.finishCompositionAsTyped()
         XCTAssertEqual(proxy.committed, "前文🙂你好zaigansha", "Explicit raw confirmation inserts the local spelling exactly once")
         for character in "nihao" { model.handle(.text(String(character))) }
         try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "你好" }
@@ -622,7 +629,7 @@ import SwiftUI
         for switchesDocument in [false, true] {
             let proxy = UnclearableMarkedDocumentProxy()
             let (controller, model) = try await unclearableHost(proxy)
-            defer { model.suspend() }
+            defer { model.settings.localPinyinComposition = nil; model.suspend() }
             for character in "nihao" { model.handle(.text(String(character))) }
             try await waitFor { model.candidatesAreCurrent }
             let context = model.candidateContext
@@ -642,7 +649,7 @@ import SwiftUI
     func testLocalDraftStaysLocalWhenRealContextBecomesReadable() async throws {
         let proxy = UnclearableMarkedDocumentProxy()
         let (controller, model) = try await unclearableHost(proxy)
-        defer { model.suspend() }
+        defer { model.settings.localPinyinComposition = nil; model.suspend() }
         for character in "ni" { model.handle(.text(String(character))) }
         proxy.hidesContext = false; controller.textDidChange(nil)
         try await Task.sleep(nanoseconds: 450_000_000)
@@ -652,27 +659,44 @@ import SwiftUI
         try await waitFor { model.candidatesAreCurrent }
         model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
         XCTAssertEqual(proxy.committed, "前文🙂你好"); XCTAssertTrue(proxy.markedWrites.isEmpty)
-        XCTAssertFalse(controller.usesLocalPinyinComposition, "The next draft may use the now-readable host; this completed draft must never be re-sent")
+        XCTAssertTrue(controller.usesLocalPinyinComposition, "Explicit compatibility stays enabled until the user turns it off")
     }
-    func testNativeDraftLosingReadableContextNeverAppendsChineseAfterSentSpelling() async throws {
-        let proxy = UnclearableMarkedDocumentProxy(); proxy.hidesContext = false
-        let (controller, model) = try await unclearableHost(proxy)
-        defer { model.suspend() }
+    func testNativeDraftSurvivesTransientNilContextWithoutLosingChineseCandidates() async throws {
+        let field = UITextField(frame: CGRect(x: 20, y: 100, width: 330, height: 48))
+        field.text = "前文🙂"; field.inputView = UIView(frame: .zero)
+        let host = UIViewController(); host.loadViewIfNeeded(); host.view.addSubview(field)
+        let window = try makeHostWindow(host)
+        defer { field.resignFirstResponder(); window.isHidden = true }
+        XCTAssertTrue(field.becomeFirstResponder())
+        let end = field.endOfDocument; field.selectedTextRange = field.textRange(from: end, to: end)
+        let proxy = UIKitFieldDocumentProxy(field), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false
+        model.settings.automaticClipboard = false; model.settings.localPinyinComposition = nil
+        defer { model.settings.localPinyinComposition = nil; model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
         for character in "nihao" { model.handle(.text(String(character))) }
-        try await waitFor { proxy.provisional == "nihao" && model.candidatesAreCurrent }
-        let context = model.candidateContext
+        try await waitFor { proxy.markedText == "nihao" && model.candidatesAreCurrent }
         proxy.hidesContext = true; controller.textDidChange(nil)
-        try await waitFor { model.composition.isEmpty }
-        model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: context)
-        XCTAssertTrue(proxy.insertedTexts.isEmpty)
-        XCTAssertEqual(proxy.provisional, "nihao", "Already-sent text cannot be safely retracted from an unreadable host")
-        XCTAssertFalse(proxy.markedWrites.contains("")); XCTAssertEqual(proxy.deleteWrites, 0); XCTAssertEqual(proxy.unmarkWrites, 0)
-        XCTAssertTrue(controller.usesLocalPinyinComposition)
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(model.composition.raw, "nihao"); XCTAssertEqual(proxy.markedText, "nihao")
+        XCTAssertFalse(controller.usesLocalPinyinComposition)
+        XCTAssertFalse(model.candidates.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0)
+        proxy.onMutation = { [weak controller] in controller?.selectionDidChange(nil); controller?.textDidChange(nil) }
+        model.handle(.space)
+        XCTAssertEqual(proxy.text, "前文🙂你好"); XCTAssertTrue(model.composition.isEmpty)
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { proxy.markedText == "nihao" && model.candidatesAreCurrent }
+        proxy.hidesContext = false; controller.selectionDidChange(nil)
+        model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
+        XCTAssertEqual(proxy.text, "前文🙂你好你好", "Revealing native context on a choice must not require a second tap")
+        XCTAssertEqual(proxy.insertedTexts, ["你好", "你好"]); XCTAssertEqual(proxy.unmarkWrites, 0)
     }
     func testLocalPartialInsertionCanRevealReadableContextWithoutFlushingItsRemainder() async throws {
         let proxy = UnclearableMarkedDocumentProxy()
         let (controller, model) = try await unclearableHost(proxy)
-        defer { proxy.onMutation = nil; model.suspend() }
+        defer { proxy.onMutation = nil; model.settings.localPinyinComposition = nil; model.suspend() }
         for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
         try await waitFor { model.candidatesAreCurrent }
         proxy.onMutation = { [weak controller] in
@@ -691,8 +715,8 @@ import SwiftUI
     }
     func testForcedLocalCompositionProtectsReadableHostIgnoringEmptyMarks() async throws {
         let proxy = UnclearableMarkedDocumentProxy(); proxy.hidesContext = false
-        let (controller, model) = try await unclearableHost(proxy)
-        defer { model.suspend() }
+        let (controller, model) = try await unclearableHost(proxy, compatibility: false)
+        defer { model.settings.localPinyinComposition = nil; model.suspend() }
         XCTAssertFalse(controller.usesLocalPinyinComposition)
         model.settings.localPinyinComposition = true
         XCTAssertTrue(controller.usesLocalPinyinComposition)
@@ -707,20 +731,20 @@ import SwiftUI
     func testDismissingUnreadableKeyboardDoesNotCommitUnconfirmedLocalSpelling() async throws {
         let proxy = UnclearableMarkedDocumentProxy()
         let (controller, model) = try await unclearableHost(proxy)
-        defer { model.suspend() }
+        defer { model.settings.localPinyinComposition = nil; model.suspend() }
         for character in "nihao" { model.handle(.text(String(character))) }
         controller.viewWillDisappear(false)
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertEqual(proxy.committed, "前文🙂"); XCTAssertTrue(model.composition.isEmpty)
         XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertTrue(proxy.insertedTexts.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0)
     }
-    private func unclearableHost(_ proxy: UnclearableMarkedDocumentProxy) async throws -> (ProxyKeyboardController, KeyboardModel) {
+    private func unclearableHost(_ proxy: UnclearableMarkedDocumentProxy, compatibility: Bool = true) async throws -> (ProxyKeyboardController, KeyboardModel) {
         let controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
         let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
         model.settings.language = .chinese; model.settings.learnChoices = false
         model.settings.automaticClipboard = false; model.settings.predictions = false
-        model.settings.localPinyinComposition = nil
+        model.settings.localPinyinComposition = compatibility
         try await waitFor { model.engineState == "离线就绪" }
         return (controller, model)
     }
@@ -1439,27 +1463,25 @@ import SwiftUI
         XCTAssertEqual(model.candidates.first?.text, "你好")
         XCTAssertEqual(model.candidateContext?.before, document.before)
     }
-    func testEnterCommitsRawSpellingWithoutWaitingForCandidates() async throws {
+    func testEnterConfirmsChineseWithoutBlockingOrFlushingRawSpelling() async throws {
         let document = WordLookupDocument()
         var settings = KeyboardSettings()
         settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
         let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
-            if raw == "hd" { Thread.sleep(forTimeInterval: 0.2) }
+            if raw == "nihao" { Thread.sleep(forTimeInterval: 0.2) }
             return engine.immediateCandidates(raw, preferred: preferred)
         }
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }
-        for letter in "hd" { model.handle(.text(String(letter))) }
+        for letter in "nihao" { model.handle(.text(String(letter))) }
         let start = ProcessInfo.processInfo.systemUptime
         model.handle(.enter)
-        XCTAssertEqual(document.before, "hd")
-        XCTAssertTrue(document.marked.isEmpty)
-        XCTAssertTrue(model.composition.isEmpty, "Confirm must not queue behind the Chinese decoder")
         XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - start) * 1_000, 30)
-        try await Task.sleep(nanoseconds: 300_000_000)
-        XCTAssertEqual(document.before, "hd", "A late result cannot convert committed raw letters")
+        XCTAssertTrue(document.before == "你好" || document.marked == "nihao", "A pending confirmation must keep raw spelling provisional")
+        try await waitFor { document.before == "你好" && model.composition.isEmpty }
+        XCTAssertTrue(document.marked.isEmpty)
         model.handle(.enter)
-        XCTAssertEqual(document.before, "hd\n", "An empty composition retains the editor's return behavior")
+        XCTAssertEqual(document.before, "你好\n", "An empty composition retains the editor's return behavior")
     }
     func testContextualShortSpellingDoesNotWaitForTheWordLookupWorker() async throws {
         let document = WordLookupDocument(); document.before = "办公"
@@ -1654,6 +1676,7 @@ import SwiftUI
     var insertedTexts: [String] = [], markedWrites: [String] = []
     var unmarkWrites = 0, deleteWrites = 0
     var onMutation: (() -> Void)?
+    var hidesContext = false
     init(_ input: UIView & UITextInput) { self.input = input; super.init() }
     var text: String {
         guard let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument) else { return "" }
@@ -1661,11 +1684,13 @@ import SwiftUI
     }
     var markedText: String? { input.markedTextRange.flatMap { input.text(in: $0) } }
     var documentContextBeforeInput: String? {
+        guard !hidesContext else { return nil }
         guard let selection = input.selectedTextRange,
               let range = input.textRange(from: input.beginningOfDocument, to: selection.start) else { return nil }
         return input.text(in: range)
     }
     var documentContextAfterInput: String? {
+        guard !hidesContext else { return nil }
         guard let selection = input.selectedTextRange,
               let range = input.textRange(from: selection.end, to: input.endOfDocument) else { return nil }
         return input.text(in: range)
