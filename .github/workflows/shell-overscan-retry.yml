@@ -1,0 +1,250 @@
+name: Verify keyboard background outsets and custom backdrop
+
+on:
+  push:
+    branches: [codex/keyboard-shell-public-ab-20261022]
+
+permissions:
+  contents: read
+  actions: read
+
+# This workflow does not share the IPA workflow's concurrency group.
+concurrency:
+  group: shell-overscan-retry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-shell:
+    name: Background ${{ matrix.variant }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - recipe: keyboard-root
+            variant: overscan
+            condition: SHELL_AB_KEYBOARD_ROOT SHELL_OVERSCAN
+          - recipe: keyboard-root
+            variant: hook-overscan
+            condition: SHELL_AB_KEYBOARD_ROOT SHELL_CUSTOM_BACKGROUND SHELL_OVERSCAN
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-0
+      CLEAR_TEST_REQUIRE_RUNTIME: '1'
+      CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '27'
+      CLEAR_SHELL_VARIANT: ${{ matrix.variant }}
+      CLEAR_SHELL_AB_RECIPE: ${{ matrix.recipe }}
+      CLEAR_SHELL_AB_CONDITION: ${{ matrix.condition }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require and record an available iOS 27 runtime
+        run: |
+          mkdir -p .build/ShellAB
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j'],text=True))
+          Path('.build/ShellAB/ios27-runtime-selection.json').write_text(json.dumps(inventory,indent=2)+'\n')
+          choices=[r for r in inventory['runtimes'] if r.get('isAvailable') and
+                   r['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS-27-')]
+          assert choices, 'This diagnostic requires a real installed iOS 27 runtime; do not substitute iOS 26'
+          selected=max(choices,key=lambda r:tuple(int(v) for v in r['version'].split('.')))
+          with open(os.environ['GITHUB_ENV'],'a') as stream:
+              stream.write('CLEAR_TEST_SIMULATOR_RUNTIME='+selected['identifier']+'\n')
+          print('SELECTED_IOS27_RUNTIME '+json.dumps(selected),flush=True)
+          PY
+      - name: Record exact diagnostic recipe and require the selected runtime
+        run: |
+          mkdir -p .build/ShellAB .build/KeyboardShell
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          conditions={'material-a-blur-tint055': 'SHELL_MATERIAL_A', 'material-b-no-blur-tint055': 'SHELL_MATERIAL_B', 'material-c-no-blur-opaque': 'SHELL_MATERIAL_C', 'host-sized-default-root': 'SHELL_AB_HOST_SIZED_ROOT', 'keyboard-root': 'SHELL_AB_KEYBOARD_ROOT SHELL_OVERSCAN'}
+          recipe=os.environ['CLEAR_SHELL_AB_RECIPE']
+          assert recipe=='keyboard-root' and os.environ['CLEAR_SHELL_AB_CONDITION'] in ['SHELL_AB_KEYBOARD_ROOT SHELL_OVERSCAN','SHELL_AB_KEYBOARD_ROOT SHELL_CUSTOM_BACKGROUND SHELL_OVERSCAN']
+          report=dict(schema=1,recipe=recipe,variant=os.environ['CLEAR_SHELL_VARIANT'],compilationConditions=['DEBUG']+os.environ['CLEAR_SHELL_AB_CONDITION'].split(),
+              sourceCommit=os.environ['GITHUB_SHA'],rootTint='transparent' if recipe.startswith('material-') else '#558DF2',
+              forcedAppearance=recipe.startswith('material-'),settingsSynchronizationVerified=False,
+              modelSettingsChangedByDiagnostic=False,
+              appearanceSource='DEBUG-owned-background-copy-no-persistence' if recipe.startswith('material-') else 'original-App-blue-selection-and-AB7-root-blue',
+              backgroundExperiment=dict(hex='#558DF2',glass='clear',resolvedStrength=0.52,
+                  washAlpha=1 if recipe=='material-c-no-blur-opaque' else 0.55,
+                  effectPresent=recipe=='material-a-blur-tint055') if recipe.startswith('material-') else None,
+              productionSourceBaseline='4361d7463fe274eff6ca810fc05d5a8f39faff4c',
+              diagnosticScope='Mandatory Safari English/Emoji/focused-Home transitions; required actual sizing/material metadata; optional App HEX excluded under AB flags',
+              comparison='Runtime-discovered custom background getter returns true in our own subclass, with and without owned-view overscan; screenshots and hook invocation count must establish the effect. No production use.',
+              glassBackdropSHA256=hashlib.sha256(Path('SharedUI/GlassBackdrop.swift').read_bytes()).hexdigest(),
+              fixtureSHA256=hashlib.sha256(Path('UITests/KeyboardShellUITests.swift').read_bytes()).hexdigest(),
+              wholeCoverageResolved=False,geometryVerified=False,
+              controllerSHA256=hashlib.sha256(Path('KeyboardExtension/KeyboardViewController.swift').read_bytes()).hexdigest(),
+              resourceProfile='standard-prepare-rime-without-CoreML-export',
+              simulatedChromeUsed=False,physicalDeviceTestRun=False,nativeChromeGeometryFixed=False,
+              evidencePolicy=dict(staticAttachmentsPreserved=True,xcresultBundleUploaded=False,
+                  screenRecordingsUploaded=False,
+                  omitted=['duplicate xcresult bundle','exported MP4 screen recordings'],
+                  reason='Keep every exported PNG, AX/text, manifest, result JSON and log without duplicate video/bundle payloads'))
+          Path('.build/ShellAB/recipe.json').write_text(json.dumps(report,indent=2)+'\n')
+          print('SHELL_PUBLIC_AB_RECIPE '+json.dumps(report),flush=True)
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j'],text=True))
+          Path('.build/ShellAB/runtime-inventory.json').write_text(json.dumps(inventory,indent=2)+'\n')
+          assert any(r['identifier']==os.environ['CLEAR_TEST_SIMULATOR_RUNTIME'] and r.get('isAvailable')
+              for r in inventory['runtimes']), 'The exact required selected iOS 27 runtime is unavailable'
+          PY
+          xcodebuild -version | tee .build/ShellAB/xcode-version.txt
+      - name: Boot the exact required selected iOS 27 simulator
+        timeout-minutes: 10
+        run: python3 Scripts/boot_test_simulator.py
+      - name: Restore pinned language model cache
+        id: language-model
+        uses: actions/cache/restore@v4
+        with:
+          path: .rime-cache/wanxiang-lts-zh-hans.gram
+          key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
+      - name: Recover and verify the exact existing pinned grammar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/restore_pinned_model.py
+      - name: Cache the verified pinned grammar
+        if: steps.language-model.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .rime-cache/wanxiang-lts-zh-hans.gram
+          key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
+      - name: Prepare the standard offline resources without a Core ML export
+        run: |
+          set -euo pipefail
+          python3 Scripts/prepare_rime.py 2>&1 | tee .build/ShellAB/prepare-rime.log
+      - name: Build only the UI test target and its real App and extension dependencies
+        run: |
+          set -euo pipefail
+          python3 Scripts/generate_project.py
+          xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG ${CLEAR_SHELL_AB_CONDITION}" \
+            build-for-testing 2>&1 | tee .build/ShellAB/build.log
+      - name: Exercise the installed extension through the real system keyboard picker
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_DEVICE="$(cat .build/composition-device-id)"
+          python3 Scripts/setup_keyboard_shell_sim.py --device "$TEST_DEVICE" \
+            --app .build/Composition/Build/Products/Debug-iphonesimulator/ClearKeyboard.app \
+            --expected-runtime "$CLEAR_TEST_SIMULATOR_RUNTIME" --output .build/KeyboardShell/setup.json
+          python3 Scripts/serve_keyboard_shell.py --device "$TEST_DEVICE" --directory UITests > .build/KeyboardShell/server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          """Bounded client-side verification of the exact local Safari fixture bytes."""
+          import hashlib,json,subprocess,sys,time
+          from pathlib import Path
+
+          WORKER = r'''
+          import hashlib,json,sys,urllib.request
+          url,size,digest,timeout=sys.argv[1],int(sys.argv[2]),sys.argv[3],float(sys.argv[4])
+          opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          request=urllib.request.Request(url,headers={'Accept-Encoding':'identity','Connection':'close'})
+          with opener.open(request,timeout=timeout) as response:
+              body=response.read(size+1)
+              assert response.status==200, 'HTTP status mismatch'
+              assert response.geturl()==url, 'Unexpected redirect'
+              assert len(body)==size, 'Fixture body length mismatch'
+              actual=hashlib.sha256(body).hexdigest()
+              assert actual==digest, 'Fixture body SHA256 mismatch'
+              print(json.dumps(dict(status=response.status,bytes=len(body),sha256=actual,completeBodyVerified=True)))
+          '''
+
+          def wait_for_fixture(url,fixture_path,report_path,budget=45):
+              expected=Path(fixture_path).read_bytes()
+              assert 0<len(expected)<1024*1024, 'Fixture size outside diagnostic bound'
+              digest=hashlib.sha256(expected).hexdigest()
+              started=time.monotonic(); deadline=started+budget
+              report=dict(schema=1,url=url,proxyDisabled=True,expectedBytes=len(expected),expectedSHA256=digest,
+                  totalBudgetSeconds=budget,singleSocketTimeoutSeconds=8,singleProcessBudgetSeconds=10,
+                  clientCompleteBodyVerified=False,attempts=[])
+              target=Path(report_path); target.parent.mkdir(parents=True,exist_ok=True)
+              def save():
+                  report['elapsedSeconds']=round(time.monotonic()-started,3)
+                  target.write_text(json.dumps(report,indent=2)+'\n',encoding='utf8')
+              save()
+              while time.monotonic()<deadline:
+                  remaining=deadline-time.monotonic()
+                  row=dict(attempt=len(report['attempts'])+1)
+                  try:
+                      result=subprocess.run([sys.executable,'-c',WORKER,url,str(len(expected)),digest,str(min(8,remaining))],
+                          capture_output=True,text=True,timeout=min(10,remaining))
+                      row['exitCode']=result.returncode
+                      if result.returncode==0:
+                          payload=json.loads(result.stdout)
+                          assert payload['completeBodyVerified'] is True and payload['sha256']==digest
+                          row['response']=payload
+                          report['clientCompleteBodyVerified']=True
+                      else:
+                          row['error']=result.stderr[-1200:]
+                  except (subprocess.TimeoutExpired,OSError,ValueError,AssertionError) as error:
+                      row['error']=type(error).__name__+': '+str(error)[-1200:]
+                  report['attempts'].append(row); save()
+                  if report['clientCompleteBodyVerified']:
+                      print('KEYBOARD_SHELL_HTTP_READY '+json.dumps(report),flush=True)
+                      return report
+                  remaining=deadline-time.monotonic()
+                  if remaining>0:time.sleep(min(0.25,remaining))
+              save()
+              print('KEYBOARD_SHELL_HTTP_NOT_READY '+json.dumps(report),flush=True)
+              raise RuntimeError('Safari fixture client could not verify the complete expected body within the total readiness budget')
+
+          if __name__=='__main__':
+              wait_for_fixture('http://127.0.0.1:8765/safari-fixture.html',Path('UITests/safari-fixture.html'),
+                  Path('.build/KeyboardShell/http-fixture-readiness.json'))
+          PY
+          xcrun simctl openurl "$TEST_DEVICE" 'http://127.0.0.1:8765/safari-fixture.html'
+          set +e
+          xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
+            -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
+            -derivedDataPath .build/Composition -resultBundlePath .build/KeyboardShellResults.xcresult \
+            -destination-timeout 60 -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 300 \
+            -only-testing:ClearKeyboardUITests/KeyboardShellUITests/testConnectedExtensionShellAcrossEnglishEmojiAndHostReturn \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG ${CLEAR_SHELL_AB_CONDITION}" \
+            test-without-building 2>&1 | tee .build/KeyboardShell/test.log
+          TEST_EXIT=${PIPESTATUS[0]}
+          set -e
+          xcrun xcresulttool get test-results summary --path .build/KeyboardShellResults.xcresult > .build/KeyboardShell/result-summary.json || true
+          xcrun xcresulttool get test-results tests --path .build/KeyboardShellResults.xcresult > .build/KeyboardShell/result-tests.json || true
+          xcrun xcresulttool export attachments --path .build/KeyboardShellResults.xcresult --output-path .build/KeyboardShell/Images || true
+          set +e
+          xcrun simctl spawn "$TEST_DEVICE" log show --last 10m --style compact \
+            --predicate 'process == "ClearKeyboardExtension"' > .build/KeyboardShell/extension-process.log 2>&1
+          EXTENSION_LOG_EXIT=$?
+          xcrun simctl spawn "$TEST_DEVICE" log show --last 10m --style compact \
+            --predicate 'eventMessage CONTAINS "Unable to simultaneously satisfy constraints" OR eventMessage CONTAINS "CLEAR_KEYBOARD_LAYOUT"' \
+            > .build/KeyboardShell/constraints-and-layout.log 2>&1
+          LAYOUT_LOG_EXIT=$?
+          printf '{"extensionLogExportExitCode":%s,"constraintLayoutLogExportExitCode":%s,"scope":"raw-public-simulator-logs-not-automatically-attributed-to-extension"}\n' \
+            "$EXTENSION_LOG_EXIT" "$LAYOUT_LOG_EXIT" > .build/KeyboardShell/log-export-status.json
+          set -e
+          if [[ -f .build/KeyboardShell/result-summary.json ]]; then cat .build/KeyboardShell/result-summary.json; fi
+          exit "$TEST_EXIT"
+      - name: Upload the recipe evidence even when activation or measurement fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-background-${{ matrix.variant }}
+          path: |
+            .build/ShellAB
+            .build/KeyboardShell
+            !.build/KeyboardShell/**/*.mp4
+          if-no-files-found: error
+          retention-days: 7
+      - name: Stop the disposable simulator
+        if: always()
+        run: python3 Scripts/boot_test_simulator.py --cleanup || true
+

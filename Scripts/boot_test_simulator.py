@@ -51,7 +51,7 @@ if device_file.is_file():
 print('SIMULATOR_CANDIDATES '+json.dumps([dict(runtime=r,model=d['name']) for r,d in choices[:2]]),flush=True)
 
 def ready(device):
-    board=run(['spawn',device,'launchctl','print','system/com.apple.SpringBoard'],timeout=20)
+    board=run(['spawn',device,'launchctl','print','system/com.apple.SpringBoard'],timeout=45)
     springboard=bool(board and board.returncode==0 and 'state = running' in board.stdout)
     listed=run(['listapps',device],timeout=45)
     apps={}

@@ -231,7 +231,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         }
         let inset = view.safeAreaInsets
 #if DEBUG && SHELL_OVERSCAN
-        NSLog("OVERSCAN_REQUEST root=%@ window=%@ paint=%@ windowClipped=%d", NSStringFromCGRect(view.bounds), NSStringFromCGRect(view.window?.bounds ?? .zero), NSStringFromCGRect(overscanPaint.frame), view.window?.clipsToBounds == true ? 1 : 0)
+        NSLog("OVERSCAN_REQUEST root=%@ window=%@ paint=%@ windowClipped=%d", NSCoder.string(for: view.bounds), NSCoder.string(for: view.window?.bounds ?? .zero), NSCoder.string(for: overscanPaint.frame), view.window?.clipsToBounds == true ? 1 : 0)
 #endif
         let evidence: [String: Any] = [
             "bundleExtension": Bundle.main.bundleURL.pathExtension,
