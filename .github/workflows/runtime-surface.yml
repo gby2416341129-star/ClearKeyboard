@@ -1,0 +1,49 @@
+name: Inspect installed UIKit keyboard background interfaces
+on:
+  push:
+    branches: [codex/keyboard-shell-public-ab-20261022]
+permissions:
+  contents: read
+jobs:
+  surface:
+    runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '27'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile metadata probe for the installed simulator SDK
+        run: |
+          mkdir -p .build/UIKitSurface
+          xcodebuild -version > .build/UIKitSurface/xcode.txt
+          xcrun simctl list runtimes -j > .build/UIKitSurface/runtimes.json
+          xcrun --sdk iphonesimulator clang -fobjc-arc -fmodules -target arm64-apple-ios18.0-simulator \
+            -isysroot "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+            -framework Foundation -framework UIKit Scripts/UIKitSurface.m -o .build/UIKitSurface/inspect
+          codesign --force --sign - .build/UIKitSurface/inspect
+          SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          cp "$SDK/System/Library/Frameworks/UIKit.framework/Headers/UIInputViewController.h" .build/UIKitSurface/
+          cp "$SDK/System/Library/Frameworks/UIKit.framework/Headers/UIInputView.h" .build/UIKitSurface/
+      - name: Start a verified iOS 27 simulator
+        timeout-minutes: 10
+        run: python3 Scripts/boot_test_simulator.py
+      - name: Read the installed runtime metadata
+        timeout-minutes: 2
+        run: |
+          xcrun simctl spawn "$(cat .build/composition-device-id)" "$PWD/.build/UIKitSurface/inspect" > .build/UIKitSurface/interfaces.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          j=json.loads(Path('.build/UIKitSurface/interfaces.json').read_text())
+          print(json.dumps(dict(os=j['os'],classes=len(j['classes']),protocols=len(j['protocols']),metadataOnly=j['metadataOnly'])))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: UIKit-keyboard-background-interfaces
+          path: .build/UIKitSurface
+          retention-days: 7
+      - name: Stop the disposable simulator
+        if: always()
+        run: python3 Scripts/boot_test_simulator.py --cleanup || true
