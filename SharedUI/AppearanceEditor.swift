@@ -77,7 +77,22 @@ struct AppearanceDetailContent: View {
             })
     }
     private var hexText: Binding<String> {
-        Binding(get: { hexDraft ?? rgb.hex }, set: { hexDraft = $0; invalidHex = false })
+        Binding(get: { hexDraft ?? rgb.hex }, set: { text in
+            // Ending editing can replay the just-committed field value. It is
+            // no longer a draft, and must not re-enable Apply or survive as an
+            // old draft when the observed settings next refresh.
+            hexDraft = !editingHex && isCurrentExplicitColor(text) ? nil : text
+            invalidHex = false
+        })
+    }
+    private func isCurrentExplicitColor(_ text: String) -> Bool {
+        guard let path = item.colorPath, let proposed = RGBColor(hex: text),
+              let current = settings[keyPath: path].flatMap(RGBColor.init(hex:)) else { return false }
+        return proposed == current
+    }
+    private var hasPendingHexChange: Bool {
+        guard let draft = hexDraft else { return false }
+        return !isCurrentExplicitColor(draft)
     }
     private var usesDefault: Bool {
         if let path = item.colorPath { return value[keyPath: path] == nil }
@@ -93,6 +108,10 @@ struct AppearanceDetailContent: View {
     private func applyHex() {
         guard let draft = hexDraft else { return }
         guard let value = RGBColor(hex: draft) else { invalidHex = true; return }
+        if isCurrentExplicitColor(draft) {
+            hexDraft = nil; invalidHex = false; editingHex = false
+            return
+        }
         setColor(value)
     }
     private func reset() {
@@ -166,9 +185,9 @@ struct AppearanceDetailContent: View {
                                 Button { applyHex() } label: {
                                     Text("应用").font(.system(size: 15, weight: .semibold))
                                         .frame(width: 72, height: 48)
-                                        .foregroundStyle(hexDraft == nil ? Color.secondary : Color.white)
-                                        .background(hexDraft == nil ? Color.primary.opacity(0.06) : Color.accentColor, in: RoundedRectangle(cornerRadius: 13))
-                                }.buttonStyle(.plain).disabled(hexDraft == nil).accessibilityIdentifier("appearance.applyHex")
+                                        .foregroundStyle(hasPendingHexChange ? Color.white : Color.secondary)
+                                        .background(hasPendingHexChange ? Color.accentColor : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
+                                }.buttonStyle(.plain).disabled(!hasPendingHexChange).accessibilityIdentifier("appearance.applyHex")
                             }
                             if invalidHex { Text("请输入 #RGB 或 #RRGGBB").font(.caption).foregroundStyle(.red) }
                         }

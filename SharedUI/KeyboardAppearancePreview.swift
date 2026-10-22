@@ -76,6 +76,9 @@ final class KeyboardAppearancePreview: UIView {
         super.init(frame: frame)
         isOpaque = false; backgroundColor = .clear
         canvas.accessibilityIdentifier = "appearance.keyboard-canvas"
+        // The preview has one descriptive accessibility element. Its rendered
+        // keys are not live controls and must not masquerade as an input view.
+        canvas.accessibilityElementsHidden = true
         canvas.layer.cornerRadius = 22; canvas.layer.cornerCurve = .continuous; canvas.clipsToBounds = true
         addSubview(canvas)
         scenery.colors = [UIColor(red: 0.30, green: 0.38, blue: 0.65, alpha: 1).cgColor,

@@ -53,7 +53,7 @@ print('SIMULATOR_CANDIDATES '+json.dumps([dict(runtime=r,model=d['name']) for r,
 def ready(device):
     board=run(['spawn',device,'launchctl','print','system/com.apple.SpringBoard'],timeout=20)
     springboard=bool(board and board.returncode==0 and 'state = running' in board.stdout)
-    listed=run(['listapps',device],timeout=20)
+    listed=run(['listapps',device],timeout=45)
     apps={}
     if listed and listed.returncode==0:
         # simctl emits an OpenStep plist on some Xcode versions. Apple's plist

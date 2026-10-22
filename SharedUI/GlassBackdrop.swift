@@ -13,6 +13,7 @@ final class GlassBackdrop: UIView {
         addSubview(material); addSubview(wash)
         materialMask.backgroundColor = .black
         isUserInteractionEnabled = false
+        clipsToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
