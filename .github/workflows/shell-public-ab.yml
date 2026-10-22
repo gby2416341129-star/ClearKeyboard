@@ -16,7 +16,7 @@ concurrency:
 jobs:
   public-shell:
     name: Public root ${{ matrix.recipe }}
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -32,9 +32,10 @@ jobs:
           - recipe: keyboard-root
             condition: SHELL_AB_KEYBOARD_ROOT
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-0
       CLEAR_TEST_REQUIRE_RUNTIME: '1'
+      CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '27'
       CLEAR_SHELL_AB_RECIPE: ${{ matrix.recipe }}
       CLEAR_SHELL_AB_CONDITION: ${{ matrix.condition }}
     steps:
@@ -42,6 +43,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Require and record an available iOS 27 runtime
+        run: |
+          mkdir -p .build/ShellAB
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j'],text=True))
+          Path('.build/ShellAB/ios27-runtime-selection.json').write_text(json.dumps(inventory,indent=2)+'\n')
+          choices=[r for r in inventory['runtimes'] if r.get('isAvailable') and
+                   r['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS-27-')]
+          assert choices, 'This diagnostic requires a real installed iOS 27 runtime; do not substitute iOS 26'
+          selected=max(choices,key=lambda r:tuple(int(v) for v in r['version'].split('.')))
+          with open(os.environ['GITHUB_ENV'],'a') as stream:
+              stream.write('CLEAR_TEST_SIMULATOR_RUNTIME='+selected['identifier']+'\n')
+          print('SELECTED_IOS27_RUNTIME '+json.dumps(selected),flush=True)
+          PY
       - name: Record exact diagnostic recipe and require the selected runtime
         run: |
           mkdir -p .build/ShellAB .build/KeyboardShell
@@ -77,10 +94,10 @@ jobs:
           inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j'],text=True))
           Path('.build/ShellAB/runtime-inventory.json').write_text(json.dumps(inventory,indent=2)+'\n')
           assert any(r['identifier']==os.environ['CLEAR_TEST_SIMULATOR_RUNTIME'] and r.get('isAvailable')
-              for r in inventory['runtimes']), 'The exact required iOS 26.4 runtime is unavailable'
+              for r in inventory['runtimes']), 'The exact required selected iOS 27 runtime is unavailable'
           PY
           xcodebuild -version | tee .build/ShellAB/xcode-version.txt
-      - name: Boot the exact required iOS 26.4 simulator
+      - name: Boot the exact required selected iOS 27 simulator
         timeout-minutes: 10
         run: python3 Scripts/boot_test_simulator.py
       - name: Restore pinned language model cache
