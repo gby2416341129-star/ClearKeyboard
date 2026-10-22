@@ -507,22 +507,26 @@ import SwiftUI
         print("PARTIAL_CONVERSION_UIKIT host=\(name) actualStorage=true injectedCallbackOrder=true idleSeconds=1.65 literalRemainders=0 deleteRepairs=0 remoteProcessVerified=false")
     }
     func testBufferedMarkedHostClearsOnlyItsDraftBeforeChineseInsertion() async throws {
-        let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
-        controller.proxy = proxy; controller.loadViewIfNeeded()
-        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
-        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
-        defer { model.suspend() }
-        try await waitFor { model.engineState == "离线就绪" }
-        for character in "nihao" { model.handle(.text(String(character))) }
-        try await waitFor { proxy.marked == "nihao" && model.candidatesAreCurrent }
-        XCTAssertEqual(proxy.committed, "前文🙂", "This adapter buffers marked text without displaying it in its committed editor")
-        model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
-        try await waitFor { proxy.committed == "前文🙂你好" }
-        XCTAssertEqual(proxy.insertedTexts, ["你好"])
-        XCTAssertTrue(proxy.marked.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0); XCTAssertEqual(proxy.deleteWrites, 0)
-        XCTAssertTrue(proxy.events.suffix(2).elementsEqual(["mark:", "insert:你好"]),
-            "Buffered editors require the owned mark to be cleared before insert; unmark would flush nihao")
-        print("BUFFERED_MARKED_PROTOCOL fixtureOnly=true clearBeforeInsert=true unrelatedDeletes=0 realRemoteHostVerified=false")
+        for hidesContext in [false, true] {
+            let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
+            proxy.hidesContext = hidesContext
+            controller.proxy = proxy; controller.loadViewIfNeeded()
+            if hidesContext { proxy.onMutation = { [weak controller] in controller?.selectionDidChange(nil); controller?.textDidChange(nil) } }
+            let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+            model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
+            defer { model.suspend() }
+            try await waitFor { model.engineState == "离线就绪" }
+            for character in "nihao" { model.handle(.text(String(character))) }
+            try await waitFor { proxy.marked == "nihao" && model.candidatesAreCurrent }
+            XCTAssertEqual(proxy.committed, "前文🙂", "This adapter buffers marked text without displaying it in its committed editor")
+            model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
+            try await waitFor { proxy.committed == "前文🙂你好" }
+            XCTAssertEqual(proxy.insertedTexts, ["你好"])
+            XCTAssertTrue(proxy.marked.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0); XCTAssertEqual(proxy.deleteWrites, 0)
+            XCTAssertTrue(proxy.events.suffix(2).elementsEqual(["mark:", "insert:你好"]),
+                "Buffered editors require the owned mark to be cleared before insert; unmark would flush nihao")
+            print("BUFFERED_MARKED_PROTOCOL fixtureOnly=true clearBeforeInsert=true unrelatedDeletes=0 realRemoteHostVerified=false")
+        }
     }
     func testDocumentSwitchInsideEmptyMarkCannotReceiveOldChineseOrRemainder() async throws {
         let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
@@ -1492,18 +1496,21 @@ import SwiftUI
     var insertedTexts: [String] = [], events: [String] = []
     var unmarkWrites = 0, deleteWrites = 0
     var onEmptyMarked: (() -> Void)?
-    var documentContextBeforeInput: String? { committed }
-    var documentContextAfterInput: String? { "" }
+    var hidesContext = false
+    var onMutation: (() -> Void)?
+    var documentContextBeforeInput: String? { hidesContext ? nil : committed }
+    var documentContextAfterInput: String? { hidesContext ? nil : "" }
     var selectedText: String? { nil }
     var documentInputMode: UITextInputMode? { nil }
     var hasText: Bool { !committed.isEmpty || !marked.isEmpty }
     func insertText(_ text: String) {
         events.append("insert:" + text); insertedTexts.append(text)
-        committed += marked + text; marked = ""
+        committed += marked + text; marked = ""; onMutation?()
     }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
         events.append("mark:" + text); marked = text
         if text.isEmpty { onEmptyMarked?() }
+        onMutation?()
     }
     func unmarkText() { unmarkWrites += 1; events.append("unmark"); committed += marked; marked = "" }
     func deleteBackward() { deleteWrites += 1; if !committed.isEmpty { committed.removeLast() } }

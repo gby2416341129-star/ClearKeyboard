@@ -268,8 +268,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             let actual = HostTextSnapshot(before: actualBefore ?? "", after: actualAfter ?? "",
                 selected: actualSelected, document: actualIdentity,
                 available: actualBefore != nil || actualAfter != nil)
-            guard revision == hostRefreshGeneration,
-                  hostState.accepts(hostState.snapshot, actual: actual) else {
+            guard revision == hostRefreshGeneration, actualSelected.isEmpty,
+                  !actual.available || hostState.accepts(hostState.snapshot, actual: actual) else {
                 needsHostRefresh = true; scheduleHostRefresh(); return false
             }
             candidateSelectionNeedsValidation = false
@@ -350,8 +350,18 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     private func hostStillMatches(_ expected: HostTextState) -> Bool {
         let revision = hostNotificationRevision
-        let actual = readHostSnapshot()
-        return revision == hostNotificationRevision && expected.accepts(expected.snapshot, actual: actual)
+        guard let identity = connectedDocumentIdentifier()?.uuidString,
+              identity == expected.snapshot.document else { return false }
+        let before = textDocumentProxy.documentContextBeforeInput
+        let after = textDocumentProxy.documentContextAfterInput
+        let selected = textDocumentProxy.selectedText ?? ""
+        let actual = HostTextSnapshot(before: before ?? "", after: after ?? "", selected: selected,
+            document: identity, available: before != nil || after != nil)
+        // Some remote editors never expose context. A missing context is not a
+        // changed field, nor permission to delete host characters. Keep their
+        // owned-mark protocol usable, with a known UUID and no reported selection.
+        return revision == hostNotificationRevision && selected.isEmpty &&
+            (!actual.available || expected.accepts(expected.snapshot, actual: actual))
     }
     func setMarkedText(_ text: String) {
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil

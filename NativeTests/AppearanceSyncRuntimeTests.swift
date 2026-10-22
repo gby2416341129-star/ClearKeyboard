@@ -1,5 +1,6 @@
 import XCTest
 import Security
+import CoreFoundation
 @testable import ClearKeyboard
 
 private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend {
@@ -43,8 +44,20 @@ private final class AppearanceMemoryBackend: ClearKeyboard.AppearanceSyncBackend
 private final class AppearancePersistenceProbe {
     private let lock = NSLock()
     private var recorded: [String] = []
+    private let notificationCheck: (() -> Bool)?
+    private let notificationObserved: (() -> Void)?
+    init(notificationCheck: (() -> Bool)? = nil, notificationObserved: (() -> Void)? = nil) {
+        self.notificationCheck = notificationCheck; self.notificationObserved = notificationObserved
+    }
     var events: [String] { lock.lock(); defer { lock.unlock() }; return recorded }
     func append(_ value: String) { lock.lock(); defer { lock.unlock() }; recorded.append(value) }
+    func receiveNotification() {
+        guard notificationCheck?() == true else { return }
+        lock.lock()
+        guard !recorded.contains("notification") else { lock.unlock(); return }
+        recorded.append("notification"); lock.unlock()
+        notificationObserved?()
+    }
 }
 
 @MainActor final class AppearanceSyncRuntimeTests: XCTestCase {
@@ -493,17 +506,57 @@ private final class AppearancePersistenceProbe {
         let probe = AppearancePersistenceProbe(), completed = expectation(description: "failed write completed")
         let value = envelope()
         client.publish(value, didPersist: { probe.append("false-save") }) { result in
-            XCTAssertThrowsError(try result.get()); completed.fulfill()
+            if case .failure(.keychain(errSecMissingEntitlement)) = result {} else { XCTFail("Expected the actual denied save result") }
+            completed.fulfill()
         }
         await fulfillment(of: [completed], timeout: 3)
         let receipt = expectation(description: "failed receipt completed")
         client.writeReceipt(revision: value.revision, snapshot: value.snapshot, receiver: receiver(),
                             didPersist: { probe.append("false-receipt") }) { result in
-            XCTAssertThrowsError(try result.get()); receipt.fulfill()
+            if case .failure(.keychain(errSecMissingEntitlement)) = result {} else { XCTFail("Expected the actual denied receipt result") }
+            receipt.fulfill()
         }
         await fulfillment(of: [receipt], timeout: 3)
         XCTAssertTrue(probe.events.isEmpty)
         XCTAssertEqual(backend.writes, 0)
+    }
+    func testDeactivationFlushCompletionWaitsForDurableSaveAndEmitsNotification() async throws {
+        let backend = AppearanceMemoryBackend()
+        let client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 30)
+        let link = ClearKeyboard.AppearanceSettingsLink(role: .app, client: client)
+        let desired = envelope().snapshot.applying(to: ClearKeyboard.KeyboardSettings())
+        link.currentSettings = { desired }
+        link.publish(desired)
+        let revision = try XCTUnwrap(link.diagnostics.latestRevision)
+        XCTAssertTrue(link.hasPendingWrite)
+        let completed = expectation(description: "deactivation flush completed")
+        let notified = expectation(description: "real durable revision notification observed")
+        let probe = AppearancePersistenceProbe(notificationCheck: {
+            guard case .success(let record?) = backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount),
+                  let value = try? ClearKeyboard.AppearanceSyncClient.decode(record.data).get() else { return false }
+            return value.revision == revision
+        }, notificationObserved: { notified.fulfill() })
+        let center = CFNotificationCenterGetDarwinNotifyCenter(), pointer = Unmanaged.passUnretained(probe).toOpaque()
+        CFNotificationCenterAddObserver(center, pointer, { _, observer, _, _, _ in
+            guard let observer else { return }
+            Unmanaged<AppearancePersistenceProbe>.fromOpaque(observer).takeUnretainedValue().receiveNotification()
+        }, ClearKeyboard.AppearanceSettingsLink.notification as CFString, nil, .deliverImmediately)
+        defer { CFNotificationCenterRemoveEveryObserver(center, pointer) }
+        link.deactivate {
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertFalse(link.hasPendingWrite)
+            XCTAssertFalse(link.diagnostics.active)
+            XCTAssertEqual(backend.writesByAccount[ClearKeyboard.AppearanceSyncClient.settingsAccount], 1)
+            do {
+                let record = try XCTUnwrap(backend.read(account: ClearKeyboard.AppearanceSyncClient.settingsAccount).get())
+                XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(record.data).get().revision, revision)
+            } catch { XCTFail("Deactivation completed before a durable write: \(error)") }
+            completed.fulfill()
+        }
+        // The finite flush must bypass the 30-second slider debounce. Darwin
+        // delivery is asynchronous, so its observer is awaited independently.
+        await fulfillment(of: [completed, notified], timeout: 3)
+        XCTAssertTrue(probe.events.contains("notification"))
     }
     func testRefreshBeforeMainWriteCompletionDoesNotSaveSameRevisionAgain() async {
         let backend = AppearanceMemoryBackend(), savedOnQueue = DispatchSemaphore(value: 0)

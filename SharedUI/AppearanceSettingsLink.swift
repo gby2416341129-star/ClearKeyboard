@@ -185,9 +185,10 @@ private enum AppearanceSyncNotification {
         diagnostics.active = true; diagnostics.event = "activated"
         refresh()
     }
-    func deactivate() {
+    var hasPendingWrite: Bool { pendingEnvelope != nil || !writingRevisions.isEmpty }
+    func deactivate(completion: (() -> Void)? = nil) {
         active = false; diagnostics.active = false; diagnostics.event = "deactivated"
-        client.flush()
+        client.flush(completion: completion)
     }
     func publish(_ settings: KeyboardSettings) {
         let snapshot = AppearanceSnapshot(settings: settings)

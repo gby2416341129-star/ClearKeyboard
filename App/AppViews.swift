@@ -1,6 +1,20 @@
 import SwiftUI
 import UIKit
 
+@MainActor private final class AppearanceSaveLease {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+    init() {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: "Save keyboard appearance") { [weak self] in
+            MainActor.assumeIsolated { self?.finish() }
+        }
+    }
+    func finish() {
+        guard identifier != .invalid else { return }
+        let value = identifier; identifier = .invalid
+        UIApplication.shared.endBackgroundTask(value)
+    }
+}
+
 @MainActor final class Preferences: ObservableObject {
     private var store: SettingsStore
     private let suppliedStore: SettingsStore?
@@ -71,7 +85,14 @@ import UIKit
         appearanceLink?.activate()
         clipboardCapture.activate(settings: settings, allowed: true, retryPermission: retry)
     }
-    func deactivate() { active = false; appearanceLink?.deactivate(); clipboardCapture.stop() }
+    func deactivate() {
+        active = false
+        // Protect only the final queued save. Each completion owns its own
+        // short lease; a prior callback can never end a later save's lease.
+        let lease = appearanceLink?.hasPendingWrite == true ? AppearanceSaveLease() : nil
+        appearanceLink?.deactivate { lease?.finish() }
+        clipboardCapture.stop()
+    }
     func openClipboardSettings() {
         returningFromClipboardSettings = true
         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }

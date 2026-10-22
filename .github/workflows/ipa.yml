@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify keyboard background edge blending repair scope
+      - name: Verify keyboard interaction and appearance repair scope
         if: env.CLEAR_UI_HOTFIX == '1'
         run: |
           git fetch --no-tags --depth=1 origin fed2ef08404cd5b0f252a798922e884d4868655b
