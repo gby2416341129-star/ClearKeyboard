@@ -94,7 +94,7 @@ private final class AppearancePersistenceProbe {
         XCTAssertEqual(merged.language, input.language); XCTAssertEqual(merged.learnChoices, input.learnChoices)
         XCTAssertEqual(merged.selectionLearningVersion, input.selectionLearningVersion)
         XCTAssertEqual(merged.predictions, input.predictions); XCTAssertEqual(merged.haptics, input.haptics)
-        XCTAssertEqual(merged.keyHeight, input.keyHeight); XCTAssertEqual(merged.hand, input.hand)
+        XCTAssertEqual(merged.keyHeight, appearance.keyHeight); XCTAssertEqual(merged.hand, input.hand)
         XCTAssertEqual(merged.automaticClipboard, input.automaticClipboard)
         XCTAssertEqual(merged.clipboardLifetimeHours, input.clipboardLifetimeHours)
         XCTAssertEqual(merged.fuzzyPairs, input.fuzzyPairs)
@@ -104,7 +104,7 @@ private final class AppearancePersistenceProbe {
         XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(data).get(), value)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
-        XCTAssertEqual(Set(snapshot.keys), Set(["glass", "accent", "glassOpacity", "backgroundGlassStrength", "keyGlassStrength", "backgroundColorHex", "keyColorHex", "candidateColorHex", "candidateTextSize"]))
+        XCTAssertEqual(Set(snapshot.keys), Set(["glass", "accent", "glassOpacity", "backgroundGlassStrength", "keyGlassStrength", "backgroundColorHex", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight"]))
         XCTAssertNil(snapshot["language"]); XCTAssertNil(snapshot["learnChoices"]); XCTAssertNil(snapshot["clipboardLifetimeHours"])
         XCTAssertLessThan(data.count, 2_048)
     }
@@ -122,6 +122,16 @@ private final class AppearancePersistenceProbe {
         XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(JSONSerialization.data(withJSONObject: object)).get())
         snapshot["keyColorHex"] = "#FFFFFF"; snapshot["backgroundGlassStrength"] = 3; object["snapshot"] = snapshot
         XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(JSONSerialization.data(withJSONObject: object)).get())
+        snapshot["backgroundGlassStrength"] = 0.87
+        for invalidHeight in [43.0, 58.1, -1, 10_000] {
+            snapshot["keyHeight"] = invalidHeight; object["snapshot"] = snapshot
+            XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(JSONSerialization.data(withJSONObject: object)).get())
+        }
+        for invalidHeight in [Double.nan, .infinity, -.infinity] {
+            var settings = ClearKeyboard.KeyboardSettings(); settings.keyHeight = invalidHeight
+            let normalized = ClearKeyboard.AppearanceSnapshot(settings: settings)
+            XCTAssertEqual(normalized.keyHeight, 50); XCTAssertTrue(normalized.isValid)
+        }
         XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(Data("{".utf8)).get())
         XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(Data(repeating: 0, count: 16_385)).get())
     }
@@ -146,6 +156,94 @@ private final class AppearancePersistenceProbe {
             loaded.fulfill()
         }
         await fulfillment(of: [loaded], timeout: 3)
+    }
+    func testLegacyAppearanceWithoutHeightPreservesReceiverLayoutAndStillConfirmsReceipt() async throws {
+        let source = try ClearKeyboard.AppearanceSyncClient.encode(envelope()).get()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: source) as? [String: Any])
+        var fields = try XCTUnwrap(object["snapshot"] as? [String: Any])
+        fields.removeValue(forKey: "keyHeight"); object["snapshot"] = fields
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let legacy = try ClearKeyboard.AppearanceSyncClient.decode(data).get()
+        XCTAssertNil(legacy.snapshot.keyHeight)
+        var keyboardSettings = ClearKeyboard.KeyboardSettings()
+        keyboardSettings.keyHeight = 57; keyboardSettings.language = .english; keyboardSettings.learnChoices = false
+        var appSettings = ClearKeyboard.KeyboardSettings(); appSettings.keyHeight = 44
+        let backend = AppearanceMemoryBackend()
+        backend.seed(data, account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
+        let appClient = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let keyboardClient = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let identity = receiver()
+        let app = ClearKeyboard.AppearanceSettingsLink(role: .app, client: appClient, expectedReceiver: identity)
+        let keyboard = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: keyboardClient, receiverIdentity: identity)
+        var confirmed = false, deliveries = 0
+        app.currentSettings = { appSettings }; app.onReceive = { appSettings = $0.applying(to: appSettings) }
+        app.onStatus = { confirmed = confirmed || $0 == .receivedByKeyboard }
+        keyboard.currentSettings = { keyboardSettings }
+        keyboard.onReceive = { keyboardSettings = $0.applying(to: keyboardSettings); deliveries += 1 }
+        app.activate(); keyboard.activate()
+        defer { app.deactivate(); keyboard.deactivate() }
+        try await waitFor({ confirmed }, message: "A compatible legacy appearance could not acknowledge its requested fields")
+        XCTAssertEqual(keyboardSettings.keyHeight, 57); XCTAssertEqual(appSettings.keyHeight, 44)
+        XCTAssertEqual(keyboardSettings.language, .english); XCTAssertFalse(keyboardSettings.learnChoices)
+        XCTAssertTrue(legacy.snapshot.isApplied(to: keyboardSettings))
+        XCTAssertNotEqual(ClearKeyboard.AppearanceSnapshot(settings: keyboardSettings), legacy.snapshot,
+                          "Strict snapshot equality must not turn an absent height into a wildcard")
+        let received = expectation(description: "legacy exact request receipt read")
+        appClient.readReceipt { result in
+            do {
+                let receipt = try XCTUnwrap(result.get()).receipt
+                XCTAssertEqual(receipt.revision, legacy.revision); XCTAssertEqual(receipt.snapshot, legacy.snapshot)
+                XCTAssertNil(receipt.snapshot.keyHeight)
+            } catch { XCTFail("\(error)") }
+            received.fulfill()
+        }
+        await fulfillment(of: [received], timeout: 3)
+        keyboard.refresh()
+        let drained = expectation(description: "same legacy revision refresh settled")
+        keyboardClient.flush { drained.fulfill() }
+        await fulfillment(of: [drained], timeout: 3)
+        XCTAssertEqual(deliveries, 1, "The omitted height must not cause repeated delivery or receipt loops")
+        XCTAssertEqual(backend.writesByAccount[ClearKeyboard.AppearanceSyncClient.receiptAccount], 1)
+    }
+    func testHeightOnlyEditsCrossAppearanceChannelAndReceiptsMatchActualHeight() async throws {
+        var appSettings = ClearKeyboard.KeyboardSettings(); appSettings.keyHeight = 58
+        var keyboardSettings = ClearKeyboard.KeyboardSettings()
+        keyboardSettings.keyHeight = 44; keyboardSettings.language = .english
+        keyboardSettings.learnChoices = false; keyboardSettings.predictions = false
+        keyboardSettings.hand = .left; keyboardSettings.haptics = true
+        let backend = AppearanceMemoryBackend(), identity = receiver()
+        let initial = ClearKeyboard.AppearanceEnvelope(snapshot: ClearKeyboard.AppearanceSnapshot(settings: appSettings))
+        backend.seed(try ClearKeyboard.AppearanceSyncClient.encode(initial).get(), account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
+        let appClient = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let keyboardClient = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0)
+        let app = ClearKeyboard.AppearanceSettingsLink(role: .app, client: appClient, expectedReceiver: identity)
+        let keyboard = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: keyboardClient, receiverIdentity: identity)
+        var states: [ClearKeyboard.AppearanceSettingsLink.Status] = []
+        app.currentSettings = { appSettings }; app.onReceive = { appSettings = $0.applying(to: appSettings) }
+        app.onStatus = { states.append($0) }
+        keyboard.currentSettings = { keyboardSettings }; keyboard.onReceive = { keyboardSettings = $0.applying(to: keyboardSettings) }
+        app.activate(); keyboard.activate()
+        defer { app.deactivate(); keyboard.deactivate() }
+        try await waitFor({ states.contains(.receivedByKeyboard) }, message: "The initial height did not reach its receiver")
+        XCTAssertEqual(keyboardSettings.keyHeight, 58)
+        appSettings.keyHeight = 44; states.removeAll(); app.publish(appSettings)
+        let revision = try XCTUnwrap(app.diagnostics.latestRevision)
+        XCTAssertNotEqual(revision, initial.revision, "A height-only change must create a new appearance revision")
+        try await waitFor({ states.contains(.receivedByKeyboard) && keyboardSettings.keyHeight == 44 },
+                          message: "A height-only App edit was not applied and confirmed")
+        let received = expectation(description: "height receipt read")
+        appClient.readReceipt { result in
+            do {
+                let receipt = try XCTUnwrap(result.get()).receipt
+                XCTAssertEqual(receipt.revision, revision); XCTAssertEqual(receipt.snapshot.keyHeight, 44)
+                XCTAssertEqual(receipt.snapshot, ClearKeyboard.AppearanceSnapshot(settings: keyboardSettings))
+            } catch { XCTFail("\(error)") }
+            received.fulfill()
+        }
+        await fulfillment(of: [received], timeout: 3)
+        XCTAssertEqual(keyboardSettings.language, .english); XCTAssertFalse(keyboardSettings.learnChoices)
+        XCTAssertFalse(keyboardSettings.predictions); XCTAssertEqual(keyboardSettings.hand, .left)
+        XCTAssertTrue(keyboardSettings.haptics)
     }
     func testRapidSliderWritesCoalesceAndReportSupersededRevisions() async {
         let backend = AppearanceMemoryBackend(), client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0.2)

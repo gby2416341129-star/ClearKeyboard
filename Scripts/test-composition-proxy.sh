@@ -23,6 +23,7 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests \
+  -only-testing:ClearKeyboardRuntimeTests/ToolbarRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testDelayedFirstLetterAcknowledgementCannotSplitLivePinyin \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testHostReadInterruptedByKeyCannotCancelNewSpelling \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testDelayedOwnHostNotificationsDoNotDiscardCandidates \
@@ -43,6 +44,16 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextViewSurvivesIdleAndSelectionCallbacks \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionInTheAppsActualSwiftUIAppearanceFieldSurvivesIdle \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testBufferedMarkedHostClearsOnlyItsDraftBeforeChineseInsertion \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testUnclearableMarkedProtocolReproducesOldClearThenInsertDuplication \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testUnreadableHostKeepsSpellingLocalAndInsertsOnlyChosenChinese \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testUnreadablePartialConversionsSurviveDelayedOwnSelectionAcknowledgement \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testUnreadableSpacePunctuationRawCommitCancellationAndEnglishStayOrdered \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testUnreadableNewFieldAndNonemptySelectionRejectOldChineseWithoutHostMutation \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testLocalDraftStaysLocalWhenRealContextBecomesReadable \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNativeDraftLosingReadableContextNeverAppendsChineseAfterSentSpelling \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testLocalPartialInsertionCanRevealReadableContextWithoutFlushingItsRemainder \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testForcedLocalCompositionProtectsReadableHostIgnoringEmptyMarks \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testDismissingUnreadableKeyboardDoesNotCommitUnconfirmedLocalSpelling \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testVisibleCandidateCannotReplaceANewSelectionBeforeIdleReconciliationInRealUITextView \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testVisibleCandidateCannotInsertAtAMovedCaretBeforeIdleReconciliationInRealUITextView \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testSpaceCannotReplaceANewSelectionBeforeIdleReconciliationInRealUITextView \
@@ -94,6 +105,7 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceCandidateColor \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceCandidateSize \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearancePersistenceAndToolbar \
+  -only-testing:ClearKeyboardUITests/AppUITests/testColorSwatchesAndManualHEXStayConsistentAcrossAllColorPages \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
 UI_EXIT=$?
 set -e

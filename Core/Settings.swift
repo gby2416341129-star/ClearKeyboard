@@ -40,6 +40,8 @@ public enum ToolbarTool: String, Codable, CaseIterable, Identifiable {
 
 public struct KeyboardSettings: Codable, Equatable {
     public var language: InputLanguage = .chinese
+    /// Nil/false select host detection. True keeps provisional pinyin local.
+    public var localPinyinComposition: Bool? = nil
     public var glass: GlassPreset = .clear
     public var accent: Accent = .ocean
     public var customAccentHex: String? = nil
@@ -90,7 +92,7 @@ public struct KeyboardSettings: Codable, Equatable {
         toolbar = toolbar.filter { seen.insert($0).inserted }
         // The keyboard always retains a way to change the input language.
         if !toolbar.contains(.language) { toolbar.insert(.language, at: 0) }
-        toolbar = [.language] + toolbar.filter { $0 != .language }.prefix(3)
+        toolbar = [.language] + toolbar.filter { $0 != .language }
         fuzzyPairs.formIntersection(Set(FuzzyPinyin.availablePairs))
     }
 }

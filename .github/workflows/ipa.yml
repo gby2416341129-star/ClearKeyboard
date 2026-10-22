@@ -173,6 +173,35 @@ jobs:
         id: ui-tests
         continue-on-error: true
         run: bash Scripts/test-composition-proxy.sh
+      - name: Measure the installed keyboard extension through the system picker
+        id: connected-shell
+        continue-on-error: true
+        run: bash Scripts/test-keyboard-shell.sh
+      - name: Record available test SDK and runtime support
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          from pathlib import Path
+          applications=sorted(str(p) for p in Path('/Applications').glob('Xcode*.app'))
+          result=subprocess.run(['xcrun','simctl','list','runtimes','-j'],capture_output=True,text=True,timeout=45)
+          runtimes=json.loads(result.stdout) if result.returncode==0 else {'error':result.stderr[-1000:]}
+          supported=any('Xcode_27' in p or 'Xcode-27' in p for p in applications)
+          report=dict(xcodes=applications,activeDeveloperDir=os.environ.get('DEVELOPER_DIR'),runtimes=runtimes,
+                      ios27PhysicalDeviceTestRun=False,ios27SimulatorTestRun=False,
+                      note='This job tests the explicitly selected runtime. Available or unbooted iOS27 images are not counted as tested; the earlier failed 27RC boot is not silently retried.')
+          Path('.build/KeyboardShell').mkdir(parents=True,exist_ok=True)
+          Path('.build/KeyboardShell/runtime-support.json').write_text(json.dumps(report,indent=2))
+          print('KEYBOARD_SHELL_RUNTIME_SUPPORT '+json.dumps(report))
+          PY
+      - name: Return actual extension shell evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-connected-shell-diagnostic
+          path: .build/KeyboardShell
+          if-no-files-found: error
+          retention-days: 7
       - name: Require core and live UI checks before packaging
         if: always()
         env:
@@ -202,8 +231,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.50')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 53')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.51')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 54')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

@@ -38,6 +38,11 @@ struct KeyboardPreview: UIViewRepresentable {
     let settings: KeyboardSettings
     func makeUIView(context: Context) -> KeyboardAppearancePreview { KeyboardAppearancePreview() }
     func updateUIView(_ view: KeyboardAppearancePreview, context: Context) { view.apply(settings) }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: KeyboardAppearancePreview, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0 else { return nil }
+        let natural = uiView.fittingSize(forWidth: width)
+        return CGSize(width: width, height: min(proposal.height ?? natural.height, natural.height))
+    }
 }
 
 struct AppearanceDetailContent: View {
@@ -48,8 +53,9 @@ struct AppearanceDetailContent: View {
     let value: KeyboardSettings
     var compact = false
     @Environment(\.colorScheme) private var scheme
-    @State private var hex = ""
+    @State private var hexDraft: String?
     @State private var invalidHex = false
+    @FocusState private var editingHex: Bool
     private var rgb: RGBColor {
         let fallback = item == .candidateColor ? (scheme == .dark ? "#F4F4F8" : "#20212A")
             : item == .keyColor ? (scheme == .dark ? "#BFC4D6" : "#FFFFFF")
@@ -70,14 +76,50 @@ struct AppearanceDetailContent: View {
                 if item == .backgroundGlass { settings.backgroundGlassStrength = $0 } else { settings.keyGlassStrength = $0 }
             })
     }
+    private var hexText: Binding<String> {
+        Binding(get: { hexDraft ?? rgb.hex }, set: { hexDraft = $0; invalidHex = false })
+    }
+    private var usesDefault: Bool {
+        if let path = item.colorPath { return value[keyPath: path] == nil }
+        if item == .backgroundGlass { return value.backgroundGlassStrength == nil }
+        if item == .keyGlass { return value.keyGlassStrength == nil }
+        return value.candidateTextSize == nil
+    }
     private func setColor(_ value: RGBColor) {
         guard let path = item.colorPath else { return }
-        settings[keyPath: path] = value.hex; hex = value.hex; invalidHex = false
+        settings[keyPath: path] = value.hex
+        hexDraft = nil; invalidHex = false; editingHex = false
+    }
+    private func applyHex() {
+        guard let draft = hexDraft else { return }
+        guard let value = RGBColor(hex: draft) else { invalidHex = true; return }
+        setColor(value)
+    }
+    private func reset() {
+        if let path = item.colorPath { settings[keyPath: path] = nil }
+        else if item == .backgroundGlass { settings.backgroundGlassStrength = nil }
+        else if item == .keyGlass { settings.keyGlassStrength = nil }
+        else { settings.candidateTextSize = nil }
+        hexDraft = nil; invalidHex = false; editingHex = false
+    }
+    private func swatch(_ hex: String, side: CGFloat) -> some View {
+        let value = RGBColor(hex: hex)!, selected = rgb.hex == hex
+        let light = value.red * 0.2126 + value.green * 0.7152 + value.blue * 0.0722 > 0.62
+        return Button { setColor(value) } label: {
+            Circle().fill(Color(red: value.red, green: value.green, blue: value.blue))
+                .overlay {
+                    if selected { Image(systemName: "checkmark").font(.system(size: compact ? 11 : 14, weight: .bold)).foregroundStyle(light ? Color.black : Color.white) }
+                }.padding(4)
+                .overlay { Circle().strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.10), lineWidth: selected ? 2 : 1) }
+                .frame(width: side, height: side)
+        }.buttonStyle(.plain).accessibilityLabel(hex)
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
     var body: some View {
         ScrollView {
             VStack(spacing: compact ? 14 : 24) {
-                KeyboardPreview(settings: value).frame(height: compact ? 166 : 250)
+                KeyboardPreview(settings: value).frame(maxWidth: .infinity)
+                    .frame(height: compact ? 166 : nil)
                     .accessibilityLabel("键盘效果预览")
                     .accessibilityValue(KeyboardAppearancePreview.accessibilityDescription(of: value))
                     .accessibilityIdentifier("preview." + item.rawValue)
@@ -91,15 +133,15 @@ struct AppearanceDetailContent: View {
                         }.pickerStyle(.segmented).accessibilityIdentifier("custom.candidateTextSize")
                     } else {
                         if !compact { ColorPicker("自定义颜色", selection: color, supportsOpacity: false).accessibilityIdentifier("appearance.color." + item.rawValue) }
-                        HStack(spacing: 0) {
-                            ForEach(["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"], id: \.self) { value in
-                                Button { setColor(RGBColor(hex: value)!) } label: {
-                                    Circle().fill(Color(uiColor: KeyboardSettings.color(hex: value)!)).frame(width: compact ? 24 : 32, height: compact ? 24 : 32)
-                                        .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
-                                }.buttonStyle(.plain).accessibilityLabel(value)
-                                if value != "#E3AC72" { Spacer(minLength: 0) }
+                        GeometryReader { geometry in
+                            let side = min(compact ? 36.0 : 44.0, max(0, geometry.size.width / 6))
+                            HStack(spacing: 0) {
+                                ForEach(["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"], id: \.self) { value in
+                                    swatch(value, side: side)
+                                    if value != "#E3AC72" { Spacer(minLength: 0) }
+                                }
                             }
-                        }
+                        }.frame(height: compact ? 36 : 44)
                         if compact {
                             ForEach(0..<3, id: \.self) { index in
                                 HStack {
@@ -112,29 +154,39 @@ struct AppearanceDetailContent: View {
                                 }
                             }
                         } else {
-                            HStack {
-                                Text("HEX").font(.caption).foregroundStyle(.secondary)
-                                TextField("#RRGGBB", text: $hex).font(.system(.body, design: .monospaced)).multilineTextAlignment(.trailing)
+                            HStack(spacing: 10) {
+                                TextField("#RRGGBB", text: hexText).font(.system(size: 17, weight: .medium, design: .monospaced))
                                     .textInputAutocapitalization(.characters).autocorrectionDisabled().submitLabel(.done)
+                                    .keyboardType(.asciiCapable).focused($editingHex).onSubmit { applyHex() }
+                                    .padding(.horizontal, 14).frame(minHeight: 48)
+                                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13))
+                                    .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(invalidHex ? Color.red : editingHex ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.14), lineWidth: 1))
+                                    .accessibilityLabel("HEX 颜色")
                                     .accessibilityIdentifier("appearance.hex")
-                                Button("应用") {
-                                    if let value = RGBColor(hex: hex) { setColor(value) } else { invalidHex = true }
-                                }.accessibilityIdentifier("appearance.applyHex")
+                                Button { applyHex() } label: {
+                                    Text("应用").font(.system(size: 15, weight: .semibold))
+                                        .frame(width: 72, height: 48)
+                                        .foregroundStyle(hexDraft == nil ? Color.secondary : Color.white)
+                                        .background(hexDraft == nil ? Color.primary.opacity(0.06) : Color.accentColor, in: RoundedRectangle(cornerRadius: 13))
+                                }.buttonStyle(.plain).disabled(hexDraft == nil).accessibilityIdentifier("appearance.applyHex")
                             }
                             if invalidHex { Text("请输入 #RGB 或 #RRGGBB").font(.caption).foregroundStyle(.red) }
                         }
                     }
-                    Button("恢复默认") {
-                        if let path = item.colorPath { settings[keyPath: path] = nil }
-                        else if item == .backgroundGlass { settings.backgroundGlassStrength = nil }
-                        else if item == .keyGlass { settings.keyGlassStrength = nil }
-                        else { settings.candidateTextSize = nil }
-                    }.font(.subheadline).accessibilityIdentifier("appearance.reset." + item.rawValue)
+                    Button { reset() } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("恢复默认")
+                            Spacer(minLength: 8)
+                            if usesDefault { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)) }
+                        }.font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
+                            .padding(.horizontal, 14).frame(minHeight: compact ? 38 : 44)
+                            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
+                    }.buttonStyle(.plain).accessibilityIdentifier("appearance.reset." + item.rawValue)
+                        .accessibilityAddTraits(usesDefault ? .isSelected : [])
                 }.padding(compact ? 14 : 20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
             }.padding(compact ? 12 : 20).padding(.bottom, 18)
         }.scrollDismissesKeyboard(.interactively)
-            .onAppear { hex = rgb.hex }
-            .onChange(of: value) { _ in if item.colorPath != nil { hex = rgb.hex } }
     }
 }
 

@@ -90,6 +90,19 @@ final class StateTests: XCTestCase {
         XCTAssertEqual(settings.keyHeight, 58); XCTAssertEqual(settings.glassOpacity, 0.15)
         XCTAssertEqual(settings.toolbar, [.language, .clipboard]); XCTAssertEqual(settings.fuzzyPairs, ["z/zh"])
     }
+    func testToolbarKeepsEverySelectedShortcutAndOnlyRemovesDuplicates() throws {
+        var settings = KeyboardSettings()
+        settings.toolbar = [.appearance, .clipboard, .emoji, .oneHand, .appearance, .language, .clipboard]
+        settings.sanitize()
+        let expected: [ToolbarTool] = [.language, .appearance, .clipboard, .emoji, .oneHand]
+        XCTAssertEqual(settings.toolbar, expected, "A full toolbar must not silently discard its fourth shortcut")
+        settings.sanitize(); XCTAssertEqual(settings.toolbar, expected)
+        let suite = "clear.toolbar.all." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = SettingsStore(defaults: defaults); store.save(settings)
+        XCTAssertEqual(store.load().toolbar, expected)
+    }
     func testCorruptSettingsFallBack() {
         let suite = "clear.tests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!

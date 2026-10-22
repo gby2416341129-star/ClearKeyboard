@@ -6,6 +6,7 @@ import os
     var contextAfter: String { get }
     var documentIdentity: String { get }
     var selectedText: String { get }
+    var usesLocalPinyinComposition: Bool { get }
     var enterTitle: String { get }
     var needsGlobe: Bool { get }
     var fullAccess: Bool { get }
@@ -30,6 +31,7 @@ import os
 }
 
 extension KeyboardDocument {
+    var usesLocalPinyinComposition: Bool { false }
     @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool {
         commitMarkedText(text)
         if !remaining.isEmpty { setMarkedText(remaining) }

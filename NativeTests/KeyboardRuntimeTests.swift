@@ -457,23 +457,21 @@ import SwiftUI
     private func pixelDistance(_ left: [Int], _ right: [Int]) -> Int {
         zip(left.prefix(3), right.prefix(3)).map { abs($0 - $1) }.max() ?? 0
     }
-    private func assertRootBlendsAtItsOwnedTopAndBottom(_ input: UIView, name: String) throws {
+    private func assertOwnedColorReachesEveryEdge(_ input: UIView, name: String) throws {
         let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
-        backdrop.isHidden = true
-        let baseline = materialImage(input)
-        backdrop.isHidden = false
-        let image = materialImage(input)
-        for y in [2, max(2, Int(input.bounds.height) - 3)] {
-            let point = CGPoint(x: floor(input.bounds.midX), y: CGFloat(y))
-            XCTAssertLessThanOrEqual(pixelDistance(try materialPixel(image, at: point), try materialPixel(baseline, at: point)), 5,
-                                     "The owned root must meet its host material, without a rectangular color edge at y=\(y)")
+        let image = materialImage(backdrop)
+        for x in [CGFloat(1), input.bounds.midX, input.bounds.width - 2] {
+            for y in [CGFloat(1), input.bounds.midY, input.bounds.height - 2] {
+                let color = try materialPixel(image, at: CGPoint(x: x, y: y))
+                XCTAssertLessThan(color[0], 15)
+                XCTAssertGreaterThan(color[1], 70); XCTAssertLessThan(color[1], 105)
+                XCTAssertGreaterThan(color[2], 240); XCTAssertGreaterThan(color[3], 250,
+                    "The selected solid color must not fade into a dark halo at an owned edge")
+            }
         }
-        XCTAssertLessThan(input.backgroundColor?.cgColor.alpha ?? 0, 0.01)
-        XCTAssertLessThan(backdrop.backgroundColor?.cgColor.alpha ?? 0, 0.01)
-        let central = try materialPixel(materialImage(backdrop), at: CGPoint(x: input.bounds.midX, y: input.bounds.midY))
-        XCTAssertLessThan(central[0], 15); XCTAssertGreaterThan(central[1], 70); XCTAssertLessThan(central[1], 105)
-        XCTAssertGreaterThan(central[2], 240, "Blending the edges must preserve the selected blue in the interior")
-        let attachment = XCTAttachment(image: image); attachment.name = name
+        XCTAssertEqual(backdrop.frame, input.bounds)
+        XCTAssertFalse(descendants(backdrop).contains { $0.layer.mask is CAGradientLayer })
+        let attachment = XCTAttachment(image: materialImage(input)); attachment.name = name
         attachment.lifetime = .keepAlways; add(attachment)
     }
     func testRootBackdropCoversExtraHostHeightWithoutChangingKeyGeometry() throws {
@@ -520,7 +518,7 @@ import SwiftUI
                 XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
                 XCTAssertEqual(KeyboardGeometry.keyPlate(in: q.bounds).height, 45, accuracy: 0.5)
                 print("KEYBOARD_ROOT_COVERAGE style=\(style.rawValue) extra=\(extra) root=\(input.bounds) background=\(backdrop.frame) surface=\(surface.frame) pitch=\(q.bounds.height)")
-                try assertRootBlendsAtItsOwnedTopAndBottom(input, name: "root-edge-fusion-\(style == .dark ? "dark" : "light")-extra\(Int(extra))")
+                try assertOwnedColorReachesEveryEdge(input, name: "owned-root-full-color-\(style == .dark ? "dark" : "light")-extra\(Int(extra))")
             }
         }
     }
@@ -558,13 +556,13 @@ import SwiftUI
             let keyboardWindow = try XCTUnwrap(input.window)
             let owned = input.convert(input.bounds, to: keyboardWindow)
             print("KEYBOARD_PUBLIC_INPUT_HOST style=\(style.rawValue) inputViewStyle=\(input.inputViewStyle.rawValue) ownedRootInWindow=\(owned) root=\(input.bounds) background=\(backdrop.frame) surface=\(surface.frame) outerSystemAreaVerified=false")
-            try assertRootBlendsAtItsOwnedTopAndBottom(input, name: "public-host-owned-root-fusion-\(style == .dark ? "dark" : "light")")
+            try assertOwnedColorReachesEveryEdge(input, name: "public-host-owned-full-color-\(style == .dark ? "dark" : "light")")
             // This public responder fixture shows UIKit's surrounding material
             // for visual review; it is not an extension's remote host process.
             snapshot(keyboardWindow, name: "public-input-host-context-\(style == .dark ? "dark" : "light")")
         }
     }
-    func testOwnedMaterialBlendsIntoSimulatedCapAndGlobeShellInBothStyles() throws {
+    func testOwnedColorDoesNotPaintOutsideSimulatedHostBounds() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene), host = UIViewController()
@@ -614,6 +612,7 @@ import SwiftUI
                 settings.backgroundGlassStrength = 0.8; settings.keyColorHex = "#292C39"
                 surface.model.settings = settings
                 settleLayout(host.view); settleLayout(input)
+                try await Task.sleep(nanoseconds: 60_000_000)
                 XCTAssertEqual(backdrop.frame, input.bounds)
                 XCTAssertEqual(input.frame.minY, cap, accuracy: 0.5)
                 XCTAssertEqual(shell.bounds.height - input.frame.maxY, footer, accuracy: 0.5)
@@ -622,16 +621,14 @@ import SwiftUI
                 backdrop.isHidden = true; let baseline = materialImage(shell)
                 backdrop.isHidden = false; let blended = materialImage(shell)
                 let x = shell.bounds.midX
-                for (edge, outside) in [(input.frame.minY + 1, input.frame.minY - 1),
-                                         (input.frame.maxY - 2, input.frame.maxY + 1)] {
-                    let actual = try materialPixel(blended, at: CGPoint(x: x, y: edge))
-                    let unchangedBase = try materialPixel(baseline, at: CGPoint(x: x, y: edge))
-                    XCTAssertLessThanOrEqual(pixelDistance(actual, unchangedBase), 5,
-                                             "\(name): the owned edge must leave the simulated host material intact")
-                    let outsideColor = try materialPixel(blended, at: CGPoint(x: x, y: outside))
-                    let baseOutside = try materialPixel(baseline, at: CGPoint(x: x, y: outside))
-                    XCTAssertLessThanOrEqual(pixelDistance(actual, outsideColor), pixelDistance(unchangedBase, baseOutside) + 5,
-                                             "\(name): a rectangular tint step remained between the owned root and shell")
+                // This fixture can establish only our drawing boundary. It
+                // deliberately makes no assertion that an external native shell
+                // acquired the selected skin color.
+                for outside in [input.frame.minY - 1, input.frame.maxY + 1] {
+                    let actual = try materialPixel(blended, at: CGPoint(x: x, y: outside))
+                    let original = try materialPixel(baseline, at: CGPoint(x: x, y: outside))
+                    XCTAssertLessThanOrEqual(pixelDistance(actual, original), 5,
+                        "The extension must not paint over a system-owned cap or globe region")
                 }
                 if name == "blue-solid" {
                     let center = try materialPixel(materialImage(backdrop), at: CGPoint(x: input.bounds.midX, y: input.bounds.midY))
@@ -641,12 +638,12 @@ import SwiftUI
                     snapshot(host.view, name: "simulated-shell-hard-edge-reference-\(style == .dark ? "dark" : "light")")
                     hardReference.removeFromSuperview()
                 }
-                snapshot(host.view, name: "simulated-shell-fusion-\(style == .dark ? "dark" : "light")-\(name)")
+                snapshot(host.view, name: "controlled-owned-color-boundary-\(style == .dark ? "dark" : "light")-\(name)")
                 print("SIMULATED_MATERIAL_SHELL style=\(style.rawValue) case=\(name) cap=17 footer=74 root=\(input.frame) keyPitch=\(q.bounds.height) actualRemoteHostVerified=false")
             }
         }
     }
-    func testSystemBackedFusionSurvivesResizeModeChangesAndKeepsStrengthEffective() async throws {
+    func testOwnedBackgroundKeepsFullEdgeColorThroughResizeAndStrengthChanges() async throws {
         XCTAssertFalse(UIAccessibility.isReduceTransparencyEnabled)
         XCTAssertFalse(ProcessInfo.processInfo.isLowPowerModeEnabled)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -675,8 +672,9 @@ import SwiftUI
                 let edge = try materialPixel(image, at: CGPoint(x: size.width / 2, y: 1))
                 let center = try materialPixel(image, at: CGPoint(x: size.width / 2, y: size.height / 2))
                 XCTAssertGreaterThan(center[2], 240); XCTAssertLessThan(center[0], 15)
-                if systemBacked { XCTAssertLessThan(edge[3], 5, "The fused layer's edge itself must remain transparent after resize or mode change") }
-                else { XCTAssertGreaterThan(edge[3], 250); XCTAssertGreaterThan(edge[2], 240, "A standalone panel must not inherit an old edge mask") }
+                XCTAssertGreaterThan(edge[3], 250); XCTAssertGreaterThan(edge[2], 240)
+                XCTAssertLessThan(pixelDistance(edge, center), 3,
+                    "Owned skin edges must retain the same solid color after every resize and hosting change")
             }
         }
         settings.backgroundColorHex = nil; settings.glass = .clear; settings.backgroundGlassStrength = 0
@@ -693,16 +691,12 @@ import SwiftUI
         let center = CGPoint(x: backdrop.frame.midX, y: backdrop.frame.midY)
         XCTAssertGreaterThan(pixelDistance(try materialPixel(low, at: center), try materialPixel(high, at: center)), 3,
                              "Fusion must not make the background strength control ineffective in the interior")
-        for image in [low, high] {
-            for y in [backdrop.frame.minY + 1, backdrop.frame.maxY - 2] {
-                let point = CGPoint(x: backdrop.frame.midX, y: y)
-                XCTAssertLessThanOrEqual(pixelDistance(try materialPixel(image, at: point), try materialPixel(baseline, at: point)), 5,
-                                         "The material's copied mask must preserve transparent edges at both strengths")
-            }
-        }
-        snapshot(host.view, name: "system-backed-fusion-resized-strength-high")
+        let effect = try XCTUnwrap(backdrop.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        XCTAssertEqual(effect.mask?.bounds, effect.bounds)
+        XCTAssertFalse(descendants(backdrop).contains { $0.layer.mask is CAGradientLayer })
+        snapshot(host.view, name: "owned-background-resized-strength-high")
     }
-    func testAppearancePreviewUsesApproximateHostBaseAndProductionEdgeFusion() throws {
+    func testAppearancePreviewUsesOneUniformlyScaledKeyboardCanvas() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene), host = UIViewController()
@@ -710,29 +704,48 @@ import SwiftUI
         defer { window.isHidden = true; previousWindow?.makeKey() }
         let preview = KeyboardAppearancePreview(frame: CGRect(x: 20, y: 100, width: 350, height: 276))
         host.view.addSubview(preview)
-        let base = try XCTUnwrap(preview.subviews.first { $0.accessibilityIdentifier == "appearance.native-base" } as? UIVisualEffectView)
+        let canvas = try XCTUnwrap(descendants(preview).first { $0.accessibilityIdentifier == "appearance.keyboard-canvas" })
+        let base = try XCTUnwrap(descendants(preview).first { $0.accessibilityIdentifier == "appearance.native-base" } as? UIVisualEffectView)
         XCTAssertTrue(base.effect is UIBlurEffect)
-        let backdrop = try XCTUnwrap(preview.subviews.compactMap { $0 as? GlassBackdrop }.first)
+        let backdrop = try XCTUnwrap(descendants(preview).compactMap { $0 as? GlassBackdrop }.first)
+        let keys = descendants(preview).compactMap { $0 as? KeyButton }
+        let q = try XCTUnwrap(keys.first { $0.key.action == .text("q") })
+        let a = try XCTUnwrap(keys.first { $0.key.action == .text("a") })
+        let shift = try XCTUnwrap(keys.first { $0.key.action == .shift })
         for style in [UIUserInterfaceStyle.light, .dark] {
             window.overrideUserInterfaceStyle = style; host.view.backgroundColor = .systemBackground
             var settings = testSettings(); settings.glass = .solid; settings.backgroundColorHex = "#0057FF"
-            for height: CGFloat in [276, 300, 276] {
-                preview.frame.size.height = height; preview.apply(settings); settleLayout(preview)
-                XCTAssertEqual(base.frame, preview.bounds); XCTAssertEqual(backdrop.frame, preview.bounds)
-                backdrop.isHidden = true; let baseline = materialImage(preview)
-                backdrop.isHidden = false; let colored = materialImage(preview)
-                for y in [CGFloat(1), height - 2] {
-                    let point = CGPoint(x: preview.bounds.midX, y: y)
-                    XCTAssertLessThanOrEqual(pixelDistance(try materialPixel(baseline, at: point), try materialPixel(colored, at: point)), 5)
+            for keyHeight: Double in [44, 50, 58] {
+                settings.keyHeight = keyHeight
+                for size in [CGSize(width: 350, height: 166), CGSize(width: 350, height: 250), CGSize(width: 250, height: 130)] {
+                    preview.frame.size = size; preview.apply(settings); settleLayout(preview)
+                    for key in keys { settleLayout(key) }
+                    let pitch = KeyboardGeometry.Metrics(keyHeight: keyHeight).rowPitch
+                    XCTAssertEqual(q.bounds.height, pitch, accuracy: 0.01)
+                    XCTAssertEqual(a.frame.minY - q.frame.minY, pitch, accuracy: 0.01)
+                    XCTAssertEqual(canvas.transform.a, canvas.transform.d, accuracy: 0.00001,
+                        "Keys, candidates and symbols must share a single scale rather than compressing rows")
+                    XCTAssertEqual(canvas.transform.b, 0); XCTAssertEqual(canvas.transform.c, 0)
+                    let scale = canvas.transform.a
+                    XCTAssertEqual(q.convert(q.bounds, to: preview).height, pitch * scale, accuracy: 0.1)
+                    XCTAssertEqual(shift.convert(shift.bounds, to: preview).height, pitch * scale, accuracy: 0.1)
+                    XCTAssertTrue(preview.bounds.insetBy(dx: -0.1, dy: -0.1).contains(canvas.frame))
+                    XCTAssertEqual(backdrop.frame, canvas.bounds); XCTAssertEqual(base.frame, canvas.bounds)
+                    let caption = try XCTUnwrap(descendants(q).compactMap { $0 as? CenteredKeyLabel }.first)
+                    XCTAssertEqual(caption.font.pointSize, 23, accuracy: 0.1)
+                    XCTAssertEqual(caption.layer.contentsScale, window.screen.scale * scale, accuracy: 0.01)
+                    let fitted = preview.fittingSize(forWidth: size.width)
+                    XCTAssertEqual(fitted.height / fitted.width, canvas.bounds.height / canvas.bounds.width, accuracy: 0.0001)
                 }
             }
-            let blue = try materialPixel(materialImage(backdrop), at: CGPoint(x: backdrop.bounds.midX, y: backdrop.bounds.midY))
-            settings.backgroundColorHex = "#FF5733"; settings.candidateColorHex = "#558DF2"
-            preview.apply(settings); settleLayout(preview)
-            let red = try materialPixel(materialImage(backdrop), at: CGPoint(x: backdrop.bounds.midX, y: backdrop.bounds.midY))
-            XCTAssertGreaterThan(blue[2], 240); XCTAssertGreaterThan(red[0], 240); XCTAssertLessThan(red[2], 80)
+            settings.keyHeight = 50; settings.backgroundColorHex = "#FF5733"; settings.candidateColorHex = "#558DF2"
+            preview.apply(settings)
+            preview.frame.size = preview.fittingSize(forWidth: 350)
+            settleLayout(preview)
+            let color = try materialPixel(materialImage(backdrop), at: CGPoint(x: backdrop.bounds.midX, y: backdrop.bounds.midY))
+            XCTAssertGreaterThan(color[0], 240); XCTAssertLessThan(color[2], 80)
             XCTAssertTrue(preview.accessibilityValue?.contains("backgroundColor:#FF5733") == true)
-            snapshot(preview, name: "preview-approximate-host-fusion-\(style == .dark ? "dark" : "light")")
+            snapshot(preview, name: "preview-proportional-\(style == .dark ? "dark" : "light")")
         }
     }
     func testKeyboardObeysHostWidthInsideALargerWindow() throws {

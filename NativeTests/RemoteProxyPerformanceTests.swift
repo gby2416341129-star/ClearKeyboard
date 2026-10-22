@@ -521,16 +521,208 @@ import SwiftUI
             defer { model.suspend() }
             try await waitFor { model.engineState == "离线就绪" }
             for character in "nihao" { model.handle(.text(String(character))) }
-            try await waitFor { proxy.marked == "nihao" && model.candidatesAreCurrent }
+            try await waitFor { model.candidatesAreCurrent && (hidesContext || proxy.marked == "nihao") }
             XCTAssertEqual(proxy.committed, "前文🙂", "This adapter buffers marked text without displaying it in its committed editor")
             model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
             try await waitFor { proxy.committed == "前文🙂你好" }
             XCTAssertEqual(proxy.insertedTexts, ["你好"])
             XCTAssertTrue(proxy.marked.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0); XCTAssertEqual(proxy.deleteWrites, 0)
-            XCTAssertTrue(proxy.events.suffix(2).elementsEqual(["mark:", "insert:你好"]),
-                "Buffered editors require the owned mark to be cleared before insert; unmark would flush nihao")
-            print("BUFFERED_MARKED_PROTOCOL fixtureOnly=true clearBeforeInsert=true unrelatedDeletes=0 realRemoteHostVerified=false")
+            if hidesContext {
+                XCTAssertEqual(proxy.events, ["insert:你好"], "Unreadable editors must never receive provisional spelling or an unmark")
+                XCTAssertTrue(controller.usesLocalPinyinComposition)
+            } else {
+                XCTAssertTrue(proxy.events.suffix(2).elementsEqual(["mark:", "insert:你好"]),
+                    "Readable buffered editors require the owned mark to be cleared before insert")
+            }
+            print("BUFFERED_MARKED_PROTOCOL fixtureOnly=true hidesContext=\(hidesContext) unrelatedDeletes=0 realRemoteHostVerified=false")
         }
+    }
+    func testUnclearableMarkedProtocolReproducesOldClearThenInsertDuplication() {
+        // A deliberately less cooperative adapter than the build53 fixture.
+        // This proves why clear-before-insert alone is not a sufficient fix;
+        // it does not claim to be the actual remote-desktop application.
+        let proxy = UnclearableMarkedDocumentProxy()
+        proxy.setMarkedText("nichifanlema", selectedRange: NSRange(location: 12, length: 0))
+        proxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+        proxy.insertText("你吃饭了吗")
+        XCTAssertEqual(proxy.committed, "前文🙂nichifanlema你吃饭了吗")
+    }
+    func testUnreadableHostKeepsSpellingLocalAndInsertsOnlyChosenChinese() async throws {
+        let proxy = UnclearableMarkedDocumentProxy()
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { model.suspend() }
+        proxy.contextReads = 0
+        for character in "nichifanlema" { model.handle(.text(String(character))) }
+        XCTAssertEqual(proxy.contextReads, 0, "Local composition must not add synchronous proxy reads per key")
+        try await waitFor { model.candidatesAreCurrent }
+        try await Task.sleep(nanoseconds: 90_000_000)
+        XCTAssertEqual(proxy.committed, "前文🙂"); XCTAssertTrue(proxy.provisional.isEmpty)
+        XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertTrue(proxy.insertedTexts.isEmpty)
+        XCTAssertTrue(controller.usesLocalPinyinComposition)
+        XCTAssertEqual(model.composition.raw, "nichifanlema")
+        model.chooseDisplayed(Candidate(text: "你吃饭了吗", reading: "nichifanlema", consumed: 12), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, "前文🙂你吃饭了吗")
+        XCTAssertEqual(proxy.insertedTexts, ["你吃饭了吗"])
+        XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0); XCTAssertEqual(proxy.deleteWrites, 0)
+        XCTAssertTrue(model.composition.isEmpty)
+        print("LOCAL_PINYIN_PROTOCOL unreadableContexts=true provisionalHostWrites=0 chineseInsertions=1 fixtureOnly=true realRemoteHostVerified=false")
+    }
+    func testUnreadablePartialConversionsSurviveDelayedOwnSelectionAcknowledgement() async throws {
+        let proxy = UnclearableMarkedDocumentProxy()
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { model.suspend() }
+        proxy.onMutation = { [weak controller] in controller?.selectionDidChange(nil); controller?.textDidChange(nil) }
+        for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
+        model.chooseDisplayed(Candidate(text: "今天你", reading: "jintianni", consumed: 9), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, "前文🙂今天你"); XCTAssertEqual(model.composition.raw, "chifanlema")
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        controller.selectionDidChange(nil); controller.textDidChange(nil)
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(model.composition.raw, "chifanlema", "A delayed own insertion acknowledgement must not commit or discard the local remainder")
+        try await waitFor { model.candidatesAreCurrent }
+        model.chooseDisplayed(Candidate(text: "吃饭", reading: "chifan", consumed: 6), context: model.candidateContext)
+        try await waitFor { model.candidatesAreCurrent }
+        XCTAssertEqual(model.composition.raw, "lema")
+        model.chooseDisplayed(Candidate(text: "了吗", reading: "lema", consumed: 4), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, "前文🙂今天你吃饭了吗")
+        XCTAssertEqual(proxy.insertedTexts, ["今天你", "吃饭", "了吗"])
+        XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0); XCTAssertEqual(proxy.deleteWrites, 0)
+    }
+    func testUnreadableSpacePunctuationRawCommitCancellationAndEnglishStayOrdered() async throws {
+        let proxy = UnclearableMarkedDocumentProxy()
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { model.suspend(); _ = controller }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "你好" }
+        model.handle(.space)
+        XCTAssertEqual(proxy.committed, "前文🙂你好")
+        for character in "zaigansha" { model.handle(.text(String(character))) }
+        model.handle(.enter)
+        XCTAssertEqual(proxy.committed, "前文🙂你好zaigansha", "Explicit raw confirmation inserts the local spelling exactly once")
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "你好" }
+        model.handle(.text(","))
+        XCTAssertEqual(proxy.committed, "前文🙂你好zaigansha你好，")
+        let anchor = proxy.committed
+        for character in "abc" { model.handle(.text(String(character))) }
+        model.clearComposition()
+        XCTAssertEqual(proxy.committed, anchor)
+        for character in "abc" { model.handle(.text(String(character))) }
+        for _ in 0..<3 { model.handle(.delete) }
+        XCTAssertEqual(proxy.committed, anchor); XCTAssertEqual(proxy.deleteWrites, 0)
+        model.settings.language = .english
+        for character in "what" { model.handle(.text(String(character))) }
+        XCTAssertEqual(proxy.committed, anchor + "what", "English letters remain direct input on unreadable hosts")
+        model.handle(.space)
+        XCTAssertEqual(proxy.committed, anchor + "what ")
+        XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0)
+    }
+    func testUnreadableNewFieldAndNonemptySelectionRejectOldChineseWithoutHostMutation() async throws {
+        for switchesDocument in [false, true] {
+            let proxy = UnclearableMarkedDocumentProxy()
+            let (controller, model) = try await unclearableHost(proxy)
+            defer { model.suspend() }
+            for character in "nihao" { model.handle(.text(String(character))) }
+            try await waitFor { model.candidatesAreCurrent }
+            let context = model.candidateContext
+            if switchesDocument { proxy.identity = UUID(); proxy.committed = "新字段原文🙂" }
+            else { proxy.selection = "前文" }
+            let anchor = proxy.committed
+            controller.selectionDidChange(nil)
+            model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: context)
+            try await Task.sleep(nanoseconds: 450_000_000)
+            XCTAssertEqual(proxy.committed, anchor)
+            XCTAssertEqual(proxy.selection, switchesDocument ? "" : "前文")
+            XCTAssertTrue(proxy.insertedTexts.isEmpty); XCTAssertTrue(proxy.markedWrites.isEmpty)
+            XCTAssertEqual(proxy.deleteWrites, 0); XCTAssertEqual(proxy.unmarkWrites, 0)
+            XCTAssertTrue(model.composition.isEmpty)
+        }
+    }
+    func testLocalDraftStaysLocalWhenRealContextBecomesReadable() async throws {
+        let proxy = UnclearableMarkedDocumentProxy()
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { model.suspend() }
+        for character in "ni" { model.handle(.text(String(character))) }
+        proxy.hidesContext = false; controller.textDidChange(nil)
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(model.composition.raw, "ni"); XCTAssertTrue(controller.usesLocalPinyinComposition)
+        XCTAssertEqual(controller.contextBefore, "前文🙂ni", "Newly readable real context is the boundary of the still-local draft")
+        for character in "hao" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
+        model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, "前文🙂你好"); XCTAssertTrue(proxy.markedWrites.isEmpty)
+        XCTAssertFalse(controller.usesLocalPinyinComposition, "The next draft may use the now-readable host; this completed draft must never be re-sent")
+    }
+    func testNativeDraftLosingReadableContextNeverAppendsChineseAfterSentSpelling() async throws {
+        let proxy = UnclearableMarkedDocumentProxy(); proxy.hidesContext = false
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { model.suspend() }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { proxy.provisional == "nihao" && model.candidatesAreCurrent }
+        let context = model.candidateContext
+        proxy.hidesContext = true; controller.textDidChange(nil)
+        try await waitFor { model.composition.isEmpty }
+        model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: context)
+        XCTAssertTrue(proxy.insertedTexts.isEmpty)
+        XCTAssertEqual(proxy.provisional, "nihao", "Already-sent text cannot be safely retracted from an unreadable host")
+        XCTAssertFalse(proxy.markedWrites.contains("")); XCTAssertEqual(proxy.deleteWrites, 0); XCTAssertEqual(proxy.unmarkWrites, 0)
+        XCTAssertTrue(controller.usesLocalPinyinComposition)
+    }
+    func testLocalPartialInsertionCanRevealReadableContextWithoutFlushingItsRemainder() async throws {
+        let proxy = UnclearableMarkedDocumentProxy()
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { proxy.onMutation = nil; model.suspend() }
+        for character in "jintiannichifanlema" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
+        proxy.onMutation = { [weak controller] in
+            proxy.hidesContext = false
+            controller?.selectionDidChange(nil); controller?.textDidChange(nil)
+        }
+        model.chooseDisplayed(Candidate(text: "今天你", reading: "jintianni", consumed: 9), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, "前文🙂今天你")
+        XCTAssertEqual(model.composition.raw, "chifanlema")
+        XCTAssertEqual(controller.contextBefore, "前文🙂今天你chifanlema")
+        XCTAssertTrue(controller.usesLocalPinyinComposition)
+        try await waitFor { model.candidatesAreCurrent }
+        model.chooseDisplayed(Candidate(text: "吃饭了吗", reading: "chifanlema", consumed: 10), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, "前文🙂今天你吃饭了吗")
+        XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0)
+    }
+    func testForcedLocalCompositionProtectsReadableHostIgnoringEmptyMarks() async throws {
+        let proxy = UnclearableMarkedDocumentProxy(); proxy.hidesContext = false
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { model.suspend() }
+        XCTAssertFalse(controller.usesLocalPinyinComposition)
+        model.settings.localPinyinComposition = true
+        XCTAssertTrue(controller.usesLocalPinyinComposition)
+        for character in "nihao" { model.handle(.text(String(character))) }
+        try await waitFor { model.candidatesAreCurrent }
+        model.chooseDisplayed(Candidate(text: "你好", reading: "nihao", consumed: 5), context: model.candidateContext)
+        XCTAssertEqual(proxy.committed, "前文🙂你好")
+        XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0); XCTAssertEqual(proxy.deleteWrites, 0)
+        model.settings.localPinyinComposition = false
+        XCTAssertFalse(controller.usesLocalPinyinComposition)
+    }
+    func testDismissingUnreadableKeyboardDoesNotCommitUnconfirmedLocalSpelling() async throws {
+        let proxy = UnclearableMarkedDocumentProxy()
+        let (controller, model) = try await unclearableHost(proxy)
+        defer { model.suspend() }
+        for character in "nihao" { model.handle(.text(String(character))) }
+        controller.viewWillDisappear(false)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(proxy.committed, "前文🙂"); XCTAssertTrue(model.composition.isEmpty)
+        XCTAssertTrue(proxy.markedWrites.isEmpty); XCTAssertTrue(proxy.insertedTexts.isEmpty); XCTAssertEqual(proxy.unmarkWrites, 0)
+    }
+    private func unclearableHost(_ proxy: UnclearableMarkedDocumentProxy) async throws -> (ProxyKeyboardController, KeyboardModel) {
+        let controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
+        model.settings.language = .chinese; model.settings.learnChoices = false
+        model.settings.automaticClipboard = false; model.settings.predictions = false
+        model.settings.localPinyinComposition = nil
+        try await waitFor { model.engineState == "离线就绪" }
+        return (controller, model)
     }
     func testDocumentSwitchInsideEmptyMarkCannotReceiveOldChineseOrRemainder() async throws {
         let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
@@ -1492,6 +1684,39 @@ import SwiftUI
               let position = input.position(from: selection.end, offset: offset) else { return }
         input.selectedTextRange = input.textRange(from: position, to: position); onMutation?()
     }
+}
+
+// A nil-context transport which does not implement replacement semantics for
+// an empty marked-text call. This is an executable protocol counterexample,
+// not a substitute for a new video from the actual remote-desktop client.
+@MainActor private final class UnclearableMarkedDocumentProxy: NSObject, UITextDocumentProxy {
+    var identity = UUID()
+    var documentIdentifier: UUID { identity }
+    var committed = "前文🙂", provisional = "", selection = ""
+    var hidesContext = true
+    var contextReads = 0
+    var markedWrites: [String] = [], insertedTexts: [String] = []
+    var unmarkWrites = 0, deleteWrites = 0
+    var onMutation: (() -> Void)?
+    var documentContextBeforeInput: String? { contextReads += 1; return hidesContext ? nil : committed }
+    var documentContextAfterInput: String? { contextReads += 1; return hidesContext ? nil : "" }
+    var selectedText: String? { contextReads += 1; return selection.isEmpty ? nil : selection }
+    var documentInputMode: UITextInputMode? { nil }
+    var hasText: Bool { !committed.isEmpty || !provisional.isEmpty }
+    func insertText(_ text: String) {
+        insertedTexts.append(text); committed += provisional + text
+        provisional = ""; selection = ""; onMutation?()
+    }
+    func setMarkedText(_ text: String, selectedRange: NSRange) {
+        markedWrites.append(text)
+        if !text.isEmpty { provisional = text }
+        onMutation?()
+    }
+    func unmarkText() {
+        unmarkWrites += 1; committed += provisional; provisional = ""; onMutation?()
+    }
+    func deleteBackward() { deleteWrites += 1; if !committed.isEmpty { committed.removeLast() } }
+    func adjustTextPosition(byCharacterOffset offset: Int) {}
 }
 
 // Protocol regression for a remote-style editor which buffers marked spelling

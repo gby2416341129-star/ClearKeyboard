@@ -30,6 +30,7 @@ import ImageIO
         accessibilityIdentifier = "clipboard.panel"
         [tabs, back, more, send, table, words, empty].forEach(addSubview)
         tabs.accessibilityIdentifier = "clipboard.tabs"
+        tabs.selectedSegmentIndex = 0
         tabs.addAction(UIAction { [weak self] _ in self?.reload() }, for: .valueChanged)
         back.setImage(UIImage(systemName: "chevron.up"), for: .normal); back.accessibilityLabel = "返回键盘"
         back.addAction(UIAction { [weak self] _ in

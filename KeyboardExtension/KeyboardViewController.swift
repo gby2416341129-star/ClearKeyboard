@@ -6,6 +6,11 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var model: KeyboardModel!
     private var surface: KeyboardSurface!
     private let rootBackdrop = GlassBackdrop()
+#if DEBUG
+    // Test evidence from the actual extension process, without exposing typed
+    // content or replacing the root's accessible key hierarchy with a leaf.
+    private let runtimeProbe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+#endif
     private var heightConstraint: NSLayoutConstraint?
     private var widthConstraint: NSLayoutConstraint?
     private var surfaceHeightConstraint: NSLayoutConstraint?
@@ -21,6 +26,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var markedWriteGeneration = 0
     private var markedImmediateScheduled = false
     private var sentMarkedDraft = false
+    private enum MarkedTransport: Equatable { case none, local, host }
+    // A nil/nil proxy cannot demonstrate that it owns a replaceable marked
+    // range. Some remote clients buffer these calls as literal keystrokes and
+    // ignore an empty mark. Keep such spelling inside the keyboard instead.
+    private var markedTransport = MarkedTransport.none
+    private var markedDraft = ""
+    private var readableHostContext = false
     private var hostRefreshGeneration = 0
     private var activeKeys = 0
     private var hostActive = true
@@ -38,6 +50,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         super.viewDidLoad()
         view.backgroundColor = .clear; view.isOpaque = false
         view.accessibilityIdentifier = "clear.keyboard.root"
+#if DEBUG
+        runtimeProbe.isUserInteractionEnabled = false
+        runtimeProbe.isAccessibilityElement = true
+        runtimeProbe.accessibilityIdentifier = "clear.keyboard.runtime"
+        runtimeProbe.accessibilityLabel = "Keyboard runtime evidence"
+        view.addSubview(runtimeProbe)
+#endif
         inputView?.allowsSelfSizing = false
         refreshHostState(refreshTraits: true)
         // Only the real extension acknowledges an App appearance revision.
@@ -45,9 +64,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let appearanceLink: AppearanceSettingsLink? = Bundle.main.bundleURL.pathExtension == "appex"
             ? .production(role: .keyboard) : nil
         model = KeyboardModel(document: self, appearanceLink: appearanceLink)
-        // Keep one backdrop inside the primary view. Its system-backed treatment
-        // blends the extra material and tint into UIKit's surrounding surface;
-        // an edge-to-edge rectangular wash exposed a second hard-edged sheet.
+        // Keep one backdrop inside the primary view. A chosen skin paints that
+        // whole owned area; do not fade its edges to simulate control over the
+        // external system cap and globe container.
         // Keys retain their fixed pitch and bottom anchoring, including when
         // the host temporarily allocates extra height. The system's external
         // rounded cap and globe container remain outside our drawing bounds.
@@ -110,7 +129,35 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             NSLog("CLEAR_KEYBOARD_LAYOUT %@", layout)
         }
         updateHeight(surface.desiredHeight)
+#if DEBUG
+        updateRuntimeEvidence()
+#endif
     }
+#if DEBUG
+    private func updateRuntimeEvidence() {
+        runtimeProbe.frame = CGRect(x: view.bounds.midX, y: 1, width: 1, height: 1)
+        view.bringSubviewToFront(runtimeProbe)
+        func rect(_ value: CGRect) -> [Double] {
+            [Double(value.minX), Double(value.minY), Double(value.width), Double(value.height)]
+        }
+        let inset = view.safeAreaInsets
+        let evidence: [String: Any] = [
+            "bundleExtension": Bundle.main.bundleURL.pathExtension,
+            "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
+            "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+            "pid": ProcessInfo.processInfo.processIdentifier,
+            "hostActive": hostActive,
+            "rootBounds": rect(view.bounds),
+            "windowBounds": rect(view.window?.bounds ?? .zero),
+            "safeAreaInsets": [Double(inset.top), Double(inset.left), Double(inset.bottom), Double(inset.right)]
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys]),
+           let value = String(data: data, encoding: .utf8) {
+            runtimeProbe.accessibilityValue = value
+        }
+    }
+#endif
     private func updateHeight(_ height: CGFloat) {
         if abs((surfaceHeightConstraint?.constant ?? 0) - height) > 0.5 { surfaceHeightConstraint?.constant = height }
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -135,7 +182,12 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewWillDisappear(_ animated: Bool) {
         hostActive = false
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
-        super.viewWillDisappear(animated); surface?.stopInteractions(); model?.finishCompositionAsTyped(); model?.suspend()
+        super.viewWillDisappear(animated); surface?.stopInteractions()
+        // Dismissing the keyboard is not an explicit request to send a local
+        // spelling to an unreadable remote editor.
+        if markedTransport == .local { abandonDraftWithoutHostWrite() }
+        else { model?.finishCompositionAsTyped() }
+        model?.suspend()
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
@@ -151,6 +203,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         hostNotificationRevision += 1
         guard model?.isMovingCursor != true else { return }
         candidateSelectionNeedsValidation = true
+        // Reconcile the captured selection/UUID before using an old candidate.
+        // Nil/nil clients may deliver a delayed acknowledgement of a partial
+        // insertion here; a notification alone cannot identify a moved caret.
         needsHostRefresh = true; scheduleHostRefresh()
     }
     func keyInteractionChanged(_ active: Bool) {
@@ -180,25 +235,25 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         hostRefresh = timer
         RunLoop.main.add(timer, forMode: .default)
     }
-    private func readHostSnapshot() -> HostTextSnapshot {
+    private func readHostSnapshot() -> (snapshot: HostTextSnapshot, connected: Bool) {
         // A temporarily unavailable remote identifier is not evidence that the
         // user switched fields. Treating nil as a new "disconnected" document
         // unmarked long input and cleared its candidates before a tap committed.
         guard let identifier = connectedDocumentIdentifier()?.uuidString else {
             var unavailable = hostState.snapshot
             unavailable.available = false
-            return unavailable
+            return (unavailable, false)
         }
         let before = textDocumentProxy.documentContextBeforeInput
         let after = textDocumentProxy.documentContextAfterInput
-        return HostTextSnapshot(before: before ?? "", after: after ?? "", selected: textDocumentProxy.selectedText ?? "",
-            document: identifier, available: before != nil || after != nil)
+        return (HostTextSnapshot(before: before ?? "", after: after ?? "", selected: textDocumentProxy.selectedText ?? "",
+            document: identifier, available: before != nil || after != nil), true)
     }
     private func refreshHostState(refreshTraits: Bool = false) {
         guard hostWriteDepth == 0 else { needsHostRefresh = true; return }
         needsHostRefresh = false
         let revision = hostRefreshGeneration
-        let actual = readHostSnapshot()
+        let read = readHostSnapshot(), actual = read.snapshot
         // A remote getter may service UIKit callbacks before returning. A key
         // or another notification in that interval invalidates this read; it
         // cannot cancel a newer spelling or unmark its first letter.
@@ -206,8 +261,24 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             needsHostRefresh = true; scheduleHostRefresh(); return
         }
         let now = ProcessInfo.processInfo.systemUptime
-        let outcome = hostState.reconcile(actual, now: now)
-        guard outcome != .unavailable else { needsHostRefresh = true; scheduleHostRefresh(); return }
+        let wasReadable = readableHostContext
+        let transportAccepted = !read.connected || observeContextReadability(actual)
+        let outcome: HostTextState.Reconciliation
+        if !transportAccepted || (read.connected && !actual.available && !actual.selected.isEmpty) {
+            hostState = HostTextState(actual); outcome = .externalEdit
+        } else if read.connected, !wasReadable, actual.available, actual.selected.isEmpty,
+                  actual.document == hostState.snapshot.document, markedTransport == .local, !markedDraft.isEmpty {
+            // Context becoming readable is not a request to flush local pinyin.
+            // Rebase the local-only mark on the newly exposed real boundary.
+            rebaseLocalDraft(on: actual)
+            outcome = .compositionContextChanged
+        } else { outcome = hostState.reconcile(actual, now: now) }
+        guard outcome != .unavailable else {
+            // A connected nil/nil field is a supported local-composition mode,
+            // not a transient disconnection to poll every 350 ms indefinitely.
+            if !read.connected { needsHostRefresh = true; scheduleHostRefresh() }
+            return
+        }
         candidateSelectionNeedsValidation = hostState.shouldRecheck(actual, now: now)
         // Traits belong to the field. Own text acknowledgements must not fetch
         // all of them again after each confirmed word.
@@ -229,9 +300,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             }
         }
         if case .externalEdit = outcome {
-            markedFrame.cancel(); pendingMarkedText.discard()
-            markedWriteGeneration += 1; markedImmediateScheduled = false
-            sentMarkedDraft = false
+            discardMarkedDelivery()
             surface?.closePanel(); model?.cursorChanged(unmarkDraft: false)
         }
         if case .compositionContextChanged = outcome { model?.refreshCandidates() }
@@ -268,7 +337,14 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             let actual = HostTextSnapshot(before: actualBefore ?? "", after: actualAfter ?? "",
                 selected: actualSelected, document: actualIdentity,
                 available: actualBefore != nil || actualAfter != nil)
-            guard revision == hostRefreshGeneration, actualSelected.isEmpty,
+            guard revision == hostRefreshGeneration else { return false }
+            let wasReadable = readableHostContext
+            guard observeContextReadability(actual) else { return false }
+            if !wasReadable, actual.available, actualSelected.isEmpty, markedTransport == .local {
+                rebaseLocalDraft(on: actual); model?.refreshCandidates()
+                return false // The old ribbon describes the previous boundary.
+            }
+            guard actualSelected.isEmpty,
                   !actual.available || hostState.accepts(hostState.snapshot, actual: actual) else {
                 needsHostRefresh = true; scheduleHostRefresh(); return false
             }
@@ -289,6 +365,10 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     var contextAfter: String { hostState.snapshot.after }
     var documentIdentity: String { hostState.snapshot.document }
     var selectedText: String { hostState.snapshot.selected }
+    var usesLocalPinyinComposition: Bool {
+        if markedTransport != .none { return markedTransport == .local }
+        return model?.settings.localPinyinComposition == true || !readableHostContext
+    }
     var fullAccess: Bool { hasFullAccess }
     var needsGlobe: Bool { hostNeedsGlobe }
     var capitalization: UITextAutocapitalizationType { hostCapitalization }
@@ -314,7 +394,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         flushMarkedText(insideWrite: true)
         edit()
     }
-    func insert(_ text: String) { performHostEdit { hostState.insert(text); textDocumentProxy.insertText(text) } }
+    func insert(_ text: String) {
+        performHostEdit {
+            hostState.insert(text)
+            markedDraft = ""; markedTransport = .none; sentMarkedDraft = false
+            textDocumentProxy.insertText(text)
+        }
+    }
     func commitMarkedText(_ text: String) {
         commitMarkedText(text, remaining: "")
     }
@@ -323,39 +409,41 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // Give those entry points the same unresolved-selection protection.
         if candidateSelectionNeedsValidation,
            !validateCandidate(before: contextBefore, after: contextAfter, identity: documentIdentity) {
-            model?.cursorChanged(unmarkDraft: false)
+            abandonDraftWithoutHostWrite()
             return false
         }
         beginHostWrite(); defer { endHostWrite() }
         let originalState = hostState, notifications = hostNotificationRevision
-        markedFrame.cancel(); pendingMarkedText.discard()
-        markedImmediateScheduled = false; markedWriteGeneration += 1
+        cancelQueuedMarkedWrites()
         // Clear only the provisional range we actually sent. Buffered editors
         // can otherwise flush its raw pinyin along with insertText's Chinese.
         // unmarkText would commit that pinyin; deleting host text is unsafe.
+        let transport = markedTransport == .none ? (usesLocalPinyinComposition ? MarkedTransport.local : .host) : markedTransport
         hostState.commitMarked(text, remaining: remaining)
+        markedDraft = remaining
+        markedTransport = remaining.isEmpty ? .none : transport
         if sentMarkedDraft {
             sentMarkedDraft = false
             textDocumentProxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
         }
-        if !hostActive || (notifications != hostNotificationRevision && !hostStillMatches(originalState)) {
+        if !hostActive || (notifications != hostNotificationRevision && !hostStillMatches(originalState, requiresReadable: transport == .host)) {
             // A proxy can service a field switch inside its synchronous call.
             // Neither the old choice nor its remainder belongs to that field;
             // in particular, do not unmark the new field's own provisional text.
-            model?.cursorChanged(unmarkDraft: false)
+            hostState = originalState; abandonDraftWithoutHostWrite()
             needsHostRefresh = true
             return false
         }
         let insertionNotifications = hostNotificationRevision
         textDocumentProxy.insertText(text)
-        if !hostActive || (insertionNotifications != hostNotificationRevision && !hostStillMatches(hostState)) {
-            model?.cursorChanged(unmarkDraft: false); needsHostRefresh = true
+        if !hostActive || (insertionNotifications != hostNotificationRevision && !hostStillMatches(hostState, requiresReadable: transport == .host)) {
+            abandonDraftWithoutHostWrite(); needsHostRefresh = true
             return false
         }
-        if !remaining.isEmpty { enqueueMarkedText(remaining) }
+        if !remaining.isEmpty, transport == .host { enqueueMarkedText(remaining) }
         return true
     }
-    private func hostStillMatches(_ expected: HostTextState) -> Bool {
+    private func hostStillMatches(_ expected: HostTextState, requiresReadable: Bool) -> Bool {
         let revision = hostNotificationRevision
         guard let identity = connectedDocumentIdentifier()?.uuidString,
               identity == expected.snapshot.document else { return false }
@@ -364,16 +452,63 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let selected = textDocumentProxy.selectedText ?? ""
         let actual = HostTextSnapshot(before: before ?? "", after: after ?? "", selected: selected,
             document: identity, available: before != nil || after != nil)
-        // Some remote editors never expose context. A missing context is not a
-        // changed field, nor permission to delete host characters. Keep their
-        // owned-mark protocol usable, with a known UUID and no reported selection.
-        return revision == hostNotificationRevision && selected.isEmpty &&
-            (!actual.available || expected.accepts(expected.snapshot, actual: actual))
+        // Local composition needs only a stable field and no reported selection.
+        // A native marked transaction losing its readable context cannot prove
+        // that a clear-mark was honoured; abort rather than append a conversion.
+        guard revision == hostNotificationRevision else { return false }
+        let wasReadable = readableHostContext
+        readableHostContext = actual.available
+        if !requiresReadable, !wasReadable, actual.available, selected.isEmpty {
+            // The client first exposed its real boundary while acknowledging
+            // our selected Chinese. Keep the remainder local at that boundary.
+            rebaseLocalDraft(on: actual)
+            return true
+        }
+        return selected.isEmpty && ((!actual.available && !requiresReadable) || expected.accepts(expected.snapshot, actual: actual))
     }
     func setMarkedText(_ text: String) {
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
+        if markedTransport == .none, !text.isEmpty {
+            markedTransport = usesLocalPinyinComposition ? .local : .host
+        }
+        markedDraft = text
         hostState.setMarked(text)
-        enqueueMarkedText(text)
+        if markedTransport == .host { enqueueMarkedText(text) }
+        else { cancelQueuedMarkedWrites() }
+    }
+    private func cancelQueuedMarkedWrites() {
+        markedFrame.cancel(); pendingMarkedText.discard()
+        markedImmediateScheduled = false; markedWriteGeneration += 1
+        deferredMarkedFlush = false
+    }
+    private func discardMarkedDelivery() {
+        cancelQueuedMarkedWrites()
+        markedDraft = ""; markedTransport = .none; sentMarkedDraft = false
+    }
+    private func abandonDraftWithoutHostWrite() {
+        hostRefreshGeneration += 1
+        discardMarkedDelivery()
+        hostState.setMarked(""); hostState.unmark()
+        model?.cursorChanged(unmarkDraft: false)
+    }
+    private func rebaseLocalDraft(on actual: HostTextSnapshot) {
+        hostState = HostTextState(actual)
+        if !markedDraft.isEmpty { hostState.setMarked(markedDraft) }
+    }
+    /// Use an already captured snapshot, never another proxy read on a key.
+    /// The transport remains local if context becomes available mid-draft.
+    private func observeContextReadability(_ actual: HostTextSnapshot) -> Bool {
+        readableHostContext = actual.available
+        guard actual.document == hostState.snapshot.document, !actual.available,
+              markedTransport == .host, !markedDraft.isEmpty else { return true }
+        if sentMarkedDraft {
+            // The old raw spelling may already be literal in the client. We
+            // cannot retract it safely and must not append Chinese after it.
+            abandonDraftWithoutHostWrite(); hostState = HostTextState(actual)
+            return false
+        }
+        cancelQueuedMarkedWrites(); markedTransport = .local
+        return true
     }
     private func enqueueMarkedText(_ text: String) {
         pendingMarkedText.replace(with: text)
@@ -415,7 +550,17 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
         markedCadence.didWrite(now: ProcessInfo.processInfo.systemUptime)
     }
-    func unmarkText() { performHostEdit { hostState.unmark(); textDocumentProxy.unmarkText(); sentMarkedDraft = false } }
+    func unmarkText() {
+        if markedTransport == .local {
+            if !markedDraft.isEmpty { commitMarkedText(markedDraft, remaining: "") }
+            else { hostState.unmark(); discardMarkedDelivery() }
+            return
+        }
+        performHostEdit {
+            hostState.unmark(); markedDraft = ""; markedTransport = .none
+            textDocumentProxy.unmarkText(); sentMarkedDraft = false
+        }
+    }
     func deleteBackward() { performHostEdit { hostState.deleteBackward(); textDocumentProxy.deleteBackward() } }
     func moveCursor(_ offset: Int) {
         performHostEdit { hostState.moveCursor(offset); textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) }

@@ -285,9 +285,30 @@ import UIKit
         var samples: [(String, UIImage)] = []
         func capture(_ title: String) {
             ribbon.layoutIfNeeded()
+            CATransaction.flush()
             let image = UIGraphicsImageRenderer(size: ribbon.bounds.size).image { context in
                 UIColor(white: 0.13, alpha: 1).setFill(); context.fill(CGRect(origin: .zero, size: ribbon.bounds.size))
-                ribbon.drawHierarchy(in: CGRect(origin: .zero, size: ribbon.bounds.size), afterScreenUpdates: false)
+                XCTAssertTrue(ribbon.drawHierarchy(in: CGRect(origin: .zero, size: ribbon.bounds.size), afterScreenUpdates: true))
+            }
+            if samples.isEmpty, let bitmap = image.cgImage {
+                // A model-side identifier is not proof of displayed ink. The
+                // first sample must include blue glyph pixels, not an old empty
+                // render. This asserts a rendered sample, not physical latency.
+                let width = bitmap.width, height = bitmap.height
+                var pixels = [UInt8](repeating: 0, count: width * height * 4)
+                let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+                    guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                        bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+                    context.draw(bitmap, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))); return true
+                }
+                XCTAssertTrue(drawn)
+                var bluePixels = 0
+                for offset in stride(from: 0, to: pixels.count, by: 4) {
+                    if pixels[offset] < 130 && pixels[offset + 1] < 210 && pixels[offset + 2] > 170 &&
+                        Int(pixels[offset + 2]) > Int(pixels[offset]) + 60 { bluePixels += 1 }
+                }
+                XCTAssertGreaterThan(bluePixels, 10, "The first visual sample must actually contain the first candidate's ink")
             }
             samples.append((title, image))
         }

@@ -14,6 +14,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     let keyColorHex: String?
     let candidateColorHex: String?
     let candidateTextSize: CandidateTextSize?
+    let keyHeight: Double?
 
     init(settings: KeyboardSettings) {
         var value = settings; value.sanitize()
@@ -22,6 +23,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         backgroundGlassStrength = value.backgroundGlassStrength; keyGlassStrength = value.keyGlassStrength
         backgroundColorHex = value.backgroundColorHex; keyColorHex = value.keyColorHex
         candidateColorHex = value.candidateColorHex; candidateTextSize = value.candidateTextSize
+        keyHeight = value.keyHeight
     }
     func applying(to settings: KeyboardSettings) -> KeyboardSettings {
         var value = settings
@@ -30,13 +32,18 @@ struct AppearanceSnapshot: Codable, Equatable {
         value.backgroundGlassStrength = backgroundGlassStrength; value.keyGlassStrength = keyGlassStrength
         value.backgroundColorHex = backgroundColorHex; value.keyColorHex = keyColorHex
         value.candidateColorHex = candidateColorHex; value.candidateTextSize = candidateTextSize
+        if let keyHeight { value.keyHeight = keyHeight }
         // The snapshot is normalized on creation and validated on decode.
         // Do not run unrelated language/learning migrations while applying it.
         return value
     }
+    /// Older snapshots did not carry height. Compare the fields they requested
+    /// after applying them, so an absent height preserves the receiver's layout.
+    func isApplied(to settings: KeyboardSettings) -> Bool { applying(to: settings) == settings }
     var isValid: Bool {
         let strengths = [glassOpacity] + [backgroundGlassStrength, keyGlassStrength].compactMap { $0 }
         guard strengths.allSatisfy({ $0.isFinite && (0...1).contains($0) }), glassOpacity >= 0.15 else { return false }
+        if let keyHeight, !keyHeight.isFinite || !(44...58).contains(keyHeight) { return false }
         for color in [customAccentHex, backgroundColorHex, keyColorHex, candidateColorHex].compactMap({ $0 }) {
             guard RGBColor(hex: color)?.hex == color else { return false }
         }

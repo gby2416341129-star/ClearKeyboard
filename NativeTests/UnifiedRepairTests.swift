@@ -262,16 +262,23 @@ import UIKit
     func testRecentClipboardCanPasteAndOpenHistoryWithoutReplacingTypedPinyin() async throws {
         let value = controller(), model = try XCTUnwrap(value.model)
         let url = SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true)
+        let phrasesURL = url.deletingLastPathComponent().appendingPathComponent("common-phrases.json")
         let original = try? Data(contentsOf: url)
+        let originalPhrases = try? Data(contentsOf: phrasesURL)
         defer {
             model.suspend()
             if let original { try? original.write(to: url, options: .atomic) }
             else { try? FileManager.default.removeItem(at: url) }
+            if let originalPhrases { try? originalPhrases.write(to: phrasesURL, options: .atomic) }
+            else { try? FileManager.default.removeItem(at: phrasesURL) }
         }
         let text = "剪贴板测试内容 \(UUID().uuidString.prefix(6))"
+        let phrase = "稍后回复你 \(UUID().uuidString.prefix(6))"
         ClipboardStore(url: url).add(text)
+        ClipboardStore(url: phrasesURL).add(phrase)
         model.clipboardCapture.onCapture?()
         value.view.setNeedsLayout(); value.view.layoutIfNeeded()
+        XCTAssertFalse(views(value.view).contains { $0 is ClipboardPanel }, "A recent copy must not replace the alphabet with an automatically opened history panel")
         let paste = try XCTUnwrap(views(value.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.paste" })
         XCTAssertEqual(paste.accessibilityLabel, "粘贴：" + text)
         XCTAssertFalse(paste.superview?.isHidden ?? true)
@@ -293,16 +300,43 @@ import UIKit
         value.view.setNeedsLayout(); value.view.layoutIfNeeded()
         let panel = try XCTUnwrap(views(value.view).compactMap { $0 as? ClipboardPanel }.first)
         panel.setNeedsLayout(); panel.layoutIfNeeded()
+        let tabs = try XCTUnwrap(views(panel).compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual(tabs.selectedSegmentIndex, 0, "Opening history must already select Clipboard without another tab tap")
         let table = try XCTUnwrap(views(panel).compactMap { $0 as? UITableView }.first)
         table.layoutIfNeeded()
+        XCTAssertFalse(table.isHidden)
+        XCTAssertGreaterThan(table.bounds.height, 0)
         XCTAssertGreaterThan(table.numberOfRows(inSection: 0), 0)
+        let firstClip = try XCTUnwrap(table.cellForRow(at: IndexPath(row: 0, section: 0)))
+        XCTAssertTrue(views(firstClip).compactMap { $0 as? UILabel }.contains { $0.text == text },
+                      "Persisted clipboard content must be visible before sending a tab event")
         XCTAssertTrue(views(panel).compactMap { $0 as? UIButton }.contains { button in
             button.menu?.children.contains { $0.title == "复制" } == true
         }, "History rows need a copy action as well as tap-to-paste")
         let before = value.textView.text ?? ""
+        tabs.selectedSegmentIndex = 1; tabs.sendActions(for: .valueChanged)
+        panel.reloadFromDisk(); panel.layoutIfNeeded(); table.layoutIfNeeded()
+        XCTAssertEqual(tabs.selectedSegmentIndex, 1, "A disk refresh must not interrupt an explicitly selected Common Phrases tab")
+        let firstPhrase = try XCTUnwrap(table.cellForRow(at: IndexPath(row: 0, section: 0)))
+        XCTAssertTrue(views(firstPhrase).compactMap { $0 as? UILabel }.contains { $0.text == phrase })
         panel.tableView(table, didSelectRowAt: IndexPath(row: 0, section: 0))
-        XCTAssertEqual(value.textView.text, before + text)
-        print("CLIPBOARD_RECENT_UIKIT textPaste=true history=true copyMenu=true compositionProtected=true")
+        XCTAssertEqual(value.textView.text, before + phrase)
+
+        let clipboard = try XCTUnwrap(views(value.view).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "toolbar.clipboard" })
+        clipboard.sendActions(for: .touchUpInside)
+        value.view.setNeedsLayout(); value.view.layoutIfNeeded()
+        let reopened = try XCTUnwrap(views(value.view).compactMap { $0 as? ClipboardPanel }.first)
+        XCTAssertFalse(reopened === panel)
+        reopened.layoutIfNeeded()
+        let reopenedTabs = try XCTUnwrap(views(reopened).compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual(reopenedTabs.selectedSegmentIndex, 0, "Every new panel opening must start on Clipboard after using Common Phrases")
+        let reopenedTable = try XCTUnwrap(views(reopened).compactMap { $0 as? UITableView }.first)
+        reopenedTable.layoutIfNeeded()
+        let reopenedClip = try XCTUnwrap(reopenedTable.cellForRow(at: IndexPath(row: 0, section: 0)))
+        XCTAssertTrue(views(reopenedClip).compactMap { $0 as? UILabel }.contains { $0.text == text })
+        reopened.tableView(reopenedTable, didSelectRowAt: IndexPath(row: 0, section: 0))
+        XCTAssertEqual(value.textView.text, before + phrase + text)
+        print("CLIPBOARD_RECENT_UIKIT textPaste=true history=true clipboardDefault=true commonPhrases=true reopenClipboard=true copyMenu=true compositionProtected=true")
     }
     func testCompactAppearanceOwnsAndRemovesItsHostingController() throws {
         let value = controller(), model = try XCTUnwrap(value.model)

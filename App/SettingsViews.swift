@@ -5,6 +5,8 @@ struct CustomizationView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var showToolbarEditor = false
     @State private var showSyncDetails = false
+    @State private var keyHeightDraft: Double?
+    @State private var keyHeightEditing = false
     var body: some View {
         AppPage(title: "定制") {
             AppSectionTitle(title: "玻璃与颜色")
@@ -29,10 +31,28 @@ struct CustomizationView: View {
                 Divider()
                 HStack {
                     Text("按键高度").font(.system(size: 16)); Spacer()
-                    Text(Int(preferences.settings.keyHeight).description).monospacedDigit().foregroundStyle(.secondary)
-                    Button("还原") { preferences.settings.keyHeight = 50 }.font(.caption).accessibilityIdentifier("custom.resetHeight")
+                    Text(Int(keyHeightDraft ?? preferences.settings.keyHeight).description).monospacedDigit().foregroundStyle(.secondary)
+                    Button("还原") { keyHeightDraft = 50; commitKeyHeight() }.font(.caption).accessibilityIdentifier("custom.resetHeight")
                 }
-                Slider(value: $preferences.settings.keyHeight, in: 44...58, step: 1).accessibilityIdentifier("custom.keyHeight")
+                Slider(value: Binding(get: { keyHeightDraft ?? preferences.settings.keyHeight },
+                                      set: {
+                                          keyHeightDraft = $0
+                                          if !keyHeightEditing { commitKeyHeight() }
+                                      }), in: 44...58, step: 1,
+                       onEditingChanged: { editing in
+                           keyHeightEditing = editing
+                           if !editing { commitKeyHeight() }
+                       })
+                    .accessibilityIdentifier("custom.keyHeight")
+                    .accessibilityLabel("按键高度")
+                    .onDisappear { commitKeyHeight() }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+                        guard keyHeightDraft != nil else { return }
+                        commitKeyHeight()
+                        // The root may already have handled this notification.
+                        // Re-flush this final draft under its normal short lease.
+                        preferences.deactivate()
+                    }
                 Divider()
                 Picker("单手模式", selection: $preferences.settings.hand) {
                     ForEach(HandMode.allCases) { Text($0.title).tag($0) }
@@ -57,6 +77,12 @@ struct CustomizationView: View {
             .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView().tint(AppPalette.accent) }
             .sheet(isPresented: $showSyncDetails) { AppearanceSyncDetails().environmentObject(preferences) }
             .onAppear { preferences.reload() }
+    }
+    private func commitKeyHeight() {
+        keyHeightEditing = false
+        guard let value = keyHeightDraft else { return }
+        keyHeightDraft = nil
+        preferences.settings.keyHeight = value
     }
     private func detail(_ item: AppearanceItem) -> String {
         switch item {
@@ -125,7 +151,6 @@ private struct ToolbarEditorView: View {
                 Section("添加工具") {
                     ForEach(ToolbarTool.allCases.filter { !preferences.settings.toolbar.contains($0) }) { item in
                         Button { preferences.settings.toolbar.append(item) } label: { Label(item.title, systemImage: "plus.circle") }
-                            .disabled(preferences.settings.toolbar.count >= 4)
                     }
                 }
             }.environment(\.editMode, .constant(.active)).navigationTitle("快捷工具").navigationBarTitleDisplayMode(.inline)

@@ -48,9 +48,11 @@ final class KeyGlassMaterial: UIVisualEffectView {
     }
 }
 
-/// The preview uses the production key, text and material views at their final
-/// logical sizes. It does not create an input engine or scale a keyboard bitmap.
+/// Production views are laid out once at the real keyboard's logical size, then
+/// the whole canvas is scaled uniformly. The preview never compresses row pitch
+/// independently of the text, symbols, insets or key faces.
 final class KeyboardAppearancePreview: UIView {
+    private let canvas = UIView()
     private let scenery = CAGradientLayer()
     // A local material approximates the host's neutral keyboard base. An
     // ordinary UIInputView subview does not receive the responder's automatic
@@ -65,17 +67,25 @@ final class KeyboardAppearancePreview: UIView {
     private var appliedSettings: KeyboardSettings?
     private var appliedStyle = UIUserInterfaceStyle.unspecified
     private var appliedReducedTransparency: Bool?
+    private var renderedScale: CGFloat = 0
+    private var nativeCanvasWidth: CGFloat {
+        let width = window?.bounds.width ?? UIScreen.main.bounds.width
+        return width.isFinite && width > 0 ? width : max(1, bounds.width)
+    }
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.cornerRadius = 22; layer.cornerCurve = .continuous; clipsToBounds = true
+        isOpaque = false; backgroundColor = .clear
+        canvas.accessibilityIdentifier = "appearance.keyboard-canvas"
+        canvas.layer.cornerRadius = 22; canvas.layer.cornerCurve = .continuous; canvas.clipsToBounds = true
+        addSubview(canvas)
         scenery.colors = [UIColor(red: 0.30, green: 0.38, blue: 0.65, alpha: 1).cgColor,
                           UIColor(red: 0.58, green: 0.40, blue: 0.64, alpha: 1).cgColor]
         scenery.startPoint = CGPoint(x: 0, y: 0); scenery.endPoint = CGPoint(x: 1, y: 1)
-        layer.addSublayer(scenery)
+        canvas.layer.addSublayer(scenery)
         nativeBase.isUserInteractionEnabled = false
         nativeBase.accessibilityIdentifier = "appearance.native-base"
-        addSubview(nativeBase); addSubview(backdrop)
-        addSubview(first); addSubview(second); addSubview(keyArea); keyArea.addSubview(glass)
+        canvas.addSubview(nativeBase); canvas.addSubview(backdrop)
+        canvas.addSubview(first); canvas.addSubview(second); canvas.addSubview(keyArea); keyArea.addSubview(glass)
         for (index, row) in KeyboardLayout.rows(page: .letters, uppercase: true, globe: false).enumerated() {
             var start = row.insetUnits
             for key in row.keys {
@@ -87,6 +97,18 @@ final class KeyboardAppearancePreview: UIView {
         accessibilityLabel = "键盘效果预览"; accessibilityIdentifier = "appearance.preview"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    func fittingSize(forWidth width: CGFloat) -> CGSize {
+        let width = width.isFinite ? max(0, width) : 0
+        let height = KeyboardGeometry.Metrics(keyHeight: settings.keyHeight).contentHeight
+        return CGSize(width: width, height: width / nativeCanvasWidth * height)
+    }
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: fittingSize(forWidth: bounds.width).height)
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        renderedScale = 0; invalidateIntrinsicContentSize(); setNeedsLayout()
+    }
     static func accessibilityDescription(of value: KeyboardSettings) -> String {
         "background:\(value.resolvedBackgroundGlassStrength);keys:\(value.resolvedKeyGlassStrength);backgroundColor:\(value.backgroundColorHex ?? "auto");keyColor:\(value.keyColorHex ?? "auto");candidateColor:\(value.candidateColorHex ?? "auto");font:\(value.resolvedCandidateTextSize.rawValue)"
     }
@@ -98,21 +120,31 @@ final class KeyboardAppearancePreview: UIView {
         settings = value; backdrop.apply(value, systemBacked: true); glass.apply(value)
         for (key, _, _, _) in keys { key.apply(value) }
         let font = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points))
+        let firstFont = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points), weight: .medium)
         first.configure(Candidate(text: "今天", consumed: 0), first: true, accent: value.accentInkColor,
-                        font: font, normalColor: value.candidateTintColor)
+                        font: firstFont, normalColor: value.candidateTintColor)
         second.configure(Candidate(text: "你好", consumed: 0), first: false, accent: value.accentInkColor,
                          font: font, normalColor: value.candidateTintColor)
         accessibilityValue = Self.accessibilityDescription(of: value)
-        setNeedsLayout()
+        invalidateIntrinsicContentSize(); setNeedsLayout()
     }
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true { apply(settings) }
     }
     override func layoutSubviews() {
-        super.layoutSubviews(); scenery.frame = bounds; nativeBase.frame = bounds; backdrop.frame = bounds
+        super.layoutSubviews()
+        guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { return }
         let metrics = KeyboardGeometry.Metrics(keyHeight: settings.keyHeight)
-        let layout = KeyboardGeometry.layout(size: bounds.size, metrics: metrics, hand: .full, fitHeight: true)
+        let size = CGSize(width: nativeCanvasWidth, height: metrics.contentHeight)
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        UIView.performWithoutAnimation {
+            canvas.bounds = CGRect(origin: .zero, size: size)
+            canvas.center = CGPoint(x: bounds.midX, y: bounds.midY)
+            canvas.transform = CGAffineTransform(scaleX: scale, y: scale)
+        }
+        scenery.frame = canvas.bounds; nativeBase.frame = canvas.bounds; backdrop.frame = canvas.bounds
+        let layout = KeyboardGeometry.layout(size: size, metrics: metrics, hand: .full, fitHeight: false)
         keyArea.frame = layout.keys; glass.frame = keyArea.bounds
         var faces: [CGRect] = []
         for (button, row, start, units) in keys {
@@ -121,7 +153,24 @@ final class KeyboardAppearancePreview: UIView {
             faces.append(KeyboardGeometry.keyPlate(in: button.bounds, action: button.key.action, units: units).offsetBy(dx: button.frame.minX, dy: button.frame.minY))
         }
         glass.setFaces(faces)
-        first.frame = CGRect(x: 10, y: 1, width: 90, height: 43)
-        second.frame = CGRect(x: 104, y: 1, width: 90, height: 43)
+        let font = UIFont.systemFont(ofSize: CGFloat(settings.resolvedCandidateTextSize.points))
+        let firstFont = UIFont.systemFont(ofSize: CGFloat(settings.resolvedCandidateTextSize.points), weight: .medium)
+        let firstWidth = CandidateButton.width(Candidate(text: "今天", consumed: 0), font: firstFont) + 4
+        let secondWidth = CandidateButton.width(Candidate(text: "你好", consumed: 0), font: font) + 4
+        first.frame = CGRect(x: layout.header.minX, y: 0, width: firstWidth, height: KeyboardGeometry.headerHeight)
+        second.frame = CGRect(x: first.frame.maxX, y: 0, width: secondWidth, height: KeyboardGeometry.headerHeight)
+        // Keep native text/symbol layers at the number of pixels they occupy
+        // after the canvas transform, rather than scaling a captured keyboard.
+        let displayScale = (window?.screen.scale ?? traitCollection.displayScale) * scale
+        if renderedScale != displayScale {
+            renderedScale = displayScale
+            updateOwnedDisplayScale(canvas, scale: displayScale)
+        }
+    }
+    private func updateOwnedDisplayScale(_ view: UIView, scale: CGFloat) {
+        // UIKit manages a visual effect's internal render surfaces itself.
+        guard !(view is UIVisualEffectView) else { return }
+        view.contentScaleFactor = scale; view.layer.contentsScale = scale; view.setNeedsDisplay()
+        for child in view.subviews { updateOwnedDisplayScale(child, scale: scale) }
     }
 }

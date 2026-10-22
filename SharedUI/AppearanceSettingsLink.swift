@@ -242,8 +242,8 @@ private enum AppearanceSyncNotification {
                 }
                 self.latest = envelope; self.localSnapshot = envelope.snapshot
                 self.diagnostics.latestRevision = envelope.revision; self.diagnostics.event = "read"
-                let current = self.currentSettings.map { AppearanceSnapshot(settings: $0()) }
-                if self.lastDelivered != envelope.revision || current != envelope.snapshot {
+                let applied = self.currentSettings.map { envelope.snapshot.isApplied(to: $0()) } ?? false
+                if self.lastDelivered != envelope.revision || !applied {
                     self.lastDelivered = envelope.revision
                     self.onReceive?(envelope.snapshot)
                 }
@@ -264,7 +264,7 @@ private enum AppearanceSyncNotification {
         guard let receiverIdentity, receiverIdentity.isValid else {
             diagnostics.rejection = "receiver-is-not-a-keyboard-extension"; return
         }
-        guard let currentSettings, AppearanceSnapshot(settings: currentSettings()) == envelope.snapshot else {
+        guard let currentSettings, envelope.snapshot.isApplied(to: currentSettings()) else {
             diagnostics.rejection = "model-snapshot-not-applied"; return
         }
         // The identity is created from the real .appex in production. A model
