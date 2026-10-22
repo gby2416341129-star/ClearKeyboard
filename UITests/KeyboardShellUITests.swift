@@ -545,7 +545,7 @@ import UIKit
                 "systemSettingsAddKeyboardPerformed": settingsAddPerformed,
                 "safariWarmupDOMVerifiedBeforeSettings": safariWarmupVerifiedBeforeSettings,
                 "safariReturnedToPreparedFixtureAfterSettings": safariReturnedToPreparedFixture,
-                "safariActivationStrategy": "workflow-openurl; prewarm-and-verify-DOM-before-Settings; activate-only-return-no-launch-retry",
+                "safariActivationStrategy": "workflow-openurl; verified-DOM-before-Settings; fixed-URL-reopen-once-after-Settings-before-measurements; uninterrupted-three-focused-transitions",
                 "fullAccessChangedByDiagnostic": false,
                 "actualExtensionConnected": connected, "hostLimitations": hostLimitations,
                 "mandatorySafariTransitionsVerified": safariCompleted,
@@ -588,11 +588,20 @@ import UIKit
         try enableKeyboardInSystemSettings()
 
         attachJSON(["phase": "before-Safari-return-activate", "settingsAddPerformed": settingsAddPerformed], name: "safari-activation-phase")
-        // Return to the already verified page. A failed activate is evidence;
-        // do not add a cold launch that can hang or replace the tested state.
-        safari.activate()
-        guard safari.wait(for: .runningForeground, timeout: 8) else {
-            throw unavailable("Prepared Safari did not return to the foreground after Settings", in: safari)
+        // Settings/Add is setup, before any measured keyboard transition.
+        // Reopen the one exact verified fixture URL; Safari may have exited
+        // during that preparation. Never reopen it in the focused sequence.
+        let requestFinished = expectation(description: "Open the exact Safari fixture once after Settings")
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:8765/open-safari-fixture")!)
+        request.httpMethod = "POST"; request.httpBody = Data(); request.timeoutInterval = 25
+        var openStatus = 0
+        let task = URLSession.shared.dataTask(with: request) { _, response, _ in
+            openStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            requestFinished.fulfill()
+        }
+        task.resume(); wait(for: [requestFinished], timeout: 30)
+        guard openStatus == 200, safari.wait(for: .runningForeground, timeout: 8) else {
+            throw unavailable("The exact Safari fixture could not be reopened after Settings", in: safari)
         }
         let safariField = try preparedSafariField(safari, phase: "safari-return-after-settings")
         safariReturnedToPreparedFixture = true

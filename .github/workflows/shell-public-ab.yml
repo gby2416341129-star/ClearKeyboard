@@ -11,7 +11,7 @@ permissions:
 # This workflow does not share the IPA workflow's concurrency group.
 concurrency:
   group: shell-public-ab-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   public-shell:
@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 4
       matrix:
         include:
           - recipe: material-b-no-blur-tint055
@@ -119,7 +119,7 @@ jobs:
           python3 Scripts/setup_keyboard_shell_sim.py --device "$TEST_DEVICE" \
             --app .build/Composition/Build/Products/Debug-iphonesimulator/ClearKeyboard.app \
             --expected-runtime "$CLEAR_TEST_SIMULATOR_RUNTIME" --output .build/KeyboardShell/setup.json
-          python3 -m http.server 8765 --bind 127.0.0.1 --directory UITests > .build/KeyboardShell/server.log 2>&1 &
+          python3 Scripts/serve_keyboard_shell.py --device "$TEST_DEVICE" --directory UITests > .build/KeyboardShell/server.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           python3 - <<'PY'
