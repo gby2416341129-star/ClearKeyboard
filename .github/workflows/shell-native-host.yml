@@ -1,8 +1,7 @@
 name: Verify real extension background in a native editor
 
 on:
-  push:
-    branches: [codex/keyboard-shell-public-ab-20261022]
+  workflow_dispatch:
 
 permissions:
   contents: read

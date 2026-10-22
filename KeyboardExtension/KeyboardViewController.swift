@@ -205,12 +205,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // Do not infer the actual shell allocation from these requested bounds.
         let requestedPaintFrame = view.bounds.insetBy(dx: -32, dy: -96)
         if overscanPaint.frame != requestedPaintFrame { overscanPaint.frame = requestedPaintFrame }
-        if let window = view.window, configuredOverscanWindow !== window {
-            configuredOverscanWindow = window
-            window.clipsToBounds = false
-            window.isOpaque = false
-            window.backgroundColor = .clear
-        }
+        // This control only extends an owned background UIView. Keep the
+        // extension window's UIKit-managed opacity, background and geometry.
+        // Earlier window-mutation experiments never established a connection.
 #endif
         // A cached host frame is provisional, especially when Safari changes input traits.
         // Keep the requested key pitch while UIKit negotiates the remote view's final height.
