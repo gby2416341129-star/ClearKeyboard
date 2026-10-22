@@ -1,0 +1,146 @@
+name: Diagnose public keyboard shell root styles
+
+on:
+  push:
+    branches: [codex/keyboard-shell-public-ab-20261022]
+
+permissions:
+  contents: read
+  actions: read
+
+# This workflow does not share the IPA workflow's concurrency group.
+concurrency:
+  group: shell-public-ab-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-shell:
+    name: Public root ${{ matrix.recipe }}
+    runs-on: macos-26
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - recipe: default-root
+            condition: SHELL_AB_DEFAULT_ROOT
+          - recipe: keyboard-root
+            condition: SHELL_AB_KEYBOARD_ROOT
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
+      CLEAR_TEST_REQUIRE_RUNTIME: '1'
+      CLEAR_SHELL_AB_RECIPE: ${{ matrix.recipe }}
+      CLEAR_SHELL_AB_CONDITION: ${{ matrix.condition }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Record exact diagnostic recipe and require the selected runtime
+        run: |
+          mkdir -p .build/ShellAB .build/KeyboardShell
+          python3 - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          conditions={'default-root':'SHELL_AB_DEFAULT_ROOT','keyboard-root':'SHELL_AB_KEYBOARD_ROOT'}
+          recipe=os.environ['CLEAR_SHELL_AB_RECIPE']
+          assert conditions[recipe]==os.environ['CLEAR_SHELL_AB_CONDITION']
+          report=dict(schema=1,recipe=recipe,compilationConditions=['DEBUG',conditions[recipe]],
+              sourceCommit=os.environ['GITHUB_SHA'],rootTint='#558DF2',
+              controllerSHA256=hashlib.sha256(Path('KeyboardExtension/KeyboardViewController.swift').read_bytes()).hexdigest(),
+              resourceProfile='standard-prepare-rime-without-CoreML-export',
+              simulatedChromeUsed=False,physicalDeviceTestRun=False,nativeChromeGeometryFixed=False)
+          Path('.build/ShellAB/recipe.json').write_text(json.dumps(report,indent=2)+'\n')
+          print('SHELL_PUBLIC_AB_RECIPE '+json.dumps(report),flush=True)
+          inventory=json.loads(subprocess.check_output(['xcrun','simctl','list','runtimes','-j'],text=True))
+          Path('.build/ShellAB/runtime-inventory.json').write_text(json.dumps(inventory,indent=2)+'\n')
+          assert any(r['identifier']==os.environ['CLEAR_TEST_SIMULATOR_RUNTIME'] and r.get('isAvailable')
+              for r in inventory['runtimes']), 'The exact required iOS 26.4 runtime is unavailable'
+          PY
+          xcodebuild -version | tee .build/ShellAB/xcode-version.txt
+      - name: Restore pinned language model cache
+        id: language-model
+        uses: actions/cache/restore@v4
+        with:
+          path: .rime-cache/wanxiang-lts-zh-hans.gram
+          key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
+      - name: Recover and verify the exact existing pinned grammar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 Scripts/restore_pinned_model.py
+      - name: Cache the verified pinned grammar
+        if: steps.language-model.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .rime-cache/wanxiang-lts-zh-hans.gram
+          key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
+      - name: Prepare the standard offline resources without a Core ML export
+        run: python3 Scripts/prepare_rime.py 2>&1 | tee .build/ShellAB/prepare-rime.log
+      - name: Build only the UI test target and its real App and extension dependencies
+        run: |
+          python3 Scripts/generate_project.py
+          xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG ${CLEAR_SHELL_AB_CONDITION}" \
+            build-for-testing 2>&1 | tee .build/ShellAB/build.log
+      - name: Boot the exact required iOS 26.4 simulator
+        timeout-minutes: 5
+        run: python3 Scripts/boot_test_simulator.py
+      - name: Exercise the installed extension through the real system keyboard picker
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_DEVICE="$(cat .build/composition-device-id)"
+          python3 Scripts/setup_keyboard_shell_sim.py --device "$TEST_DEVICE" \
+            --app .build/Composition/Build/Products/Debug-iphonesimulator/ClearKeyboard.app \
+            --expected-runtime "$CLEAR_TEST_SIMULATOR_RUNTIME" --output .build/KeyboardShell/setup.json
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory UITests > .build/KeyboardShell/server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import time,urllib.request
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8765/safari-fixture.html',timeout=1) as response:assert response.status==200
+                  break
+              except OSError:time.sleep(0.1)
+          else:raise RuntimeError('Keyboard shell Safari fixture did not start')
+          PY
+          xcrun simctl openurl "$TEST_DEVICE" 'http://127.0.0.1:8765/safari-fixture.html'
+          set +e
+          xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
+            -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
+            -derivedDataPath .build/Composition -resultBundlePath .build/KeyboardShellResults.xcresult \
+            -destination-timeout 60 -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 240 \
+            -only-testing:ClearKeyboardUITests/KeyboardShellUITests/testConnectedExtensionShellAcrossEnglishEmojiAndHostReturn \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG ${CLEAR_SHELL_AB_CONDITION}" \
+            test-without-building 2>&1 | tee .build/KeyboardShell/test.log
+          TEST_EXIT=${PIPESTATUS[0]}
+          set -e
+          xcrun xcresulttool get test-results summary --path .build/KeyboardShellResults.xcresult > .build/KeyboardShell/result-summary.json || true
+          xcrun xcresulttool get test-results tests --path .build/KeyboardShellResults.xcresult > .build/KeyboardShell/result-tests.json || true
+          xcrun xcresulttool export attachments --path .build/KeyboardShellResults.xcresult --output-path .build/KeyboardShell/Images || true
+          xcrun simctl spawn "$TEST_DEVICE" log show --last 10m --style compact \
+            --predicate 'process == "ClearKeyboardExtension"' > .build/KeyboardShell/extension-process.log 2>&1 || true
+          if [[ -f .build/KeyboardShell/result-summary.json ]]; then cat .build/KeyboardShell/result-summary.json; fi
+          exit "$TEST_EXIT"
+      - name: Upload the recipe evidence even when activation or measurement fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-public-shell-${{ matrix.recipe }}
+          path: |
+            .build/ShellAB
+            .build/KeyboardShell
+            .build/KeyboardShellResults.xcresult
+          if-no-files-found: error
+          retention-days: 7
+      - name: Stop the disposable simulator
+        if: always()
+        run: python3 Scripts/boot_test_simulator.py --cleanup || true

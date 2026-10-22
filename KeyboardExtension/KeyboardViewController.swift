@@ -46,9 +46,41 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var layoutLogCount = 0
     private let hostLog = OSLog(subsystem: "ClearKeyboard", category: "HostWrite")
 
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT)
+    // Isolated diagnostic only: public root construction and a fixed test tint.
+    // Do not inspect or alter UIKit's external shell, cap or globe container.
+    private static var shellABBlue: UIColor {
+        UIColor(red: 85.0 / 255.0, green: 141.0 / 255.0, blue: 242.0 / 255.0, alpha: 1)
+    }
+    private var shellABRecipe: String {
+#if SHELL_AB_DEFAULT_ROOT && SHELL_AB_KEYBOARD_ROOT
+#error("Select exactly one public keyboard-shell recipe")
+#elseif SHELL_AB_DEFAULT_ROOT
+        return "default-root"
+#else
+        return "keyboard-root"
+#endif
+    }
+    override func loadView() {
+#if SHELL_AB_DEFAULT_ROOT
+        let root = UIInputView(frame: .zero, inputViewStyle: .default)
+#else
+        let root = UIInputView(frame: .zero, inputViewStyle: .keyboard)
+#endif
+        root.backgroundColor = Self.shellABBlue
+        root.isOpaque = false
+        inputView = root
+    }
+#endif
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear; view.isOpaque = false
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT)
+        // The normal initializer deliberately clears the root. Reapply the
+        // experiment tint here, before adding the unchanged internal backdrop.
+        view.backgroundColor = Self.shellABBlue
+#endif
         view.accessibilityIdentifier = "clear.keyboard.root"
 #if DEBUG
         runtimeProbe.isUserInteractionEnabled = false
@@ -152,10 +184,28 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             "windowBounds": rect(view.window?.bounds ?? .zero),
             "safeAreaInsets": [Double(inset.top), Double(inset.left), Double(inset.bottom), Double(inset.right)]
         ]
+#if DEBUG && (SHELL_AB_DEFAULT_ROOT || SHELL_AB_KEYBOARD_ROOT)
+        var abEvidence = evidence
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        let color = view.backgroundColor?.resolvedColor(with: traitCollection)
+        let hasRGBA = color?.getRed(&red, green: &green, blue: &blue, alpha: &alpha) == true
+        abEvidence["shellABRecipe"] = shellABRecipe
+        abEvidence["shellABRequestedRootHex"] = "#558DF2"
+        abEvidence["shellABActualRootRGBA"] = hasRGBA ? [Double(red), Double(green), Double(blue), Double(alpha)] : []
+        abEvidence["shellABActualRootClass"] = String(describing: type(of: view!))
+        abEvidence["shellABActualInputViewStyle"] = inputView?.inputViewStyle.rawValue ?? -1
+        abEvidence["shellABUsesOnlyPublicRootAPI"] = true
+        abEvidence["shellABExternalChromeModified"] = false
+        if let data = try? JSONSerialization.data(withJSONObject: abEvidence, options: [.sortedKeys]),
+           let value = String(data: data, encoding: .utf8) {
+            runtimeProbe.accessibilityValue = value
+        }
+#else
         if let data = try? JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys]),
            let value = String(data: data, encoding: .utf8) {
             runtimeProbe.accessibilityValue = value
         }
+#endif
     }
 #endif
     private func updateHeight(_ height: CGFloat) {
