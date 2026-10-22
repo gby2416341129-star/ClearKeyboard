@@ -1,7 +1,6 @@
 name: Inspect installed UIKit keyboard background interfaces
 on:
-  push:
-    branches: [codex/keyboard-shell-public-ab-20261022]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

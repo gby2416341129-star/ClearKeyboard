@@ -1,7 +1,8 @@
 name: Diagnose public keyboard shell root styles
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [codex/keyboard-shell-public-ab-20261022]
 
 permissions:
   contents: read
@@ -22,14 +23,8 @@ jobs:
       max-parallel: 4
       matrix:
         include:
-          - recipe: material-b-no-blur-tint055
-            condition: SHELL_MATERIAL_B
-          - recipe: material-c-no-blur-opaque
-            condition: SHELL_MATERIAL_C
-          - recipe: host-sized-default-root
-            condition: SHELL_AB_HOST_SIZED_ROOT
           - recipe: keyboard-root
-            condition: SHELL_AB_KEYBOARD_ROOT
+            condition: SHELL_AB_KEYBOARD_ROOT SHELL_OVERSCAN
     env:
       DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
       CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-0
@@ -64,7 +59,7 @@ jobs:
           python3 - <<'PY'
           import hashlib,json,os,subprocess
           from pathlib import Path
-          conditions={'material-a-blur-tint055': 'SHELL_MATERIAL_A', 'material-b-no-blur-tint055': 'SHELL_MATERIAL_B', 'material-c-no-blur-opaque': 'SHELL_MATERIAL_C', 'host-sized-default-root': 'SHELL_AB_HOST_SIZED_ROOT', 'keyboard-root': 'SHELL_AB_KEYBOARD_ROOT'}
+          conditions={'material-a-blur-tint055': 'SHELL_MATERIAL_A', 'material-b-no-blur-tint055': 'SHELL_MATERIAL_B', 'material-c-no-blur-opaque': 'SHELL_MATERIAL_C', 'host-sized-default-root': 'SHELL_AB_HOST_SIZED_ROOT', 'keyboard-root': 'SHELL_AB_KEYBOARD_ROOT SHELL_OVERSCAN'}
           recipe=os.environ['CLEAR_SHELL_AB_RECIPE']
           assert conditions[recipe]==os.environ['CLEAR_SHELL_AB_CONDITION']
           report=dict(schema=1,recipe=recipe,compilationConditions=['DEBUG',conditions[recipe]],
@@ -77,7 +72,7 @@ jobs:
                   effectPresent=recipe=='material-a-blur-tint055') if recipe.startswith('material-') else None,
               productionSourceBaseline='4361d7463fe274eff6ca810fc05d5a8f39faff4c',
               diagnosticScope='Mandatory Safari English/Emoji/focused-Home transitions; required actual sizing/material metadata; optional App HEX excluded under AB flags',
-              comparison='material A/B/C share default style0, fixed276, transparent root; host-sized fourth retains AB7 blue/root minimum geometry; fifth repeats AB7 fixed keyboard style1; historical AB5 fixed-default-blue remains separate from transparent-root material controls',
+              comparison='Actual compositor overscan check: root height276; noninteractive owned paint requests -32 horizontal and -96 vertical outsets; window is transparent and unclipped. A requested paint frame is not proof of visible shell coverage.',
               glassBackdropSHA256=hashlib.sha256(Path('SharedUI/GlassBackdrop.swift').read_bytes()).hexdigest(),
               fixtureSHA256=hashlib.sha256(Path('UITests/KeyboardShellUITests.swift').read_bytes()).hexdigest(),
               wholeCoverageResolved=False,geometryVerified=False,

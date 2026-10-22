@@ -6,6 +6,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var model: KeyboardModel!
     private var surface: KeyboardSurface!
     private let rootBackdrop = GlassBackdrop()
+#if DEBUG && SHELL_OVERSCAN
+    private let overscanPaint = UIView()
+#endif
 #if DEBUG
     // Test evidence from the actual extension process, without exposing typed
     // content or replacing the root's accessible key hierarchy with a leaf.
@@ -114,6 +117,12 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // Keys retain their fixed pitch and bottom anchoring, including when
         // the host temporarily allocates extra height. The system's external
         // rounded cap and globe container remain outside our drawing bounds.
+#if DEBUG && SHELL_OVERSCAN
+        overscanPaint.backgroundColor = Self.shellABBlue
+        overscanPaint.isUserInteractionEnabled = false
+        overscanPaint.accessibilityIdentifier = "clear.keyboard.overscan"
+        view.insertSubview(overscanPaint, at: 0)
+#endif
         rootBackdrop.accessibilityIdentifier = "clear.keyboard.root-backdrop"
         rootBackdrop.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(rootBackdrop)
@@ -178,6 +187,16 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         guard let surface else { return }
+#if DEBUG && SHELL_OVERSCAN
+        // Diagnostic fixed extents only. Screenshots must establish whether
+        // the compositor accepts them and whether the native globe stays usable.
+        // Do not infer the actual shell allocation from these requested bounds.
+        overscanPaint.frame = view.bounds.insetBy(dx: -32, dy: -96)
+        view.clipsToBounds = false
+        view.window?.clipsToBounds = false
+        view.window?.isOpaque = false
+        view.window?.backgroundColor = .clear
+#endif
         // A cached host frame is provisional, especially when Safari changes input traits.
         // Keep the requested key pitch while UIKit negotiates the remote view's final height.
         // Squeezing the surface into that frame permanently changed both key size and font size.
@@ -201,6 +220,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             [Double(value.minX), Double(value.minY), Double(value.width), Double(value.height)]
         }
         let inset = view.safeAreaInsets
+#if DEBUG && SHELL_OVERSCAN
+        NSLog("OVERSCAN_REQUEST root=%@ window=%@ paint=%@ windowClipped=%d", NSStringFromCGRect(view.bounds), NSStringFromCGRect(view.window?.bounds ?? .zero), NSStringFromCGRect(overscanPaint.frame), view.window?.clipsToBounds == true ? 1 : 0)
+#endif
         let evidence: [String: Any] = [
             "bundleExtension": Bundle.main.bundleURL.pathExtension,
             "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
