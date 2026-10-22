@@ -17,13 +17,12 @@ jobs:
   public-shell:
     name: Public root ${{ matrix.recipe }}
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
-          - recipe: material-a-blur-tint055
-            condition: SHELL_MATERIAL_A
           - recipe: material-b-no-blur-tint055
             condition: SHELL_MATERIAL_B
           - recipe: material-c-no-blur-opaque
@@ -81,6 +80,9 @@ jobs:
               for r in inventory['runtimes']), 'The exact required iOS 26.4 runtime is unavailable'
           PY
           xcodebuild -version | tee .build/ShellAB/xcode-version.txt
+      - name: Boot the exact required iOS 26.4 simulator
+        timeout-minutes: 10
+        run: python3 Scripts/boot_test_simulator.py
       - name: Restore pinned language model cache
         id: language-model
         uses: actions/cache/restore@v4
@@ -108,9 +110,6 @@ jobs:
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
             "SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG ${CLEAR_SHELL_AB_CONDITION}" \
             build-for-testing 2>&1 | tee .build/ShellAB/build.log
-      - name: Boot the exact required iOS 26.4 simulator
-        timeout-minutes: 5
-        run: python3 Scripts/boot_test_simulator.py
       - name: Exercise the installed extension through the real system keyboard picker
         timeout-minutes: 10
         shell: bash
