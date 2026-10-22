@@ -443,8 +443,12 @@ import SwiftUI
         let host = UIHostingController(rootView: AppAppearanceDetail(item: .backgroundColor).environmentObject(preferences))
         let window = try makeHostWindow(host)
         defer { window.endEditing(true); window.isHidden = true; defaults.removePersistentDomain(forName: suite) }
-        try await waitFor { self.descendants(host.view).contains { $0 is UITextField && $0.accessibilityIdentifier == "appearance.hex" } }
-        let field = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UITextField }.first { $0.accessibilityIdentifier == "appearance.hex" })
+        // SwiftUI may attach appearance.hex to its accessibility wrapper rather
+        // than the underlying UIKit field. This production page has one field.
+        try await waitFor { self.descendants(host.view).contains { $0 is UITextField } }
+        let fields = descendants(host.view).compactMap { $0 as? UITextField }
+        XCTAssertEqual(fields.count, 1, "The production appearance page must expose exactly its HEX text field")
+        let field = try XCTUnwrap(fields.first)
         // Exercise the production SwiftUI field and its binding/delegate. Do not
         // replace its delegate with a simplified test editor or TypingLab.
         field.inputView = UIView(frame: .zero)

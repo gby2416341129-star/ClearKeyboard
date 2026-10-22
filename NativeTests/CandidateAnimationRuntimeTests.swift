@@ -185,10 +185,22 @@ import UIKit
         let words = (0..<35).map { Candidate(text: "候选\($0)", consumed: 6) }
         ribbon.update(words, context: context("nihaom"), arithmetic: false, accent: .systemBlue)
         try await waitFor { ribbon.accessibilityValue == "offset:0;count:36" }
+        for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
+            let currentInk = try ink(control)
+            XCTAssertNil(currentInk.layer.animation(forKey: "candidateText"))
+            XCTAssertNil(currentInk.layer.animation(forKey: "candidateTextPosition"),
+                         "An appended page must stay still throughout browsing, including after finger-up")
+            XCTAssertEqual(currentInk.layer.opacity, 1)
+            XCTAssertTrue(CATransform3DIsIdentity(currentInk.layer.transform))
+        }
         ribbon.contentOffset.x = 140; ribbon.layoutIfNeeded()
         for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
-            XCTAssertNil(try ink(control).layer.animation(forKey: "candidateTextPosition"),
-                         "A scrolling pool reuse must not become a new row appearance")
+            let currentInk = try ink(control)
+            XCTAssertNil(currentInk.layer.animation(forKey: "candidateText"))
+            XCTAssertNil(currentInk.layer.animation(forKey: "candidateTextPosition"),
+                         "A scrolling pool reuse must not start a spring or a replacement settle")
+            XCTAssertEqual(currentInk.layer.opacity, 1)
+            XCTAssertTrue(CATransform3DIsIdentity(currentInk.layer.transform))
         }
     }
     func testVoiceOverSettlesActiveInkAndKeepsNewResultsStable() throws {

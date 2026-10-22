@@ -166,8 +166,12 @@ import os
             extendLayout(offset: changedQuery ? 0 : contentOffset.x)
         }
         if changedQuery { setContentOffset(.zero, animated: false) }
+        // Browsing outlives the physical drag. An appended same-query page can
+        // arrive just after finger-up, when UIKit no longer reports tracking;
+        // its newly pooled words must still appear at rest beside stable targets.
         updateVisible(force: changedColor || changedFont || (changedItems && !appendOnly),
-                      animateChanges: changedItems && (!changedFont || previous.isEmpty) && !holdsCandidateUpdates,
+                      animateChanges: changedItems && (!changedFont || previous.isEmpty) &&
+                          !holdsCandidateUpdates && !sameQuery(browsed, next),
                       firstAppearance: previous.isEmpty && !next.items.isEmpty)
         if changedItems || changedQuery { updateAccessibility() }
         requestMoreIfNeeded()
