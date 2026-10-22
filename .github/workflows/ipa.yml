@@ -173,6 +173,30 @@ jobs:
         id: ui-tests
         continue-on-error: true
         run: bash Scripts/test-composition-proxy.sh
+      - name: Record exact core and UI gate outcomes
+        if: always()
+        env:
+          CORE_TESTS_RESULT: ${{ steps.core-tests.outcome }}
+          UI_TESTS_RESULT: ${{ steps.ui-tests.outcome }}
+        run: |
+          mkdir -p .build/GateOutcomes
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          report=dict(sourceCommit=os.environ['GITHUB_SHA'],workflowRunId=os.environ['GITHUB_RUN_ID'],
+              coreOutcome=os.environ['CORE_TESTS_RESULT'],uiOutcome=os.environ['UI_TESTS_RESULT'])
+          Path('.build/GateOutcomes/gate-outcomes.json').write_text(json.dumps(report,indent=2))
+          print('EXACT_GATE_OUTCOMES '+json.dumps(report))
+          PY
+          xcrun xcresulttool get test-results summary --path .build/CompositionResults.xcresult > .build/GateOutcomes/runtime-summary.json || true
+          xcrun xcresulttool get test-results summary --path .build/AppBottomResults.xcresult > .build/GateOutcomes/app-ui-summary.json || true
+      - name: Return exact gate outcomes before the shell diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-gate-outcomes
+          path: .build/GateOutcomes
+          retention-days: 7
       - name: Measure the installed keyboard extension through the system picker
         id: connected-shell
         continue-on-error: true
@@ -215,6 +239,7 @@ jobs:
         if: always() && steps.ui-tests.outcome != 'skipped'
         run: |
           xcrun xcresulttool export attachments --path .build/CompositionResults.xcresult --output-path .build/KeyboardVisualReview
+          xcrun xcresulttool export attachments --path .build/AppBottomResults.xcresult --output-path .build/KeyboardVisualReview/AppUI
       - name: Return keyboard visual review images
         if: always() && steps.visual-export.outcome == 'success'
         uses: actions/upload-artifact@v4

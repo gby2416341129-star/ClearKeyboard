@@ -40,25 +40,33 @@ import UIKit
     private func button(_ row: CandidateScrollView, at index: Int = 0) -> CandidateButton? {
         views(row).compactMap { $0 as? CandidateButton }.first { $0.tag == index && !$0.isHidden }
     }
-    private func waitForSettledInk(in ribbon: CandidateScrollView, file: StaticString = #filePath, line: UInt = #line) async throws {
-        // A model label changes before its implicit transaction reaches the
-        // render server. Flush this test's transaction, then observe actual CA
-        // removal rather than equating a wall-clock sleep with rendered frames.
-        CATransaction.flush()
+    private func waitForSettledInk(in ribbon: CandidateScrollView, completedFrames: () -> Int,
+                                   file: StaticString = #filePath, line: UInt = #line) async throws {
+        // Query CA after real completed UI updates. Sleeping or manually
+        // flushing a snapshot transaction is not a render-server barrier and
+        // can leave an old animation copy visible to animation(forKey:).
         let started = CACurrentMediaTime(), deadline = started + 2
+        let firstFrame = completedFrames()
+        var checkedFrame = firstFrame
         while CACurrentMediaTime() < deadline {
+            let frame = completedFrames()
+            guard frame > checkedFrame else {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                continue
+            }
+            checkedFrame = frame
             let controls = views(ribbon).compactMap { $0 as? CandidateButton }.filter { !$0.isHidden }
             if !controls.isEmpty, controls.allSatisfy({ control in
                 guard let label = try? ink(control) else { return false }
                 return label.layer.animation(forKey: "candidateText") == nil &&
                     label.layer.animation(forKey: "candidateTextPosition") == nil
             }) {
-                print("CANDIDATE_ANIMATION_SETTLED observedRemoval=true wait_ms=\((CACurrentMediaTime() - started) * 1000)")
+                print("CANDIDATE_ANIMATION_SETTLED observedRemoval=true completed_frames=\(frame - firstFrame) wait_ms=\((CACurrentMediaTime() - started) * 1000)")
                 return
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        print("CANDIDATE_ANIMATION_CLOCK appState=\(UIApplication.shared.applicationState.rawValue) sceneState=\(ribbon.window?.windowScene?.activationState.rawValue ?? -1) keyWindow=\(ribbon.window?.isKeyWindow == true) hidden=\(ribbon.window?.isHidden ?? true)")
+        print("CANDIDATE_ANIMATION_CLOCK completed_frames=\(completedFrames() - firstFrame) appState=\(UIApplication.shared.applicationState.rawValue) sceneState=\(ribbon.window?.windowScene?.activationState.rawValue ?? -1) keyWindow=\(ribbon.window?.isKeyWindow == true) hidden=\(ribbon.window?.isHidden ?? true)")
         for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
             let label = try ink(control), now = CACurrentMediaTime()
             for key in ["candidateText", "candidateTextPosition"] {
@@ -282,10 +290,22 @@ import UIKit
     }
     func testCandidateHandoffVisualSamplesAndSettledInk() async throws {
         let (window, ribbon) = row(); defer { close(window) }
+        // The production row submits changes before CA commit and then stops
+        // its update request. This fixture explicitly observes completed frames
+        // while taking snapshots; it never finishes or removes the animations.
+        var completedFrames = 0
+        let updates = UIUpdateLink(view: ribbon)
+        updates.addAction(to: .afterUpdateComplete) { _, _ in completedFrames += 1 }
+        updates.requiresContinuousUpdates = true; updates.isEnabled = true
+        defer { updates.requiresContinuousUpdates = false; updates.isEnabled = false }
         var samples: [(String, UIImage)] = []
-        func capture(_ title: String) {
+        func capture(_ title: String) async throws {
+            let before = completedFrames, deadline = CACurrentMediaTime() + 2
+            while completedFrames <= before && CACurrentMediaTime() < deadline {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            XCTAssertGreaterThan(completedFrames, before, "A snapshot requires a completed UI update, not only a changed model label")
             ribbon.layoutIfNeeded()
-            CATransaction.flush()
             let image = UIGraphicsImageRenderer(size: ribbon.bounds.size).image { context in
                 UIColor(white: 0.13, alpha: 1).setFill(); context.fill(CGRect(origin: .zero, size: ribbon.bounds.size))
                 XCTAssertTrue(ribbon.drawHierarchy(in: CGRect(origin: .zero, size: ribbon.bounds.size), afterScreenUpdates: true))
@@ -314,15 +334,15 @@ import UIKit
         }
         ribbon.update(["你", "呢", "拟", "泥"].map { Candidate(text: $0, consumed: 2) }, context: context(), arithmetic: false, accent: .systemBlue)
         try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你" }
-        capture("首次候选 / 清晰显示")
+        try await capture("首次候选 / 清晰显示")
         ribbon.update(["你今天", "你已经", "你在"].map { Candidate(text: $0, consumed: 4) }, context: context("nijint"), arithmetic: false, accent: .systemBlue)
         try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你今天" }
-        capture("文字交接 / 无旧字叠印")
+        try await capture("文字交接 / 无旧字叠印")
         ribbon.update([Candidate(text: "你今天吃饭了吗", consumed: 10), Candidate(text: "你今天", consumed: 6)], context: context("nijtchiflm"), arithmetic: false, accent: .systemBlue)
         try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你今天吃饭了吗" }
-        capture("快速输入 / 最新结果立即可选")
-        try await waitForSettledInk(in: ribbon)
-        capture("收稳 / 字形完整且位置固定")
+        try await capture("快速输入 / 最新结果立即可选")
+        try await waitForSettledInk(in: ribbon, completedFrames: { completedFrames })
+        try await capture("收稳 / 字形完整且位置固定")
         for control in views(ribbon).compactMap({ $0 as? CandidateButton }).filter({ !$0.isHidden }) {
             let label = try ink(control)
             XCTAssertNil(label.layer.animation(forKey: "candidateText")); XCTAssertNil(label.layer.animation(forKey: "candidateTextPosition"))

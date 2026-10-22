@@ -74,7 +74,10 @@ def prepare(args, report):
                   appBundleIdentifier=app_id, extensionBundleIdentifier=extension_id,
                   appVersion=app_info.get("CFBundleShortVersionString"), appBuild=app_info.get("CFBundleVersion"),
                   extensionVersion=extension_info.get("CFBundleShortVersionString"), extensionBuild=extension_info.get("CFBundleVersion"),
-                  preferenceIsTestInfrastructure=True, actualExtensionLaunched=False)
+                  preferenceIsTestInfrastructure=True, actualExtensionLaunched=False,
+                  systemSettingsKeyboardListVerified=False, systemKeyboardPickerVerified=False,
+                  preferenceWritesIncludeCustomKeyboard=False,
+                  registrationEvidence="Native-only preference preparation; UI tests must actually Add the custom keyboard in System Settings and prove extension input")
     if device["state"] != "Booted":
         sim(args.device, "boot", timeout=30)
         sim(args.device, "bootstatus", "-b", timeout=120)
@@ -84,7 +87,10 @@ def prepare(args, report):
     if info(installed_extension)["CFBundleIdentifier"] != extension_id:
         raise RuntimeError("Installed keyboard does not match the built extension")
     report["keyboardsBefore"] = keyboard_preferences(args.device)
-    wanted = ["en_US@sw=QWERTY;hw=Automatic", "emoji@sw=Emoji", extension_id]
+    # Do not pre-enable the custom keyboard by writing its identifier. That
+    # readback did not establish actual service activation on the tested OS.
+    # The UI test must perform Add New Keyboard -> 澈 in System Settings.
+    wanted = ["en_US@sw=QWERTY;hw=Automatic", "emoji@sw=Emoji"]
     sim(args.device, "spawn", "defaults", "write", ".GlobalPreferences", "AppleKeyboards", "-array", *wanted)
     if keyboard_preferences(args.device) != wanted:
         raise RuntimeError("Keyboard preference readback differs from the requested array")
@@ -94,8 +100,8 @@ def prepare(args, report):
     sim(args.device, "bootstatus", "-b", timeout=120)
     report["keyboardsAfterRestart"] = keyboard_preferences(args.device)
     actual = report["keyboardsAfterRestart"] or []
-    if extension_id not in actual or not any(item.startswith("en_") for item in actual) or not any(item.startswith("emoji@") for item in actual):
-        raise RuntimeError("Keyboard registration did not survive simulator restart")
+    if extension_id in actual or not any(item.startswith("en_") for item in actual) or not any(item.startswith("emoji@") for item in actual):
+        raise RuntimeError("Native-only keyboard preparation did not survive simulator restart")
     readiness = args.output.parent / "keyboard-shell-readiness.png"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(4):
@@ -106,7 +112,7 @@ def prepare(args, report):
             if png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) > 100:
                 width, height = struct.unpack(">II", png[16:24])
                 if width >= 300 and height >= 300:
-                    report.update(status="prepared", readinessPixels=[width, height], readinessAttempts=attempt + 1)
+                    report.update(status="prepared-for-ui-enable", readinessPixels=[width, height], readinessAttempts=attempt + 1)
                     return
         time.sleep(1)
     raise RuntimeError("Restarted simulator did not provide a live SpringBoard and usable screenshot")

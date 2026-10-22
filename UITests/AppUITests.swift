@@ -66,51 +66,78 @@ import XCTest
     func testAppearanceKeyColor() { exerciseAppearance("keyColor") }
     func testAppearanceCandidateColor() { exerciseAppearance("candidateColor") }
     func testAppearanceCandidateSize() { exerciseAppearance("candidateSize") }
-    func testColorSwatchesAndManualHEXStayConsistentAcrossAllColorPages() {
+    private func exerciseColorSwatchAndHEX(_ name: String) {
         func expectValue(_ element: XCUIElement, _ text: String, contains: Bool = false) {
             let predicate = NSPredicate(format: contains ? "value CONTAINS %@" : "value == %@", text)
             let changed = XCTNSPredicateExpectation(predicate: predicate, object: element)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 4), .completed, "The current color and its HEX display diverged: " + text)
         }
-        for name in ["backgroundColor", "keyColor", "candidateColor"] {
-            let preview = openAppearance(name)
-            let blue = clear.buttons["#558DF2"]
-            reveal(blue, in: clear); XCTAssertTrue(blue.isHittable); blue.tap()
-            expectValue(preview, name + ":#558DF2", contains: true)
-            let field = clear.textFields["appearance.hex"]
-            XCTAssertTrue(field.exists); expectValue(field, "#558DF2")
-            let apply = clear.buttons["appearance.applyHex"]
-            XCTAssertFalse(apply.isEnabled, "Selecting a swatch must leave no stale HEX draft available to apply")
-            XCTAssertTrue(blue.isSelected)
-            let selected = preview.value as? String
-            blue.tap()
-            XCTAssertEqual(preview.value as? String, selected, "Selecting the active swatch must be idempotent")
-            XCTAssertFalse(apply.isEnabled)
-            attachment(clear, name: "color-current-hex-" + name)
-
+        func recordState(_ page: String, _ stage: String, preview: XCUIElement, field: XCUIElement, apply: XCUIElement) {
+            XCTContext.runActivity(named: "Color HEX " + page + " / " + stage) { activity in
+                let state = "page=\(page) stage=\(stage) preview=\(String(describing: preview.value)) HEX=\(String(describing: field.value)) applyEnabled=\(apply.isEnabled) applyHittable=\(apply.isHittable) keyboardVisible=\(clear.keyboards.firstMatch.exists)"
+                let details = XCTAttachment(string: state); details.name = "color-state-" + page + "-" + stage; details.lifetime = .keepAlways; activity.add(details)
+                let pixels = XCTAttachment(screenshot: clear.screenshot()); pixels.name = "color-" + page + "-" + stage; pixels.lifetime = .keepAlways; activity.add(pixels)
+                print("COLOR_HEX_STATE " + state)
+            }
+        }
+        func replaceHEX(_ text: String, in field: XCUIElement) {
             reveal(field, in: clear)
             field.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
             let current = field.value as? String ?? ""
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + "#1A2B3C")
-            XCTAssertTrue(apply.isEnabled, "Only an explicitly edited HEX value should enable Apply")
-            reveal(apply, in: clear); XCTAssertTrue(apply.isHittable); apply.tap()
-            expectValue(preview, name + ":#1A2B3C", contains: true)
-            expectValue(field, "#1A2B3C")
-            XCTAssertFalse(apply.isEnabled)
-
-            let reset = clear.buttons["appearance.reset." + name]
-            reveal(reset, in: clear); XCTAssertTrue(reset.isHittable); reset.tap()
-            expectValue(preview, name + ":auto", contains: true)
-            XCTAssertTrue(reset.isSelected)
-            let defaults = preview.value as? String, defaultHex = field.value as? String
-            reset.tap()
-            XCTAssertEqual(preview.value as? String, defaults)
-            XCTAssertEqual(field.value as? String, defaultHex)
-            XCTAssertFalse(apply.isEnabled)
-            attachment(clear, name: "color-manual-and-default-" + name)
-            print("COLOR_HEX_UI name=\(name) swatchMatchesCurrentHex=true noStaleApply=true manualHexApplies=true defaultIdempotent=true")
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + text)
         }
+        let preview = openAppearance(name)
+        let blue = clear.buttons["#558DF2"]
+        reveal(blue, in: clear); XCTAssertTrue(blue.isHittable); blue.tap()
+        expectValue(preview, name + ":#558DF2", contains: true)
+        let field = clear.textFields["appearance.hex"]
+        XCTAssertTrue(field.exists); expectValue(field, "#558DF2")
+        let apply = clear.buttons["appearance.applyHex"]
+        XCTAssertFalse(apply.isEnabled, "Selecting a swatch must leave no stale HEX draft available to apply")
+        XCTAssertTrue(blue.isSelected)
+        let selected = preview.value as? String
+        blue.tap()
+        XCTAssertEqual(preview.value as? String, selected, "Selecting the active swatch must be idempotent")
+        XCTAssertFalse(apply.isEnabled)
+        attachment(clear, name: "color-current-hex-" + name)
+
+        replaceHEX("#1A2B3C", in: field)
+        XCTAssertTrue(apply.isEnabled, "Only an explicitly edited HEX value should enable Apply")
+        recordState(name, "manual-draft", preview: preview, field: field, apply: apply)
+        reveal(apply, in: clear); XCTAssertTrue(apply.isHittable); apply.tap()
+        expectValue(preview, name + ":#1A2B3C", contains: true)
+        expectValue(field, "#1A2B3C")
+        recordState(name, "manual-applied", preview: preview, field: field, apply: apply)
+        XCTAssertFalse(apply.isEnabled, name + ": an applied HEX value must not remain an actionable draft")
+
+        // Re-entering the current color is not another change to save.
+        // Return must also normalize and finish a genuinely new HEX draft.
+        replaceHEX("#1A2B3C", in: field)
+        expectValue(field, "#1A2B3C")
+        XCTAssertFalse(apply.isEnabled, name + ": an equivalent HEX edit must not re-enable Apply")
+        field.typeText("\n")
+        expectValue(preview, name + ":#1A2B3C", contains: true)
+        replaceHEX("#123\n", in: field)
+        expectValue(preview, name + ":#112233", contains: true)
+        expectValue(field, "#112233")
+        recordState(name, "return-applied", preview: preview, field: field, apply: apply)
+        XCTAssertFalse(apply.isEnabled, name + ": Return must finish the HEX draft just like Apply")
+
+        let reset = clear.buttons["appearance.reset." + name]
+        reveal(reset, in: clear); XCTAssertTrue(reset.isHittable); reset.tap()
+        expectValue(preview, name + ":auto", contains: true)
+        XCTAssertTrue(reset.isSelected)
+        let defaults = preview.value as? String, defaultHex = field.value as? String
+        reset.tap()
+        XCTAssertEqual(preview.value as? String, defaults)
+        XCTAssertEqual(field.value as? String, defaultHex)
+        XCTAssertFalse(apply.isEnabled)
+        attachment(clear, name: "color-manual-and-default-" + name)
+        print("COLOR_HEX_UI name=\(name) swatchMatchesCurrentHex=true noStaleApply=true manualHexApplies=true equivalentEditDisabled=true returnNormalizes=true defaultIdempotent=true")
     }
+    func testBackgroundColorSwatchAndHEXStayConsistent() { exerciseColorSwatchAndHEX("backgroundColor") }
+    func testKeyColorSwatchAndHEXStayConsistent() { exerciseColorSwatchAndHEX("keyColor") }
+    func testCandidateColorSwatchAndHEXStayConsistent() { exerciseColorSwatchAndHEX("candidateColor") }
     func testAppearancePersistenceAndToolbar() {
         _ = openAppearance("candidateSize")
         let size = clear.segmentedControls["custom.candidateTextSize"]

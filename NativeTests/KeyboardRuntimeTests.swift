@@ -570,7 +570,7 @@ import SwiftUI
         window.rootViewController = host; window.makeKeyAndVisible()
         defer { window.isHidden = true; previousWindow?.makeKey() }
         let caption = UILabel(frame: CGRect(x: 20, y: 42, width: 393, height: 48))
-        caption.text = "模拟圆角底板：上 17pt / 下 74pt\nUIKit 受控视觉回归，非远程键盘宿主"
+        caption.text = "受控不透明底板：上 17pt / 下 74pt\n只检查自绘边界，非远程键盘宿主"
         caption.numberOfLines = 2; caption.font = .systemFont(ofSize: 13); host.view.addSubview(caption)
         let controller = KeyboardViewController(nibName: nil, bundle: nil)
         host.addChild(controller); controller.loadViewIfNeeded()
@@ -584,9 +584,10 @@ import SwiftUI
         let cap: CGFloat = 17, footer: CGFloat = 74
         let shell = UIView(frame: CGRect(x: 20, y: 110, width: 393, height: cap + surface.desiredHeight + footer))
         shell.layer.cornerRadius = 30; shell.layer.cornerCurve = .continuous; shell.clipsToBounds = true
-        // This explicit material is a test-owned approximation. A UIInputView
-        // used as an ordinary subview does not acquire a responder backdrop.
-        let base = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+        // A live system material changes its sampling between captures. An
+        // opaque, controlled base isolates actual out-of-bounds drawing from
+        // compositor/backdrop changes; it is not a simulated native renderer.
+        let base = UIView(); base.isOpaque = true
         base.frame = shell.bounds; shell.addSubview(base); host.view.addSubview(shell)
         shell.addSubview(input); controller.didMove(toParent: host)
         NSLayoutConstraint.activate([input.leadingAnchor.constraint(equalTo: shell.leadingAnchor),
@@ -606,6 +607,7 @@ import SwiftUI
             window.overrideUserInterfaceStyle = style
             host.view.backgroundColor = style == .dark ? UIColor(white: 0.08, alpha: 1) : UIColor(white: 0.94, alpha: 1)
             shell.backgroundColor = style == .dark ? UIColor(white: 0.18, alpha: 1) : UIColor(white: 0.84, alpha: 1)
+            base.backgroundColor = shell.backgroundColor
             globe.tintColor = style == .dark ? .white : .black
             for (name, material, color) in variants {
                 var settings = testSettings(); settings.glass = material; settings.backgroundColorHex = color
@@ -614,6 +616,7 @@ import SwiftUI
                 settleLayout(host.view); settleLayout(input)
                 try await Task.sleep(nanoseconds: 60_000_000)
                 XCTAssertEqual(backdrop.frame, input.bounds)
+                XCTAssertTrue(backdrop.clipsToBounds)
                 XCTAssertEqual(input.frame.minY, cap, accuracy: 0.5)
                 XCTAssertEqual(shell.bounds.height - input.frame.maxY, footer, accuracy: 0.5)
                 XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
@@ -624,11 +627,16 @@ import SwiftUI
                 // This fixture can establish only our drawing boundary. It
                 // deliberately makes no assertion that an external native shell
                 // acquired the selected skin color.
-                for outside in [input.frame.minY - 1, input.frame.maxY + 1] {
-                    let actual = try materialPixel(blended, at: CGPoint(x: x, y: outside))
-                    let original = try materialPixel(baseline, at: CGPoint(x: x, y: outside))
-                    XCTAssertLessThanOrEqual(pixelDistance(actual, original), 5,
-                        "The extension must not paint over a system-owned cap or globe region")
+                if material == .solid {
+                    // Exact pixel equality is meaningful for opaque drawing.
+                    // Live blur compositor samples are not a boundary oracle;
+                    // all variants still require the backdrop's explicit clip.
+                    for outside in [input.frame.minY - 1, input.frame.maxY + 1] {
+                        let actual = try materialPixel(blended, at: CGPoint(x: x, y: outside))
+                        let original = try materialPixel(baseline, at: CGPoint(x: x, y: outside))
+                        XCTAssertEqual(pixelDistance(actual, original), 0,
+                            "Owned backdrop drawing must leave the opaque external test pixels unchanged")
+                    }
                 }
                 if name == "blue-solid" {
                     let center = try materialPixel(materialImage(backdrop), at: CGPoint(x: input.bounds.midX, y: input.bounds.midY))

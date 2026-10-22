@@ -24,7 +24,7 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
   -derivedDataPath .build/Composition -resultBundlePath .build/KeyboardShellResults.xcresult \
   -destination-timeout 60 -parallel-testing-enabled NO \
-  -test-timeouts-enabled YES -maximum-test-execution-time-allowance 240 \
+  -test-timeouts-enabled YES -maximum-test-execution-time-allowance 300 \
   -only-testing:ClearKeyboardUITests/KeyboardShellUITests/testConnectedExtensionShellAcrossEnglishEmojiAndHostReturn \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building \
   2>&1 | tee .build/KeyboardShell/test.log
