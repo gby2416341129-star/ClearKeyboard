@@ -9,6 +9,7 @@ ALLOWED={
     'SharedUI/AppearanceEditor.swift','SharedUI/GlassBackdrop.swift','SharedUI/KeyButton.swift',
     'Scripts/test-candidates-ui.sh',
     'ClearKeyboard.xcodeproj/project.pbxproj',
+    'Tests/CandidateLatencyTests.swift',
     'SharedUI/KeyboardModel.swift','SharedUI/AppearanceSync.swift','SharedUI/AppearanceSettingsLink.swift',
     'SharedUI/CandidateScrollView.swift','SharedUI/KeyboardSurface.swift','SharedUI/ClipboardPanel.swift',
     'SharedUI/KeyboardAppearancePreview.swift','SharedUI/SharedStorage.swift',

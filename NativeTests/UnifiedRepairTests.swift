@@ -359,18 +359,30 @@ import UIKit
         root.view.layoutIfNeeded()
         defer { window.isHidden = true }
         let label = try XCTUnwrap(views(button).compactMap { $0 as? CenteredKeyLabel }.first)
+        func assertInk(_ expected: UIColor, traits: UITraitCollection) {
+            func channels(_ color: UIColor) -> [CGFloat] {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                if color.getRed(&r, green: &g, blue: &b, alpha: &a) { return [r,g,b,a] }
+                var white: CGFloat = 0
+                XCTAssertTrue(color.getWhite(&white, alpha: &a), "Ink must be a comparable visible color")
+                return [white,white,white,a]
+            }
+            for (actual, target) in zip(channels(label.textColor.resolvedColor(with: traits)), channels(expected)) {
+                XCTAssertEqual(actual, target, accuracy: 0.00001, "Compare visible RGBA, independently of UIColor's storage color space")
+            }
+        }
         var settings = KeyboardSettings(); settings.glass = .clear; settings.keyGlassStrength = 0
         settings.keyColorHex = "#FFFFFF"; button.apply(settings)
         let dark = UITraitCollection(userInterfaceStyle: .dark), light = UITraitCollection(userInterfaceStyle: .light)
-        XCTAssertEqual(label.textColor.resolvedColor(with: dark), .black)
+        assertInk(.black, traits: dark)
         let face = try XCTUnwrap(views(button).first { $0.accessibilityIdentifier == "key.face" })
         XCTAssertGreaterThan(face.backgroundColor?.cgColor.alpha ?? 0, 0.70)
         settings.glass = .solid; button.apply(settings)
-        XCTAssertEqual(label.textColor.resolvedColor(with: dark), .black)
+        assertInk(.black, traits: dark)
         settings.keyColorHex = nil; button.apply(settings)
-        XCTAssertEqual(label.textColor.resolvedColor(with: dark), .white)
+        assertInk(.white, traits: dark)
         window.overrideUserInterfaceStyle = .light; settings.glass = .clear; settings.keyColorHex = "#101010"; button.apply(settings)
-        XCTAssertEqual(label.textColor.resolvedColor(with: light), .white)
+        assertInk(.white, traits: light)
     }
     func testGlassStrengthChangesRenderedPixelsWithoutPersistentAnimations() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

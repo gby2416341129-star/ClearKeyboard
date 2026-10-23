@@ -50,7 +50,6 @@ final class FallbackCandidateLatencyTests: XCTestCase {
     }
     func testIncrementalLatencyComparedWithPreviousSegmenter() throws {
         let engine = try InputEngine(chinese: .bundled("pinyin"), english: .bundled("english"))
-        let reference = ReferenceInputEngine(chinese: engine.chinese, english: engine.english)
         let strings = (2...80).map { String(String(repeating: "hd", count: 40).prefix($0)) }
         func timing(_ query: (String) -> [Candidate]) -> [Double] {
             strings.map { spelling in
@@ -58,9 +57,27 @@ final class FallbackCandidateLatencyTests: XCTestCase {
                 return (ProcessInfo.processInfo.systemUptime - start) * 1_000
             }
         }
-        let old = timing { reference.candidates($0) }, new = timing { engine.candidates($0) }
-        let sorted = new.sorted(), oldTotal = old.reduce(0,+), newTotal = new.reduce(0,+)
-        let report: [String: Any] = ["queries": strings.count, "p50Ms": sorted[sorted.count/2], "p95Ms": sorted[Int(Double(sorted.count-1)*0.95)], "maxMs": sorted.last!, "totalMs": newTotal, "previousSegmenterTotalMs": oldTotal, "speedup": oldTotal/max(0.001,newTotal), "scope": "same host, same current lexicon reader; previous segmentation code versus optimized code; not device touch latency"]
+        // A single descheduled query can dominate a sub-100ms full trace on a
+        // shared CI runner. Compare eight independent cold traces, alternate
+        // execution order, and keep every sample rather than picking a best run.
+        var previousTotals: [Double] = [], incrementalTotals: [Double] = [], samples: [Double] = []
+        for trial in 0..<8 {
+            let reference = ReferenceInputEngine(chinese: engine.chinese, english: engine.english)
+            let incremental = InputEngine(chinese: engine.chinese, english: engine.english)
+            let old: [Double], new: [Double]
+            if trial.isMultiple(of: 2) {
+                old = timing { reference.candidates($0) }; new = timing { incremental.candidates($0) }
+            } else {
+                new = timing { incremental.candidates($0) }; old = timing { reference.candidates($0) }
+            }
+            previousTotals.append(old.reduce(0,+)); incrementalTotals.append(new.reduce(0,+)); samples += new
+        }
+        func median(_ values: [Double]) -> Double {
+            let sorted = values.sorted(), middle = sorted.count / 2
+            return (sorted[middle - 1] + sorted[middle]) / 2
+        }
+        let sorted = samples.sorted(), oldTotal = median(previousTotals), newTotal = median(incrementalTotals)
+        let report: [String: Any] = ["queriesPerTrace": strings.count, "independentColdTraces": 8, "previousTraceTotalsMs": previousTotals, "incrementalTraceTotalsMs": incrementalTotals, "p50Ms": sorted[sorted.count/2], "p95Ms": sorted[Int(Double(sorted.count-1)*0.95)], "maxMs": sorted.last!, "medianTotalMs": newTotal, "previousSegmenterMedianTotalMs": oldTotal, "speedup": oldTotal/max(0.001,newTotal), "scope": "same host, same lexicon reader; alternating cold traces; median total comparison; all samples retained; not device touch latency"]
         print("CANDIDATE_LATENCY " + String(data: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), encoding: .utf8)!)
         XCTAssertLessThan(newTotal, oldTotal * 0.8, "Incremental typing must reduce work compared with the previous segmenter")
     }
