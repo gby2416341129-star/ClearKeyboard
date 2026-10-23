@@ -132,7 +132,7 @@ import UIKit
         let label = try ink(button)
         let spring = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CASpringAnimation)
         let fade = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
-        XCTAssertEqual(spring.duration, 0.16, accuracy: 0.0001)
+        XCTAssertEqual(spring.duration, 0.18, accuracy: 0.0001)
         XCTAssertEqual(spring.beginTime, fade.beginTime); XCTAssertEqual(spring.duration, fade.duration)
         let amplitude = try XCTUnwrap(spring.fromValue as? NSNumber).doubleValue
         let frequency = sqrt(spring.stiffness / spring.mass)
@@ -145,6 +145,8 @@ import UIKit
         XCTAssertLessThan(finalEnvelope, 0.002, "The fixed deadline must not truncate visible spring travel")
         XCTAssertEqual(button.frame, frame); XCTAssertTrue(CATransform3DIsIdentity(button.layer.transform))
         XCTAssertEqual(label.text, "你"); XCTAssertEqual(label.layer.opacity, 1)
+        XCTAssertGreaterThanOrEqual((fade.fromValue as? NSNumber)?.doubleValue ?? 0, 0.96,
+            "First ink must remain readable throughout its spring")
         for face in button.subviews where face !== label { XCTAssertNil(face.layer.animationKeys()) }
         button.configure(Candidate(text: "你今天", consumed: 7), first: true, accent: .systemBlue,
                          font: font, animate: true, reduceMotion: false, voiceOver: false)
@@ -155,7 +157,10 @@ import UIKit
                          font: font, animate: true, reduceMotion: false, voiceOver: false)
         let replacement = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CABasicAnimation)
         XCTAssertFalse(replacement is CASpringAnimation, "A later result must not launch another rebound")
-        XCTAssertEqual(replacement.duration, 0.16, accuracy: 0.0001)
+        XCTAssertEqual(replacement.duration, 0.18, accuracy: 0.0001)
+        let replacementOpacity = try XCTUnwrap(label.layer.animation(forKey: "candidateText") as? CABasicAnimation)
+        XCTAssertEqual((replacementOpacity.fromValue as? NSNumber)?.doubleValue, 1,
+            "Repeated decoder updates must not make readable words flash")
         XCTAssertEqual(button.frame, frame); XCTAssertEqual(views(button).compactMap { $0 as? UILabel }.count, 1)
     }
     func testAnEmptyRowReusesItsInkButGetsOneFreshAppearanceSpring() async throws {
@@ -178,7 +183,7 @@ import UIKit
         try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你好" }
         XCTAssertTrue(button(ribbon) === reused); XCTAssertEqual(reused.frame, frame)
         let spring = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CASpringAnimation)
-        XCTAssertEqual(spring.duration, 0.16, accuracy: 0.0001)
+        XCTAssertEqual(spring.duration, 0.18, accuracy: 0.0001)
         ribbon.update([Candidate(text: "你好吗", consumed: 6)], context: context("nihaom"), arithmetic: false, accent: .systemBlue)
         try await waitFor { self.button(ribbon)?.accessibilityIdentifier == "candidate.你好吗" }
         let continued = try XCTUnwrap(label.layer.animation(forKey: "candidateTextPosition") as? CABasicAnimation)

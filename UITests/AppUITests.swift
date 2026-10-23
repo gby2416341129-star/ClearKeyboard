@@ -43,7 +43,7 @@ import XCTest
         let before = preview.value as? String
         XCTAssertNotNil(before, "The preview must expose the settings it actually rendered")
         let oldPixels = preview.screenshot().pngRepresentation
-        if name == "backgroundGlass" || name == "keyGlass" {
+        if name == "keyGlass" {
             let slider = clear.sliders["appearance.strength." + name]
             XCTAssertTrue(slider.exists)
             slider.adjust(toNormalizedSliderPosition: (before ?? "").contains("0.9;") ? 0.15 : 0.9)
@@ -60,9 +60,7 @@ import XCTest
         XCTAssertTrue(preview.exists); XCTAssertEqual(clear.state, .runningForeground)
         print("APPEARANCE_PAGE name=" + name + " livePreview=true controlChanged=true")
     }
-    func testAppearanceBackgroundGlass() { exerciseAppearance("backgroundGlass") }
     func testAppearanceKeyGlass() { exerciseAppearance("keyGlass") }
-    func testAppearanceBackgroundColor() { exerciseAppearance("backgroundColor") }
     func testAppearanceKeyColor() { exerciseAppearance("keyColor") }
     func testAppearanceCandidateColor() { exerciseAppearance("candidateColor") }
     func testAppearanceCandidateSize() { exerciseAppearance("candidateSize") }
@@ -135,7 +133,6 @@ import XCTest
         attachment(clear, name: "color-manual-and-default-" + name)
         print("COLOR_HEX_UI name=\(name) swatchMatchesCurrentHex=true noStaleApply=true manualHexApplies=true equivalentEditDisabled=true returnNormalizes=true defaultIdempotent=true")
     }
-    func testBackgroundColorSwatchAndHEXStayConsistent() { exerciseColorSwatchAndHEX("backgroundColor") }
     func testKeyColorSwatchAndHEXStayConsistent() { exerciseColorSwatchAndHEX("keyColor") }
     func testCandidateColorSwatchAndHEXStayConsistent() { exerciseColorSwatchAndHEX("candidateColor") }
     func testAppearancePersistenceAndToolbar() {

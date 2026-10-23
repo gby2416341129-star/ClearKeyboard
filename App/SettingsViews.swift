@@ -9,7 +9,7 @@ struct CustomizationView: View {
     @State private var keyHeightEditing = false
     var body: some View {
         AppPage(title: "定制") {
-            AppSectionTitle(title: "玻璃与颜色")
+            AppSectionTitle(title: "按键与候选")
             AppCard {
                 ForEach(Array(AppearanceItem.allCases.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { Divider() }
@@ -23,8 +23,8 @@ struct CustomizationView: View {
             AppSectionTitle(title: "布局与手感")
             AppCard {
                 HStack {
-                    Text("材质").font(.system(size: 16)); Spacer()
-                    Picker("材质", selection: $preferences.settings.glass) {
+                    Text("按键材质").font(.system(size: 16)); Spacer()
+                    Picker("按键材质", selection: $preferences.settings.glass) {
                         ForEach(GlassPreset.allCases) { Text($0.title).tag($0) }
                     }.accessibilityIdentifier("custom.glass")
                 }
@@ -86,7 +86,6 @@ struct CustomizationView: View {
     }
     private func detail(_ item: AppearanceItem) -> String {
         switch item {
-        case .backgroundGlass: return "\(Int(preferences.settings.resolvedBackgroundGlassStrength * 100))%"
         case .keyGlass: return "\(Int(preferences.settings.resolvedKeyGlassStrength * 100))%"
         case .candidateSize: return preferences.settings.resolvedCandidateTextSize.title
         default: return item.colorPath.flatMap { preferences.settings[keyPath: $0] } ?? "默认"

@@ -7,10 +7,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     let glass: GlassPreset
     let accent: Accent
     let customAccentHex: String?
-    let glassOpacity: Double
-    let backgroundGlassStrength: Double?
     let keyGlassStrength: Double?
-    let backgroundColorHex: String?
     let keyColorHex: String?
     let candidateColorHex: String?
     let candidateTextSize: CandidateTextSize?
@@ -19,18 +16,16 @@ struct AppearanceSnapshot: Codable, Equatable {
     init(settings: KeyboardSettings) {
         var value = settings; value.sanitize()
         glass = value.glass; accent = value.accent; customAccentHex = value.customAccentHex
-        glassOpacity = value.glassOpacity
-        backgroundGlassStrength = value.backgroundGlassStrength; keyGlassStrength = value.keyGlassStrength
-        backgroundColorHex = value.backgroundColorHex; keyColorHex = value.keyColorHex
+        keyGlassStrength = value.keyGlassStrength
+        keyColorHex = value.keyColorHex
         candidateColorHex = value.candidateColorHex; candidateTextSize = value.candidateTextSize
         keyHeight = value.keyHeight
     }
     func applying(to settings: KeyboardSettings) -> KeyboardSettings {
         var value = settings
         value.glass = glass; value.accent = accent; value.customAccentHex = customAccentHex
-        value.glassOpacity = glassOpacity
-        value.backgroundGlassStrength = backgroundGlassStrength; value.keyGlassStrength = keyGlassStrength
-        value.backgroundColorHex = backgroundColorHex; value.keyColorHex = keyColorHex
+        value.keyGlassStrength = keyGlassStrength
+        value.keyColorHex = keyColorHex
         value.candidateColorHex = candidateColorHex; value.candidateTextSize = candidateTextSize
         if let keyHeight { value.keyHeight = keyHeight }
         // The snapshot is normalized on creation and validated on decode.
@@ -41,10 +36,10 @@ struct AppearanceSnapshot: Codable, Equatable {
     /// after applying them, so an absent height preserves the receiver's layout.
     func isApplied(to settings: KeyboardSettings) -> Bool { applying(to: settings) == settings }
     var isValid: Bool {
-        let strengths = [glassOpacity] + [backgroundGlassStrength, keyGlassStrength].compactMap { $0 }
-        guard strengths.allSatisfy({ $0.isFinite && (0...1).contains($0) }), glassOpacity >= 0.15 else { return false }
+        let strengths = [keyGlassStrength].compactMap { $0 }
+        guard strengths.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return false }
         if let keyHeight, !keyHeight.isFinite || !(44...58).contains(keyHeight) { return false }
-        for color in [customAccentHex, backgroundColorHex, keyColorHex, candidateColorHex].compactMap({ $0 }) {
+        for color in [customAccentHex, keyColorHex, candidateColorHex].compactMap({ $0 }) {
             guard RGBColor(hex: color)?.hex == color else { return false }
         }
         return true

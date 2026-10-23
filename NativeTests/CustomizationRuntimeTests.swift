@@ -21,7 +21,7 @@ import UIKit
         defer { subscription.cancel() }
         for index in 0..<60 {
             preferences.settings.glass = index.isMultiple(of: 2) ? .mist : .clear
-            preferences.settings.glassOpacity = Double(index % 80 + 15) / 100
+            preferences.settings.keyGlassStrength = Double(index % 80 + 15) / 100
             preferences.settings.keyHeight = Double(44 + index % 15)
             preferences.settings.hand = index.isMultiple(of: 2) ? .left : .right
             preferences.settings.haptics.toggle()
@@ -42,11 +42,11 @@ import UIKit
         let preferences = makePreferences(defaults)
         let root = Binding(get: { preferences.settings }, set: { preferences.settings = $0 })
         root.keyHeight.wrappedValue = 500
-        root.glassOpacity.wrappedValue = -.infinity
+        root.keyGlassStrength.wrappedValue = -Double.infinity
         root.customAccentHex.wrappedValue = "#abc"
         root.toolbar.wrappedValue = [.clipboard, .clipboard, .emoji]
         XCTAssertEqual(preferences.settings.keyHeight, 58)
-        XCTAssertEqual(preferences.settings.glassOpacity, 0.52)
+        XCTAssertNil(preferences.settings.keyGlassStrength)
         XCTAssertEqual(preferences.settings.customAccentHex, "#AABBCC")
         XCTAssertEqual(preferences.settings.toolbar, [.language, .clipboard, .emoji])
         XCTAssertEqual(ClearKeyboard.SettingsStore(defaults: defaults).load(), preferences.settings)
@@ -58,7 +58,7 @@ import UIKit
         let preferences = makePreferences(defaults)
         var raw = ClearKeyboard.KeyboardSettings()
         raw.automaticClipboard = false; raw.keyHeight = 500
-        raw.customAccentHex = "#abc"; raw.backgroundColorHex = "#123"
+        raw.customAccentHex = "#abc"
         raw.keyColorHex = "#fed"; raw.candidateColorHex = "#456"
         let savedData = try JSONEncoder().encode(raw)
         defaults.set(savedData, forKey: ClearKeyboard.SettingsStore.key)
@@ -69,7 +69,7 @@ import UIKit
             preferences.reload()
             XCTAssertEqual(preferences.settings, normalized)
             XCTAssertEqual(preferences.settings.keyHeight, 58)
-            XCTAssertEqual(preferences.settings.backgroundColorHex, "#112233")
+            XCTAssertEqual(preferences.settings.keyColorHex, "#FFEEDD")
             XCTAssertEqual(defaults.data(forKey: ClearKeyboard.SettingsStore.key), savedData,
                            "Observing saved App settings must not echo a normalized snapshot back into the store")
         }
@@ -84,7 +84,7 @@ import UIKit
         defer { model.suspend() }
         var raw = ClearKeyboard.KeyboardSettings()
         raw.automaticClipboard = false; raw.keyHeight = 500
-        raw.customAccentHex = "#abc"; raw.backgroundColorHex = "#123"
+        raw.customAccentHex = "#abc"
         raw.keyColorHex = "#fed"; raw.candidateColorHex = "#456"
         let savedData = try JSONEncoder().encode(raw)
         defaults.set(savedData, forKey: ClearKeyboard.SettingsStore.key)
@@ -264,9 +264,7 @@ import UIKit
             let preview = try XCTUnwrap(findPreview(host.view), item.rawValue)
             let oldValue = preview.accessibilityValue, oldPixels = try renderedPixels(preview)
             switch item {
-            case .backgroundGlass: preferences.settings.backgroundGlassStrength = 0.96
             case .keyGlass: preferences.settings.keyGlassStrength = 0.96
-            case .backgroundColor: preferences.settings.backgroundColorHex = "#E3AC72"
             case .keyColor: preferences.settings.keyColorHex = "#292C39"
             case .candidateColor: preferences.settings.candidateColorHex = "#FF3399"
             case .candidateSize: preferences.settings.candidateTextSize = .extraLarge

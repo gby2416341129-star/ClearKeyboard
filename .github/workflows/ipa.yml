@@ -103,7 +103,7 @@ jobs:
           xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
       - name: Start the required iOS 26 simulator and verify UI services
         run: python3 Scripts/boot_test_simulator.py
-      - name: Check owned boundaries and preview contrast before the longer suites
+      - name: Check native composition and preview before the longer suites
         run: |
           TEST_DEVICE="$(cat .build/composition-device-id)"
           xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime \
@@ -111,7 +111,6 @@ jobs:
             -derivedDataPath .build/Composition -resultBundlePath .build/SolidBoundaryResults.xcresult \
             -destination-timeout 60 -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
-            -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testSolidBackdropStaysWithinOwnedBoundsAtNativeScaleAndResets \
             -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testAppearancePreviewUsesOneUniformlyScaledKeyboardCanvas \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNativeDraftSurvivesTransientNilContextWithoutLosingChineseCandidates \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextFieldSurvivesIdleAndSelectionCallbacks \
@@ -214,41 +213,12 @@ jobs:
           PY
           xcrun xcresulttool get test-results summary --path .build/CompositionResults.xcresult > .build/GateOutcomes/runtime-summary.json || true
           xcrun xcresulttool get test-results summary --path .build/AppBottomResults.xcresult > .build/GateOutcomes/app-ui-summary.json || true
-      - name: Return exact gate outcomes before the shell diagnostic
+      - name: Return exact input and UI gate outcomes
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-gate-outcomes
           path: .build/GateOutcomes
-          retention-days: 7
-      - name: Measure the installed keyboard extension through the system picker
-        id: connected-shell
-        continue-on-error: true
-        run: bash Scripts/test-keyboard-shell.sh
-      - name: Record available test SDK and runtime support
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import json,os,subprocess
-          from pathlib import Path
-          applications=sorted(str(p) for p in Path('/Applications').glob('Xcode*.app'))
-          result=subprocess.run(['xcrun','simctl','list','runtimes','-j'],capture_output=True,text=True,timeout=45)
-          runtimes=json.loads(result.stdout) if result.returncode==0 else {'error':result.stderr[-1000:]}
-          supported=any('Xcode_27' in p or 'Xcode-27' in p for p in applications)
-          report=dict(xcodes=applications,activeDeveloperDir=os.environ.get('DEVELOPER_DIR'),runtimes=runtimes,
-                      ios27PhysicalDeviceTestRun=False,ios27SimulatorTestRun=False,
-                      note='This job tests the explicitly selected runtime. Available or unbooted iOS27 images are not counted as tested; the earlier failed 27RC boot is not silently retried.')
-          Path('.build/KeyboardShell').mkdir(parents=True,exist_ok=True)
-          Path('.build/KeyboardShell/runtime-support.json').write_text(json.dumps(report,indent=2))
-          print('KEYBOARD_SHELL_RUNTIME_SUPPORT '+json.dumps(report))
-          PY
-      - name: Return actual extension shell evidence, including failures
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClearKeyboard-connected-shell-diagnostic
-          path: .build/KeyboardShell
-          if-no-files-found: error
           retention-days: 7
       - name: Require core and live UI checks before packaging
         if: always()

@@ -100,10 +100,8 @@ extension KeyboardSettings {
         guard let hex, let rgb = RGBColor(hex: hex) else { return nil }
         return UIColor(red: CGFloat(rgb.red), green: CGFloat(rgb.green), blue: CGFloat(rgb.blue), alpha: 1)
     }
-    var backgroundTintColor: UIColor? { Self.color(hex: backgroundColorHex) }
     var keyTintColor: UIColor? { Self.color(hex: keyColorHex) }
     var candidateTintColor: UIColor? { Self.color(hex: candidateColorHex) }
-    var backgroundTintOpacity: Double { glass == .solid ? 1 : glass == .clear ? 0.55 : 0.70 }
     func keyFaceOpacity(dark: Bool, utility: Bool) -> Double {
         // Color and optical strength are independent controls. A low glass
         // strength must not reduce a chosen key color to a nearly invisible tint.
@@ -113,7 +111,7 @@ extension KeyboardSettings {
     }
     var keyInkColor: UIColor { keyInkColor(utility: false) }
     func keyInkColor(utility: Bool) -> UIColor {
-        guard keyColorHex != nil || backgroundColorHex != nil else { return .label }
+        guard keyColorHex != nil else { return .label }
         let settings = self
         let reduced = glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
         return UIColor { trait in
@@ -124,10 +122,7 @@ extension KeyboardSettings {
                          blue: foreground.blue * alpha + background.blue * (1-alpha))
             }
             let base = dark ? 0.12 : 0.97
-            var backdrop = RGBColor(red: base, green: base, blue: base)
-            if let hex = settings.backgroundColorHex, let tint = RGBColor(hex: hex) {
-                backdrop = blend(tint, backdrop, reduced ? 1 : settings.backgroundTintOpacity)
-            }
+            let backdrop = RGBColor(red: base, green: base, blue: base)
             let neutral = reduced ? (dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97)) : 1
             let tint = settings.keyColorHex.flatMap(RGBColor.init(hex:)) ?? RGBColor(red: neutral, green: neutral, blue: neutral)
             let alpha = reduced ? 1 : settings.keyFaceOpacity(dark: dark, utility: utility)

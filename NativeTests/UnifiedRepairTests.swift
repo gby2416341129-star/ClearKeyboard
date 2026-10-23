@@ -17,24 +17,21 @@ import UIKit
         return value
     }
     func testIndependentAppearanceSettingsRoundTripAndMigrateWithoutResettingOldValues() throws {
-        var old = KeyboardSettings(); old.accent = .jade; old.glassOpacity = 0.77; old.keyHeight = 56
+        var old = KeyboardSettings(); old.accent = .jade; old.keyHeight = 56
+        old.language = .english; old.learnChoices = false; old.keyColorHex = "#ABCDEF"
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as? [String: Any])
-        for field in ["backgroundGlassStrength", "keyGlassStrength", "backgroundColorHex", "keyColorHex", "candidateColorHex"] { json.removeValue(forKey: field) }
+        // Existing installations may still have the retired settings on disk.
+        json["backgroundColorHex"] = "#0057FF"; json["backgroundGlassStrength"] = 0.94; json["glassOpacity"] = 0.77
         var restored = try JSONDecoder().decode(KeyboardSettings.self, from: JSONSerialization.data(withJSONObject: json))
         restored.sanitize()
-        XCTAssertEqual(restored.accent, .jade); XCTAssertEqual(restored.keyHeight, 56)
-        XCTAssertEqual(restored.resolvedBackgroundGlassStrength, 0.77)
-        restored.backgroundGlassStrength = 0.12; restored.keyGlassStrength = 0.94
-        restored.backgroundColorHex = "#123"; restored.keyColorHex = "#ABCDEF"; restored.candidateColorHex = "#B87DF0"
-        restored.sanitize()
-        let result = try JSONDecoder().decode(KeyboardSettings.self, from: JSONEncoder().encode(restored))
-        XCTAssertEqual(result.backgroundColorHex, "#112233"); XCTAssertEqual(result.keyColorHex, "#ABCDEF")
-        XCTAssertEqual(result.candidateColorHex, "#B87DF0")
-        XCTAssertEqual(result.resolvedBackgroundGlassStrength, 0.12); XCTAssertEqual(result.resolvedKeyGlassStrength, 0.94)
-        XCTAssertEqual(result, restored)
-        restored.backgroundGlassStrength = .infinity; restored.keyGlassStrength = -1; restored.sanitize()
-        XCTAssertNil(restored.backgroundGlassStrength); XCTAssertEqual(restored.resolvedKeyGlassStrength, 0)
-        print("APPEARANCE_MIGRATION independentControls=5 legacySettingsPreserved=true finiteRanges=true")
+        XCTAssertEqual(restored, old, "Retired background settings must have no effect or reset input preferences")
+        restored.keyGlassStrength = 0.94; restored.candidateColorHex = "#B87DF0"
+        let encoded = try JSONEncoder().encode(restored)
+        let result = try JSONDecoder().decode(KeyboardSettings.self, from: encoded)
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        for key in ["backgroundColorHex", "backgroundGlassStrength", "glassOpacity"] { XCTAssertNil(saved[key]) }
+        XCTAssertEqual(result, restored); XCTAssertEqual(result.resolvedKeyGlassStrength, 0.94)
+        restored.keyGlassStrength = -1; restored.sanitize(); XCTAssertEqual(restored.resolvedKeyGlassStrength, 0)
     }
     func testPunctuationLegendsMatchInsertedCharactersInBothLanguages() {
         for language in [InputLanguage.chinese, .english] {
@@ -245,13 +242,13 @@ import UIKit
     }
     func testPreviewUsesRealKeyViewsAndAppliesIndependentColorsWithoutAnEngine() throws {
         let preview = KeyboardAppearancePreview(frame: CGRect(x: 0, y: 0, width: 350, height: 250))
-        var settings = KeyboardSettings(); settings.backgroundGlassStrength = 0.1; settings.keyGlassStrength = 0.9
-        settings.backgroundColorHex = "#B3C3EE"; settings.keyColorHex = "#303955"; settings.candidateColorHex = "#C185FF"
+        var settings = KeyboardSettings(); settings.keyGlassStrength = 0.9
+        settings.keyColorHex = "#303955"; settings.candidateColorHex = "#C185FF"
         preview.apply(settings); preview.layoutIfNeeded()
         let keys = views(preview).compactMap { $0 as? KeyButton }
         XCTAssertGreaterThan(keys.count, 30)
         XCTAssertEqual(keys.first?.transform, .identity)
-        XCTAssertTrue(preview.accessibilityValue?.contains("background:0.1;keys:0.9") == true)
+        XCTAssertTrue(preview.accessibilityValue?.contains("keys:0.9") == true)
         let color = try XCTUnwrap(KeyboardSettings.color(hex: settings.candidateColorHex))
         let candidateInk = views(preview).compactMap { $0 as? UILabel }.filter { $0.accessibilityIdentifier == "candidate.currentInk" }
         XCTAssertEqual(candidateInk.count, 2)
@@ -370,7 +367,7 @@ import UIKit
         XCTAssertGreaterThan(face.backgroundColor?.cgColor.alpha ?? 0, 0.70)
         settings.glass = .solid; button.apply(settings)
         XCTAssertEqual(label.textColor.resolvedColor(with: dark), .black)
-        settings.keyColorHex = nil; settings.backgroundColorHex = "#FFFFFF"; button.apply(settings)
+        settings.keyColorHex = nil; button.apply(settings)
         XCTAssertEqual(label.textColor.resolvedColor(with: dark), .white)
         window.overrideUserInterfaceStyle = .light; settings.glass = .clear; settings.keyColorHex = "#101010"; button.apply(settings)
         XCTAssertEqual(label.textColor.resolvedColor(with: light), .white)
@@ -386,22 +383,13 @@ import UIKit
             stripe.backgroundColor = index.isMultiple(of: 2) ? .white : .black
             root.view.addSubview(stripe)
         }
-        let background = GlassBackdrop(frame: window.bounds)
-        root.view.addSubview(background)
         var settings = KeyboardSettings(); settings.glass = .clear
-        settings.backgroundGlassStrength = 0; background.apply(settings); background.layoutIfNeeded()
         func snapshot() -> Data {
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
             return UIGraphicsImageRenderer(bounds: window.bounds, format: format).pngData { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
         }
-        try await Task.sleep(nanoseconds: 50_000_000)
-        let noBackground = snapshot()
-        settings.backgroundGlassStrength = 1; background.apply(settings)
-        try await Task.sleep(nanoseconds: 50_000_000)
-        let fullBackground = snapshot()
-        background.removeFromSuperview()
         let keys = KeyGlassMaterial(effect: nil); keys.frame = window.bounds; root.view.addSubview(keys)
         keys.setFaces([CGRect(x: 20, y: 20, width: 280, height: 200)])
         settings.keyGlassStrength = 0; keys.apply(settings)
@@ -411,14 +399,13 @@ import UIKit
         try await Task.sleep(nanoseconds: 50_000_000)
         let fullKeys = snapshot()
         if !UIAccessibility.isReduceTransparencyEnabled && !ProcessInfo.processInfo.isLowPowerModeEnabled {
-            XCTAssertNotEqual(noBackground, fullBackground, "Background strength must change the visible material")
             XCTAssertNotEqual(noKeys, fullKeys, "Key strength must change the visible material")
         }
-        for view in views(background) + views(keys) {
+        for view in views(keys) {
             XCTAssertTrue(view.layer.animationKeys()?.isEmpty ?? true, "Material intensity must settle instead of leaving a paused animation active")
         }
         XCTAssertEqual(keys.alpha, 1)
-        print("GLASS_RENDERED_STRENGTH backgroundPixelsChanged=\(noBackground != fullBackground) keyPixelsChanged=\(noKeys != fullKeys) persistentAnimations=false")
+        print("GLASS_RENDERED_STRENGTH keyPixelsChanged=\(noKeys != fullKeys) persistentAnimations=false")
     }
     func testKeyMaterialLeavesTheOuterSheetAndKeyGapsUnpainted() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -455,8 +442,6 @@ import UIKit
         }
         if #available(iOS 26.0, *) {
             XCTAssertFalse(material.effect is UIGlassEffect, "Disconnected key faces must not outline a single refractive sheet")
-            let background = GlassBackdrop(frame: material.frame); background.apply(settings, systemBacked: true)
-            XCTAssertFalse(views(background).compactMap { $0 as? UIVisualEffectView }.contains { $0.effect is UIGlassEffect }, "The native keyboard already supplies its outer glass")
         }
     }
 }

@@ -77,8 +77,8 @@ private final class AppearancePersistenceProbe {
     }
     private func envelope() -> ClearKeyboard.AppearanceEnvelope {
         var settings = ClearKeyboard.KeyboardSettings()
-        settings.glass = .mist; settings.backgroundGlassStrength = 0.87; settings.keyGlassStrength = 0.23
-        settings.backgroundColorHex = "#D799BC"; settings.keyColorHex = "#292C39"; settings.candidateColorHex = "#558DF2"
+        settings.glass = .mist; settings.keyGlassStrength = 0.23
+        settings.keyColorHex = "#292C39"; settings.candidateColorHex = "#558DF2"
         settings.candidateTextSize = .large; settings.accent = .rose
         return ClearKeyboard.AppearanceEnvelope(snapshot: ClearKeyboard.AppearanceSnapshot(settings: settings))
     }
@@ -104,7 +104,7 @@ private final class AppearancePersistenceProbe {
         XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(data).get(), value)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
-        XCTAssertEqual(Set(snapshot.keys), Set(["glass", "accent", "glassOpacity", "backgroundGlassStrength", "keyGlassStrength", "backgroundColorHex", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight"]))
+        XCTAssertEqual(Set(snapshot.keys), Set(["glass", "accent", "keyGlassStrength", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight"]))
         XCTAssertNil(snapshot["language"]); XCTAssertNil(snapshot["learnChoices"]); XCTAssertNil(snapshot["clipboardLifetimeHours"])
         XCTAssertLessThan(data.count, 2_048)
     }
@@ -120,9 +120,9 @@ private final class AppearancePersistenceProbe {
         var snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
         snapshot["keyColorHex"] = "not-a-color"; object["snapshot"] = snapshot
         XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(JSONSerialization.data(withJSONObject: object)).get())
-        snapshot["keyColorHex"] = "#FFFFFF"; snapshot["backgroundGlassStrength"] = 3; object["snapshot"] = snapshot
+        snapshot["keyColorHex"] = "#FFFFFF"; snapshot["keyGlassStrength"] = 3; object["snapshot"] = snapshot
         XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(JSONSerialization.data(withJSONObject: object)).get())
-        snapshot["backgroundGlassStrength"] = 0.87
+        snapshot["keyGlassStrength"] = 0.23
         for invalidHeight in [43.0, 58.1, -1, 10_000] {
             snapshot["keyHeight"] = invalidHeight; object["snapshot"] = snapshot
             XCTAssertThrowsError(try ClearKeyboard.AppearanceSyncClient.decode(JSONSerialization.data(withJSONObject: object)).get())

@@ -430,11 +430,7 @@ import SwiftUI
         XCTAssertEqual(controller.preferredContentSize, .zero)
         XCTAssertTrue(surface.systemBacked); XCTAssertFalse(surface.isOpaque)
         XCTAssertEqual(surface.layer.cornerRadius, 0)
-        let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
-        XCTAssertEqual(backdrop.frame, input.bounds)
-        XCTAssertFalse(surface.subviews.contains { $0 is GlassBackdrop }, "The controller must paint its root once, not stack another whole background in its key surface")
-        XCTAssertLessThan(backdrop.backgroundColor?.cgColor.alpha ?? 0, 0.1)
-        XCTAssertFalse(backdrop.isOpaque)
+        XCTAssertFalse(input.subviews.contains { $0 is UIVisualEffectView }, "The extension must use the system base without a custom background layer")
     }
     private func materialImage(_ view: UIView) -> UIImage {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
@@ -457,361 +453,6 @@ import SwiftUI
     private func pixelDistance(_ left: [Int], _ right: [Int]) -> Int {
         zip(left.prefix(3), right.prefix(3)).map { abs($0 - $1) }.max() ?? 0
     }
-    private func assertOwnedColorReachesEveryEdge(_ input: UIView, name: String) throws {
-        let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
-        let image = materialImage(backdrop)
-        for x in [CGFloat(1), input.bounds.midX, input.bounds.width - 2] {
-            for y in [CGFloat(1), input.bounds.midY, input.bounds.height - 2] {
-                let color = try materialPixel(image, at: CGPoint(x: x, y: y))
-                XCTAssertLessThan(color[0], 15)
-                XCTAssertGreaterThan(color[1], 70); XCTAssertLessThan(color[1], 105)
-                XCTAssertGreaterThan(color[2], 240); XCTAssertGreaterThan(color[3], 250,
-                    "The selected solid color must not fade into a dark halo at an owned edge")
-            }
-        }
-        XCTAssertEqual(backdrop.frame, input.bounds)
-        XCTAssertFalse(descendants(backdrop).contains { $0.layer.mask is CAGradientLayer })
-        let attachment = XCTAttachment(image: materialImage(input)); attachment.name = name
-        attachment.lifetime = .keepAlways; add(attachment)
-    }
-    func testRootBackdropCoversExtraHostHeightWithoutChangingKeyGeometry() throws {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene), host = UIViewController()
-        window.frame = CGRect(x: 0, y: 0, width: 393, height: 640)
-        window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-        let controller = KeyboardViewController(nibName: nil, bundle: nil)
-        host.addChild(controller); controller.loadViewIfNeeded(); host.view.addSubview(controller.view)
-        controller.didMove(toParent: host)
-        let input = try XCTUnwrap(controller.inputView)
-        let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
-        let defaults = SharedStorage.defaults(allowShared: controller.fullAccess)
-        let saved = defaults.data(forKey: SettingsStore.key)
-        defer {
-            surface.model.suspend()
-            if let saved { defaults.set(saved, forKey: SettingsStore.key) } else { defaults.removeObject(forKey: SettingsStore.key) }
-        }
-        var settings = testSettings(); settings.glass = .solid
-        settings.backgroundColorHex = "#0057FF"; settings.keyColorHex = "#292C39"
-        surface.model.settings = settings
-        let requested = try XCTUnwrap(input.constraints.first { $0.identifier == "clear.keyboard.content-height" })
-        // Simulate an external host allocation that temporarily wins over the
-        // requested height. Only this fixture lowers the request's priority.
-        requested.priority = .defaultHigh
-        let allocated = input.heightAnchor.constraint(equalToConstant: surface.desiredHeight)
-        NSLayoutConstraint.activate([input.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
-            input.topAnchor.constraint(equalTo: host.view.topAnchor, constant: 150),
-            input.widthAnchor.constraint(equalToConstant: 393), allocated])
-        let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
-        let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("q") })
-        let a = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("a") })
-        for style in [UIUserInterfaceStyle.light, .dark] {
-            window.overrideUserInterfaceStyle = style
-            host.view.backgroundColor = style == .dark ? .black : .white
-            for extra: CGFloat in [0, 18, 0] {
-                allocated.constant = surface.desiredHeight + extra
-                settleLayout(host.view); settleLayout(input)
-                XCTAssertEqual(backdrop.frame, input.bounds, "Only painting the fixed key surface leaves extra host height uncovered")
-                XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
-                XCTAssertEqual(surface.frame.minY, extra, accuracy: 0.5)
-                XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
-                XCTAssertEqual(a.frame.minY - q.frame.minY, 56, accuracy: 0.5)
-                XCTAssertEqual(KeyboardGeometry.keyPlate(in: q.bounds).height, 45, accuracy: 0.5)
-                print("KEYBOARD_ROOT_COVERAGE style=\(style.rawValue) extra=\(extra) root=\(input.bounds) background=\(backdrop.frame) surface=\(surface.frame) pitch=\(q.bounds.height)")
-                try assertOwnedColorReachesEveryEdge(input, name: "owned-root-full-color-\(style == .dark ? "dark" : "light")-extra\(Int(extra))")
-            }
-        }
-    }
-    func testPublicResponderHostedInputViewPaintsItsOwnBoundsInBothStyles() async throws {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene), host = UIViewController()
-        window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-        for style in [UIUserInterfaceStyle.light, .dark] {
-            window.overrideUserInterfaceStyle = style
-            host.view.backgroundColor = style == .dark ? .black : .white
-            let controller = KeyboardViewController(nibName: nil, bundle: nil); controller.loadViewIfNeeded()
-            let input = try XCTUnwrap(controller.inputView)
-            input.overrideUserInterfaceStyle = style
-            let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
-            let defaults = SharedStorage.defaults(allowShared: controller.fullAccess)
-            let saved = defaults.data(forKey: SettingsStore.key)
-            let field = UITextField(frame: CGRect(x: 20, y: 80, width: 300, height: 44))
-            field.borderStyle = .roundedRect; field.placeholder = "Public input-view appearance fixture"
-            field.keyboardAppearance = style == .dark ? .dark : .light
-            field.inputView = input; host.view.addSubview(field)
-            defer {
-                field.resignFirstResponder(); field.removeFromSuperview(); surface.model.suspend()
-                if let saved { defaults.set(saved, forKey: SettingsStore.key) } else { defaults.removeObject(forKey: SettingsStore.key) }
-            }
-            var settings = testSettings(); settings.glass = .solid
-            settings.backgroundColorHex = "#0057FF"; settings.keyColorHex = "#292C39"
-            surface.model.settings = settings
-            XCTAssertTrue(field.becomeFirstResponder())
-            try await waitFor { input.window != nil && input.bounds.width > 0 && input.bounds.height >= surface.desiredHeight }
-            try await Task.sleep(nanoseconds: 300_000_000)
-            settleLayout(input)
-            let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
-            XCTAssertEqual(backdrop.frame, input.bounds)
-            let keyboardWindow = try XCTUnwrap(input.window)
-            let owned = input.convert(input.bounds, to: keyboardWindow)
-            print("KEYBOARD_PUBLIC_INPUT_HOST style=\(style.rawValue) inputViewStyle=\(input.inputViewStyle.rawValue) ownedRootInWindow=\(owned) root=\(input.bounds) background=\(backdrop.frame) surface=\(surface.frame) outerSystemAreaVerified=false")
-            try assertOwnedColorReachesEveryEdge(input, name: "public-host-owned-full-color-\(style == .dark ? "dark" : "light")")
-            // This public responder fixture shows UIKit's surrounding material
-            // for visual review; it is not an extension's remote host process.
-            snapshot(keyboardWindow, name: "public-input-host-context-\(style == .dark ? "dark" : "light")")
-        }
-    }
-    func testControlledInputHostKeepsOwnedFramesAndCapturesMaterialContext() async throws {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previousWindow = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene), host = UIViewController()
-        window.frame = CGRect(x: 0, y: 0, width: 433, height: 640)
-        window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true; previousWindow?.makeKey() }
-        let caption = UILabel(frame: CGRect(x: 20, y: 42, width: 393, height: 48))
-        caption.text = "受控不透明底板：上 17pt / 下 74pt\n仅布局与材质参考，非远程键盘宿主"
-        caption.numberOfLines = 2; caption.font = .systemFont(ofSize: 13); host.view.addSubview(caption)
-        let controller = KeyboardViewController(nibName: nil, bundle: nil)
-        host.addChild(controller); controller.loadViewIfNeeded()
-        let input = try XCTUnwrap(controller.inputView)
-        let surface = try XCTUnwrap(descendants(input).compactMap { $0 as? KeyboardSurface }.first)
-        let defaults = SharedStorage.defaults(allowShared: controller.fullAccess), saved = defaults.data(forKey: SettingsStore.key)
-        defer {
-            surface.model.suspend()
-            if let saved { defaults.set(saved, forKey: SettingsStore.key) } else { defaults.removeObject(forKey: SettingsStore.key) }
-        }
-        let cap: CGFloat = 17, footer: CGFloat = 74
-        let shell = UIView(frame: CGRect(x: 20, y: 110, width: 393, height: cap + surface.desiredHeight + footer))
-        shell.layer.cornerRadius = 30; shell.layer.cornerCurve = .continuous; shell.clipsToBounds = true
-        // A live system material changes its sampling between captures. An
-        // opaque, controlled base isolates actual out-of-bounds drawing from
-        // compositor/backdrop changes; it is not a simulated native renderer.
-        let base = UIView(); base.isOpaque = true
-        base.frame = shell.bounds; shell.addSubview(base); host.view.addSubview(shell)
-        shell.addSubview(input); controller.didMove(toParent: host)
-        NSLayoutConstraint.activate([input.leadingAnchor.constraint(equalTo: shell.leadingAnchor),
-            input.topAnchor.constraint(equalTo: shell.topAnchor, constant: cap),
-            input.widthAnchor.constraint(equalTo: shell.widthAnchor)])
-        let globe = UIImageView(image: UIImage(systemName: "globe"))
-        globe.contentMode = .scaleAspectFit
-        globe.frame = CGRect(x: 24, y: cap + surface.desiredHeight + 17, width: 28, height: 28)
-        shell.addSubview(globe)
-        let backdrop = try XCTUnwrap(input.subviews.compactMap { $0 as? GlassBackdrop }.first)
-        let q = try XCTUnwrap(descendants(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text("q") })
-        let variants: [(String, GlassPreset, String?)] = [
-            ("default-glass", .clear, nil), ("blue-glass", .mist, "#0057FF"),
-            ("blue-solid", .solid, "#0057FF"), ("default-solid", .solid, nil)
-        ]
-        for style in [UIUserInterfaceStyle.light, .dark] {
-            window.overrideUserInterfaceStyle = style
-            host.view.backgroundColor = style == .dark ? UIColor(white: 0.08, alpha: 1) : UIColor(white: 0.94, alpha: 1)
-            shell.backgroundColor = style == .dark ? UIColor(white: 0.18, alpha: 1) : UIColor(white: 0.84, alpha: 1)
-            base.backgroundColor = shell.backgroundColor
-            globe.tintColor = style == .dark ? .white : .black
-            for (name, material, color) in variants {
-                var settings = testSettings(); settings.glass = material; settings.backgroundColorHex = color
-                settings.backgroundGlassStrength = 0.8; settings.keyColorHex = "#292C39"
-                surface.model.settings = settings
-                settleLayout(host.view); settleLayout(input)
-                try await Task.sleep(nanoseconds: 60_000_000)
-                XCTAssertEqual(backdrop.frame, input.bounds)
-                XCTAssertTrue(backdrop.clipsToBounds)
-                XCTAssertEqual(input.frame.minY, cap, accuracy: 0.5)
-                XCTAssertEqual(shell.bounds.height - input.frame.maxY, footer, accuracy: 0.5)
-                XCTAssertEqual(surface.bounds.height, surface.desiredHeight, accuracy: 0.5)
-                XCTAssertEqual(q.bounds.height, 56, accuracy: 0.5)
-                backdrop.isHidden = true; let baseline = materialImage(shell)
-                backdrop.isHidden = false; let blended = materialImage(shell)
-                let x = shell.bounds.midX
-                // A whole UIInputView drawHierarchy snapshot at 1x can mix
-                // compositor changes with resampling beside a 3x owned edge.
-                // Keep these raw observations for diagnosis; they are neither
-                // an owner-only drawing oracle nor proof of native shell tint.
-                for outside in [input.frame.minY - 1, input.frame.maxY + 1] {
-                    let actual = try materialPixel(blended, at: CGPoint(x: x, y: outside))
-                    let original = try materialPixel(baseline, at: CGPoint(x: x, y: outside))
-                    print("CONTROLLED_INPUT_HOST_PIXEL style=\(style.rawValue) case=\(name) material=\(material) color=\(color ?? "default") sample=\(CGPoint(x: x, y: outside)) baselineRGBA=\(original) visibleRGBA=\(actual) maxRGBDelta=\(pixelDistance(actual, original)) rendererScale=1 screenScale=\(window.screen.scale) externalNativePaintOracle=false")
-                }
-                if name == "blue-solid" {
-                    let center = try materialPixel(materialImage(backdrop), at: CGPoint(x: input.bounds.midX, y: input.bounds.midY))
-                    XCTAssertLessThan(center[0], 15); XCTAssertGreaterThan(center[2], 240)
-                    let hardReference = UIView(frame: input.bounds); hardReference.backgroundColor = UIColor(red: 0, green: 87 / 255, blue: 1, alpha: 1)
-                    input.insertSubview(hardReference, aboveSubview: backdrop)
-                    snapshot(host.view, name: "simulated-shell-hard-edge-reference-\(style == .dark ? "dark" : "light")")
-                    hardReference.removeFromSuperview()
-                }
-                snapshot(host.view, name: "controlled-owned-color-boundary-\(style == .dark ? "dark" : "light")-\(name)")
-                print("SIMULATED_MATERIAL_SHELL style=\(style.rawValue) case=\(name) cap=17 footer=74 root=\(input.frame) keyPitch=\(q.bounds.height) actualRemoteHostVerified=false")
-            }
-        }
-    }
-    func testSolidBackdropStaysWithinOwnedBoundsAtNativeScaleAndResets() throws {
-        let scale = UIScreen.main.scale
-        let host = UIView(frame: CGRect(x: 0, y: 0, width: 160, height: 128))
-        host.isOpaque = true
-        let backdrop = GlassBackdrop()
-        host.addSubview(backdrop)
-
-        struct Pixels {
-            let width: Int
-            let height: Int
-            let rgba: [UInt8]
-            func at(_ x: Int, _ y: Int) -> [UInt8] {
-                let index = (y * width + x) * 4
-                return Array(rgba[index..<(index + 4)])
-            }
-        }
-        func rendered() throws -> Pixels {
-            host.layoutIfNeeded(); backdrop.layoutIfNeeded()
-            let format = UIGraphicsImageRendererFormat()
-            format.scale = scale; format.preferredRange = .standard; format.opaque = true
-            // No responder, UIInputView, live material, rounded shell, screenshot
-            // resampling or render-server snapshot participates in this oracle.
-            let image = UIGraphicsImageRenderer(bounds: host.bounds, format: format).image { context in
-                host.layer.render(in: context.cgContext)
-            }
-            let cg = try XCTUnwrap(image.cgImage)
-            XCTAssertEqual(cg.width, Int(host.bounds.width * scale))
-            XCTAssertEqual(cg.height, Int(host.bounds.height * scale))
-            var bytes = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
-            try bytes.withUnsafeMutableBytes { raw in
-                let context = try XCTUnwrap(CGContext(data: raw.baseAddress,
-                    width: cg.width, height: cg.height, bitsPerComponent: 8,
-                    bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
-                context.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(cg.width), height: CGFloat(cg.height)))
-            }
-            return Pixels(width: cg.width, height: cg.height, rgba: bytes)
-        }
-
-        for style in [UIUserInterfaceStyle.light, .dark] {
-            host.overrideUserInterfaceStyle = style
-            // Fixed opaque RGB colors keep the outside reference independent of
-            // a native material or an asynchronously resolved dynamic UIColor.
-            host.backgroundColor = style == .dark
-                ? UIColor(red: 23.0 / 255, green: 29.0 / 255, blue: 37.0 / 255, alpha: 1)
-                : UIColor(red: 241.0 / 255, green: 237.0 / 255, blue: 229.0 / 255, alpha: 1)
-            for size in [CGSize(width: 96, height: 64), CGSize(width: 112, height: 84), CGSize(width: 96, height: 64)] {
-                // Native-pixel-aligned and centered, including after resize back to
-                // the original size. No pixels straddle a fractional owned edge.
-                backdrop.frame = CGRect(x: (host.bounds.width - size.width) / 2,
-                                        y: (host.bounds.height - size.height) / 2,
-                                        width: size.width, height: size.height)
-                for value in [backdrop.frame.minX, backdrop.frame.minY,
-                              backdrop.frame.maxX, backdrop.frame.maxY] {
-                    XCTAssertEqual(value * scale, (value * scale).rounded(), accuracy: 0.0001)
-                }
-                var settings = testSettings()
-                settings.glass = .solid; settings.backgroundColorHex = "#0057FF"
-                backdrop.apply(settings, systemBacked: true)
-                backdrop.layoutIfNeeded()
-                XCTAssertTrue(backdrop.clipsToBounds)
-                XCTAssertTrue(backdrop.subviews.compactMap { $0 as? UIVisualEffectView }.allSatisfy { $0.effect == nil },
-                              "The deterministic layer-render oracle applies only to solid output")
-
-                backdrop.isHidden = true; let baseline = try rendered()
-                backdrop.isHidden = false; let painted = try rendered()
-                let minX = Int((backdrop.frame.minX * scale).rounded())
-                let minY = Int((backdrop.frame.minY * scale).rounded())
-                let maxX = Int((backdrop.frame.maxX * scale).rounded())
-                let maxY = Int((backdrop.frame.maxY * scale).rounded())
-                let band = 4 // Four physical pixels, not a guessed native cap size.
-                var changedOutside = 0
-                for y in (minY - band)..<(maxY + band) {
-                    for x in (minX - band)..<(maxX + band)
-                        where x < minX || x >= maxX || y < minY || y >= maxY {
-                        if painted.at(x, y) != baseline.at(x, y) { changedOutside += 1 }
-                    }
-                }
-                XCTAssertEqual(changedOutside, 0,
-                               "Every pixel in all four exterior bands must retain the opaque reference exactly")
-                // Inspect first/last interior pixel rows and columns as well as the
-                // center, so a blank or accidentally hidden backdrop cannot pass.
-                for y in [minY, (minY + maxY) / 2, maxY - 1] {
-                    for x in [minX, (minX + maxX) / 2, maxX - 1] {
-                        let blue = painted.at(x, y)
-                        XCTAssertLessThan(blue[0], 15); XCTAssertGreaterThan(blue[1], 70)
-                        XCTAssertLessThan(blue[1], 105); XCTAssertGreaterThan(blue[2], 240)
-                        XCTAssertEqual(blue[3], 255)
-                    }
-                }
-
-                // Sensitivity control: a known opaque sibling deliberately crosses
-                // every owned edge. It must change the exterior pixels. This guards
-                // the coordinate mapping and reference capture against a vacuous
-                // always-zero result, without changing the production backdrop.
-                let overdraw = UIView(frame: backdrop.frame.insetBy(dx: -2 / scale, dy: -2 / scale))
-                overdraw.backgroundColor = .magenta; overdraw.isOpaque = true
-                host.addSubview(overdraw)
-                let spilled = try rendered()
-                overdraw.removeFromSuperview()
-                for point in [(minX - 1, (minY + maxY) / 2), (maxX, (minY + maxY) / 2),
-                              ((minX + maxX) / 2, minY - 1), ((minX + maxX) / 2, maxY)] {
-                    XCTAssertNotEqual(spilled.at(point.0, point.1), baseline.at(point.0, point.1),
-                                      "The oracle must detect a known opaque spill on every side")
-                }
-
-                backdrop.apply(testSettings(), systemBacked: true)
-                let reset = try rendered()
-                XCTAssertEqual(reset.rgba, baseline.rgba,
-                               "Resetting the selected skin must restore the complete opaque reference, including interior pixels")
-            }
-        }
-    }
-    func testOwnedBackgroundKeepsFullEdgeColorThroughResizeAndStrengthChanges() async throws {
-        XCTAssertFalse(UIAccessibility.isReduceTransparencyEnabled)
-        XCTAssertFalse(ProcessInfo.processInfo.isLowPowerModeEnabled)
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previousWindow = scene.windows.first { $0.isKeyWindow }
-        let window = UIWindow(windowScene: scene), host = UIViewController()
-        window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true; previousWindow?.makeKey() }
-        let scenery = CAGradientLayer(); scenery.frame = host.view.bounds
-        scenery.colors = [UIColor.systemOrange.cgColor, UIColor.systemIndigo.cgColor, UIColor.systemPink.cgColor]
-        scenery.startPoint = .zero; scenery.endPoint = CGPoint(x: 1, y: 1); host.view.layer.addSublayer(scenery)
-        // A fine pattern makes blur strength observable; a linear gradient's
-        // local mean can remain unchanged even when the effect is working.
-        for index in 0..<60 {
-            let stripe = UIView(frame: CGRect(x: CGFloat(index) * 8, y: 0, width: 8, height: max(640, host.view.bounds.height)))
-            stripe.backgroundColor = index.isMultiple(of: 2) ? .white : .black
-            host.view.addSubview(stripe)
-        }
-        let backdrop = GlassBackdrop(); host.view.addSubview(backdrop)
-        var settings = testSettings(); settings.glass = .solid; settings.backgroundColorHex = "#0057FF"
-        backdrop.frame = .zero; backdrop.apply(settings, systemBacked: true)
-        for size in [CGSize(width: 320, height: 260), CGSize(width: 350, height: 310), CGSize(width: 320, height: 260)] {
-            backdrop.frame = CGRect(origin: CGPoint(x: 20, y: 90), size: size)
-            for systemBacked in [true, false, true] {
-                backdrop.apply(settings, systemBacked: systemBacked); settleLayout(backdrop)
-                let image = materialImage(backdrop)
-                let edge = try materialPixel(image, at: CGPoint(x: size.width / 2, y: 1))
-                let center = try materialPixel(image, at: CGPoint(x: size.width / 2, y: size.height / 2))
-                XCTAssertGreaterThan(center[2], 240); XCTAssertLessThan(center[0], 15)
-                XCTAssertGreaterThan(edge[3], 250); XCTAssertGreaterThan(edge[2], 240)
-                XCTAssertLessThan(pixelDistance(edge, center), 3,
-                    "Owned skin edges must retain the same solid color after every resize and hosting change")
-            }
-        }
-        settings.backgroundColorHex = nil; settings.glass = .clear; settings.backgroundGlassStrength = 0
-        backdrop.apply(settings, systemBacked: true); settleLayout(backdrop)
-        backdrop.isHidden = true
-        try await Task.sleep(nanoseconds: 60_000_000)
-        let baseline = materialImage(host.view)
-        backdrop.isHidden = false
-        try await Task.sleep(nanoseconds: 60_000_000)
-        let low = materialImage(host.view)
-        settings.backgroundGlassStrength = 1; backdrop.apply(settings, systemBacked: true); settleLayout(backdrop)
-        try await Task.sleep(nanoseconds: 60_000_000)
-        let high = materialImage(host.view)
-        let center = CGPoint(x: backdrop.frame.midX, y: backdrop.frame.midY)
-        XCTAssertGreaterThan(pixelDistance(try materialPixel(low, at: center), try materialPixel(high, at: center)), 3,
-                             "Fusion must not make the background strength control ineffective in the interior")
-        let effect = try XCTUnwrap(backdrop.subviews.compactMap { $0 as? UIVisualEffectView }.first)
-        XCTAssertEqual(effect.mask?.bounds, effect.bounds)
-        XCTAssertFalse(descendants(backdrop).contains { $0.layer.mask is CAGradientLayer })
-        snapshot(host.view, name: "owned-background-resized-strength-high")
-    }
     func testAppearancePreviewUsesOneUniformlyScaledKeyboardCanvas() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first { $0.isKeyWindow }
@@ -823,7 +464,6 @@ import SwiftUI
         let canvas = try XCTUnwrap(descendants(preview).first { $0.accessibilityIdentifier == "appearance.keyboard-canvas" })
         let base = try XCTUnwrap(descendants(preview).first { $0.accessibilityIdentifier == "appearance.native-base" } as? UIVisualEffectView)
         XCTAssertTrue(base.effect is UIBlurEffect)
-        let backdrop = try XCTUnwrap(descendants(preview).compactMap { $0 as? GlassBackdrop }.first)
         let keys = descendants(preview).compactMap { $0 as? KeyButton }
         let q = try XCTUnwrap(keys.first { $0.key.action == .text("q") })
         let a = try XCTUnwrap(keys.first { $0.key.action == .text("a") })
@@ -872,7 +512,7 @@ import SwiftUI
         }
         for style in [UIUserInterfaceStyle.light, .dark] {
             window.overrideUserInterfaceStyle = style; host.view.backgroundColor = .systemBackground
-            var settings = testSettings(); settings.glass = .solid; settings.backgroundColorHex = "#0057FF"
+            var settings = testSettings(); settings.glass = .solid
             for keyHeight: Double in [44, 50, 58] {
                 settings.keyHeight = keyHeight
                 for size in [CGSize(width: 350, height: 166), CGSize(width: 350, height: 250), CGSize(width: 250, height: 130)] {
@@ -888,7 +528,7 @@ import SwiftUI
                     XCTAssertEqual(q.convert(q.bounds, to: preview).height, pitch * scale, accuracy: 0.1)
                     XCTAssertEqual(shift.convert(shift.bounds, to: preview).height, pitch * scale, accuracy: 0.1)
                     XCTAssertTrue(preview.bounds.insetBy(dx: -0.1, dy: -0.1).contains(canvas.frame))
-                    XCTAssertEqual(backdrop.frame, canvas.bounds); XCTAssertEqual(base.frame, canvas.bounds)
+                    XCTAssertEqual(base.frame, canvas.bounds)
                     let caption = try XCTUnwrap(descendants(q).compactMap { $0 as? CenteredKeyLabel }.first)
                     XCTAssertEqual(caption.font.pointSize, 23, accuracy: 0.1)
                     XCTAssertEqual(caption.layer.contentsScale, window.screen.scale * scale, accuracy: 0.01)
@@ -896,13 +536,10 @@ import SwiftUI
                     XCTAssertEqual(fitted.height / fitted.width, canvas.bounds.height / canvas.bounds.width, accuracy: 0.0001)
                 }
             }
-            settings.keyHeight = 50; settings.backgroundColorHex = "#FF5733"; settings.candidateColorHex = "#558DF2"
+            settings.keyHeight = 50; settings.candidateColorHex = "#558DF2"
             preview.apply(settings)
             preview.frame.size = preview.fittingSize(forWidth: 350)
             settleLayout(preview)
-            let color = try materialPixel(materialImage(backdrop), at: CGPoint(x: backdrop.bounds.midX, y: backdrop.bounds.midY))
-            XCTAssertGreaterThan(color[0], 240); XCTAssertLessThan(color[2], 80)
-            XCTAssertTrue(preview.accessibilityValue?.contains("backgroundColor:#FF5733") == true)
             try assertRenderedContrast(q, phase: "preview \(style) Q", expectedDarkFace: style == .dark)
             try assertRenderedContrast(shift, phase: "preview \(style) Shift", expectedDarkFace: style == .dark)
             snapshot(preview, name: "preview-proportional-\(style == .dark ? "dark" : "light")")
@@ -917,7 +554,7 @@ import SwiftUI
         // Their initial unspecified/light face must not survive dark adoption.
         window.overrideUserInterfaceStyle = .dark
         let cold = KeyboardAppearancePreview(frame: CGRect(x: 20, y: 100, width: 350, height: 230))
-        var coldSettings = testSettings(); coldSettings.glass = .solid; coldSettings.backgroundColorHex = "#FF5733"
+        var coldSettings = testSettings(); coldSettings.glass = .solid
         cold.apply(coldSettings)
         host.view.addSubview(cold); cold.frame.size = cold.fittingSize(forWidth: 350); settleLayout(cold)
         let coldKeys = descendants(cold).compactMap { $0 as? KeyButton }
@@ -1247,7 +884,7 @@ import SwiftUI
             XCTAssertTrue(host.view.bounds.width > 0)
         }
         for glass in GlassPreset.allCases { prefs.settings.glass = glass }
-        for value in [0.15, 0.5, 1.0] { prefs.settings.glassOpacity = value }
+        for value in [0.15, 0.5, 1.0] { prefs.settings.keyGlassStrength = value }
         prefs.settings.learnChoices = false; XCTAssertFalse(prefs.settings.learnChoices)
         prefs.clearLearning()
         XCTAssertNil(defaults.data(forKey: "clear.choices.v2"))

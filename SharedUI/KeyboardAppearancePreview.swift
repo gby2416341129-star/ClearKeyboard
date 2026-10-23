@@ -53,12 +53,10 @@ final class KeyGlassMaterial: UIVisualEffectView {
 /// independently of the text, symbols, insets or key faces.
 final class KeyboardAppearancePreview: UIView {
     private let canvas = UIView()
-    private let scenery = CAGradientLayer()
     // A local material approximates the host's neutral keyboard base. An
     // ordinary UIInputView subview does not receive the responder's automatic
     // backdrop. The extension itself uses the actual host-owned base.
     private let nativeBase = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
-    private let backdrop = GlassBackdrop()
     private let keyArea = UIView()
     private let glass = KeyGlassMaterial(effect: nil)
     private let first = CandidateButton(), second = CandidateButton()
@@ -81,13 +79,9 @@ final class KeyboardAppearancePreview: UIView {
         canvas.accessibilityElementsHidden = true
         canvas.layer.cornerRadius = 22; canvas.layer.cornerCurve = .continuous; canvas.clipsToBounds = true
         addSubview(canvas)
-        scenery.colors = [UIColor(red: 0.30, green: 0.38, blue: 0.65, alpha: 1).cgColor,
-                          UIColor(red: 0.58, green: 0.40, blue: 0.64, alpha: 1).cgColor]
-        scenery.startPoint = CGPoint(x: 0, y: 0); scenery.endPoint = CGPoint(x: 1, y: 1)
-        canvas.layer.addSublayer(scenery)
         nativeBase.isUserInteractionEnabled = false
         nativeBase.accessibilityIdentifier = "appearance.native-base"
-        canvas.addSubview(nativeBase); canvas.addSubview(backdrop)
+        canvas.addSubview(nativeBase)
         canvas.addSubview(first); canvas.addSubview(second); canvas.addSubview(keyArea); keyArea.addSubview(glass)
         for (index, row) in KeyboardLayout.rows(page: .letters, uppercase: true, globe: false).enumerated() {
             var start = row.insetUnits
@@ -113,14 +107,14 @@ final class KeyboardAppearancePreview: UIView {
         renderedScale = 0; invalidateIntrinsicContentSize(); setNeedsLayout()
     }
     static func accessibilityDescription(of value: KeyboardSettings) -> String {
-        "background:\(value.resolvedBackgroundGlassStrength);keys:\(value.resolvedKeyGlassStrength);backgroundColor:\(value.backgroundColorHex ?? "auto");keyColor:\(value.keyColorHex ?? "auto");candidateColor:\(value.candidateColorHex ?? "auto");font:\(value.resolvedCandidateTextSize.rawValue)"
+        "keys:\(value.resolvedKeyGlassStrength);keyColor:\(value.keyColorHex ?? "auto");candidateColor:\(value.candidateColorHex ?? "auto");font:\(value.resolvedCandidateTextSize.rawValue)"
     }
     func apply(_ value: KeyboardSettings) {
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
         guard appliedSettings != value || appliedStyle != traitCollection.userInterfaceStyle || appliedReducedTransparency != reduced else { return }
         appliedSettings = value; appliedStyle = traitCollection.userInterfaceStyle
         appliedReducedTransparency = reduced
-        settings = value; backdrop.apply(value, systemBacked: true); glass.apply(value)
+        settings = value; glass.apply(value)
         for (key, _, _, _) in keys { key.apply(value) }
         let font = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points))
         let firstFont = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points), weight: .medium)
@@ -146,7 +140,7 @@ final class KeyboardAppearancePreview: UIView {
             canvas.center = CGPoint(x: bounds.midX, y: bounds.midY)
             canvas.transform = CGAffineTransform(scaleX: scale, y: scale)
         }
-        scenery.frame = canvas.bounds; nativeBase.frame = canvas.bounds; backdrop.frame = canvas.bounds
+        nativeBase.frame = canvas.bounds
         let layout = KeyboardGeometry.layout(size: size, metrics: metrics, hand: .full, fitHeight: false)
         keyArea.frame = layout.keys; glass.frame = keyArea.bounds
         var faces: [CGRect] = []

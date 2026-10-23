@@ -440,7 +440,7 @@ import SwiftUI
         let suite = "clear.partial.app-field." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let preferences = Preferences(store: SettingsStore(defaults: defaults))
-        let host = UIHostingController(rootView: AppAppearanceDetail(item: .backgroundColor).environmentObject(preferences))
+        let host = UIHostingController(rootView: AppAppearanceDetail(item: .keyColor).environmentObject(preferences))
         let window = try makeHostWindow(host)
         defer { window.endEditing(true); window.isHidden = true; defaults.removePersistentDomain(forName: suite) }
         // SwiftUI may attach appearance.hex to its accessibility wrapper rather
@@ -477,6 +477,9 @@ import SwiftUI
         // UIKit owns text and marked ranges. These injected notifications test
         // delayed acknowledgement order, not a real extension/remote connection.
         proxy.onMutation = { [weak controller] in
+            // Search-like editors can first reveal context inside the native
+            // clear-mark/Chinese insertion acknowledgement, before idle reads.
+            if proxy.markedWrites.last == "" { proxy.hidesContext = false }
             controller?.textDidChange(nil); controller?.selectionDidChange(nil)
         }
         try await waitFor { model.engineState == "离线就绪" }

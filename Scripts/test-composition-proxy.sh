@@ -81,8 +81,6 @@ xcrun xcresulttool get test-results summary --path .build/CompositionResults.xcr
 xcrun xcresulttool get test-results tests --path .build/CompositionResults.xcresult || true
 if [ "$TEST_EXIT" -ne 0 ]; then
   xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'CandidateAnimationRuntimeTests/testCandidateHandoffVisualSamplesAndSettledInk()' || true
-  xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'KeyboardRuntimeTests/testControlledInputHostKeepsOwnedFramesAndCapturesMaterialContext()' || true
-  xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'KeyboardRuntimeTests/testSolidBackdropStaysWithinOwnedBoundsAtNativeScaleAndResets()' || true
   xcrun xcresulttool get test-results activities --path .build/CompositionResults.xcresult --test-id 'CustomizationRuntimeTests/testObservedAppearancePagesUpdateTheirActualRenderedKeyboard()' || true
   xcrun xcresulttool export diagnostics --path .build/CompositionResults.xcresult --output-path .build/CompositionDiagnostics || true
   python3 - <<'PY'
@@ -101,14 +99,11 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -derivedDataPath .build/Composition -resultBundlePath .build/AppBottomResults.xcresult \
   -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
   -only-testing:ClearKeyboardUITests/AppUITests/testEveryTabCanScrollItsLastControlAboveTheBottomBar \
-  -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceBackgroundGlass \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceKeyGlass \
-  -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceBackgroundColor \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceKeyColor \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceCandidateColor \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceCandidateSize \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearancePersistenceAndToolbar \
-  -only-testing:ClearKeyboardUITests/AppUITests/testBackgroundColorSwatchAndHEXStayConsistent \
   -only-testing:ClearKeyboardUITests/AppUITests/testKeyColorSwatchAndHEXStayConsistent \
   -only-testing:ClearKeyboardUITests/AppUITests/testCandidateColorSwatchAndHEXStayConsistent \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
@@ -117,10 +112,8 @@ set -e
 xcrun xcresulttool get test-results summary --path .build/AppBottomResults.xcresult || true
 xcrun xcresulttool get test-results tests --path .build/AppBottomResults.xcresult || true
 if [ "$UI_EXIT" -ne 0 ]; then
-  xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testBackgroundColorSwatchAndHEXStayConsistent()' || true
   xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testKeyColorSwatchAndHEXStayConsistent()' || true
   xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testCandidateColorSwatchAndHEXStayConsistent()' || true
-  xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testAppearanceBackgroundGlass()' || true
   xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testAppearancePersistenceAndToolbar()' || true
 fi
 if [ "$TEST_EXIT" -ne 0 ]; then exit "$TEST_EXIT"; fi

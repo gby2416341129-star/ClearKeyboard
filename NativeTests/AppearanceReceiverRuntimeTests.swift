@@ -81,7 +81,7 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         let keyboardDefaults = try XCTUnwrap(UserDefaults(suiteName: keyboardSuite))
         var initial = ClearKeyboard.KeyboardSettings()
         initial.automaticClipboard = false; initial.autoCapitalization = false
-        initial.backgroundGlassStrength = 0.08; initial.keyGlassStrength = 0.08
+        initial.keyGlassStrength = 0.08
         ClearKeyboard.SettingsStore(defaults: appDefaults).save(initial)
         ClearKeyboard.SettingsStore(defaults: keyboardDefaults).save(initial)
         let backend = ReceiverAppearanceBackend()
@@ -221,11 +221,8 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         XCTAssertFalse(ProcessInfo.processInfo.isLowPowerModeEnabled, "The material fixture requires its normal rendering branch")
         let fixture = try ReceiverAppearanceFixture(); defer { fixture.cleanUp() }
         try await prepare(fixture)
-        let background = CGRect(x: 12, y: fixture.surface.bounds.height - 6, width: 366, height: 4)
-        try await assertEdit(fixture, name: "background glass", crop: background) { $0.backgroundGlassStrength = 0.96 }
         let key = try keyCrop(fixture)
         try await assertEdit(fixture, name: "key glass", crop: key) { $0.keyGlassStrength = 0.96 }
-        try await assertEdit(fixture, name: "background color", crop: background) { $0.backgroundColorHex = "#E3AC72" }
         try await assertEdit(fixture, name: "key color", crop: key) { $0.keyColorHex = "#292C39" }
         try await composeNihao(fixture)
         let label = try XCTUnwrap(visibleCandidateInk(fixture).first)
@@ -252,7 +249,7 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         let fixture = try ReceiverAppearanceFixture(); defer { fixture.cleanUp() }
         try await prepare(fixture); try await composeNihao(fixture)
         let count = fixture.backend.counts.settings
-        fixture.preferences.settings.backgroundColorHex = "#558DF2"
+        fixture.preferences.settings.keyColorHex = "#558DF2"
         try await synchronize(fixture)
         XCTAssertEqual(fixture.model.composition.raw, "nihao")
         XCTAssertEqual(fixture.document.before, "nihao")
@@ -286,14 +283,14 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         // The visible models intentionally still contain the previous input
         // preferences. Receiving appearance must not persist that stale state.
         let snapshot = ClearKeyboard.AppearanceSnapshot(settings: {
-            var value = fixture.preferences.settings; value.backgroundColorHex = "#D799BC"; return value
+            var value = fixture.preferences.settings; value.keyColorHex = "#D799BC"; return value
         }())
         let envelope = ClearKeyboard.AppearanceEnvelope(snapshot: snapshot)
         await withCheckedContinuation { continuation in
             fixture.appClient.publish(envelope) { _ in continuation.resume() }
         }
         fixture.appLink.refresh(); fixture.keyboardLink.refresh()
-        try await waitFor({ fixture.model.settings.backgroundColorHex == "#D799BC" && fixture.preferences.settings.backgroundColorHex == "#D799BC" }, message: "The external appearance did not reach both models")
+        try await waitFor({ fixture.model.settings.keyColorHex == "#D799BC" && fixture.preferences.settings.keyColorHex == "#D799BC" }, message: "The external appearance did not reach both models")
         for defaults in [fixture.appDefaults, fixture.keyboardDefaults] {
             let saved = ClearKeyboard.SettingsStore(defaults: defaults).load()
             XCTAssertEqual(saved.language, .english); XCTAssertFalse(saved.learnChoices); XCTAssertFalse(saved.predictions)
@@ -303,13 +300,13 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
     func testActiveAppReloadRestoresLatestAppearanceWithoutPublishingOldDefaults() async throws {
         let fixture = try ReceiverAppearanceFixture(); defer { fixture.cleanUp() }
         try await prepare(fixture)
-        fixture.preferences.settings.backgroundColorHex = "#558DF2"
+        fixture.preferences.settings.keyColorHex = "#558DF2"
         try await synchronize(fixture)
         let writes = fixture.backend.counts.settings
         let store = ClearKeyboard.SettingsStore(defaults: fixture.appDefaults)
-        var stale = store.load(); stale.backgroundColorHex = nil; store.save(stale)
+        var stale = store.load(); stale.keyColorHex = nil; store.save(stale)
         fixture.preferences.reload()
-        try await waitFor({ fixture.preferences.settings.backgroundColorHex == "#558DF2" }, message: "An active App reload left the old defaults appearance visible")
+        try await waitFor({ fixture.preferences.settings.keyColorHex == "#558DF2" }, message: "An active App reload left the old defaults appearance visible")
         XCTAssertEqual(fixture.backend.counts.settings, writes, "A stale defaults observation must not become a new appearance revision")
     }
     func testLateFullAccessActivationReceivesAppearanceWithoutReloadingLiveCandidates() async throws {
@@ -319,7 +316,7 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         let composition = fixture.model.composition.raw, context = fixture.model.candidateContext
         let candidates = fixture.model.candidates
         let initial = ClearKeyboard.AppearanceSnapshot(settings: fixture.model.settings)
-        fixture.preferences.settings.backgroundColorHex = "#558DF2"
+        fixture.preferences.settings.keyColorHex = "#558DF2"
         await withCheckedContinuation { continuation in fixture.appClient.flush { continuation.resume() } }
         fixture.model.refreshAppearanceConnection()
         XCTAssertEqual(ClearKeyboard.AppearanceSnapshot(settings: fixture.model.settings), initial)

@@ -9,9 +9,7 @@ xcodebuild -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -derivedDataPath .build/Native -resultBundlePath .build/CandidateUIResults.xcresult \
   -destination-timeout 60 -parallel-testing-enabled NO \
   -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
-  -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceBackgroundGlass \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceKeyGlass \
-  -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceBackgroundColor \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceKeyColor \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceCandidateColor \
   -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceCandidateSize \

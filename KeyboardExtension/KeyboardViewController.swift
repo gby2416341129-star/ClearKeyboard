@@ -5,7 +5,6 @@ import os
 class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var model: KeyboardModel!
     private var surface: KeyboardSurface!
-    private let rootBackdrop = GlassBackdrop()
 #if DEBUG
     // Test evidence from the actual extension process, without exposing typed
     // content or replacing the root's accessible key hierarchy with a leaf.
@@ -64,22 +63,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let appearanceLink: AppearanceSettingsLink? = Bundle.main.bundleURL.pathExtension == "appex"
             ? .production(role: .keyboard) : nil
         model = KeyboardModel(document: self, appearanceLink: appearanceLink)
-        // Keep one backdrop inside the primary view. A chosen skin paints that
-        // whole owned area; do not fade its edges to simulate control over the
-        // external system cap and globe container.
-        // Keys retain their fixed pitch and bottom anchoring, including when
-        // the host temporarily allocates extra height. The system's external
-        // rounded cap and globe container remain outside our drawing bounds.
-        rootBackdrop.accessibilityIdentifier = "clear.keyboard.root-backdrop"
-        rootBackdrop.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(rootBackdrop)
-        NSLayoutConstraint.activate([
-            rootBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            rootBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            rootBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
-            rootBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-        surface = KeyboardSurface(model: model, systemBacked: true, backgroundBackdrop: rootBackdrop)
+        surface = KeyboardSurface(model: model, systemBacked: true)
         surface.configureGlobe = { [weak self] button in
             guard let self else { return }
             button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
@@ -266,7 +250,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let outcome: HostTextState.Reconciliation
         if read.connected && !actual.available && !actual.selected.isEmpty {
             hostState = HostTextState(actual); outcome = .externalEdit
-        } else if read.connected, !wasReadable, actual.available, actual.selected.isEmpty,
+        } else if read.connected, (!wasReadable || !hostState.snapshot.available), actual.available, actual.selected.isEmpty,
                   actual.document == hostState.snapshot.document, !markedDraft.isEmpty,
                   markedTransport == .local || actual.before.hasSuffix(markedDraft) {
             // Native fields can first expose their real surrounding text only
@@ -341,7 +325,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             guard revision == hostRefreshGeneration else { return false }
             let wasReadable = readableHostContext
             readableHostContext = actual.available
-            if !wasReadable, actual.available, actualSelected.isEmpty,
+            if (!wasReadable || !hostState.snapshot.available), actual.available, actualSelected.isEmpty,
                markedTransport == .local || (!markedDraft.isEmpty && actual.before.hasSuffix(markedDraft)) {
                 rebaseDraft(on: actual)
                 if markedTransport == .host {

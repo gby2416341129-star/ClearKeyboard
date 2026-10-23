@@ -2,13 +2,11 @@ import SwiftUI
 import UIKit
 
 enum AppearanceItem: String, CaseIterable, Identifiable {
-    case backgroundGlass, keyGlass, backgroundColor, keyColor, candidateColor, candidateSize
+    case keyGlass, keyColor, candidateColor, candidateSize
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .backgroundGlass: return "背景玻璃"
         case .keyGlass: return "按键玻璃"
-        case .backgroundColor: return "背景颜色"
         case .keyColor: return "按键颜色"
         case .candidateColor: return "候选文字颜色"
         case .candidateSize: return "候选文字大小"
@@ -16,9 +14,7 @@ enum AppearanceItem: String, CaseIterable, Identifiable {
     }
     var symbol: String {
         switch self {
-        case .backgroundGlass: return "square.on.square"
         case .keyGlass: return "keyboard"
-        case .backgroundColor: return "rectangle.inset.filled"
         case .keyColor: return "square.fill"
         case .candidateColor: return "a.circle"
         case .candidateSize: return "textformat.size"
@@ -26,7 +22,6 @@ enum AppearanceItem: String, CaseIterable, Identifiable {
     }
     var colorPath: WritableKeyPath<KeyboardSettings, String?>? {
         switch self {
-        case .backgroundColor: return \.backgroundColorHex
         case .keyColor: return \.keyColorHex
         case .candidateColor: return \.candidateColorHex
         default: return nil
@@ -70,10 +65,10 @@ struct AppearanceDetailContent: View {
         })
     }
     private var strength: Binding<Double> {
-        Binding(get: { item == .backgroundGlass ? value.resolvedBackgroundGlassStrength : value.resolvedKeyGlassStrength },
+        Binding(get: { value.resolvedKeyGlassStrength },
             set: {
                 if settings.glass == .solid { settings.glass = .clear }
-                if item == .backgroundGlass { settings.backgroundGlassStrength = $0 } else { settings.keyGlassStrength = $0 }
+                settings.keyGlassStrength = $0
             })
     }
     private var hexText: Binding<String> {
@@ -96,7 +91,6 @@ struct AppearanceDetailContent: View {
     }
     private var usesDefault: Bool {
         if let path = item.colorPath { return value[keyPath: path] == nil }
-        if item == .backgroundGlass { return value.backgroundGlassStrength == nil }
         if item == .keyGlass { return value.keyGlassStrength == nil }
         return value.candidateTextSize == nil
     }
@@ -116,7 +110,6 @@ struct AppearanceDetailContent: View {
     }
     private func reset() {
         if let path = item.colorPath { settings[keyPath: path] = nil }
-        else if item == .backgroundGlass { settings.backgroundGlassStrength = nil }
         else if item == .keyGlass { settings.keyGlassStrength = nil }
         else { settings.candidateTextSize = nil }
         hexDraft = nil; invalidHex = false; editingHex = false
@@ -143,7 +136,7 @@ struct AppearanceDetailContent: View {
                     .accessibilityValue(KeyboardAppearancePreview.accessibilityDescription(of: value))
                     .accessibilityIdentifier("preview." + item.rawValue)
                 VStack(alignment: .leading, spacing: 18) {
-                    if item == .backgroundGlass || item == .keyGlass {
+                    if item == .keyGlass {
                         HStack { Text("强度"); Spacer(); Text(strength.wrappedValue, format: .percent.precision(.fractionLength(0))).monospacedDigit().foregroundStyle(.secondary) }
                         Slider(value: strength, in: 0...1).accessibilityIdentifier("appearance.strength." + item.rawValue)
                     } else if item == .candidateSize {

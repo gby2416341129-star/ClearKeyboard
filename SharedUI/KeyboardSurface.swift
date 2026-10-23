@@ -7,8 +7,7 @@ import SwiftUI
     let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
     var configureGlobe: ((UIButton) -> Void)? { didSet { layoutSignature = ""; render() } }
-    private let backdrop: GlassBackdrop
-    private let ownsBackdrop: Bool
+    private let nativeBase: UIVisualEffectView?
     private let toolbar = UIStackView()
     private let toolbarScroll = UIScrollView()
     private let toolbarShortcuts = UIStackView()
@@ -70,12 +69,12 @@ import SwiftUI
     private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
     var desiredHeight: CGFloat { metrics.contentHeight }
 
-    init(model: KeyboardModel, systemBacked: Bool = false, backgroundBackdrop: GlassBackdrop? = nil) {
+    init(model: KeyboardModel, systemBacked: Bool = false) {
         self.model = model; self.systemBacked = systemBacked
-        backdrop = backgroundBackdrop ?? GlassBackdrop(); ownsBackdrop = backgroundBackdrop == nil
+        nativeBase = systemBacked ? nil : UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked
-        if ownsBackdrop { addSubview(backdrop) }
+        if let nativeBase { nativeBase.isUserInteractionEnabled = false; addSubview(nativeBase) }
         layer.cornerCurve = .continuous; layer.cornerRadius = systemBacked ? 0 : 28
         // Remote hosts may advertise a much larger corner radius; never inherit it.
         if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28)) }
@@ -188,7 +187,7 @@ import SwiftUI
             trailingInset: safeAreaInsets.right, fitHeight: !systemBacked)
         if keyFramesNeedLayout || geometryPresentation != geometry {
             geometryPresentation = geometry; keyFramesNeedLayout = false
-            if ownsBackdrop { backdrop.frame = bounds }
+            nativeBase?.frame = bounds
             toolbar.frame = layout.header
             keyGlassGroup.frame = layout.keys
             keyMaterial.frame = keyGlassGroup.bounds
@@ -265,10 +264,10 @@ import SwiftUI
         let toolSignature = "\(settings.toolbar)-\(toolbarEditing)-\(toolboxVisible)-\(panelKind?.rawValue ?? "")"
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
-        let style = "\(settings.glass)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedBackgroundGlassStrength)-\(String(describing: settings.backgroundGlassStrength))-\(settings.resolvedKeyGlassStrength)-\(settings.backgroundColorHex ?? "")-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.haptics)-\(traitCollection.userInterfaceStyle.rawValue)"
+        let style = "\(settings.glass)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.haptics)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
-            appearanceSignature = style; backdrop.apply(settings, systemBacked: systemBacked); tintColor = settings.accentInkColor
+            appearanceSignature = style; tintColor = settings.accentInkColor
             keyMaterial.apply(settings)
         }
         let presentation = KeyPresentation(uppercase: uppercase, chinese: settings.language == .chinese,

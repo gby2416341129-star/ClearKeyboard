@@ -394,7 +394,7 @@ import os
     private let plate = UIView()
     private let label = UILabel()
     private var transitionDeadline: CFTimeInterval = 0
-    private static let transitionDuration: CFTimeInterval = 0.16
+    private static let transitionDuration: CFTimeInterval = 0.18
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(plate); addSubview(label)
@@ -457,7 +457,9 @@ import os
         transitionDeadline = now + duration
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.preferredFrameRateRange = rate
-        fade.fromValue = oldText?.isEmpty == false ? 0.92 : 0.82
+        // Replacing readable words must not dim them on every result. Only
+        // the first appearance has a very slight opacity settle.
+        fade.fromValue = firstAppearance ? 0.96 : 1
         fade.toValue = 1; fade.duration = duration
         fade.beginTime = label.layer.convertTime(now, from: nil)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -467,10 +469,9 @@ import os
         // a pooled label's lifetime. Scrolling or new results never opt in.
         if firstAppearance {
             let spring = CASpringAnimation(keyPath: "transform.translation.y")
-            // This physical response peaks just 0.22pt above rest, then is
-            // within 0.002pt of rest at 160ms. Do not use settlingDuration here:
+            // A single small rebound settles below 0.002pt by 180ms. Do not use settlingDuration here:
             // extending its clock would stretch a fast typing burst.
-            spring.mass = 1; spring.stiffness = 6_400; spring.damping = 92.8
+            spring.mass = 1; spring.stiffness = 6_400; spring.damping = 88
             spring.initialVelocity = 0
             spring.timingFunction = CAMediaTimingFunction(name: .linear)
             settle = spring

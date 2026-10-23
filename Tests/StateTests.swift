@@ -84,10 +84,10 @@ final class StateTests: XCTestCase {
         XCTAssertEqual(EnglishContext.applyingCase("hello", like: "Hel"), "Hello")
     }
     func testSettingsSanitize() {
-        var settings = KeyboardSettings(); settings.keyHeight = 100; settings.glassOpacity = -2
+        var settings = KeyboardSettings(); settings.keyHeight = 100; settings.keyGlassStrength = -2
         settings.toolbar = [.clipboard, .clipboard]; settings.fuzzyPairs = ["unknown", "z/zh"]
         settings.sanitize()
-        XCTAssertEqual(settings.keyHeight, 58); XCTAssertEqual(settings.glassOpacity, 0.15)
+        XCTAssertEqual(settings.keyHeight, 58); XCTAssertEqual(settings.keyGlassStrength, 0)
         XCTAssertEqual(settings.toolbar, [.language, .clipboard]); XCTAssertEqual(settings.fuzzyPairs, ["z/zh"])
     }
     func testToolbarKeepsEverySelectedShortcutAndOnlyRemovesDuplicates() throws {
