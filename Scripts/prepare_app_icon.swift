@@ -33,6 +33,7 @@ import CryptoKit
         write(legacy,to: root.appendingPathComponent("App/Assets.xcassets/AppIcon.appiconset/AppIcon.png"))
         write(legacy,to: review.appendingPathComponent("legacy-no-white-backplate.png"))
         let foreground = try Data(contentsOf: assets.appendingPathComponent("BrandMark.png"))
+        // Match the explicit native dark fill: a missing fill produced a white desktop plate in Light mode.
         let report: [String:Any] = ["sourceCommit":ProcessInfo.processInfo.environment["GITHUB_SHA"] ?? "local", "sourceSHA256":SHA256.hash(data: try Data(contentsOf: original)).map { String(format:"%02x",$0) }.joined(), "foregroundSHA256":SHA256.hash(data: foreground).map { String(format:"%02x",$0) }.joined(), "materialRecipe":"SharedUI/BrandMaterial.swift", "backgroundFill":"#121217", "extraSpecular":false, "legacyBackground":"#121217", "sourceDimensions":[bitmap.width,bitmap.height]]
         try JSONSerialization.data(withJSONObject: report,options: [.prettyPrinted,.sortedKeys]).write(to: review.appendingPathComponent("icon-source.json"))
         print("APP_ICON_PREPARED transparentForeground=true whiteBackplate=false sharedRuntimeRecipe=true")
