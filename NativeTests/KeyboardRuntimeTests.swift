@@ -810,10 +810,34 @@ import SwiftUI
             } }
             return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX + 1), height: CGFloat(maxY - minY + 1))
         }
-        let bounds = try ["doc.on.clipboard.fill", "face.smiling.fill", "paintpalette.fill"].map { try alphaBounds(ToolArtwork.image(symbol: $0, size: 32)) }
-        let widths = bounds.map(\.width), heights = bounds.map(\.height)
-        XCTAssertLessThan(widths.max()! / widths.min()!, 1.12)
-        XCTAssertLessThan(heights.max()! / heights.min()!, 1.12)
+        let symbols = ["character.bubble.fill", "doc.on.clipboard.fill", "face.smiling.fill", "keyboard.fill", "paintpalette.fill", "rectangle.3.group.fill", "desktopcomputer", "key.glass", "key.color", "candidate.color", "candidate.size"]
+        // Match the shared keyline, not both dimensions: a clipboard must
+        // retain its portrait silhouette instead of being padded with a disk.
+        for size in [CGFloat(20), 28, 32] {
+            let bounds = try symbols.map { try alphaBounds(ToolArtwork.image(symbol: $0,size: size,scale: 3)) }
+            let sides = bounds.map { max($0.width,$0.height) }
+            XCTAssertLessThan(sides.max()! / sides.min()!, 1.16)
+            for rect in bounds {
+                XCTAssertGreaterThanOrEqual(max(rect.width,rect.height),size*3*0.68)
+                XCTAssertLessThanOrEqual(max(rect.width,rect.height),size*3*0.93)
+                XCTAssertLessThan(abs(rect.midX-size*1.5),size*0.12)
+                XCTAssertLessThan(abs(rect.midY-size*1.5),size*0.12)
+            }
+        }
+        let names = ["语言", "剪贴板", "表情", "单手", "外观", "工具栏", "兼容输入", "按键玻璃", "按键颜色", "文字颜色", "文字大小"]
+        let format = UIGraphicsImageRendererFormat(); format.scale = 3
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 420,height: 352),format: format).image { _ in
+            for (theme,background) in [UIColor(red: 0.96,green: 0.96,blue: 0.98,alpha: 1),UIColor(white: 0.085,alpha: 1)].enumerated() {
+                background.setFill(); UIRectFill(CGRect(x: 0,y: CGFloat(theme*176),width: 420,height: 176))
+                for index in symbols.indices {
+                    let x = CGFloat(index%6)*70, y = CGFloat(theme*176+(index/6)*84)
+                    ToolArtwork.image(symbol: symbols[index],size: 32).draw(in: CGRect(x: x+19,y: y+12,width: 32,height: 32))
+                    (names[index] as NSString).draw(in: CGRect(x: x+2,y: y+53,width: 66,height: 20),withAttributes: [.font:UIFont.systemFont(ofSize: 11),.foregroundColor:theme == 0 ? UIColor(white: 0.12,alpha: 1) : UIColor.white])
+                }
+            }
+        }
+        let attachment = XCTAttachment(image: image); attachment.name = "Glass56-icon-keyline-review"
+        attachment.lifetime = .keepAlways; add(attachment)
     }
 
     func testSelectedAbbreviationIsRememberedBeforeTheNextDecoderQuery() async throws {

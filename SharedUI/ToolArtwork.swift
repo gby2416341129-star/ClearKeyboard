@@ -1,8 +1,47 @@
 import UIKit
+import SwiftUI
 
-/// A consistent optical grid and distinct silhouettes, cached at display scale.
+/// The symbol itself is the glass object. No enclosing badge or common disk.
 @MainActor enum ToolArtwork {
     private static var cache: [String: UIImage] = [:]
+    private static func descriptor(_ symbol: String) -> (String,CGFloat) {
+        switch symbol {
+        case "character.bubble.fill": return ("character.bubble.fill",0.65)
+        case "doc.on.clipboard.fill", "doc.on.clipboard": return ("list.clipboard.fill",0.57)
+        case "face.smiling.fill": return ("face.smiling.fill",0.105)
+        case "keyboard.fill": return ("hand.point.up.left.fill",0.62)
+        case "paintpalette.fill": return ("paintpalette.fill",0.80)
+        case "rectangle.3.group.fill", "rectangle.3.group": return ("square.grid.2x2.fill",0.68)
+        case "desktopcomputer": return ("desktopcomputer",0.56)
+        case "key.glass": return ("keyboard.fill",0.60)
+        case "key.color": return ("square.on.square.fill",0.70)
+        case "candidate.color": return ("character",0.77)
+        case "candidate.size": return ("textformat.size",0.63)
+        case "clear.mark": return ("water.waves",0.60)
+        default: return (symbol,0.64)
+        }
+    }
+    static func tint(_ symbol: String) -> UIColor {
+        UIColor(hue: descriptor(symbol).1,saturation: 0.56,brightness: 0.88,alpha: 1)
+    }
+    static func stencil(_ symbol: String,scale: CGFloat = 3) -> UIImage {
+        let key = "mask:\(symbol):\(scale)"
+        if let image = cache[key] { return image }
+        let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { _ in
+            let config = UIImage.SymbolConfiguration(pointSize: 26,weight: .semibold)
+            guard let icon = UIImage(systemName: descriptor(symbol).0,withConfiguration: config)?.withTintColor(.white,renderingMode: .alwaysOriginal) else { return }
+            let side: CGFloat = symbol == "candidate.color" ? 22 : 26
+            let ratio = min(side/icon.size.width,side/icon.size.height)
+            let width = icon.size.width*ratio, height = icon.size.height*ratio
+            let y: CGFloat = symbol == "candidate.color" ? 13.5 : 16
+            icon.draw(in: CGRect(x: 16-width/2,y: y-height/2,width: width,height: height))
+            if symbol == "candidate.color" {
+                UIColor.white.setFill(); UIBezierPath(roundedRect: CGRect(x: 5,y: 28,width: 22,height: 2),cornerRadius: 1).fill()
+            }
+        }
+        cache[key] = image; return image
+    }
     static func brand(size: CGFloat = 28) -> UIImage {
         let key = "brand:\(size)"
         if let image = cache[key] { return image }
@@ -19,63 +58,91 @@ import UIKit
     static func image(symbol: String, size: CGFloat = 28, scale: CGFloat? = nil) -> UIImage {
         let scale = scale ?? UIScreen.main.scale
         let key = "\(symbol):\(size):\(scale)"
-        if let value = cache[key] { return value }
-        let glyph: String, hue: CGFloat
-        switch symbol {
-        case "character.bubble.fill": glyph = "character.bubble.fill"; hue = 0.66
-        case "doc.on.clipboard.fill", "doc.on.clipboard": glyph = "list.clipboard.fill"; hue = 0.57
-        case "face.smiling.fill": glyph = "face.smiling.fill"; hue = 0.10
-        case "keyboard.fill": glyph = "hand.point.up.left.fill"; hue = 0.62
-        case "paintpalette.fill": glyph = "paintpalette.fill"; hue = 0.84
-        case "rectangle.3.group.fill", "rectangle.3.group": glyph = "square.grid.2x2.fill"; hue = 0.70
-        case "desktopcomputer": glyph = "desktopcomputer"; hue = 0.55
-        case "clear.mark": glyph = "water.waves"; hue = 0.60
-        default: glyph = symbol; hue = 0.64
-        }
+        if let image = cache[key] { return image }
+        let hue = descriptor(symbol).1
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
-        let value = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { renderer in
-            let c = renderer.cgContext; c.scaleBy(x: size/32, y: size/32)
-            // A common circular lens gives portrait and round symbols the
-            // same optical footprint without stretching their meaning.
-            let bead = UIBezierPath(ovalIn: CGRect(x: 3, y: 3, width: 26, height: 26))
-            c.saveGState()
-            c.setShadow(offset: CGSize(width: 0, height: 0.75), blur: 0.8, color: UIColor.black.withAlphaComponent(0.16).cgColor)
-            UIColor(hue: hue, saturation: 0.25, brightness: 0.72, alpha: 0.8).setFill(); bead.fill()
-            c.restoreGState(); c.saveGState(); bead.addClip()
-            let lensColors = [UIColor(hue: hue, saturation: 0.04, brightness: 1, alpha: 1).cgColor,
-                              UIColor(hue: hue, saturation: 0.20, brightness: 0.94, alpha: 1).cgColor,
-                              UIColor(hue: hue, saturation: 0.37, brightness: 0.77, alpha: 1).cgColor]
-            if let lens = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: lensColors as CFArray, locations: [0,0.48,1]) {
-                c.drawLinearGradient(lens, start: CGPoint(x: 10,y: 3), end: CGPoint(x: 24,y: 30), options: [])
+        let mask = stencil(symbol,scale: scale)
+        let value = UIGraphicsImageRenderer(size: CGSize(width: size,height: size),format: format).image { renderer in
+            let c = renderer.cgContext; c.scaleBy(x: size/32,y: size/32)
+            guard let bitmap = mask.cgImage else { return }
+            c.saveGState(); c.translateBy(x: 0,y: 32); c.scaleBy(x: 1,y: -1)
+            c.clip(to: CGRect(x: 0,y: 0,width: 32,height: 32),mask: bitmap)
+            let colors = [UIColor(hue: hue,saturation: 0.56,brightness: 0.76,alpha: 0.96).cgColor,
+                          UIColor(hue: hue,saturation: 0.40,brightness: 0.96,alpha: 0.88).cgColor]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: colors as CFArray,locations: [0,1]) {
+                c.drawLinearGradient(gradient,start: CGPoint(x: 16,y: 0),end: CGPoint(x: 16,y: 32),options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
             }
-            UIColor.white.withAlphaComponent(0.44).setFill()
-            UIBezierPath(ovalIn: CGRect(x: 5, y: 3.5, width: 22, height: 12)).fill()
             c.restoreGState()
-            UIColor.white.withAlphaComponent(0.68).setStroke(); bead.lineWidth = 0.6; bead.stroke()
-            let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .semibold)
-            if let icon = UIImage(systemName: glyph, withConfiguration: config)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
-                let ratio = min(18.5/icon.size.width, 18.5/icon.size.height)
-                let width = icon.size.width*ratio, height = icon.size.height*ratio
-                let rect = CGRect(x: 16-width/2, y: 16-height/2, width: width,height: height)
-                // Functional silhouettes retain their native proportions.
-                c.saveGState(); c.setShadow(offset: CGSize(width: 0,height: 1), blur: 1, color: UIColor.black.withAlphaComponent(0.20).cgColor)
-                icon.withTintColor(UIColor(hue: hue,saturation: 0.5,brightness: 0.78,alpha: 1)).draw(in: rect.offsetBy(dx: 0,dy: 0.7)); c.restoreGState()
-                let maskFormat = UIGraphicsImageRendererFormat(); maskFormat.scale = scale
-                let mask = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32), format: maskFormat).image { _ in icon.draw(in: rect) }
-                if let bitmap = mask.cgImage {
-                    c.saveGState(); c.translateBy(x: 0,y: 32); c.scaleBy(x: 1,y: -1)
-                    c.clip(to: CGRect(x: 0,y: 0,width: 32,height: 32),mask: bitmap)
-                    let colors = [UIColor(hue: hue,saturation: 0.58,brightness: 0.84,alpha: 1).cgColor,
-                                  UIColor(hue: hue,saturation: 0.20,brightness: 1,alpha: 1).cgColor]
-                    if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: colors as CFArray,locations: [0,1]) {
-                        c.drawLinearGradient(gradient,start: CGPoint(x: 27,y: 2),end: CGPoint(x: 7,y: 31),options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
-                    }
-                    UIColor.white.withAlphaComponent(0.30).setFill()
-                    UIBezierPath(ovalIn: CGRect(x: -4,y: 19,width: 40,height: 22)).fill()
-                    c.restoreGState()
-                }
-            }
         }
         cache[key] = value; return value
+    }
+}
+
+/// Live system material is clipped to the functional shape itself. The small
+/// colored face preserves legibility; no photographed highlights or badge surround it.
+@MainActor final class ToolIconView: UIView {
+    private let lens = UIVisualEffectView(effect: nil)
+    private let shape = UIImageView()
+    private let ink = UIImageView()
+    private var symbol = ""
+    init(symbol: String) {
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false; isAccessibilityElement = false
+        addSubview(lens); addSubview(ink); lens.mask = shape
+        setSymbol(symbol)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    func setSymbol(_ value: String) {
+        guard symbol != value else { return }; symbol = value
+        shape.image = ToolArtwork.stencil(value)
+        ink.image = ToolArtwork.image(symbol: value,size: 32)
+        configureMaterial()
+    }
+    private func configureMaterial() {
+        if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled {
+            let effect = UIGlassEffect(style: .clear)
+            effect.tintColor = ToolArtwork.tint(symbol).withAlphaComponent(0.30)
+            lens.effect = effect; lens.isHidden = false; ink.alpha = 0.78
+        } else { lens.effect = nil; lens.isHidden = true; ink.alpha = 1 }
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews(); lens.frame = bounds; shape.frame = lens.bounds; ink.frame = bounds
+    }
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection); configureMaterial()
+    }
+}
+
+struct ToolIcon: UIViewRepresentable {
+    let symbol: String
+    func makeUIView(context: Context) -> ToolIconView { ToolIconView(symbol: symbol) }
+    func updateUIView(_ view: ToolIconView,context: Context) { view.setSymbol(symbol) }
+}
+
+/// Compact rectangular controls, with separate readable artwork and thin clear glass.
+@MainActor final class ToolTileButton: UIButton {
+    private let lens = LiquidGlassView(radius: 16, keycap: true, clear: true)
+    private let artwork: ToolIconView
+    private let caption = UILabel()
+    init(title: String, symbol: String, action: @escaping () -> Void) {
+        artwork = ToolIconView(symbol: symbol)
+        super.init(frame: .zero)
+        addSubview(lens); addSubview(artwork); addSubview(caption)
+        caption.text = title; caption.textColor = .label; caption.font = .systemFont(ofSize: 12,weight: .medium)
+        caption.textAlignment = .center; caption.adjustsFontSizeToFitWidth = true; caption.minimumScaleFactor = 0.9
+        for view in [artwork,caption] { view.isUserInteractionEnabled = false }
+        isAccessibilityElement = true; accessibilityLabel = title
+        addAction(UIAction { _ in action() }, for: .touchUpInside)
+        lens.configure(tint: nil,strength: 0.25,fallback: .secondarySystemBackground)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        lens.frame = bounds
+        artwork.frame = CGRect(x: bounds.midX-16,y: 8,width: 32,height: 32)
+        caption.frame = CGRect(x: 5,y: 46,width: max(0,bounds.width-10),height: 16)
+    }
+    override var isHighlighted: Bool {
+        didSet { lens.alpha = isHighlighted ? 0.72 : 1 }
     }
 }

@@ -58,7 +58,7 @@ struct AppRow: View {
     var color: UIColor? = nil
     var body: some View {
         HStack(spacing: 13) {
-            Image(uiImage: ToolArtwork.image(symbol: symbol, size: 28)).renderingMode(.original)
+            ToolIcon(symbol: symbol)
                 .frame(width: 32, height: 34)
             Text(title).font(.system(size: 16)).foregroundStyle(.primary)
             Spacer(minLength: 6)

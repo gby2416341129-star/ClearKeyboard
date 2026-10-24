@@ -378,16 +378,18 @@ import SwiftUI
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
         if #available(iOS 26.0, *), navigationIcon { config = .glass() }
         if let image { config.image = image }
-        else if let symbol {
-            config.image = navigationIcon
-                ? UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
-                : ToolArtwork.image(symbol: symbol, size: 28)
+        else if let symbol, navigationIcon {
+            config.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
         }
         config.baseForegroundColor = .secondaryLabel
         if #unavailable(iOS 26.0) { config.background.backgroundColor = navigationIcon ? .secondarySystemFill : .clear }
         config.background.cornerRadius = navigationIcon ? 17 : 0
         config.contentInsets = .zero
         button.configuration = config; button.accessibilityLabel = label
+        if let symbol, !navigationIcon, image == nil {
+            let icon = ToolIconView(symbol: symbol); icon.translatesAutoresizingMaskIntoConstraints = false; button.addSubview(icon)
+            NSLayoutConstraint.activate([icon.centerXAnchor.constraint(equalTo: button.centerXAnchor),icon.centerYAnchor.constraint(equalTo: button.centerYAnchor),icon.widthAnchor.constraint(equalToConstant: 28),icon.heightAnchor.constraint(equalToConstant: 28)])
+        }
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
         button.heightAnchor.constraint(equalToConstant: 34).isActive = true
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
@@ -698,16 +700,9 @@ import SwiftUI
             for offset in 0..<3 {
                 guard start + offset < items.count else { row.addArrangedSubview(UIView()); continue }
                 let (title, symbol, action) = items[start + offset]
-                var config = UIButton.Configuration.plain()
-                if #available(iOS 26.0, *) { config = .glass() }
-                config.title = title; config.image = ToolArtwork.image(symbol: symbol, size: 28)
-                config.imagePlacement = .top; config.imagePadding = 10; config.baseForegroundColor = .label
-                config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 4, bottom: 12, trailing: 4)
-                config.background.cornerRadius = 18
-                config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 12, weight: .medium); return result }
-                let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+                let button = ToolTileButton(title: title, symbol: symbol, action: action)
                 button.accessibilityIdentifier = identifiers[title]
-                button.heightAnchor.constraint(equalToConstant: 84).isActive = true; row.addArrangedSubview(button)
+                button.heightAnchor.constraint(equalToConstant: 70).isActive = true; row.addArrangedSubview(button)
             }
             stack.addArrangedSubview(row)
         }

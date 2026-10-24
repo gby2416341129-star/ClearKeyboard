@@ -8,25 +8,24 @@ final class LiquidGlassView: UIVisualEffectView {
     private let radius: CGFloat
     private let tintFilm = UIView()
     private let keycap: Bool
+    private let clear: Bool
     private let glint = CAGradientLayer()
     private let rim = CAGradientLayer()
     private let rimMask = CAShapeLayer()
-    private let refraction = CAGradientLayer()
     private var signature = ""
-    init(radius: CGFloat, keycap: Bool = false) {
-        self.radius = radius; self.keycap = keycap
+    init(radius: CGFloat, keycap: Bool = false, clear: Bool = false) {
+        self.radius = radius; self.keycap = keycap; self.clear = clear
         super.init(effect: nil)
         isUserInteractionEnabled = false
         layer.cornerRadius = radius; layer.cornerCurve = .continuous; clipsToBounds = true
         contentView.addSubview(tintFilm); tintFilm.isUserInteractionEnabled = false
         if keycap {
-            for light in [glint, refraction, rim] { contentView.layer.addSublayer(light) }
+            for light in [glint, rim] { contentView.layer.addSublayer(light) }
             glint.startPoint = CGPoint(x: 0, y: 0); glint.endPoint = CGPoint(x: 0.85, y: 1)
             glint.locations = [0, 0.23, 0.50, 0.85, 1]
             rim.startPoint = .zero; rim.endPoint = CGPoint(x: 0.75, y: 1)
             rim.locations = [0, 0.20, 0.55, 0.83, 1]; rim.mask = rimMask
             rimMask.fillColor = UIColor.clear.cgColor; rimMask.strokeColor = UIColor.white.cgColor; rimMask.lineWidth = 0.75
-            refraction.locations = [0, 0.35, 0.70, 1]
         }
         configure(tint: nil, strength: 0.55, fallback: .secondarySystemBackground)
     }
@@ -39,7 +38,6 @@ final class LiquidGlassView: UIVisualEffectView {
         if keycap, glint.frame != rect {
             glint.frame = rect; rim.frame = rect; rimMask.frame = rect
             rimMask.path = rect.width > 1 && rect.height > 1 ? UIBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: max(0, radius - 0.5)).cgPath : nil
-            refraction.frame = CGRect(x: 0, y: max(0, rect.height - 5), width: rect.width, height: min(5, rect.height))
         }
         CATransaction.commit()
     }
@@ -51,7 +49,7 @@ final class LiquidGlassView: UIVisualEffectView {
             CATransaction.begin(); CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
             if keycap {
-                glint.isHidden = reduced; rim.isHidden = reduced; refraction.isHidden = reduced
+                glint.isHidden = reduced; rim.isHidden = reduced
                 let light = CGFloat(0.5 + strength * 0.5)
                 glint.colors = [UIColor.white.withAlphaComponent(0.24 * light).cgColor,
                                 UIColor.white.withAlphaComponent(0.09 * light).cgColor,
@@ -63,22 +61,18 @@ final class LiquidGlassView: UIVisualEffectView {
                               UIColor.white.withAlphaComponent(0.035).cgColor,
                               UIColor.white.withAlphaComponent(0.10 * light).cgColor,
                               UIColor.white.withAlphaComponent(0.34 * light).cgColor]
-                refraction.colors = [UIColor.clear.cgColor,
-                                     UIColor.black.withAlphaComponent(0.06 * light).cgColor,
-                                     UIColor.white.withAlphaComponent(0.10 * light).cgColor,
-                                     UIColor(red: 0.70, green: 0.82, blue: 1, alpha: 0.16 * light).cgColor]
             }
             if reduced {
                 effect = nil; backgroundColor = fallback; tintFilm.backgroundColor = .clear
             } else if #available(iOS 26.0, *) {
-                let glass = UIGlassEffect(style: .regular)
+                let glass = UIGlassEffect(style: clear ? .clear : .regular)
                 glass.isInteractive = true
                 glass.tintColor = tint?.withAlphaComponent(0.30 + strength * 0.45)
                 effect = glass; backgroundColor = .clear
                 cornerConfiguration = .corners(radius: .fixed(radius))
                 // Keep custom key colors legible and make this independent
                 // control's transmission adjustable without a shared sheet.
-                tintFilm.backgroundColor = (tint ?? .white).withAlphaComponent(tint == nil ? 0.02 + strength * 0.10 : 0.30 + strength * 0.45)
+                tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(tint == nil ? 0.02 + strength * 0.10 : 0.30 + strength * 0.45)
             } else {
                 effect = UIBlurEffect(style: .systemThinMaterial); backgroundColor = .clear
                 tintFilm.backgroundColor = (tint ?? .white).withAlphaComponent(0.08 + strength * 0.25)

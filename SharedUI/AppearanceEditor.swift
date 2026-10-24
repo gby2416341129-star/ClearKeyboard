@@ -14,10 +14,10 @@ enum AppearanceItem: String, CaseIterable, Identifiable {
     }
     var symbol: String {
         switch self {
-        case .keyGlass: return "keyboard"
-        case .keyColor: return "square.fill"
-        case .candidateColor: return "a.circle"
-        case .candidateSize: return "textformat.size"
+        case .keyGlass: return "key.glass"
+        case .keyColor: return "key.color"
+        case .candidateColor: return "candidate.color"
+        case .candidateSize: return "candidate.size"
         }
     }
     var colorPath: WritableKeyPath<KeyboardSettings, String?>? {
@@ -219,7 +219,7 @@ struct KeyboardAppearancePanel: View {
                         ForEach(AppearanceItem.allCases) { item in
                             Button { selected = item } label: {
                                 HStack(spacing: 12) {
-                                    Image(uiImage: ToolArtwork.image(symbol: item.symbol, size: 26)).renderingMode(.original).frame(width: 28)
+                                    ToolIcon(symbol: item.symbol).frame(width: 28,height: 28)
                                     Text(item.title); Spacer(); Image(systemName: "chevron.right").font(.caption)
                                 }.font(.subheadline).foregroundStyle(.primary).padding(13)
                                     .modifier(LiquidCard(radius: 18, interactive: true))

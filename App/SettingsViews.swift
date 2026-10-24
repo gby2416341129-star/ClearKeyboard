@@ -82,7 +82,7 @@ private struct ToolbarEditorView: View {
             List {
                 Section("按住右侧拖动排序") {
                     ForEach(preferences.settings.toolbar) { item in
-                        Label { Text(item.title) } icon: { Image(uiImage: ToolArtwork.image(symbol: item.symbol, size: 26)).renderingMode(.original) }
+                        Label { Text(item.title) } icon: { ToolIcon(symbol: item.symbol).frame(width: 28,height: 28) }
                             .deleteDisabled(item == .language)
                     }.onMove { preferences.settings.toolbar.move(fromOffsets: $0, toOffset: $1) }
                         .onDelete { offsets in
