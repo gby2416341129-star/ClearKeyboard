@@ -103,11 +103,10 @@ extension KeyboardSettings {
     var keyTintColor: UIColor? { Self.color(hex: keyColorHex) }
     var candidateTintColor: UIColor? { Self.color(hex: candidateColorHex) }
     func keyFaceOpacity(dark: Bool, utility: Bool) -> Double {
-        // Color and optical strength are independent controls. A low glass
-        // strength must not reduce a chosen key color to a nearly invisible tint.
-        if keyColorHex != nil { return utility ? 0.70 : 0.78 }
-        let base = dark ? 0.20 : 0.62
-        return min(0.92, 0.06 + base * resolvedKeyGlassStrength) * (utility ? 0.72 : 1)
+        // Match the single color film used by the native key lens so contrast
+        // is evaluated against its displayed face, without compounded tint.
+        if keyColorHex != nil { return 0.54 + 0.14 * resolvedKeyGlassStrength - (utility ? 0.04 : 0) }
+        return 0.02 + 0.035 * resolvedKeyGlassStrength
     }
     var keyInkColor: UIColor { keyInkColor(utility: false) }
     func keyInkColor(utility: Bool) -> UIColor {

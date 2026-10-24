@@ -20,7 +20,7 @@ import SwiftUI
     private let keyGlassGroup = UIView()
     private let characterButton = UIButton(type: .system)
     private let clipboardSuggestion = UIStackView()
-    private let clipboardGlass = LiquidGlassView(radius: 18)
+    private let clipboardGlass = LiquidGlassView(radius: 18, clear: true)
     private let clipboardPaste = UIButton(type: .system)
     private var recentClip: Clip?
     private var dismissedClip: UUID?
@@ -341,7 +341,14 @@ import SwiftUI
         guard base.width > 0 else { return }
         var header = base.insetBy(dx: -4, dy: 0); header.size.height = candidateHeight
         characterButton.frame = CGRect(x: header.maxX - 37, y: header.minY + 6, width: 34, height: 32)
-        clipboardSuggestion.frame = base.insetBy(dx: 3, dy: 5)
+        let topFaces = keys.compactMap { entry -> CGRect? in
+            let (button, row, _, _) = entry
+            guard row == 0 else { return nil }
+            let face = KeyboardGeometry.keyPlate(in: button.bounds, action: button.key.action, units: button.key.units)
+            return button.convert(face, to: self)
+        }
+        let span = topFaces.reduce(CGRect.null) { $0.union($1) }
+        clipboardSuggestion.frame = span.isNull ? base : CGRect(x: span.minX, y: base.minY, width: span.width, height: base.height)
         if model.settings.language == .chinese, !model.composition.isEmpty {
             header.size.width = max(0, header.width - 41)
         }
@@ -589,24 +596,25 @@ import SwiftUI
         UIAccessibility.post(notification: .announcement, argument: text)
     }
     private func configureClipboardSuggestion() {
-        clipboardSuggestion.axis = .horizontal; clipboardSuggestion.spacing = 8; clipboardSuggestion.alignment = .fill
+        clipboardSuggestion.axis = .horizontal; clipboardSuggestion.spacing = 4; clipboardSuggestion.alignment = .fill
         clipboardSuggestion.accessibilityIdentifier = "clipboard.recent"
         clipboardSuggestion.isLayoutMarginsRelativeArrangement = true
-        clipboardSuggestion.layoutMargins = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 4)
+        clipboardSuggestion.layoutMargins = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 8)
         clipboardGlass.translatesAutoresizingMaskIntoConstraints = false
+        clipboardGlass.accessibilityIdentifier = "clipboard.recent.material"
         clipboardSuggestion.insertSubview(clipboardGlass, at: 0)
         NSLayoutConstraint.activate([
             clipboardGlass.leadingAnchor.constraint(equalTo: clipboardSuggestion.leadingAnchor),
             clipboardGlass.trailingAnchor.constraint(equalTo: clipboardSuggestion.trailingAnchor),
-            clipboardGlass.topAnchor.constraint(equalTo: clipboardSuggestion.topAnchor, constant: 3),
-            clipboardGlass.bottomAnchor.constraint(equalTo: clipboardSuggestion.bottomAnchor, constant: -3)
+            clipboardGlass.topAnchor.constraint(equalTo: clipboardSuggestion.topAnchor, constant: 2),
+            clipboardGlass.bottomAnchor.constraint(equalTo: clipboardSuggestion.bottomAnchor, constant: -2)
         ])
         var config = UIButton.Configuration.plain()
-        config.image = ToolArtwork.image(symbol: "doc.on.clipboard.fill", size: 23)
-        config.imagePadding = 9; config.contentInsets = .zero; config.baseForegroundColor = .label
+        config.image = ToolArtwork.image(symbol: "doc.on.clipboard.fill", size: 24)
+        config.imagePadding = 10; config.contentInsets = .zero; config.baseForegroundColor = .label
         config.titleLineBreakMode = .byTruncatingTail
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in
-            var next = values; next.font = .systemFont(ofSize: 14, weight: .medium); return next
+            var next = values; next.font = .systemFont(ofSize: 15, weight: .medium); return next
         }
         clipboardPaste.configuration = config; clipboardPaste.contentHorizontalAlignment = .leading
         clipboardPaste.accessibilityIdentifier = "clipboard.recent.paste"
@@ -615,17 +623,17 @@ import SwiftUI
         clipboardPaste.addAction(UIAction { [weak self] _ in self?.pasteRecentClip() }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(clipboardPaste)
         let expand = UIButton(type: .system)
-        expand.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)), for: .normal)
-        expand.tintColor = .secondaryLabel; expand.accessibilityLabel = "打开剪贴板历史"
+        expand.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)), for: .normal)
+        expand.tintColor = .label; expand.accessibilityLabel = "打开剪贴板历史"
         expand.accessibilityIdentifier = "clipboard.recent.history"
-        expand.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        expand.widthAnchor.constraint(equalToConstant: 36).isActive = true
         expand.addAction(UIAction { [weak self] _ in self?.showPanel(.clipboard) }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(expand)
         let close = UIButton(type: .system)
-        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)), for: .normal)
-        close.tintColor = .secondaryLabel; close.accessibilityLabel = "关闭本次剪贴提示"
+        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)), for: .normal)
+        close.tintColor = .label; close.accessibilityLabel = "关闭本次剪贴提示"
         close.accessibilityIdentifier = "clipboard.recent.close"
-        close.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        close.widthAnchor.constraint(equalToConstant: 36).isActive = true
         close.addAction(UIAction { [weak self] _ in self?.dismissRecentClip() }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(close)
     }

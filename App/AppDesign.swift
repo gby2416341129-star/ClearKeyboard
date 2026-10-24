@@ -6,6 +6,9 @@ enum AppPalette {
     static let canvas = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.062, green: 0.063, blue: 0.082, alpha: 1) : UIColor(red: 0.960, green: 0.961, blue: 0.978, alpha: 1) })
     static let card = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.112, green: 0.114, blue: 0.145, alpha: 1) : .white })
     static let line = Color.primary.opacity(0.06)
+    static let secondaryInk = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0.76,green: 0.78,blue: 0.84,alpha: 1)
+        : UIColor(red: 0.35,green: 0.37,blue: 0.43,alpha: 1) })
 }
 
 struct AppPage<Content: View>: View {
@@ -39,7 +42,7 @@ struct AppCard<Content: View>: View {
 struct AppSectionTitle: View {
     let title: String
     var caption: String = ""
-    var body: some View { Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary) }
+    var body: some View { Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(AppPalette.secondaryInk) }
 }
 
 struct PreferenceToggle: View {
@@ -63,7 +66,7 @@ struct AppRow: View {
                 .frame(width: 32, height: 34)
             Text(title).font(.system(size: 16)).foregroundStyle(.primary)
             Spacer(minLength: 6)
-            if !detail.isEmpty { Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
+            if !detail.isEmpty { Text(detail).font(.system(size: 13)).foregroundStyle(AppPalette.secondaryInk).lineLimit(1) }
             if let color {
                 RoundedRectangle(cornerRadius: 8).fill(Color(uiColor: color)).frame(width: 28, height: 28)
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))

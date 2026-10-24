@@ -31,7 +31,6 @@ final class KeyButton: UIButton {
     private let vibration: KeyboardVibration
     private var interactionActive = false
     private var shiftSymbol = ""
-    private var shadowSize = CGSize.zero
     private var appearanceSettings: KeyboardSettings?
 
     init(key: KeyboardKey, vibration: KeyboardVibration? = nil) {
@@ -118,10 +117,6 @@ final class KeyButton: UIButton {
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
         lens.bounds = plate.bounds; lens.center = CGPoint(x: plate.bounds.midX, y: plate.bounds.midY)
         caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
-        if shadowSize != plate.bounds.size {
-            shadowSize = plate.bounds.size
-            plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 8).cgPath
-        }
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; vibrationEnabled = settings.usesVibration; vibrationIntensity = settings.resolvedVibrationIntensity
@@ -136,11 +131,11 @@ final class KeyButton: UIButton {
         let utility = key.action == .shift || key.action == .delete || (key.units == 1.5 && key.label.count > 1)
         let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
         let fallback = settings.keyTintColor ?? UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
-        lens.configure(tint: settings.keyTintColor, strength: settings.resolvedKeyGlassStrength, fallback: fallback, reduced: reduced)
+        lens.configure(tint: settings.keyTintColor, strength: settings.resolvedKeyGlassStrength, fallback: fallback, reduced: reduced,
+                       colorOpacity: settings.keyFaceOpacity(dark: dark, utility: utility))
         plate.backgroundColor = .clear
         plate.layer.borderWidth = 0
-        plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.12
-        plate.layer.shadowRadius = 1.5; plate.layer.shadowOffset = CGSize(width: 0, height: 1)
+        plate.layer.shadowOpacity = 0
         let ink = settings.keyInkColor(utility: utility)
         caption.textColor = ink
         icon.tintColor = ink

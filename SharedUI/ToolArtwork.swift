@@ -22,7 +22,7 @@ import SwiftUI
         }
     }
     static func tint(_ symbol: String) -> UIColor {
-        UIColor(hue: descriptor(symbol).1,saturation: 0.56,brightness: 0.88,alpha: 1)
+        UIColor(hue: descriptor(symbol).1,saturation: 0.78,brightness: 0.98,alpha: 1)
     }
     private static func visibleGlyph(_ image: UIImage,scale: CGFloat) -> UIImage {
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false; format.preferredRange = .standard
@@ -70,11 +70,39 @@ import SwiftUI
               let data = try? Data(contentsOf: url), let source = UIImage(data: data) else {
             return image(symbol: "water.waves", size: size)
         }
+        let material = brandMaterial(source)
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
         let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size),format: format).image { _ in
-            source.draw(in: CGRect(x: 0,y: 0,width: size,height: size),blendMode: .normal,alpha: 0.44)
+            material.draw(in: CGRect(x: 0,y: 0,width: size,height: size))
         }
         cache[key] = image; return image
+    }
+    private static func brandMaterial(_ source: UIImage) -> UIImage {
+        if let value = cache["brand.material"] { return value }
+        guard let bitmap = source.cgImage else { return source }
+        let width = bitmap.width, height = bitmap.height
+        var pixels = [UInt8](repeating: 0,count: width*height*4)
+        let result: UIImage = pixels.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(data: raw.baseAddress,width: width,height: height,bitsPerComponent: 8,bytesPerRow: width*4,space: CGColorSpaceCreateDeviceRGB(),bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return source }
+            context.draw(bitmap,in: CGRect(x: 0,y: 0,width: CGFloat(width),height: CGFloat(height)))
+            for offset in stride(from: 0,to: raw.count,by: 4) {
+                let alpha = Double(raw[offset+3])/255
+                guard alpha > 0 else { continue }
+                let red = Double(raw[offset])/255/alpha, green = Double(raw[offset+1])/255/alpha, blue = Double(raw[offset+2])/255/alpha
+                let luminance = red*0.2126 + green*0.7152 + blue*0.0722
+                // Preserve the selected mark's highlights instead of fading
+                // its whole surface equally into a grey silhouette.
+                let opacity = alpha*(0.36 + 0.32*pow(luminance,8))
+                for (channel,value) in [red,green,blue].enumerated() {
+                    let color = min(1,max(0,luminance+(value-luminance)*1.16))
+                    raw[offset+channel] = UInt8((color*opacity*255).rounded())
+                }
+                raw[offset+3] = UInt8((opacity*255).rounded())
+            }
+            guard let image = context.makeImage() else { return source }
+            return UIImage(cgImage: image,scale: source.scale,orientation: .up)
+        }
+        cache["brand.material"] = result; return result
     }
     static func image(symbol: String, size: CGFloat = 28, scale: CGFloat? = nil) -> UIImage {
         let scale = scale ?? UIScreen.main.scale
@@ -88,16 +116,15 @@ import SwiftUI
             guard let bitmap = mask.cgImage else { return }
             c.saveGState(); c.translateBy(x: 0,y: 32); c.scaleBy(x: 1,y: -1)
             c.clip(to: CGRect(x: 0,y: 0,width: 32,height: 32),mask: bitmap)
-            let colors = [UIColor(hue: hue,saturation: 0.50,brightness: 0.80,alpha: 0.28).cgColor,
-                          UIColor(hue: hue,saturation: 0.24,brightness: 1,alpha: 0.16).cgColor]
+            let colors = [UIColor(hue: hue,saturation: 0.78,brightness: 0.98,alpha: 0.44).cgColor,
+                          UIColor(hue: hue,saturation: 0.62,brightness: 1,alpha: 0.32).cgColor]
             if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: colors as CFArray,locations: [0,1]) {
                 c.drawLinearGradient(gradient,start: CGPoint(x: 16,y: 0),end: CGPoint(x: 16,y: 32),options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
             }
             c.restoreGState()
             // Light catches only a thin edge of the actual symbol. Its face
             // keeps real alpha instead of an opaque simulated glass fill.
-            for (offset,color) in [(CGFloat(0.4),UIColor.white.withAlphaComponent(0.58)),
-                                   (CGFloat(-0.4),UIColor(hue: hue,saturation: 0.45,brightness: 0.50,alpha: 0.20))] {
+            for (offset,color) in [(CGFloat(0.25),UIColor.white.withAlphaComponent(0.25))] {
                 let edge = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { _ in
                     mask.withTintColor(color.withAlphaComponent(1),renderingMode: .alwaysOriginal)
                         .draw(in: CGRect(x: 0,y: 0,width: 32,height: 32),blendMode: .normal,alpha: color.cgColor.alpha)
@@ -135,7 +162,7 @@ import SwiftUI
         if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled {
             ink.image = ToolArtwork.image(symbol: symbol,size: 32)
             let effect = UIGlassEffect(style: .clear)
-            effect.tintColor = ToolArtwork.tint(symbol).withAlphaComponent(0.16)
+            effect.tintColor = nil
             lens.effect = effect; lens.isHidden = false; ink.alpha = 1
         } else {
             lens.effect = nil; lens.isHidden = true

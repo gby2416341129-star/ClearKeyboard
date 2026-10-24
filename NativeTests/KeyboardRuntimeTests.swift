@@ -866,7 +866,7 @@ import SwiftUI
             let image = UIGraphicsImageRenderer(bounds: canvas.bounds,format: format).image { _ in
                 XCTAssertTrue(canvas.drawHierarchy(in: canvas.bounds,afterScreenUpdates: true))
             }
-            let attachment = XCTAttachment(image: image); attachment.name = "Glass56-icons-native-" + (dark ? "dark" : "light")
+            let attachment = XCTAttachment(image: image); attachment.name = "Glass57-icons-native-" + (dark ? "dark" : "light")
             attachment.lifetime = .keepAlways; add(attachment)
         }
     }

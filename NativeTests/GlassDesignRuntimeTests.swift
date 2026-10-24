@@ -70,7 +70,7 @@ import SwiftUI
             let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
-            let attachment = XCTAttachment(image: image); attachment.name = "Glass56-" + name
+            let attachment = XCTAttachment(image: image); attachment.name = "Glass57-" + name
             attachment.lifetime = .keepAlways; add(attachment)
         }
         for style in [UIUserInterfaceStyle.light, .dark] {
