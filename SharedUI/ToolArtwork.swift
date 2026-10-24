@@ -131,7 +131,7 @@ import SwiftUI
             c.restoreGState()
             // Light catches only a thin edge of the actual symbol. Its face
             // keeps real alpha instead of an opaque simulated glass fill.
-            for (offset,color) in [(CGFloat(0.28),UIColor.white.withAlphaComponent(0.58))] {
+            for (offset,color) in [(CGFloat(0.28),UIColor.white.withAlphaComponent(0.52))] {
                 let edge = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { _ in
                     mask.withTintColor(color.withAlphaComponent(1),renderingMode: .alwaysOriginal)
                         .draw(in: CGRect(x: 0,y: 0,width: 32,height: 32),blendMode: .normal,alpha: color.cgColor.alpha)
