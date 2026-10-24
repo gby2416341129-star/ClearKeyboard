@@ -28,7 +28,7 @@ final class LiquidGlassView: UIVisualEffectView {
     }
     func configure(tint: UIColor?, strength: Double, fallback: UIColor, reduced: Bool = UIAccessibility.isReduceTransparencyEnabled, colorOpacity: Double? = nil) {
         let strength = min(1, max(0, strength))
-        let opacity = min(1, max(0, colorOpacity ?? (tint == nil ? 0.02 + strength * 0.18 : 0.66 + strength * 0.16)))
+        let opacity = min(1, max(0, colorOpacity ?? (tint == nil ? 0.20 * (1 - strength) : 0.82 - strength * 0.16)))
         let key = "\(tint?.description ?? "auto")-\(strength)-\(opacity)-\(reduced)-\(traitCollection.userInterfaceStyle.rawValue)"
         guard signature != key else { return }; signature = key
         UIView.performWithoutAnimation {
@@ -42,14 +42,12 @@ final class LiquidGlassView: UIVisualEffectView {
                 glass.tintColor = nil
                 effect = glass; backgroundColor = .clear
                 cornerConfiguration = .corners(radius: .fixed(radius))
-                // One color film only. Tinting both the native effect and an
-                // overlay compounded the opacity and made dark keys look molded.
-                let neutral: UIColor = traitCollection.userInterfaceStyle == .dark ? .black : .white
-                tintFilm.backgroundColor = clear ? .clear : (tint ?? neutral).withAlphaComponent(CGFloat(opacity))
+                // The native lens owns its edge and reflections. Higher
+                // transmission removes the face film; never add a dark veil.
+                tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
             } else {
                 effect = UIBlurEffect(style: .systemUltraThinMaterial); backgroundColor = .clear
-                let neutral: UIColor = traitCollection.userInterfaceStyle == .dark ? .black : .white
-                tintFilm.backgroundColor = clear ? .clear : (tint ?? neutral).withAlphaComponent(CGFloat(opacity))
+                tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
             }
         }
     }

@@ -22,7 +22,7 @@ import SwiftUI
         }
     }
     static func tint(_ symbol: String) -> UIColor {
-        UIColor(hue: descriptor(symbol).1,saturation: 0.78,brightness: 0.98,alpha: 1)
+        UIColor(hue: descriptor(symbol).1,saturation: 0.52,brightness: 1,alpha: 1)
     }
     private static func visibleGlyph(_ image: UIImage,scale: CGFloat) -> UIImage {
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false; format.preferredRange = .standard
@@ -108,7 +108,6 @@ import SwiftUI
         let scale = scale ?? UIScreen.main.scale
         let key = "\(symbol):\(size):\(scale)"
         if let image = cache[key] { return image }
-        let hue = descriptor(symbol).1
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
         let mask = stencil(symbol,scale: scale)
         let value = UIGraphicsImageRenderer(size: CGSize(width: size,height: size),format: format).image { renderer in
@@ -116,29 +115,11 @@ import SwiftUI
             guard let bitmap = mask.cgImage else { return }
             c.saveGState(); c.translateBy(x: 0,y: 32); c.scaleBy(x: 1,y: -1)
             c.clip(to: CGRect(x: 0,y: 0,width: 32,height: 32),mask: bitmap)
-            // The colored reflection remains bright on a dark host. A clear
-            // central body transmits the backdrop, instead of dimming every
-            // part of the symbol with the same alpha (which looks grey).
-            let colors = [UIColor(hue: hue,saturation: 0.52,brightness: 1,alpha: 0.72).cgColor,
-                          UIColor(hue: hue,saturation: 0.74,brightness: 1,alpha: 0.78).cgColor,
-                          UIColor(hue: hue,saturation: 0.82,brightness: 1,alpha: 0.42).cgColor,
-                          UIColor(hue: hue,saturation: 0.80,brightness: 1,alpha: 0.34).cgColor,
-                          UIColor(hue: hue,saturation: 0.74,brightness: 1,alpha: 0.44).cgColor,
-                          UIColor(hue: hue,saturation: 0.56,brightness: 1,alpha: 0.68).cgColor]
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: colors as CFArray,locations: [0,0.18,0.32,0.70,0.90,1]) {
-                c.drawLinearGradient(gradient,start: CGPoint(x: 16,y: 0),end: CGPoint(x: 16,y: 32),options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
-            }
+            // A single translucent color keeps the whole symbol equally bright.
+            // Shape and depth come from live clear glass, not a painted dark band.
+            c.setFillColor(tint(symbol).withAlphaComponent(0.82).cgColor)
+            c.fill(CGRect(x: 0,y: 0,width: 32,height: 32))
             c.restoreGState()
-            // Light catches only a thin edge of the actual symbol. Its face
-            // keeps real alpha instead of an opaque simulated glass fill.
-            for (offset,color) in [(CGFloat(0.28),UIColor.white.withAlphaComponent(0.52))] {
-                let edge = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { _ in
-                    mask.withTintColor(color.withAlphaComponent(1),renderingMode: .alwaysOriginal)
-                        .draw(in: CGRect(x: 0,y: 0,width: 32,height: 32),blendMode: .normal,alpha: color.cgColor.alpha)
-                    mask.draw(in: CGRect(x: offset,y: offset,width: 32,height: 32),blendMode: .destinationOut,alpha: 1)
-                }
-                edge.draw(in: CGRect(x: 0,y: 0,width: 32,height: 32))
-            }
         }
         cache[key] = value; return value
     }
@@ -169,7 +150,7 @@ import SwiftUI
         if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled {
             ink.image = ToolArtwork.image(symbol: symbol,size: 32)
             let effect = UIGlassEffect(style: .clear)
-            effect.tintColor = ToolArtwork.tint(symbol).withAlphaComponent(0.55)
+            effect.tintColor = nil
             lens.effect = effect; lens.isHidden = false; ink.alpha = 1
         } else {
             lens.effect = nil; lens.isHidden = true

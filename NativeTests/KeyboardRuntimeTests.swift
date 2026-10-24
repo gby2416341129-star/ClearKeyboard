@@ -797,7 +797,7 @@ import SwiftUI
         XCTAssertEqual(controller.model.settings.language, .chinese)
     }
     func testToolbarArtworkHasMatchingVisibleFootprints() async throws {
-        func alphaBounds(_ image: UIImage) throws -> CGRect {
+        func alphaBounds(_ image: UIImage, brand: Bool = false) throws -> CGRect {
             let cg = try XCTUnwrap(image.cgImage); let width = cg.width, height = cg.height
             var pixels = [UInt8](repeating: 0, count: width * height * 4)
             try pixels.withUnsafeMutableBytes { raw in
@@ -813,7 +813,12 @@ import SwiftUI
             visibleAlpha.sort()
             XCTAssertFalse(visibleAlpha.isEmpty)
             if !visibleAlpha.isEmpty {
-                XCTAssertLessThan(visibleAlpha[visibleAlpha.count/2],128,"Most visible artwork must transmit more than half the backdrop, rather than use a solid color fill")
+                if brand {
+                    XCTAssertLessThan(visibleAlpha[visibleAlpha.count/2],128,"Keep the approved organic brand material translucent")
+                } else {
+                    XCTAssertGreaterThan(visibleAlpha[visibleAlpha.count/2],190,"The whole colored symbol must stay bright, including its center")
+                    XCTAssertLessThan(visibleAlpha[visibleAlpha.count/2],225,"Keep actual backdrop transmission in the colored face")
+                }
                 XCTAssertLessThan(visibleAlpha.last!,230,"Even the fine rim must not become an opaque crystal outline")
             }
             return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX + 1), height: CGFloat(maxY - minY + 1))
@@ -823,7 +828,7 @@ import SwiftUI
         // retain its portrait silhouette instead of being padded with a disk.
         for size in [CGFloat(20), 28, 32] {
             let artwork = symbols.map { ToolArtwork.image(symbol: $0,size: size,scale: 3) } + [ToolArtwork.brand(size: size)]
-            let bounds = try artwork.map { try alphaBounds($0) }
+            let bounds = try artwork.enumerated().map { try alphaBounds($0.element,brand: $0.offset == symbols.count) }
             let sides = bounds.map { max($0.width,$0.height) }
             XCTAssertLessThan(sides.max()! / sides.min()!, 1.16)
             for rect in bounds {
@@ -887,11 +892,12 @@ import SwiftUI
                     chromaticBrightness.sort()
                     XCTAssertFalse(chromaticBrightness.isEmpty,symbols[index])
                     if !chromaticBrightness.isEmpty {
-                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count*9/10],140,"Normal colored reflections must remain visible on a dark host: \(symbols[index])")
+                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count/2],175,"The body, not just one reflection, must have a normal bright color: \(symbols[index])")
+                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count*9/10],190,"Normal colors must remain bright on a dark host: \(symbols[index])")
                     }
                 }
             }
-            let attachment = XCTAttachment(image: image); attachment.name = "Glass57-icons-native-" + (dark ? "dark" : "light")
+            let attachment = XCTAttachment(image: image); attachment.name = "Glass58-icons-native-" + (dark ? "dark" : "light")
             attachment.lifetime = .keepAlways; add(attachment)
         }
     }

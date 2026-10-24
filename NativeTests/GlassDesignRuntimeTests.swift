@@ -70,7 +70,7 @@ import SwiftUI
             let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
-            let attachment = XCTAttachment(image: image); attachment.name = "Glass57-" + name
+            let attachment = XCTAttachment(image: image); attachment.name = "Glass58-" + name
             attachment.lifetime = .keepAlways; add(attachment)
         }
         for style in [UIUserInterfaceStyle.light, .dark] {
@@ -90,6 +90,13 @@ import SwiftUI
                 try await capture(name + "-" + theme)
                 XCTAssertFalse(views(window).contains { $0.accessibilityIdentifier == "custom.footer" })
             }
+            for strength in [0.0, 0.5, 1.0] {
+                preferences.settings.keyGlassStrength = strength
+                window.rootViewController = UIHostingController(rootView: NavigationStack { AppAppearanceDetail(item: .keyGlass) }.environmentObject(preferences))
+                window.makeKeyAndVisible()
+                try await capture("transmission-\(Int(strength*100))-" + theme)
+            }
+            preferences.settings.keyGlassStrength = nil
             var settings = KeyboardSettings(); settings.automaticClipboard = false
             let controller = TypingLabController(settings: settings)
             window.rootViewController = controller; window.makeKeyAndVisible(); controller.loadViewIfNeeded(); window.layoutIfNeeded()
