@@ -168,6 +168,11 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         XCTAssertTrue(fixture.surface.systemBacked)
         XCTAssertFalse(views(fixture.surface).contains { $0 is ClearKeyboard.KeyboardAppearancePreview })
         XCTAssertNotEqual(fixture.appSuite, fixture.keyboardSuite)
+        // Activation first reads on the utility queue, then its main callback
+        // enqueues the initial write. Drain both sides before testing pixels;
+        // do not race unrelated cold-start work against the fixture's polling.
+        await withCheckedContinuation { continuation in fixture.appClient.flush { continuation.resume() } }
+        await withCheckedContinuation { continuation in fixture.appClient.flush { continuation.resume() } }
         try await waitFor({ fixture.backend.counts.settings > 0 }, message: "The App did not publish its initial appearance")
         try await synchronize(fixture)
     }
