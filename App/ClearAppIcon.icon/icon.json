@@ -1,0 +1,20 @@
+{
+  "fill": "none",
+  "groups": [
+    {
+      "name": "澈",
+      "layers": [
+        {
+          "image-name": "BrandMark.png",
+          "name": "原版蓝银玻璃标识",
+          "glass": false,
+          "position": { "scale": 4, "translation-in-points": [0, 0] }
+        }
+      ],
+      "shadow": { "kind": "neutral", "opacity": 0 },
+      "specular": false,
+      "translucency": { "enabled": false, "value": 0 }
+    }
+  ],
+  "supported-platforms": { "squares": "shared" }
+}

@@ -26,6 +26,19 @@ import XCTest
             print("APP_BOTTOM_REACHABLE tab=\(tab) lastMaxY=\(last.frame.maxY) barMinY=\(bar.frame.minY)")
             attachment(clear, name: "redesigned-" + identifier)
         }
+        XCUIDevice.shared.press(.home)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let icon = springboard.icons.matching(identifier: "澈").firstMatch
+        for _ in 0..<4 {
+            if icon.exists && icon.isHittable { break }
+            springboard.swipeLeft()
+        }
+        XCTAssertTrue(icon.exists && icon.isHittable,"The built native app icon must be visible on the simulator home screen")
+        if icon.exists && icon.isHittable {
+            let value = XCTAttachment(screenshot: icon.screenshot()); value.name = "Desktop58-icon-native"; value.lifetime = .keepAlways; add(value)
+            attachment(springboard,name: "Desktop58-home-native")
+        }
+        clear.activate()
     }
 
 

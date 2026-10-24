@@ -99,8 +99,19 @@ jobs:
           python3 Scripts/prepare_rime.py
       - name: Compile iOS sources and test hosts before model evaluation
         run: |
+          mkdir -p .build
+          swiftc SharedUI/BrandMaterial.swift Scripts/prepare_app_icon.swift -o .build/prepare-app-icon
+          .build/prepare-app-icon
           python3 Scripts/generate_project.py
           xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
+      - name: Preserve the prepared icon source
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-icon-source-review
+          path: .build/IconSourceReview
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Start the required iOS 26 simulator and verify UI services
         run: python3 Scripts/boot_test_simulator.py
       - name: Check native composition and preview before the longer suites

@@ -23,6 +23,10 @@ PY
 then python3 Scripts/export_ime_shared.py; fi
 command -v xcodebuild >/dev/null
 command -v python3 >/dev/null
+mkdir -p .build
+swiftc SharedUI/BrandMaterial.swift Scripts/prepare_app_icon.swift -o .build/prepare-app-icon
+.build/prepare-app-icon
+python3 Scripts/generate_project.py
 xcodebuild -version
 XCODE_MAJOR="$(xcodebuild -version | awk '/^Xcode / {split($2, v, "."); print v[1]}')"
 if [[ -z "$XCODE_MAJOR" ]] || (( XCODE_MAJOR < 26 )); then

@@ -15,7 +15,7 @@ def obj(identity, isa, **fields):
     return identifier
 def reference(path, kind=None):
     if kind is None:
-        kind = {".swift": "sourcecode.swift", ".plist": "text.plist.xml", ".xcprivacy": "text.xml", ".xcconfig": "text.xcconfig", ".entitlements": "text.plist.entitlements", ".xcassets": "folder.assetcatalog", ".cpp": "sourcecode.cpp.cpp", ".h": "sourcecode.c.h"}.get(Path(path).suffix, "file")
+        kind = {".swift": "sourcecode.swift", ".plist": "text.plist.xml", ".xcprivacy": "text.xml", ".xcconfig": "text.xcconfig", ".entitlements": "text.plist.entitlements", ".xcassets": "folder.assetcatalog", ".icon": "folder.icon", ".cpp": "sourcecode.cpp.cpp", ".h": "sourcecode.c.h"}.get(Path(path).suffix, "file")
     return obj("file:" + path, "PBXFileReference", lastKnownFileType=q(kind), path=q(path), sourceTree=q("<group>"))
 def phase(target, name, isa, files, **fields):
     builds = []
@@ -30,8 +30,9 @@ if __name__ == "__main__":
     licenses = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Licenses").glob("*.txt"))
     config = ["Config/Project.xcconfig", "Config/App-Info.plist", "Config/Keyboard-Info.plist", "Config/App.entitlements", "Config/Keyboard.entitlements"]
     asset = "App/Assets.xcassets"
+    app_icon = "App/ClearAppIcon.icon"
     bridge = "CRime/ClearRime.cpp"
-    refs = {path: reference(path, "folder" if path == "Core/Resources/Rime" else None) for path in sources + resources + licenses + config + [asset, bridge]}
+    refs = {path: reference(path, "folder" if path == "Core/Resources/Rime" else None) for path in sources + resources + licenses + config + [asset, app_icon, bridge]}
     rime_package = obj("package:rime", "XCRemoteSwiftPackageReference", repositoryURL=q("https://github.com/ghostflyby/librime-xcframework.git"), requirement='{ kind = exactVersion; version = "1.17.0-pack.10.0.0"; }')
     def rime_product(target):
         product = obj("package-product:rime:"+target, "XCSwiftPackageProductDependency", package=rime_package, productName=q("RimeStatic"))
@@ -63,7 +64,7 @@ if __name__ == "__main__":
             values.append(obj(f"config:{target}:{mode}", "XCBuildConfiguration", baseConfigurationReference=refs["Config/Project.xcconfig"], buildSettings=rendered, name=q(mode)))
         return obj(f"configs:{target}", "XCConfigurationList", buildConfigurations=arr(values), defaultConfigurationIsVisible="0", defaultConfigurationName=q("Release"))
     project_configs = configurations("project", {})
-    app_configs = configurations("app", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER)", "PRODUCT_NAME": "ClearKeyboard", "INFOPLIST_FILE": "Config/App-Info.plist", "CODE_SIGN_ENTITLEMENTS": "Config/App.entitlements", "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon", "GENERATE_INFOPLIST_FILE": "NO", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks", "SWIFT_EMIT_LOC_STRINGS": "YES"})
+    app_configs = configurations("app", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER)", "PRODUCT_NAME": "ClearKeyboard", "INFOPLIST_FILE": "Config/App-Info.plist", "CODE_SIGN_ENTITLEMENTS": "Config/App.entitlements", "ASSETCATALOG_COMPILER_APPICON_NAME": "ClearAppIcon", "GENERATE_INFOPLIST_FILE": "NO", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks", "SWIFT_EMIT_LOC_STRINGS": "YES"})
     ext_configs = configurations("ext", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).Keyboard", "PRODUCT_NAME": "ClearKeyboardExtension", "INFOPLIST_FILE": "Config/Keyboard-Info.plist", "CODE_SIGN_ENTITLEMENTS": "Config/Keyboard.entitlements", "GENERATE_INFOPLIST_FILE": "NO", "APPLICATION_EXTENSION_API_ONLY": "YES", "SKIP_INSTALL": "YES", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"})
     shared = [path for path in sources if path.startswith(("Core/", "SharedUI/"))]
     ext_phases = [phase("ext", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("KeyboardExtension/")]), obj("phase:ext:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files=arr([ext_rime_build]), runOnlyForDeploymentPostprocessing="0"), phase("ext", "Resources", "PBXResourcesBuildPhase", [p for p in resources if p != "Core/Resources/Rime"] + licenses)]
@@ -72,7 +73,7 @@ if __name__ == "__main__":
     dependency = obj("dependency:extension", "PBXTargetDependency", target=ext, targetProxy=proxy)
     embed_build = obj("embed:extension", "PBXBuildFile", fileRef=ext_product, settings="{ ATTRIBUTES = (RemoveHeadersOnCopy, CodeSignOnCopy); }")
     embed = obj("phase:app:Embed", "PBXCopyFilesBuildPhase", buildActionMask="2147483647", dstPath=q(""), dstSubfolderSpec="13", files=arr([embed_build]), name=q("Embed App Extensions"), runOnlyForDeploymentPostprocessing="0")
-    app_phases = [phase("app", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("App/")]), obj("phase:app:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files=arr([app_rime_build]), runOnlyForDeploymentPostprocessing="0"), phase("app", "Resources", "PBXResourcesBuildPhase", resources + licenses + [asset]), embed]
+    app_phases = [phase("app", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("App/")]), obj("phase:app:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files=arr([app_rime_build]), runOnlyForDeploymentPostprocessing="0"), phase("app", "Resources", "PBXResourcesBuildPhase", resources + licenses + [asset, app_icon]), embed]
     app = obj("target:app", "PBXNativeTarget", packageProductDependencies=arr([app_rime]), buildConfigurationList=app_configs, buildPhases=arr(app_phases), buildRules="()", dependencies=arr([dependency]), name=q("ClearKeyboard"), productName=q("ClearKeyboard"), productReference=app_product, productType=q("com.apple.product-type.application"))
     test_configs = configurations("runtime-tests", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).RuntimeTests", "PRODUCT_NAME": "ClearKeyboardRuntimeTests", "GENERATE_INFOPLIST_FILE": "YES", "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/ClearKeyboard.app/ClearKeyboard", "BUNDLE_LOADER": "$(TEST_HOST)", "CODE_SIGN_ENTITLEMENTS": "", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"})
     app_proxy = obj("proxy:app", "PBXContainerItemProxy", containerPortal=uid("project"), proxyType="1", remoteGlobalIDString=app, remoteInfo=q("ClearKeyboard"))

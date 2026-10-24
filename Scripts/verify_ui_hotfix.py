@@ -2,6 +2,7 @@
 import json,subprocess
 BASE='fed2ef08404cd5b0f252a798922e884d4868655b'
 ALLOWED={
+    'SharedUI/BrandMaterial.swift','Scripts/prepare_app_icon.swift','Scripts/build-ipa.sh','App/ClearAppIcon.icon/icon.json',
     'App/AppDesign.swift','SharedUI/LiquidGlass.swift','SharedUI/ValueSlider.swift','SharedUI/ToolArtwork.swift',
     'SharedUI/Resources/BrandMark.png','App/Assets.xcassets/AppIcon.appiconset/AppIcon.png',
     'Scripts/generate_project.py','NativeTests/GlassDesignRuntimeTests.swift',
