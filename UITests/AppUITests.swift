@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 @MainActor final class AppUITests: XCTestCase {
     private let clear = XCUIApplication(bundleIdentifier: "com.example.clearkeyboard")
@@ -342,3 +343,4 @@ import XCTest
         focusInput(multiline, in: safari, expectedFocus: "Safari multiline size check"); assertFullRows(in: safari, context: "Safari after changing host app")
     }
 }
+
