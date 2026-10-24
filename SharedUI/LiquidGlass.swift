@@ -65,7 +65,7 @@ final class LiquidGlassView: UIVisualEffectView {
             if reduced {
                 effect = nil; backgroundColor = fallback; tintFilm.backgroundColor = .clear
             } else if #available(iOS 26.0, *) {
-                let glass = UIGlassEffect(style: clear ? .clear : .regular)
+                let glass = UIGlassEffect(style: (clear || keycap) ? .clear : .regular)
                 glass.isInteractive = true
                 glass.tintColor = tint?.withAlphaComponent(0.30 + strength * 0.45)
                 effect = glass; backgroundColor = .clear
