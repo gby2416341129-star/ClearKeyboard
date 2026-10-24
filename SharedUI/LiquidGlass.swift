@@ -7,22 +7,67 @@ import CoreHaptics
 final class LiquidGlassView: UIVisualEffectView {
     private let radius: CGFloat
     private let tintFilm = UIView()
+    private let keycap: Bool
+    private let glint = CAGradientLayer()
+    private let rim = CAGradientLayer()
+    private let rimMask = CAShapeLayer()
+    private let refraction = CAGradientLayer()
     private var signature = ""
-    init(radius: CGFloat) {
-        self.radius = radius
+    init(radius: CGFloat, keycap: Bool = false) {
+        self.radius = radius; self.keycap = keycap
         super.init(effect: nil)
         isUserInteractionEnabled = false
         layer.cornerRadius = radius; layer.cornerCurve = .continuous; clipsToBounds = true
         contentView.addSubview(tintFilm); tintFilm.isUserInteractionEnabled = false
+        if keycap {
+            for light in [glint, refraction, rim] { contentView.layer.addSublayer(light) }
+            glint.startPoint = CGPoint(x: 0, y: 0); glint.endPoint = CGPoint(x: 0.85, y: 1)
+            glint.locations = [0, 0.23, 0.50, 0.85, 1]
+            rim.startPoint = .zero; rim.endPoint = CGPoint(x: 0.75, y: 1)
+            rim.locations = [0, 0.20, 0.55, 0.83, 1]; rim.mask = rimMask
+            rimMask.fillColor = UIColor.clear.cgColor; rimMask.strokeColor = UIColor.white.cgColor; rimMask.lineWidth = 0.75
+            refraction.locations = [0, 0.35, 0.70, 1]
+        }
         configure(tint: nil, strength: 0.55, fallback: .secondarySystemBackground)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() { super.layoutSubviews(); tintFilm.frame = contentView.bounds }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let rect = contentView.bounds
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        tintFilm.frame = rect
+        if keycap, glint.frame != rect {
+            glint.frame = rect; rim.frame = rect; rimMask.frame = rect
+            rimMask.path = rect.width > 1 && rect.height > 1 ? UIBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: max(0, radius - 0.5)).cgPath : nil
+            refraction.frame = CGRect(x: 0, y: max(0, rect.height - 5), width: rect.width, height: min(5, rect.height))
+        }
+        CATransaction.commit()
+    }
     func configure(tint: UIColor?, strength: Double, fallback: UIColor, reduced: Bool = UIAccessibility.isReduceTransparencyEnabled) {
         let strength = min(1, max(0, strength))
         let key = "\(tint?.description ?? "auto")-\(strength)-\(reduced)-\(traitCollection.userInterfaceStyle.rawValue)"
         guard signature != key else { return }; signature = key
         UIView.performWithoutAnimation {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+            if keycap {
+                glint.isHidden = reduced; rim.isHidden = reduced; refraction.isHidden = reduced
+                let light = CGFloat(0.5 + strength * 0.5)
+                glint.colors = [UIColor.white.withAlphaComponent(0.24 * light).cgColor,
+                                UIColor.white.withAlphaComponent(0.09 * light).cgColor,
+                                UIColor.white.withAlphaComponent(0.015).cgColor,
+                                UIColor.clear.cgColor,
+                                UIColor(red: 0.72, green: 0.84, blue: 1, alpha: 0.10 * light).cgColor]
+                rim.colors = [UIColor.white.withAlphaComponent(0.66 * light).cgColor,
+                              UIColor.white.withAlphaComponent(0.24 * light).cgColor,
+                              UIColor.white.withAlphaComponent(0.035).cgColor,
+                              UIColor.white.withAlphaComponent(0.10 * light).cgColor,
+                              UIColor.white.withAlphaComponent(0.34 * light).cgColor]
+                refraction.colors = [UIColor.clear.cgColor,
+                                     UIColor.black.withAlphaComponent(0.06 * light).cgColor,
+                                     UIColor.white.withAlphaComponent(0.10 * light).cgColor,
+                                     UIColor(red: 0.70, green: 0.82, blue: 1, alpha: 0.16 * light).cgColor]
+            }
             if reduced {
                 effect = nil; backgroundColor = fallback; tintFilm.backgroundColor = .clear
             } else if #available(iOS 26.0, *) {

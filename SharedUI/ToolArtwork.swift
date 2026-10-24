@@ -35,13 +35,29 @@ import UIKit
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
         let value = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { renderer in
             let c = renderer.cgContext; c.scaleBy(x: size/32, y: size/32)
+            // A common circular lens gives portrait and round symbols the
+            // same optical footprint without stretching their meaning.
+            let bead = UIBezierPath(ovalIn: CGRect(x: 3, y: 3, width: 26, height: 26))
+            c.saveGState()
+            c.setShadow(offset: CGSize(width: 0, height: 0.75), blur: 0.8, color: UIColor.black.withAlphaComponent(0.16).cgColor)
+            UIColor(hue: hue, saturation: 0.25, brightness: 0.72, alpha: 0.8).setFill(); bead.fill()
+            c.restoreGState(); c.saveGState(); bead.addClip()
+            let lensColors = [UIColor(hue: hue, saturation: 0.04, brightness: 1, alpha: 1).cgColor,
+                              UIColor(hue: hue, saturation: 0.20, brightness: 0.94, alpha: 1).cgColor,
+                              UIColor(hue: hue, saturation: 0.37, brightness: 0.77, alpha: 1).cgColor]
+            if let lens = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: lensColors as CFArray, locations: [0,0.48,1]) {
+                c.drawLinearGradient(lens, start: CGPoint(x: 10,y: 3), end: CGPoint(x: 24,y: 30), options: [])
+            }
+            UIColor.white.withAlphaComponent(0.44).setFill()
+            UIBezierPath(ovalIn: CGRect(x: 5, y: 3.5, width: 22, height: 12)).fill()
+            c.restoreGState()
+            UIColor.white.withAlphaComponent(0.68).setStroke(); bead.lineWidth = 0.6; bead.stroke()
             let config = UIImage.SymbolConfiguration(pointSize: 24, weight: .semibold)
             if let icon = UIImage(systemName: glyph, withConfiguration: config)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
-                let ratio = min(25/icon.size.width, 25/icon.size.height)
+                let ratio = min(18.5/icon.size.width, 18.5/icon.size.height)
                 let width = icon.size.width*ratio, height = icon.size.height*ratio
                 let rect = CGRect(x: 16-width/2, y: 16-height/2, width: width,height: height)
-                // The material follows the functional silhouette itself. There
-                // is deliberately no colored square with a white glyph inside.
+                // Functional silhouettes retain their native proportions.
                 c.saveGState(); c.setShadow(offset: CGSize(width: 0,height: 1), blur: 1, color: UIColor.black.withAlphaComponent(0.20).cgColor)
                 icon.withTintColor(UIColor(hue: hue,saturation: 0.5,brightness: 0.78,alpha: 1)).draw(in: rect.offsetBy(dx: 0,dy: 0.7)); c.restoreGState()
                 let maskFormat = UIGraphicsImageRendererFormat(); maskFormat.scale = scale

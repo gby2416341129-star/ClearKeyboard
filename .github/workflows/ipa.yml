@@ -112,6 +112,9 @@ jobs:
             -destination-timeout 60 -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
             -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testAppearancePreviewUsesOneUniformlyScaledKeyboardCanvas \
+            -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testToolbarArtworkHasMatchingVisibleFootprints \
+            -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests/testCandidateHandoffVisualSamplesAndSettledInk \
+            -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests/testRapidResultsShareOneClockAndKeepLatestTextAndExactHitGeometry \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNativeDraftSurvivesTransientNilContextWithoutLosingChineseCandidates \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextFieldSurvivesIdleAndSelectionCallbacks \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextViewSurvivesIdleAndSelectionCallbacks \
@@ -124,6 +127,30 @@ jobs:
         with:
           name: ClearKeyboard-appearance-smoke-diagnostic
           path: .build/SolidBoundaryResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Check redesigned app scrolling before the longer suites
+        run: |
+          TEST_DEVICE="$(cat .build/composition-device-id)"
+          set +e
+          xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
+            -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
+            -derivedDataPath .build/Composition -resultBundlePath .build/AppNavigationResults.xcresult \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
+            -only-testing:ClearKeyboardUITests/AppUITests/testEveryTabCanScrollItsLastControlAboveTheBottomBar \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
+          RESULT=$?
+          xcrun xcresulttool get test-results summary --path .build/AppNavigationResults.xcresult
+          if [ "$RESULT" -ne 0 ]; then
+            xcrun xcresulttool get test-results activities --path .build/AppNavigationResults.xcresult --test-id 'AppUITests/testEveryTabCanScrollItsLastControlAboveTheBottomBar()' || true
+          fi
+          exit "$RESULT"
+      - name: Preserve the app navigation diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-navigation-smoke-diagnostic
+          path: .build/AppNavigationResults.xcresult
           if-no-files-found: ignore
           retention-days: 7
       - name: Compile the pinned Core ML model for the Apple accelerator

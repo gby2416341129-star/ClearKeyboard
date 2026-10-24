@@ -9,16 +9,16 @@ import XCTest
         for _ in 0..<7 { if element.exists && element.isHittable { return }; app.swipeUp() }
     }
     func testEveryTabCanScrollItsLastControlAboveTheBottomBar() throws {
-        continueAfterFailure = false; clear.launch()
+        continueAfterFailure = false; clear.terminate(); clear.launch()
         let bar = clear.tabBars.firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 8))
         for (tab, identifier) in [("澈", "home.footer"), ("定制", "custom.toolbarEditor"), ("输入", "input.resetLearning")] {
-            bar.buttons[tab].tap()
+            XCTContext.runActivity(named: "Open tab " + tab) { _ in bar.buttons[tab].tap() }
             let last = clear.descendants(matching: .any).matching(identifier: identifier).firstMatch
             let scroll = clear.scrollViews.firstMatch
             for _ in 0..<10 {
                 if last.exists && last.isHittable && last.frame.maxY < bar.frame.minY { break }
-                scroll.swipeUp()
+                XCTContext.runActivity(named: "Reveal last control " + identifier) { _ in scroll.swipeUp() }
             }
             XCTAssertTrue(last.exists && last.isHittable, "Last control must be reachable in " + tab)
             XCTAssertLessThan(last.frame.maxY, bar.frame.minY, "The tab bar covers content in " + tab)

@@ -157,7 +157,8 @@ struct HomeView: View {
             HStack {
                 Text("离线输入"); Spacer()
                 Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
-            }.font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 4).accessibilityIdentifier("home.footer")
+            }.font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 4)
+                .accessibilityElement(children: .combine).accessibilityIdentifier("home.footer")
         }.accessibilityIdentifier("home.page")
             .sheet(isPresented: $showSetup) { SetupView() }
             .onAppear { preferences.reload() }

@@ -113,6 +113,7 @@ set -e
 xcrun xcresulttool get test-results summary --path .build/AppBottomResults.xcresult || true
 xcrun xcresulttool get test-results tests --path .build/AppBottomResults.xcresult || true
 if [ "$UI_EXIT" -ne 0 ]; then
+  xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testEveryTabCanScrollItsLastControlAboveTheBottomBar()' || true
   xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testKeyColorSwatchAndHEXStayConsistent()' || true
   xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testCandidateColorSwatchAndHEXStayConsistent()' || true
   xcrun xcresulttool get test-results activities --path .build/AppBottomResults.xcresult --test-id 'AppUITests/testAppearancePersistenceAndToolbar()' || true

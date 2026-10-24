@@ -394,6 +394,7 @@ import os
     private let plate = UIView()
     private let label = UILabel()
     private var transitionDeadline: CFTimeInterval = 0
+    private var transitionCleanup: DispatchWorkItem?
     private static let transitionDuration: CFTimeInterval = 0.18
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -483,8 +484,20 @@ import os
         settle.fromValue = 2; settle.toValue = 0; settle.duration = duration
         settle.beginTime = fade.beginTime
         label.layer.add(settle, forKey: "candidateTextPosition")
+        // Explicitly retire the bounded burst at its original deadline. A
+        // remote host or hierarchy snapshot can retain CA animation copies
+        // after their displayed motion has ended. Never carry that old clock
+        // into a later word, and never defer input or restart the bounce.
+        let deadline = transitionDeadline
+        let cleanup = DispatchWorkItem { [weak self] in
+            guard let self, self.transitionDeadline == deadline else { return }
+            self.finishTransition()
+        }
+        transitionCleanup = cleanup
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: cleanup)
     }
     func finishTransition() {
+        transitionCleanup?.cancel(); transitionCleanup = nil
         label.layer.removeAnimation(forKey: "candidateText")
         label.layer.removeAnimation(forKey: "candidateTextPosition")
         label.layer.opacity = 1; label.layer.transform = CATransform3DIdentity

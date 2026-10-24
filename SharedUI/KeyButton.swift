@@ -3,7 +3,7 @@ import UIKit
 final class KeyButton: UIButton {
     let key: KeyboardKey
     private let plate = UIView()
-    private let lens = LiquidGlassView(radius: 8)
+    private let lens = LiquidGlassView(radius: 8, keycap: true)
     private let pressWash = UIView()
     private let caption = CenteredKeyLabel()
     private let icon = UIImageView()
