@@ -288,9 +288,8 @@ jobs:
           test "$CORE_TESTS_RESULT" = success
           test "$UI_TESTS_RESULT" = success
       - name: Export synthetic keyboard visual review images
-        if: env.CLEAR_VISUAL_FAST != '1'
         id: visual-export
-        if: always() && steps.ui-tests.outcome != 'skipped'
+        if: env.CLEAR_VISUAL_FAST != '1' && always() && steps.ui-tests.outcome != 'skipped'
         run: |
           xcrun xcresulttool export attachments --path .build/CompositionResults.xcresult --output-path .build/KeyboardVisualReview
           xcrun xcresulttool export attachments --path .build/AppBottomResults.xcresult --output-path .build/KeyboardVisualReview/AppUI
