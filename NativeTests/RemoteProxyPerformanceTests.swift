@@ -1466,36 +1466,28 @@ import SwiftUI
         XCTAssertEqual(model.candidates.first?.text, "你好")
         XCTAssertEqual(model.candidateContext?.before, document.before)
     }
-    func testEnterConfirmsChineseWithoutBlockingOrFlushingRawSpelling() async throws {
+    func testConfirmCommitsExactRawSpellingWithoutWaitingForCandidates() async throws {
         let document = WordLookupDocument()
         var settings = KeyboardSettings()
         settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
         let model = KeyboardModel(document: document, settings: settings) { engine, raw, preferred in
-            if raw == "nihao" { Thread.sleep(forTimeInterval: 0.2) }
+            Thread.sleep(forTimeInterval: 0.1)
             return engine.immediateCandidates(raw, preferred: preferred)
         }
         defer { model.suspend() }
-        try await waitFor { model.engineState == "离线就绪" }
-        for letter in "nihao" { model.handle(.text(String(letter))) }
-        let start = ProcessInfo.processInfo.systemUptime
-        model.handle(.enter)
-        XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - start) * 1_000, 30)
-        XCTAssertTrue(document.before == "你好" || document.marked == "nihao", "A pending confirmation must keep raw spelling provisional")
-        try await waitFor { document.before == "你好" && model.composition.isEmpty }
-        XCTAssertTrue(document.marked.isEmpty)
-        model.handle(.enter)
-        XCTAssertEqual(document.before, "你好\n", "An empty composition retains the editor's return behavior")
-        let coldDocument = WordLookupDocument()
-        let coldModel = KeyboardModel(document: coldDocument, settings: settings)
-        defer { coldModel.suspend() }
-        // No await: engine installation cannot have reached its main callback.
-        for letter in "nihao" { coldModel.handle(.text(String(letter))) }
-        coldModel.handle(.enter)
-        for letter in "zaijian" { coldModel.handle(.text(String(letter))) }
-        coldModel.handle(.space)
-        XCTAssertFalse(coldDocument.marked.isEmpty, "Startup must not commit queued spelling as literal text")
-        try await waitFor { coldDocument.before == "你好再见" && coldModel.composition.isEmpty }
-        XCTAssertTrue(coldDocument.marked.isEmpty, "Cold confirmation and queued letters must replay exactly once")
+        for raw in ["jhjhjhjh", "nihao", "xqzabc"] {
+            for letter in raw { model.handle(.text(String(letter))) }
+            let before = ProcessInfo.processInfo.systemUptime
+            model.handle(.enter)
+            XCTAssertLessThan((ProcessInfo.processInfo.systemUptime - before)*1000, 30)
+            XCTAssertTrue(model.composition.isEmpty)
+            XCTAssertTrue(document.before.hasSuffix(raw))
+            XCTAssertTrue(document.marked.isEmpty)
+        }
+        let rawResult = document.before
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(document.before, rawResult, "Late candidates must not replace explicit raw confirmation")
+        model.handle(.enter); XCTAssertEqual(document.before, rawResult + "\n")
     }
     func testContextualShortSpellingDoesNotWaitForTheWordLookupWorker() async throws {
         let document = WordLookupDocument(); document.before = "办公"

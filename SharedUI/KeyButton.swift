@@ -3,6 +3,7 @@ import UIKit
 final class KeyButton: UIButton {
     let key: KeyboardKey
     private let plate = UIView()
+    private let lens = LiquidGlassView(radius: 8)
     private let pressWash = UIView()
     private let caption = CenteredKeyLabel()
     private let icon = UIImageView()
@@ -25,8 +26,8 @@ final class KeyButton: UIButton {
     var onDeleteSwipe: ((Bool) -> Void)?
     var onDeleteHint: ((Int?) -> Void)?
     var accent = UIColor.systemTeal
-    var haptics = false
-    private var feedback: UIImpactFeedbackGenerator?
+    private var vibrationEnabled = false
+    private var vibrationIntensity: Double = 0.45
     private var interactionActive = false
     private var shiftSymbol = ""
     private var shadowSize = CGSize.zero
@@ -40,7 +41,8 @@ final class KeyButton: UIButton {
         addSubview(plate); plate.isUserInteractionEnabled = false; plate.layer.cornerRadius = 8
         plate.accessibilityIdentifier = "key.face"
         plate.layer.cornerCurve = .continuous
-        plate.layer.borderWidth = 0.5
+        plate.layer.borderWidth = 0
+        plate.insertSubview(lens, at: 0)
         plate.addSubview(pressWash); pressWash.isUserInteractionEnabled = false
         pressWash.alpha = 0
         pressWash.layer.cornerRadius = 8; pressWash.layer.cornerCurve = .continuous
@@ -113,14 +115,15 @@ final class KeyButton: UIButton {
         let base: CGFloat = key.action == .language ? 14 : key.label.count == 1 ? 23 : 16
         let fontSize = min(base, max(10, min(plate.bounds.width * 0.88, plate.bounds.height * 0.65)))
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
-        caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
+        lens.frame = plate.bounds; caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
         if shadowSize != plate.bounds.size {
             shadowSize = plate.bounds.size
             plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 8).cgPath
         }
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
-        accent = settings.accentColor; haptics = settings.haptics
+        accent = settings.accentColor; vibrationEnabled = settings.usesVibration; vibrationIntensity = settings.resolvedVibrationIntensity
+        if vibrationEnabled { KeyboardVibration.shared.prepare() }
         appearanceSettings = settings; applyAppearance(settings)
         pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
         updateShift(active: active, capsLocked: capsLocked)
@@ -129,20 +132,13 @@ final class KeyButton: UIButton {
     private func applyAppearance(_ settings: KeyboardSettings) {
         let dark = traitCollection.userInterfaceStyle == .dark
         let utility = key.action == .shift || key.action == .delete || (key.units == 1.5 && key.label.count > 1)
-        let reduced = settings.glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
-        // A continuous system glass sheet supplies the backdrop. Key faces transmit
-        // that material instead of stacking 30 separate refracting lenses on top.
-        if reduced {
-            plate.backgroundColor = settings.keyTintColor ?? UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
-            plate.layer.borderWidth = 0
-        } else {
-            let alpha = settings.keyFaceOpacity(dark: dark, utility: utility)
-            plate.backgroundColor = (settings.keyTintColor ?? .white).withAlphaComponent(alpha)
-            plate.layer.borderWidth = 0.5
-        }
-        plate.layer.borderColor = UIColor.white.withAlphaComponent(dark ? 0.18 : 0.65).cgColor
-        plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.10
-        plate.layer.shadowRadius = 0.5; plate.layer.shadowOffset = CGSize(width: 0, height: 0.5)
+        let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
+        let fallback = settings.keyTintColor ?? UIColor(white: dark ? (utility ? 0.19 : 0.30) : (utility ? 0.82 : 0.97), alpha: 1)
+        lens.configure(tint: settings.keyTintColor, strength: settings.resolvedKeyGlassStrength, fallback: fallback, reduced: reduced)
+        plate.backgroundColor = .clear
+        plate.layer.borderWidth = 0
+        plate.layer.shadowColor = UIColor.black.cgColor; plate.layer.shadowOpacity = reduced ? 0 : 0.12
+        plate.layer.shadowRadius = 1.5; plate.layer.shadowOffset = CGSize(width: 0, height: 1)
         let ink = settings.keyInkColor(utility: utility)
         caption.textColor = ink
         icon.tintColor = ink
@@ -161,8 +157,10 @@ final class KeyButton: UIButton {
         didRepeat = false; suppressTap = false
         pressWash.layer.removeAnimation(forKey: "keyRelease"); pressWash.alpha = 1
         pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
+        plate.layer.removeAnimation(forKey: "keySpring")
+        plate.transform = CGAffineTransform(scaleX: 0.975, y: 0.975)
         onPrepare?(key.action)
-        if haptics { if feedback == nil { feedback = UIImpactFeedbackGenerator(style: .light) }; feedback?.impactOccurred(intensity: 0.35) }
+        if vibrationEnabled { KeyboardVibration.shared.pulse(intensity: vibrationIntensity) }
         guard key.action == .delete else { return }
         let start = DispatchWorkItem { [weak self] in
             guard let self, self.isHighlighted else { return }
@@ -182,6 +180,16 @@ final class KeyButton: UIButton {
     }
     @objc func cancelPress() {
         repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
+        let scale = plate.layer.presentation()?.value(forKeyPath: "transform.scale") as? CGFloat ?? plate.transform.a
+        plate.transform = .identity; plate.layer.removeAnimation(forKey: "keySpring")
+        if scale < 0.999, window != nil, !UIAccessibility.isReduceMotionEnabled {
+            let spring = CASpringAnimation(keyPath: "transform.scale")
+            spring.mass = 1; spring.stiffness = 720; spring.damping = 30
+            spring.fromValue = scale; spring.toValue = 1; spring.duration = 0.22
+            let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
+            spring.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
+            plate.layer.add(spring, forKey: "keySpring")
+        }
         let opacity = pressWash.layer.presentation()?.opacity ?? Float(pressWash.alpha)
         pressWash.alpha = 0; plate.alpha = cursorMode ? 0.1 : 1
         pressWash.layer.removeAnimation(forKey: "keyRelease")
@@ -205,7 +213,7 @@ final class KeyButton: UIButton {
             let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
             link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
             link.add(to: .main, forMode: .common); cursorDisplayLink = link
-            if haptics { feedback?.impactOccurred(intensity: 0.5) }
+
         case .changed:
             pendingCursor = CGPoint(x: point.x - cursorOrigin.x, y: point.y - cursorOrigin.y)
         default:

@@ -67,7 +67,6 @@ struct AppearanceDetailContent: View {
     private var strength: Binding<Double> {
         Binding(get: { value.resolvedKeyGlassStrength },
             set: {
-                if settings.glass == .solid { settings.glass = .clear }
                 settings.keyGlassStrength = $0
             })
     }
@@ -137,8 +136,7 @@ struct AppearanceDetailContent: View {
                     .accessibilityIdentifier("preview." + item.rawValue)
                 VStack(alignment: .leading, spacing: 18) {
                     if item == .keyGlass {
-                        HStack { Text("强度"); Spacer(); Text(strength.wrappedValue, format: .percent.precision(.fractionLength(0))).monospacedDigit().foregroundStyle(.secondary) }
-                        Slider(value: strength, in: 0...1).accessibilityIdentifier("appearance.strength." + item.rawValue)
+                        GlassValueSlider(title: "通透强度", value: strength, range: 0...1, defaultValue: 0.55, identifier: "appearance.strength." + item.rawValue, percent: true)
                     } else if item == .candidateSize {
                         Picker("候选词大小", selection: Binding(get: { value.resolvedCandidateTextSize }, set: { settings.candidateTextSize = $0 })) {
                             ForEach(CandidateTextSize.allCases) { Text($0.title).tag($0) }
@@ -196,7 +194,7 @@ struct AppearanceDetailContent: View {
                             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
                     }.buttonStyle(.plain).accessibilityIdentifier("appearance.reset." + item.rawValue)
                         .accessibilityAddTraits(usesDefault ? .isSelected : [])
-                }.padding(compact ? 14 : 20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                }.padding(compact ? 14 : 20).modifier(LiquidCard(radius: 24))
             }.padding(compact ? 12 : 20).padding(.bottom, 18)
         }.scrollDismissesKeyboard(.interactively)
     }

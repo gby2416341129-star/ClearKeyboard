@@ -7,11 +7,6 @@ public enum HandMode: String, Codable, CaseIterable, Identifiable {
     public var id: String { rawValue }
     public var title: String { switch self { case .full: return "标准"; case .left: return "左手"; case .right: return "右手" } }
 }
-public enum GlassPreset: String, Codable, CaseIterable, Identifiable {
-    case clear, mist, solid
-    public var id: String { rawValue }
-    public var title: String { switch self { case .clear: return "清透"; case .mist: return "柔雾"; case .solid: return "纯净" } }
-}
 public enum Accent: String, Codable, CaseIterable, Identifiable {
     case jade, ocean, rose, graphite
     public var id: String { rawValue }
@@ -42,7 +37,6 @@ public struct KeyboardSettings: Codable, Equatable {
     public var language: InputLanguage = .chinese
     /// Nil/false use normal inline marked text. True explicitly keeps pinyin local.
     public var localPinyinComposition: Bool? = nil
-    public var glass: GlassPreset = .clear
     public var accent: Accent = .ocean
     public var customAccentHex: String? = nil
     public var keyGlassStrength: Double? = nil
@@ -61,7 +55,10 @@ public struct KeyboardSettings: Codable, Equatable {
     public var predictions = true
     public var learnChoices = true
     public var selectionLearningVersion: Int? = 1
-    public var haptics = false
+    public var vibrationEnabled: Bool? = nil
+    public var vibrationIntensity: Double? = nil
+    public var usesVibration: Bool { vibrationEnabled ?? false }
+    public var resolvedVibrationIntensity: Double { vibrationIntensity ?? 0.45 }
     public var autoCapitalization = true
     /// Zero means no time-based expiry. Optional flag keeps pre-0.1.3 settings readable.
     public var clipboardLifetimeHours: Double = 168
@@ -77,6 +74,7 @@ public struct KeyboardSettings: Codable, Equatable {
         keyColorHex = keyColorHex.flatMap { RGBColor(hex: $0)?.hex }
         candidateColorHex = candidateColorHex.flatMap { RGBColor(hex: $0)?.hex }
         keyGlassStrength = keyGlassStrength.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
+        vibrationIntensity = vibrationIntensity.flatMap { $0.isFinite ? min(1, max(0, $0)) : nil }
         keyHeight = min(58, max(44, keyHeight.isFinite ? keyHeight : 50))
         clipboardLifetimeHours = clipboardLifetimeHours == 0 ? 0 : min(8_760, max(0.25, clipboardLifetimeHours.isFinite ? clipboardLifetimeHours : 168))
         oneHandWidth = oneHandWidth.flatMap { $0.isFinite ? min(0.88, max(0.68, $0)) : nil }

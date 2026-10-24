@@ -18,6 +18,7 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -destination-timeout 60 -parallel-testing-enabled NO \
   -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
   -only-testing:ClearKeyboardRuntimeTests/UnifiedRepairTests \
+  -only-testing:ClearKeyboardRuntimeTests/GlassDesignRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/CustomizationRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests \
   -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests \
@@ -33,7 +34,7 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testVisibleCompletionConsumesLaterLettersWithinItsReading \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPrefixChoiceDoesNotCrossAnExternalCursorEdit \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testOverlappingKeyReleasesKeepContactOrderAndCancellation \
-  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testEnterConfirmsChineseWithoutBlockingOrFlushingRawSpelling \
+  -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testConfirmCommitsExactRawSpellingWithoutWaitingForCandidates \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testContextualShortSpellingDoesNotWaitForTheWordLookupWorker \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testMarkedTextBurstSendsLatestSpellingAndCommitFlushesInOrder \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testCandidateCommitReplacesRealUIKitMarkedRangeInOneInsertion \

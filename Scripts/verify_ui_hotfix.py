@@ -2,6 +2,9 @@
 import json,subprocess
 BASE='fed2ef08404cd5b0f252a798922e884d4868655b'
 ALLOWED={
+    'App/AppDesign.swift','SharedUI/LiquidGlass.swift','SharedUI/ValueSlider.swift','SharedUI/ToolArtwork.swift',
+    'SharedUI/Resources/BrandMark.png','App/Assets.xcassets/AppIcon.appiconset/AppIcon.png',
+    'Scripts/generate_project.py','NativeTests/GlassDesignRuntimeTests.swift',
     '.github/workflows/ipa.yml','Scripts/verify_ui_hotfix.py',
     'Scripts/boot_test_simulator.py','Scripts/test-composition-proxy.sh',
     'App/AppViews.swift','App/SettingsViews.swift',

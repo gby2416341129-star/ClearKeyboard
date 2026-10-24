@@ -12,7 +12,7 @@ import XCTest
         continueAfterFailure = false; clear.launch()
         let bar = clear.tabBars.firstMatch
         XCTAssertTrue(bar.waitForExistence(timeout: 8))
-        for (tab, identifier) in [("澈", "home.footer"), ("定制", "custom.footer"), ("输入", "input.resetLearning")] {
+        for (tab, identifier) in [("澈", "home.footer"), ("定制", "custom.toolbarEditor"), ("输入", "input.resetLearning")] {
             bar.buttons[tab].tap()
             let last = clear.descendants(matching: .any).matching(identifier: identifier).firstMatch
             let scroll = clear.scrollViews.firstMatch

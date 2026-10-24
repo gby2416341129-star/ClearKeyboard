@@ -7,7 +7,6 @@ import SwiftUI
     let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
     var configureGlobe: ((UIButton) -> Void)? { didSet { layoutSignature = ""; render() } }
-    private let nativeBase: UIVisualEffectView?
     private let toolbar = UIStackView()
     private let toolbarScroll = UIScrollView()
     private let toolbarShortcuts = UIStackView()
@@ -19,9 +18,9 @@ import SwiftUI
     private let localPreedit = UILabel()
     private let hint = UILabel()
     private let keyGlassGroup = UIView()
-    private let keyMaterial = KeyGlassMaterial(effect: nil)
     private let characterButton = UIButton(type: .system)
     private let clipboardSuggestion = UIStackView()
+    private let clipboardGlass = LiquidGlassView(radius: 18)
     private let clipboardPaste = UIButton(type: .system)
     private var recentClip: Clip?
     private var dismissedClip: UUID?
@@ -71,10 +70,8 @@ import SwiftUI
 
     init(model: KeyboardModel, systemBacked: Bool = false) {
         self.model = model; self.systemBacked = systemBacked
-        nativeBase = systemBacked ? nil : UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked
-        if let nativeBase { nativeBase.isUserInteractionEnabled = false; addSubview(nativeBase) }
         layer.cornerCurve = .continuous; layer.cornerRadius = systemBacked ? 0 : 28
         // Remote hosts may advertise a much larger corner radius; never inherit it.
         if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28)) }
@@ -114,7 +111,7 @@ import SwiftUI
         }
         addSubview(hint); hint.font = .systemFont(ofSize: 13); hint.textColor = .secondaryLabel
         hint.textAlignment = .center; hint.isUserInteractionEnabled = false
-        addSubview(keyGlassGroup); keyGlassGroup.addSubview(keyMaterial); addSubview(sideRail)
+        addSubview(keyGlassGroup); addSubview(sideRail)
         characterButton.setTitle("字", for: .normal)
         characterButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         characterButton.backgroundColor = .secondarySystemFill; characterButton.layer.cornerRadius = 10
@@ -187,17 +184,12 @@ import SwiftUI
             trailingInset: safeAreaInsets.right, fitHeight: !systemBacked)
         if keyFramesNeedLayout || geometryPresentation != geometry {
             geometryPresentation = geometry; keyFramesNeedLayout = false
-            nativeBase?.frame = bounds
             toolbar.frame = layout.header
             keyGlassGroup.frame = layout.keys
-            keyMaterial.frame = keyGlassGroup.bounds
-            var faces: [CGRect] = []
             for (button, row, start, units) in keys {
                 button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
                                       width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
-                faces.append(KeyboardGeometry.keyPlate(in: button.bounds, action: button.key.action, units: units).offsetBy(dx: button.frame.minX, dy: button.frame.minY))
             }
-            keyMaterial.setFaces(faces)
             sideRail.isHidden = settings.hand == .full
             sideRail.frame = layout.sideRail
         }
@@ -264,11 +256,10 @@ import SwiftUI
         let toolSignature = "\(settings.toolbar)-\(toolbarEditing)-\(toolboxVisible)-\(panelKind?.rawValue ?? "")"
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
-        let style = "\(settings.glass)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.haptics)-\(traitCollection.userInterfaceStyle.rawValue)"
+        let style = "\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
             appearanceSignature = style; tintColor = settings.accentInkColor
-            keyMaterial.apply(settings)
         }
         let presentation = KeyPresentation(uppercase: uppercase, chinese: settings.language == .chinese,
             shifted: model.shifted, capsLocked: model.capsLocked,
@@ -589,7 +580,7 @@ import SwiftUI
         } else if tool == .language { closePanel(); model.toggleLanguage() }
         else { showPanel(tool) }
     }
-    func stopInteractions() { keys.forEach { $0.0.stopTracking() }; finishToolbarDrag(); setCursorMode(false); closePanel() }
+    func stopInteractions() { keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel() }
     private func announce(_ text: String) {
         guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)
@@ -597,12 +588,22 @@ import SwiftUI
     private func configureClipboardSuggestion() {
         clipboardSuggestion.axis = .horizontal; clipboardSuggestion.spacing = 8; clipboardSuggestion.alignment = .fill
         clipboardSuggestion.accessibilityIdentifier = "clipboard.recent"
+        clipboardSuggestion.isLayoutMarginsRelativeArrangement = true
+        clipboardSuggestion.layoutMargins = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 4)
+        clipboardGlass.translatesAutoresizingMaskIntoConstraints = false
+        clipboardSuggestion.insertSubview(clipboardGlass, at: 0)
+        NSLayoutConstraint.activate([
+            clipboardGlass.leadingAnchor.constraint(equalTo: clipboardSuggestion.leadingAnchor),
+            clipboardGlass.trailingAnchor.constraint(equalTo: clipboardSuggestion.trailingAnchor),
+            clipboardGlass.topAnchor.constraint(equalTo: clipboardSuggestion.topAnchor, constant: 3),
+            clipboardGlass.bottomAnchor.constraint(equalTo: clipboardSuggestion.bottomAnchor, constant: -3)
+        ])
         var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "doc.on.clipboard", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14))
-        config.imagePadding = 7; config.contentInsets = .zero; config.baseForegroundColor = .label
+        config.image = ToolArtwork.image(symbol: "doc.on.clipboard.fill", size: 23)
+        config.imagePadding = 9; config.contentInsets = .zero; config.baseForegroundColor = .label
         config.titleLineBreakMode = .byTruncatingTail
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in
-            var next = values; next.font = .systemFont(ofSize: 14); return next
+            var next = values; next.font = .systemFont(ofSize: 14, weight: .medium); return next
         }
         clipboardPaste.configuration = config; clipboardPaste.contentHorizontalAlignment = .leading
         clipboardPaste.accessibilityIdentifier = "clipboard.recent.paste"
@@ -611,14 +612,14 @@ import SwiftUI
         clipboardPaste.addAction(UIAction { [weak self] _ in self?.pasteRecentClip() }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(clipboardPaste)
         let expand = UIButton(type: .system)
-        expand.setImage(UIImage(systemName: "chevron.down"), for: .normal)
+        expand.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)), for: .normal)
         expand.tintColor = .secondaryLabel; expand.accessibilityLabel = "打开剪贴板历史"
         expand.accessibilityIdentifier = "clipboard.recent.history"
         expand.widthAnchor.constraint(equalToConstant: 32).isActive = true
         expand.addAction(UIAction { [weak self] _ in self?.showPanel(.clipboard) }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(expand)
         let close = UIButton(type: .system)
-        close.setImage(UIImage(systemName: "xmark"), for: .normal)
+        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)), for: .normal)
         close.tintColor = .secondaryLabel; close.accessibilityLabel = "关闭本次剪贴提示"
         close.accessibilityIdentifier = "clipboard.recent.close"
         close.widthAnchor.constraint(equalToConstant: 32).isActive = true
@@ -696,11 +697,12 @@ import SwiftUI
             for offset in 0..<3 {
                 guard start + offset < items.count else { row.addArrangedSubview(UIView()); continue }
                 let (title, symbol, action) = items[start + offset]
-                var config = UIButton.Configuration.plain(); config.title = title; config.image = ToolArtwork.image(symbol: symbol, size: 32)
+                var config = UIButton.Configuration.plain()
+                if #available(iOS 26.0, *) { config = .glass() }
+                config.title = title; config.image = ToolArtwork.image(symbol: symbol, size: 28)
                 config.imagePlacement = .top; config.imagePadding = 10; config.baseForegroundColor = .label
                 config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 4, bottom: 12, trailing: 4)
-                config.background.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.65); config.background.cornerRadius = 16
-                config.background.strokeColor = UIColor.separator.withAlphaComponent(0.12); config.background.strokeWidth = 0.5
+                config.background.cornerRadius = 18
                 config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 12, weight: .medium); return result }
                 let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
                 button.accessibilityIdentifier = identifiers[title]
@@ -744,7 +746,7 @@ import SwiftUI
                 guard let self, let segment else { return }; self.model.settings.hand = HandMode.allCases[segment.selectedSegmentIndex]
             }, for: .valueChanged); stack.addArrangedSubview(segment)
             stack.addArrangedSubview(note("键盘宽度"))
-            let width = UISlider(); width.minimumValue = 0.68; width.maximumValue = 0.88; width.value = Float(model.settings.oneHandFraction)
+            let width = UISlider(); width.isContinuous = false; width.minimumValue = 0.68; width.maximumValue = 0.88; width.value = Float(model.settings.oneHandFraction)
             width.accessibilityLabel = "单手键盘宽度"
             width.addAction(UIAction { [weak self, weak width] _ in if let width { self?.model.settings.oneHandWidth = Double(width.value) } }, for: .valueChanged)
             stack.addArrangedSubview(width)

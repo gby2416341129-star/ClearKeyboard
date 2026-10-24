@@ -106,14 +106,14 @@ extension KeyboardSettings {
         // Color and optical strength are independent controls. A low glass
         // strength must not reduce a chosen key color to a nearly invisible tint.
         if keyColorHex != nil { return utility ? 0.70 : 0.78 }
-        let base = glass == .clear ? (dark ? 0.14 : 0.62) : (dark ? 0.25 : 0.78)
+        let base = dark ? 0.20 : 0.62
         return min(0.92, 0.06 + base * resolvedKeyGlassStrength) * (utility ? 0.72 : 1)
     }
     var keyInkColor: UIColor { keyInkColor(utility: false) }
     func keyInkColor(utility: Bool) -> UIColor {
         guard keyColorHex != nil else { return .label }
         let settings = self
-        let reduced = glass == .solid || UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
+        let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled
         return UIColor { trait in
             let dark = trait.userInterfaceStyle == .dark
             func blend(_ foreground: RGBColor, _ background: RGBColor, _ alpha: Double) -> RGBColor {

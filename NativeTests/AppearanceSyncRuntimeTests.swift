@@ -77,7 +77,7 @@ private final class AppearancePersistenceProbe {
     }
     private func envelope() -> ClearKeyboard.AppearanceEnvelope {
         var settings = ClearKeyboard.KeyboardSettings()
-        settings.glass = .mist; settings.keyGlassStrength = 0.23
+        settings.keyGlassStrength = 0.23
         settings.keyColorHex = "#292C39"; settings.candidateColorHex = "#558DF2"
         settings.candidateTextSize = .large; settings.accent = .rose
         return ClearKeyboard.AppearanceEnvelope(snapshot: ClearKeyboard.AppearanceSnapshot(settings: settings))
@@ -88,12 +88,12 @@ private final class AppearancePersistenceProbe {
         input.language = .english; input.learnChoices = false; input.predictions = false
         input.selectionLearningVersion = nil
         input.keyHeight = 57; input.hand = .left; input.automaticClipboard = false
-        input.clipboardLifetimeHours = 24; input.haptics = true; input.fuzzyPairs = ["n/l"]
+        input.clipboardLifetimeHours = 24; input.vibrationEnabled = true; input.fuzzyPairs = ["n/l"]
         let merged = appearance.applying(to: input)
         XCTAssertEqual(ClearKeyboard.AppearanceSnapshot(settings: merged), appearance)
         XCTAssertEqual(merged.language, input.language); XCTAssertEqual(merged.learnChoices, input.learnChoices)
         XCTAssertEqual(merged.selectionLearningVersion, input.selectionLearningVersion)
-        XCTAssertEqual(merged.predictions, input.predictions); XCTAssertEqual(merged.haptics, input.haptics)
+        XCTAssertEqual(merged.predictions, input.predictions); XCTAssertEqual(merged.vibrationEnabled, appearance.vibrationEnabled)
         XCTAssertEqual(merged.keyHeight, appearance.keyHeight); XCTAssertEqual(merged.hand, input.hand)
         XCTAssertEqual(merged.automaticClipboard, input.automaticClipboard)
         XCTAssertEqual(merged.clipboardLifetimeHours, input.clipboardLifetimeHours)
@@ -104,7 +104,7 @@ private final class AppearancePersistenceProbe {
         XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(data).get(), value)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
-        XCTAssertEqual(Set(snapshot.keys), Set(["glass", "accent", "keyGlassStrength", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight"]))
+        XCTAssertEqual(Set(snapshot.keys), Set(["accent", "keyGlassStrength", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight", "vibrationEnabled", "vibrationIntensity"]))
         XCTAssertNil(snapshot["language"]); XCTAssertNil(snapshot["learnChoices"]); XCTAssertNil(snapshot["clipboardLifetimeHours"])
         XCTAssertLessThan(data.count, 2_048)
     }
@@ -210,7 +210,7 @@ private final class AppearancePersistenceProbe {
         var keyboardSettings = ClearKeyboard.KeyboardSettings()
         keyboardSettings.keyHeight = 44; keyboardSettings.language = .english
         keyboardSettings.learnChoices = false; keyboardSettings.predictions = false
-        keyboardSettings.hand = .left; keyboardSettings.haptics = true
+        keyboardSettings.hand = .left; keyboardSettings.vibrationEnabled = true
         let backend = AppearanceMemoryBackend(), identity = receiver()
         let initial = ClearKeyboard.AppearanceEnvelope(snapshot: ClearKeyboard.AppearanceSnapshot(settings: appSettings))
         backend.seed(try ClearKeyboard.AppearanceSyncClient.encode(initial).get(), account: ClearKeyboard.AppearanceSyncClient.settingsAccount)
@@ -243,7 +243,7 @@ private final class AppearancePersistenceProbe {
         await fulfillment(of: [received], timeout: 3)
         XCTAssertEqual(keyboardSettings.language, .english); XCTAssertFalse(keyboardSettings.learnChoices)
         XCTAssertFalse(keyboardSettings.predictions); XCTAssertEqual(keyboardSettings.hand, .left)
-        XCTAssertTrue(keyboardSettings.haptics)
+        XCTAssertEqual(keyboardSettings.vibrationEnabled, false, "Feedback is now an App-controlled synchronized setting")
     }
     func testRapidSliderWritesCoalesceAndReportSupersededRevisions() async {
         let backend = AppearanceMemoryBackend(), client = ClearKeyboard.AppearanceSyncClient(backend: backend, coalesceInterval: 0.2)

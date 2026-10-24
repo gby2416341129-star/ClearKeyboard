@@ -4,7 +4,6 @@ import Security
 /// Only appearance travels through this channel. Input text, learned words,
 /// clipboard contents and language state remain in their existing stores.
 struct AppearanceSnapshot: Codable, Equatable {
-    let glass: GlassPreset
     let accent: Accent
     let customAccentHex: String?
     let keyGlassStrength: Double?
@@ -12,22 +11,27 @@ struct AppearanceSnapshot: Codable, Equatable {
     let candidateColorHex: String?
     let candidateTextSize: CandidateTextSize?
     let keyHeight: Double?
+    let vibrationEnabled: Bool?
+    let vibrationIntensity: Double?
 
     init(settings: KeyboardSettings) {
         var value = settings; value.sanitize()
-        glass = value.glass; accent = value.accent; customAccentHex = value.customAccentHex
+        accent = value.accent; customAccentHex = value.customAccentHex
         keyGlassStrength = value.keyGlassStrength
         keyColorHex = value.keyColorHex
         candidateColorHex = value.candidateColorHex; candidateTextSize = value.candidateTextSize
         keyHeight = value.keyHeight
+        vibrationEnabled = value.usesVibration; vibrationIntensity = value.resolvedVibrationIntensity
     }
     func applying(to settings: KeyboardSettings) -> KeyboardSettings {
         var value = settings
-        value.glass = glass; value.accent = accent; value.customAccentHex = customAccentHex
+        value.accent = accent; value.customAccentHex = customAccentHex
         value.keyGlassStrength = keyGlassStrength
         value.keyColorHex = keyColorHex
         value.candidateColorHex = candidateColorHex; value.candidateTextSize = candidateTextSize
         if let keyHeight { value.keyHeight = keyHeight }
+        if let vibrationEnabled { value.vibrationEnabled = vibrationEnabled }
+        if let vibrationIntensity { value.vibrationIntensity = vibrationIntensity }
         // The snapshot is normalized on creation and validated on decode.
         // Do not run unrelated language/learning migrations while applying it.
         return value
@@ -36,7 +40,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     /// after applying them, so an absent height preserves the receiver's layout.
     func isApplied(to settings: KeyboardSettings) -> Bool { applying(to: settings) == settings }
     var isValid: Bool {
-        let strengths = [keyGlassStrength].compactMap { $0 }
+        let strengths = [keyGlassStrength, vibrationIntensity].compactMap { $0 }
         guard strengths.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return false }
         if let keyHeight, !keyHeight.isFinite || !(44...58).contains(keyHeight) { return false }
         for color in [customAccentHex, keyColorHex, candidateColorHex].compactMap({ $0 }) {

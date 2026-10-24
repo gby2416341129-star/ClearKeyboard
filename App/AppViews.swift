@@ -19,8 +19,8 @@ import UIKit
     private var store: SettingsStore
     private let suppliedStore: SettingsStore?
     private let appearanceLink: AppearanceSettingsLink?
-    @Published private(set) var appearanceSyncStatus = AppearanceSettingsLink.Status.saved
-    @Published private(set) var appearanceSyncDiagnostics = AppearanceSyncDiagnostics()
+    private(set) var appearanceSyncStatus = AppearanceSettingsLink.Status.saved
+    private(set) var appearanceSyncDiagnostics = AppearanceSyncDiagnostics()
     let clipboardCapture: ClipboardCapture
     private var active = false
     private var returningFromClipboardSettings = false

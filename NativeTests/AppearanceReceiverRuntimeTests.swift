@@ -240,9 +240,9 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         let fixture = try ReceiverAppearanceFixture(); defer { fixture.cleanUp() }
         try await prepare(fixture)
         let key = try keyCrop(fixture)
-        for preset in [ClearKeyboard.GlassPreset.mist, .solid, .clear] {
-            try await assertEdit(fixture, name: "material " + preset.rawValue, crop: key) { $0.glass = preset }
-            XCTAssertEqual(fixture.model.settings.glass, preset)
+        for strength in [0.0, 0.5, 1.0] {
+            try await assertEdit(fixture, name: "key transmission", crop: key) { $0.keyGlassStrength = strength }
+            XCTAssertEqual(fixture.model.settings.resolvedKeyGlassStrength, strength)
         }
     }
     func testAppearanceReceiptPreservesLiveChineseCompositionAndDoesNotEchoWrites() async throws {

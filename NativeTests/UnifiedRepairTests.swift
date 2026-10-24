@@ -371,17 +371,17 @@ import UIKit
                 XCTAssertEqual(actual, target, accuracy: 0.00001, "Compare visible RGBA, independently of UIColor's storage color space")
             }
         }
-        var settings = KeyboardSettings(); settings.glass = .clear; settings.keyGlassStrength = 0
+        var settings = KeyboardSettings(); settings.keyGlassStrength = 0
         settings.keyColorHex = "#FFFFFF"; button.apply(settings)
         let dark = UITraitCollection(userInterfaceStyle: .dark), light = UITraitCollection(userInterfaceStyle: .light)
         assertInk(.black, traits: dark)
         let face = try XCTUnwrap(views(button).first { $0.accessibilityIdentifier == "key.face" })
-        XCTAssertGreaterThan(face.backgroundColor?.cgColor.alpha ?? 0, 0.70)
-        settings.glass = .solid; button.apply(settings)
+        XCTAssertEqual(face.layer.borderWidth, 0, "Glass volume comes from the lens, not a drawn frame")
+        button.apply(settings)
         assertInk(.black, traits: dark)
         settings.keyColorHex = nil; button.apply(settings)
         assertInk(.white, traits: dark)
-        window.overrideUserInterfaceStyle = .light; settings.glass = .clear; settings.keyColorHex = "#101010"; button.apply(settings)
+        window.overrideUserInterfaceStyle = .light; settings.keyColorHex = "#101010"; button.apply(settings)
         assertInk(.white, traits: light)
     }
     func testGlassStrengthChangesRenderedPixelsWithoutPersistentAnimations() async throws {
@@ -395,15 +395,14 @@ import UIKit
             stripe.backgroundColor = index.isMultiple(of: 2) ? .white : .black
             root.view.addSubview(stripe)
         }
-        var settings = KeyboardSettings(); settings.glass = .clear
+        var settings = KeyboardSettings(); 
         func snapshot() -> Data {
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
             return UIGraphicsImageRenderer(bounds: window.bounds, format: format).pngData { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
         }
-        let keys = KeyGlassMaterial(effect: nil); keys.frame = window.bounds; root.view.addSubview(keys)
-        keys.setFaces([CGRect(x: 20, y: 20, width: 280, height: 200)])
+        let keys = KeyButton(key: KeyboardKey("Q")); keys.frame = CGRect(x: 20, y: 20, width: 80, height: 100); root.view.addSubview(keys)
         settings.keyGlassStrength = 0; keys.apply(settings)
         try await Task.sleep(nanoseconds: 50_000_000)
         let noKeys = snapshot()
@@ -419,41 +418,16 @@ import UIKit
         XCTAssertEqual(keys.alpha, 1)
         print("GLASS_RENDERED_STRENGTH keyPixelsChanged=\(noKeys != fullKeys) persistentAnimations=false")
     }
-    func testKeyMaterialLeavesTheOuterSheetAndKeyGapsUnpainted() async throws {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene), root = UIViewController()
-        window.rootViewController = root; window.overrideUserInterfaceStyle = .dark; window.makeKeyAndVisible()
-        defer { window.isHidden = true }
-        for index in 0..<40 {
-            let stripe = UIView(frame: CGRect(x: CGFloat(index) * 10, y: 0, width: 10, height: 320))
-            stripe.backgroundColor = index.isMultiple(of: 2) ? .white : .black; root.view.addSubview(stripe)
-        }
-        let material = KeyGlassMaterial(effect: nil)
-        material.frame = CGRect(x: 8, y: 44, width: 304, height: 224); root.view.addSubview(material)
-        material.setFaces([CGRect(x: 8, y: 8, width: 80, height: 40), CGRect(x: 104, y: 8, width: 80, height: 40)])
-        var settings = KeyboardSettings(); settings.keyGlassStrength = 0; material.apply(settings)
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
-        func snapshot() throws -> CGImage {
-            let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
-            }
-            return try XCTUnwrap(image.cgImage)
-        }
-        func pixel(_ image: CGImage, _ x: Int, _ y: Int) throws -> Data {
-            let data = try XCTUnwrap(image.dataProvider?.data) as Data
-            let count = image.bitsPerPixel / 8, offset = y * image.bytesPerRow + x * count
-            return data.subdata(in: offset..<offset+count)
-        }
-        try await Task.sleep(nanoseconds: 60_000_000)
-        let before = try snapshot()
-        settings.keyGlassStrength = 1; material.apply(settings)
-        try await Task.sleep(nanoseconds: 60_000_000)
-        let after = try snapshot()
-        for (x,y) in [(9,44),(8,45),(311,45),(9,267),(160,267),(108,72)] {
-            XCTAssertEqual(try pixel(before,x,y), try pixel(after,x,y), "Material painted the outer rectangle or a gap at \(x),\(y)")
-        }
-        if #available(iOS 26.0, *) {
-            XCTAssertFalse(material.effect is UIGlassEffect, "Disconnected key faces must not outline a single refractive sheet")
+    func testKeyMaterialLeavesTheOuterSheetAndKeyGapsUnpainted() throws {
+        let key = KeyButton(key: KeyboardKey("Q")); key.frame = CGRect(x: 0,y: 0,width: 40,height: 56)
+        key.apply(KeyboardSettings()); key.layoutIfNeeded()
+        let lens = try XCTUnwrap(views(key).compactMap { $0 as? LiquidGlassView }.first)
+        let face = try XCTUnwrap(views(key).first { $0.accessibilityIdentifier == "key.face" })
+        XCTAssertEqual(lens.frame, face.bounds)
+        XCTAssertGreaterThan(face.frame.minX, 0); XCTAssertLessThan(face.frame.maxX, key.bounds.width)
+        XCTAssertNil(lens.mask, "Each key owns its own lens; no shared material mask can create a horizontal seam")
+        if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled, !ProcessInfo.processInfo.isLowPowerModeEnabled {
+            XCTAssertTrue(lens.effect is UIGlassEffect)
         }
     }
 }

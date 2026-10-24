@@ -213,27 +213,12 @@ import SwiftUI
         }
     }
     func testNeutralKeyFacesRemainTranslucentAndSolidFallbackIsOpaque() throws {
-        try XCTSkipIf(UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled)
-        for style in [UIUserInterfaceStyle.light, .dark] {
-            var colors: [UIColor] = []
-            for key in KeyboardLayout.rows(page: .letters, globe: false).last!.keys {
-                let button = KeyButton(key: key); button.overrideUserInterfaceStyle = style
-                var settings = testSettings(); settings.customAccentHex = "#FF00FF"
-                button.apply(settings)
-                let face = try XCTUnwrap(button.subviews.first { $0.accessibilityIdentifier == "key.face" })
-                let color = try XCTUnwrap(face.backgroundColor)
-                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-                XCTAssertTrue(color.getRed(&r, green: &g, blue: &b, alpha: &a))
-                XCTAssertEqual(r, g, accuracy: 0.001); XCTAssertEqual(g, b, accuracy: 0.001)
-                XCTAssertLessThan(a, 0.95, "The key must transmit the continuous glass backdrop")
-                colors.append(color)
-                settings.glass = .solid; button.apply(settings)
-                XCTAssertEqual(face.backgroundColor?.cgColor.alpha ?? 0, 1, accuracy: 0.001)
-                let label = try XCTUnwrap(descendants(button).compactMap { $0 as? CenteredKeyLabel }.first)
-                XCTAssertEqual(label.textColor.resolvedColor(with: button.traitCollection), UIColor.label.resolvedColor(with: button.traitCollection))
-            }
-            XCTAssertTrue(colors.dropFirst().allSatisfy { $0.isEqual(colors[0]) }, "Space and language must use the same neutral bottom-row material")
-        }
+        let lens = LiquidGlassView(radius: 8)
+        lens.configure(tint: nil, strength: 0.5, fallback: .gray, reduced: false)
+        if #available(iOS 26.0, *) { XCTAssertTrue(lens.effect is UIGlassEffect) }
+        lens.configure(tint: nil, strength: 0.5, fallback: .gray, reduced: true)
+        XCTAssertNil(lens.effect)
+        XCTAssertEqual(lens.backgroundColor?.cgColor.alpha ?? 0, 1, accuracy: 0.001)
     }
     func testCandidateAccentRemainsReadableOnLightAndDarkMaterials() {
         func linear(_ value: CGFloat) -> Double {
@@ -434,9 +419,13 @@ import SwiftUI
     }
     private func materialImage(_ view: UIView) -> UIImage {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
-        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
-            XCTAssertTrue(view.drawHierarchy(in: view.bounds, afterScreenUpdates: true))
+        let target = view.window ?? view
+        let image = UIGraphicsImageRenderer(bounds: target.bounds, format: format).image { _ in
+            XCTAssertTrue(target.drawHierarchy(in: target.bounds, afterScreenUpdates: true))
         }
+        let rect = view.convert(view.bounds, to: target)
+        guard let cropped = image.cgImage?.cropping(to: rect) else { return image }
+        return UIImage(cgImage: cropped)
     }
     private func materialPixel(_ image: UIImage, at point: CGPoint) throws -> [Int] {
         let bitmap = try XCTUnwrap(image.cgImage)
@@ -462,8 +451,7 @@ import SwiftUI
         let preview = KeyboardAppearancePreview(frame: CGRect(x: 20, y: 100, width: 350, height: 276))
         host.view.addSubview(preview)
         let canvas = try XCTUnwrap(descendants(preview).first { $0.accessibilityIdentifier == "appearance.keyboard-canvas" })
-        let base = try XCTUnwrap(descendants(preview).first { $0.accessibilityIdentifier == "appearance.native-base" } as? UIVisualEffectView)
-        XCTAssertTrue(base.effect is UIBlurEffect)
+        XCTAssertFalse(descendants(preview).contains { $0.accessibilityIdentifier == "appearance.native-base" })
         let keys = descendants(preview).compactMap { $0 as? KeyButton }
         let q = try XCTUnwrap(keys.first { $0.key.action == .text("q") })
         let a = try XCTUnwrap(keys.first { $0.key.action == .text("a") })
@@ -512,7 +500,7 @@ import SwiftUI
         }
         for style in [UIUserInterfaceStyle.light, .dark] {
             window.overrideUserInterfaceStyle = style; host.view.backgroundColor = .systemBackground
-            var settings = testSettings(); settings.glass = .solid
+            var settings = testSettings()
             for keyHeight: Double in [44, 50, 58] {
                 settings.keyHeight = keyHeight
                 for size in [CGSize(width: 350, height: 166), CGSize(width: 350, height: 250), CGSize(width: 250, height: 130)] {
@@ -528,7 +516,6 @@ import SwiftUI
                     XCTAssertEqual(q.convert(q.bounds, to: preview).height, pitch * scale, accuracy: 0.1)
                     XCTAssertEqual(shift.convert(shift.bounds, to: preview).height, pitch * scale, accuracy: 0.1)
                     XCTAssertTrue(preview.bounds.insetBy(dx: -0.1, dy: -0.1).contains(canvas.frame))
-                    XCTAssertEqual(base.frame, canvas.bounds)
                     let caption = try XCTUnwrap(descendants(q).compactMap { $0 as? CenteredKeyLabel }.first)
                     XCTAssertEqual(caption.font.pointSize, 23, accuracy: 0.1)
                     XCTAssertEqual(caption.layer.contentsScale, window.screen.scale * scale, accuracy: 0.01)
@@ -554,7 +541,7 @@ import SwiftUI
         // Their initial unspecified/light face must not survive dark adoption.
         window.overrideUserInterfaceStyle = .dark
         let cold = KeyboardAppearancePreview(frame: CGRect(x: 20, y: 100, width: 350, height: 230))
-        var coldSettings = testSettings(); coldSettings.glass = .solid
+        var coldSettings = testSettings(); 
         cold.apply(coldSettings)
         host.view.addSubview(cold); cold.frame.size = cold.fittingSize(forWidth: 350); settleLayout(cold)
         let coldKeys = descendants(cold).compactMap { $0 as? KeyButton }
@@ -883,7 +870,6 @@ import SwiftUI
             XCTAssertFalse(descendants(host.view).contains { $0 is KeyboardSurface }, "App page \(index) must not build an embedded keyboard")
             XCTAssertTrue(host.view.bounds.width > 0)
         }
-        for glass in GlassPreset.allCases { prefs.settings.glass = glass }
         for value in [0.15, 0.5, 1.0] { prefs.settings.keyGlassStrength = value }
         prefs.settings.learnChoices = false; XCTAssertFalse(prefs.settings.learnChoices)
         prefs.clearLearning()

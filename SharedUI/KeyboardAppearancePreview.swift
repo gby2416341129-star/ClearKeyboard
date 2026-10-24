@@ -1,64 +1,11 @@
 import UIKit
 
-/// One shared material pass, clipped to the key faces. Geometry is rebuilt only
-/// when keys move, rather than creating a blur/refraction view for every letter.
-final class KeyGlassMaterial: UIVisualEffectView {
-    private let shape = CAShapeLayer()
-    private let effectMask = UIView()
-    private var signature = ""
-    private var faces: [CGRect] = []
-    private var maskSize = CGSize.zero
-    private var strength: CGFloat = -1
-    override init(effect: UIVisualEffect?) {
-        super.init(effect: effect); isUserInteractionEnabled = false
-        effectMask.layer.addSublayer(shape); shape.fillColor = UIColor.black.cgColor
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    func setFaces(_ value: [CGRect]) {
-        guard faces != value || maskSize != bounds.size || mask == nil else { return }
-        faces = value; updateMask()
-    }
-    private func updateMask() {
-        maskSize = bounds.size
-        let path = UIBezierPath()
-        for face in faces { path.append(UIBezierPath(roundedRect: face, cornerRadius: 8)) }
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        effectMask.frame = bounds; effectMask.alpha = max(0, strength)
-        shape.frame = bounds; shape.path = path.cgPath
-        // Assign the mask to the visual-effect view itself, not a superview.
-        // UIKit then applies it to both the effect and the content.
-        mask = nil; mask = effectMask
-        CATransaction.commit()
-    }
-    func apply(_ settings: KeyboardSettings) {
-        let reduced = UIAccessibility.isReduceTransparencyEnabled || ProcessInfo.processInfo.isLowPowerModeEnabled || settings.glass == .solid
-        let next = "\(settings.glass)-\(reduced)"
-        if next != signature {
-            signature = next
-            var target: UIVisualEffect?
-            if reduced { target = nil }
-            // A refractive glass panel outlines its entire rectangle before a
-            // noncontiguous mask is applied. Diffuse material can follow the key
-            // faces without drawing a second rim around the whole key area.
-            else { target = UIBlurEffect(style: settings.glass == .clear ? .systemUltraThinMaterial : .systemMaterial) }
-            UIView.performWithoutAnimation { effect = target }
-        }
-        let nextStrength = CGFloat(settings.resolvedKeyGlassStrength)
-        if strength != nextStrength || mask == nil { strength = nextStrength; updateMask() }
-    }
-}
-
 /// Production views are laid out once at the real keyboard's logical size, then
 /// the whole canvas is scaled uniformly. The preview never compresses row pitch
 /// independently of the text, symbols, insets or key faces.
 final class KeyboardAppearancePreview: UIView {
     private let canvas = UIView()
-    // A local material approximates the host's neutral keyboard base. An
-    // ordinary UIInputView subview does not receive the responder's automatic
-    // backdrop. The extension itself uses the actual host-owned base.
-    private let nativeBase = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let keyArea = UIView()
-    private let glass = KeyGlassMaterial(effect: nil)
     private let first = CandidateButton(), second = CandidateButton()
     private var keys: [(KeyButton, Int, Double, Double)] = []
     private var settings = KeyboardSettings()
@@ -79,10 +26,8 @@ final class KeyboardAppearancePreview: UIView {
         canvas.accessibilityElementsHidden = true
         canvas.layer.cornerRadius = 22; canvas.layer.cornerCurve = .continuous; canvas.clipsToBounds = true
         addSubview(canvas)
-        nativeBase.isUserInteractionEnabled = false
-        nativeBase.accessibilityIdentifier = "appearance.native-base"
-        canvas.addSubview(nativeBase)
-        canvas.addSubview(first); canvas.addSubview(second); canvas.addSubview(keyArea); keyArea.addSubview(glass)
+        canvas.backgroundColor = .secondarySystemBackground
+        canvas.addSubview(first); canvas.addSubview(second); canvas.addSubview(keyArea)
         for (index, row) in KeyboardLayout.rows(page: .letters, uppercase: true, globe: false).enumerated() {
             var start = row.insetUnits
             for key in row.keys {
@@ -114,7 +59,7 @@ final class KeyboardAppearancePreview: UIView {
         guard appliedSettings != value || appliedStyle != traitCollection.userInterfaceStyle || appliedReducedTransparency != reduced else { return }
         appliedSettings = value; appliedStyle = traitCollection.userInterfaceStyle
         appliedReducedTransparency = reduced
-        settings = value; glass.apply(value)
+        settings = value
         for (key, _, _, _) in keys { key.apply(value) }
         let font = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points))
         let firstFont = UIFont.systemFont(ofSize: CGFloat(value.resolvedCandidateTextSize.points), weight: .medium)
@@ -140,16 +85,12 @@ final class KeyboardAppearancePreview: UIView {
             canvas.center = CGPoint(x: bounds.midX, y: bounds.midY)
             canvas.transform = CGAffineTransform(scaleX: scale, y: scale)
         }
-        nativeBase.frame = canvas.bounds
         let layout = KeyboardGeometry.layout(size: size, metrics: metrics, hand: .full, fitHeight: false)
-        keyArea.frame = layout.keys; glass.frame = keyArea.bounds
-        var faces: [CGRect] = []
+        keyArea.frame = layout.keys
         for (button, row, start, units) in keys {
             button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
                                   width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
-            faces.append(KeyboardGeometry.keyPlate(in: button.bounds, action: button.key.action, units: units).offsetBy(dx: button.frame.minX, dy: button.frame.minY))
         }
-        glass.setFaces(faces)
         let font = UIFont.systemFont(ofSize: CGFloat(settings.resolvedCandidateTextSize.points))
         let firstFont = UIFont.systemFont(ofSize: CGFloat(settings.resolvedCandidateTextSize.points), weight: .medium)
         let firstWidth = CandidateButton.width(Candidate(text: "今天", consumed: 0), font: firstFont) + 4

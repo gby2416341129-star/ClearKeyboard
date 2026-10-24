@@ -4,9 +4,6 @@ import UIKit
 struct CustomizationView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var showToolbarEditor = false
-    @State private var showSyncDetails = false
-    @State private var keyHeightDraft: Double?
-    @State private var keyHeightEditing = false
     var body: some View {
         AppPage(title: "定制") {
             AppSectionTitle(title: "按键与候选")
@@ -16,73 +13,49 @@ struct CustomizationView: View {
                     NavigationLink {
                         AppAppearanceDetail(item: item)
                             .background(AppPalette.canvas).navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
-                    } label: { AppRow(title: item.title, detail: detail(item), symbol: item.symbol) }
+                    } label: {
+                        AppRow(title: item.title, detail: item.colorPath == nil ? detail(item) : "", symbol: item.symbol,
+                               color: item.colorPath.map { color(at: $0) })
+                    }
                         .accessibilityIdentifier("custom.edit." + item.rawValue)
                 }
             }.buttonStyle(.plain)
             AppSectionTitle(title: "布局与手感")
             AppCard {
-                HStack {
-                    Text("按键材质").font(.system(size: 16)); Spacer()
-                    Picker("按键材质", selection: $preferences.settings.glass) {
-                        ForEach(GlassPreset.allCases) { Text($0.title).tag($0) }
-                    }.accessibilityIdentifier("custom.glass")
-                }
+                GlassValueSlider(title: "按键高度", value: $preferences.settings.keyHeight, range: 44...58, defaultValue: 50, identifier: "custom.keyHeight")
                 Divider()
-                HStack {
-                    Text("按键高度").font(.system(size: 16)); Spacer()
-                    Text(Int(keyHeightDraft ?? preferences.settings.keyHeight).description).monospacedDigit().foregroundStyle(.secondary)
-                    Button("还原") { keyHeightDraft = 50; commitKeyHeight() }.font(.caption).accessibilityIdentifier("custom.resetHeight")
-                }
-                Slider(value: Binding(get: { keyHeightDraft ?? preferences.settings.keyHeight },
-                                      set: {
-                                          keyHeightDraft = $0
-                                          if !keyHeightEditing { commitKeyHeight() }
-                                      }), in: 44...58, step: 1,
-                       onEditingChanged: { editing in
-                           keyHeightEditing = editing
-                           if !editing { commitKeyHeight() }
-                       })
-                    .accessibilityIdentifier("custom.keyHeight")
-                    .accessibilityLabel("按键高度")
-                    .onDisappear { commitKeyHeight() }
-                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-                        guard keyHeightDraft != nil else { return }
-                        commitKeyHeight()
-                        // The root may already have handled this notification.
-                        // Re-flush this final draft under its normal short lease.
-                        preferences.deactivate()
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("单手模式").font(.system(size: 16, weight: .medium))
+                    Picker("单手模式", selection: $preferences.settings.hand) {
+                        ForEach(HandMode.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented).accessibilityIdentifier("custom.hand")
+                    if preferences.settings.hand != .full {
+                        GlassValueSlider(title: "键盘宽度", value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), range: 0.68...0.88, defaultValue: 0.78, identifier: "custom.oneHandWidth", percent: true)
                     }
-                Divider()
-                Picker("单手模式", selection: $preferences.settings.hand) {
-                    ForEach(HandMode.allCases) { Text($0.title).tag($0) }
-                }.accessibilityIdentifier("custom.hand")
-                if preferences.settings.hand != .full {
-                    Slider(value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), in: 0.68...0.88).accessibilityLabel("单手宽度")
                 }
-                Divider()
-                PreferenceToggle(title: "轻触反馈", isOn: $preferences.settings.haptics).accessibilityIdentifier("custom.haptics")
+            }
+            AppSectionTitle(title: "触感")
+            AppCard {
+                PreferenceToggle(title: "按键震动", isOn: Binding(get: { preferences.settings.usesVibration }, set: { preferences.settings.vibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.vibration")
+                if preferences.settings.usesVibration {
+                    Divider()
+                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: { preferences.settings.vibrationIntensity = $0; KeyboardVibration.shared.pulse(intensity: $0) }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
+                }
             }
             AppCard {
                 Button { showToolbarEditor = true } label: { AppRow(title: "快捷工具", detail: "排列与选择", symbol: "rectangle.3.group") }
                     .buttonStyle(.plain).accessibilityIdentifier("custom.toolbarEditor")
             }
-            HStack(spacing: 12) {
-                Text(preferences.appearanceSyncStatus.title).font(.caption).foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-                Button { showSyncDetails = true } label: { Image(systemName: "info.circle") }
-                    .accessibilityLabel("外观同步详情")
-            }.padding(.horizontal, 4).accessibilityIdentifier("custom.footer")
         }.accessibilityIdentifier("custom.page").tint(AppPalette.accent)
             .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView().tint(AppPalette.accent) }
-            .sheet(isPresented: $showSyncDetails) { AppearanceSyncDetails().environmentObject(preferences) }
             .onAppear { preferences.reload() }
     }
-    private func commitKeyHeight() {
-        keyHeightEditing = false
-        guard let value = keyHeightDraft else { return }
-        keyHeightDraft = nil
-        preferences.settings.keyHeight = value
+    private func color(at path: WritableKeyPath<KeyboardSettings, String?>) -> UIColor {
+        if let hex = preferences.settings[keyPath: path], let rgb = RGBColor(hex: hex) {
+            return UIColor(red: CGFloat(rgb.red), green: CGFloat(rgb.green), blue: CGFloat(rgb.blue), alpha: 1)
+        }
+        return path == \.candidateColorHex ? .label : .secondarySystemFill
     }
     private func detail(_ item: AppearanceItem) -> String {
         switch item {
@@ -90,37 +63,6 @@ struct CustomizationView: View {
         case .candidateSize: return preferences.settings.resolvedCandidateTextSize.title
         default: return item.colorPath.flatMap { preferences.settings[keyPath: $0] } ?? "默认"
         }
-    }
-}
-
-private struct AppearanceSyncDetails: View {
-    @EnvironmentObject private var preferences: Preferences
-    @Environment(\.dismiss) private var dismiss
-    private var diagnostics: AppearanceSyncDiagnostics { preferences.appearanceSyncDiagnostics }
-    private var diagnosticText: String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return (try? encoder.encode(diagnostics)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
-    var body: some View {
-        NavigationStack {
-            AppPage(title: "外观同步") {
-                AppCard {
-                    Label(preferences.appearanceSyncStatus.title, systemImage:
-                        preferences.appearanceSyncStatus == .receivedByKeyboard ? "checkmark.circle" : "arrow.triangle.2.circlepath")
-                    Divider()
-                    LabeledContent("共享存储", value: diagnostics.backend.containerAvailable ? "可用" : "尚未连接")
-                    if let receiver = diagnostics.expectedReceiver {
-                        LabeledContent("键盘版本", value: receiver.version + " (" + receiver.build + ")")
-                    }
-                }
-                Button {
-                    UIPasteboard.general.string = diagnosticText
-                } label: { Label("复制同步信息", systemImage: "doc.on.doc") }
-                    .buttonStyle(PrimaryAppButton()).accessibilityIdentifier("appearance.copySyncDiagnostics")
-                Text("同步信息不包含输入内容或剪贴板记录。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }.toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
-        }.tint(AppPalette.accent)
     }
 }
 

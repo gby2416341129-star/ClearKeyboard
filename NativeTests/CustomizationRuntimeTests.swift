@@ -20,11 +20,11 @@ import UIKit
         let subscription = preferences.objectWillChange.sink { changes += 1 }
         defer { subscription.cancel() }
         for index in 0..<60 {
-            preferences.settings.glass = index.isMultiple(of: 2) ? .mist : .clear
+            preferences.settings.keyGlassStrength = index.isMultiple(of: 2) ? 0.25 : 0.75
             preferences.settings.keyGlassStrength = Double(index % 80 + 15) / 100
             preferences.settings.keyHeight = Double(44 + index % 15)
             preferences.settings.hand = index.isMultiple(of: 2) ? .left : .right
-            preferences.settings.haptics.toggle()
+            preferences.settings.vibrationEnabled = !preferences.settings.usesVibration
             preferences.settings.customAccentHex = index.isMultiple(of: 2) ? "#F80" : "#17B890"
             preferences.settings.toolbar = [.clipboard, .emoji, .appearance]
             XCTAssertEqual(ClearKeyboard.SettingsStore(defaults: defaults).load(), preferences.settings)
@@ -225,7 +225,7 @@ import UIKit
             preferences.settings.accent = index.isMultiple(of: 2) ? .rose : .ocean
             preferences.settings.hand = index.isMultiple(of: 2) ? .left : .full
             preferences.settings.keyHeight = Double(44 + index)
-            preferences.settings.glass = index.isMultiple(of: 2) ? .mist : .clear
+            preferences.settings.keyGlassStrength = index.isMultiple(of: 2) ? 0.25 : 0.75
             try await Task.sleep(nanoseconds: 40_000_000)
             window.layoutIfNeeded()
         }

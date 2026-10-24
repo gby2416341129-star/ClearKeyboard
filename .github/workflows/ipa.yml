@@ -116,7 +116,7 @@ jobs:
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextFieldSurvivesIdleAndSelectionCallbacks \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionWithRealUITextViewSurvivesIdleAndSelectionCallbacks \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionInTheAppsActualSwiftUIAppearanceFieldSurvivesIdle \
-            -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testEnterConfirmsChineseWithoutBlockingOrFlushingRawSpelling \
+            -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testConfirmCommitsExactRawSpellingWithoutWaitingForCandidates \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
       - name: Preserve the focused appearance result
         if: always()
@@ -250,8 +250,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.52')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 55')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.53')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 56')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

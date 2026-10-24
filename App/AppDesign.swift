@@ -15,7 +15,13 @@ struct AppPage<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) { content }
                 .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 28)
-        }.background(AppPalette.canvas.ignoresSafeArea())
+        }.background {
+            AppPalette.canvas.ignoresSafeArea()
+                .overlay(alignment: .topTrailing) {
+                    Ellipse().fill(AppPalette.accent.opacity(0.10)).frame(width: 320, height: 400)
+                        .blur(radius: 90).offset(x: 130, y: -180).allowsHitTesting(false)
+                }
+        }
             .navigationTitle(title).navigationBarTitleDisplayMode(.large)
             .scrollDismissesKeyboard(.interactively)
     }
@@ -25,9 +31,8 @@ struct AppCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 16) { content }
-            .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(AppPalette.line, lineWidth: 0.5))
+            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(LiquidCard(radius: 24))
     }
 }
 
@@ -50,14 +55,19 @@ struct AppRow: View {
     let title: String
     let detail: String
     let symbol: String
+    var color: UIColor? = nil
     var body: some View {
         HStack(spacing: 13) {
-            Image(systemName: symbol).font(.system(size: 18, weight: .medium))
-                .symbolRenderingMode(.hierarchical).foregroundStyle(AppPalette.accent)
-                .frame(width: 30, height: 32)
+            Image(uiImage: ToolArtwork.image(symbol: symbol, size: 28)).renderingMode(.original)
+                .frame(width: 32, height: 34)
             Text(title).font(.system(size: 16)).foregroundStyle(.primary)
             Spacer(minLength: 6)
             if !detail.isEmpty { Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1) }
+            if let color {
+                RoundedRectangle(cornerRadius: 8).fill(Color(uiColor: color)).frame(width: 28, height: 28)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+                    .accessibilityLabel("当前颜色")
+            }
             Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
         }.padding(.vertical, 4).contentShape(Rectangle())
     }
@@ -69,7 +79,7 @@ struct PrimaryAppButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.system(size: 16, weight: .semibold))
             .frame(maxWidth: .infinity).padding(.vertical, 15)
-            .foregroundStyle(ink).background(bodyColor, in: RoundedRectangle(cornerRadius: 14))
-            .opacity(configuration.isPressed ? 0.72 : 1)
+            .foregroundStyle(bodyColor).modifier(LiquidCard(radius: 18, interactive: true))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }

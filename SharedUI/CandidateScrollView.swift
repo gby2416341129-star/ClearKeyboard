@@ -471,7 +471,7 @@ import os
             let spring = CASpringAnimation(keyPath: "transform.translation.y")
             // A single small rebound settles below 0.002pt by 180ms. Do not use settlingDuration here:
             // extending its clock would stretch a fast typing burst.
-            spring.mass = 1; spring.stiffness = 6_400; spring.damping = 88
+            spring.mass = 1; spring.stiffness = 6_400; spring.damping = 84
             spring.initialVelocity = 0
             spring.timingFunction = CAMediaTimingFunction(name: .linear)
             settle = spring

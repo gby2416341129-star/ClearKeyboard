@@ -639,7 +639,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             if composition.isEmpty { insertText(" ") } else { commitComposition(flushRemainder: false) }
         case .enter:
-            if composition.isEmpty { insertText("\n") } else { commitComposition(flushRemainder: false) }
+            if composition.isEmpty { insertText("\n") } else { finishCompositionAsTyped() }
         case .page(let next): page = next
         case .globe: commitComposition(); finishNumericRun(); phraseLearning.reset(); document?.nextKeyboard()
         case .language: toggleLanguage(); return
@@ -788,7 +788,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private func needsLatestCandidate(for action: KeyAction) -> Bool {
         guard settings.language == .chinese, !composition.isEmpty else { return false }
         switch action {
-        case .space, .enter: return requestedContext != nil
+        case .space: return requestedContext != nil
         case .text(let text):
             if page == .letters, !shifted, text.first?.isLetter == true || text == "'" { return false }
             return requestedContext != nil
