@@ -88,12 +88,23 @@ import SwiftUI
             guard let bitmap = mask.cgImage else { return }
             c.saveGState(); c.translateBy(x: 0,y: 32); c.scaleBy(x: 1,y: -1)
             c.clip(to: CGRect(x: 0,y: 0,width: 32,height: 32),mask: bitmap)
-            let colors = [UIColor(hue: hue,saturation: 0.56,brightness: 0.76,alpha: 0.96).cgColor,
-                          UIColor(hue: hue,saturation: 0.40,brightness: 0.96,alpha: 0.88).cgColor]
+            let colors = [UIColor(hue: hue,saturation: 0.50,brightness: 0.80,alpha: 0.28).cgColor,
+                          UIColor(hue: hue,saturation: 0.24,brightness: 1,alpha: 0.16).cgColor]
             if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: colors as CFArray,locations: [0,1]) {
                 c.drawLinearGradient(gradient,start: CGPoint(x: 16,y: 0),end: CGPoint(x: 16,y: 32),options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
             }
             c.restoreGState()
+            // Light catches only a thin edge of the actual symbol. Its face
+            // keeps real alpha instead of an opaque simulated glass fill.
+            for (offset,color) in [(CGFloat(0.4),UIColor.white.withAlphaComponent(0.58)),
+                                   (CGFloat(-0.4),UIColor(hue: hue,saturation: 0.45,brightness: 0.50,alpha: 0.20))] {
+                let edge = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { context in
+                    mask.withTintColor(color,renderingMode: .alwaysOriginal).draw(in: CGRect(x: 0,y: 0,width: 32,height: 32))
+                    context.cgContext.setBlendMode(.destinationOut)
+                    mask.draw(in: CGRect(x: offset,y: offset,width: 32,height: 32))
+                }
+                edge.draw(in: CGRect(x: 0,y: 0,width: 32,height: 32))
+            }
         }
         cache[key] = value; return value
     }
@@ -122,8 +133,8 @@ import SwiftUI
     private func configureMaterial() {
         if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled {
             let effect = UIGlassEffect(style: .clear)
-            effect.tintColor = ToolArtwork.tint(symbol).withAlphaComponent(0.30)
-            lens.effect = effect; lens.isHidden = false; ink.alpha = 0.78
+            effect.tintColor = ToolArtwork.tint(symbol).withAlphaComponent(0.16)
+            lens.effect = effect; lens.isHidden = false; ink.alpha = 1
         } else { lens.effect = nil; lens.isHidden = true; ink.alpha = 1 }
     }
     override func layoutSubviews() {

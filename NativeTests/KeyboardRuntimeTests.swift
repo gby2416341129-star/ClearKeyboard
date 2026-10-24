@@ -796,7 +796,7 @@ import SwiftUI
         try await waitFor { controller.model.composition.isEmpty && controller.textView.text == "iphone我的iphone" }
         XCTAssertEqual(controller.model.settings.language, .chinese)
     }
-    func testToolbarArtworkHasMatchingVisibleFootprints() throws {
+    func testToolbarArtworkHasMatchingVisibleFootprints() async throws {
         func alphaBounds(_ image: UIImage) throws -> CGRect {
             let cg = try XCTUnwrap(image.cgImage); let width = cg.width, height = cg.height
             var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -805,9 +805,17 @@ import SwiftUI
                 context.draw(cg, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
             }
             var minX = width, minY = height, maxX = 0, maxY = 0
+            var visibleAlpha: [UInt8] = []
             for y in 0..<height { for x in 0..<width where pixels[(y * width + x) * 4 + 3] > 24 {
+                visibleAlpha.append(pixels[(y * width + x) * 4 + 3])
                 minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
             } }
+            visibleAlpha.sort()
+            XCTAssertFalse(visibleAlpha.isEmpty)
+            if !visibleAlpha.isEmpty {
+                XCTAssertLessThan(visibleAlpha[visibleAlpha.count/2],128,"Most visible artwork must transmit more than half the backdrop, rather than use a solid color fill")
+                XCTAssertLessThan(visibleAlpha.last!,230,"Even the fine rim must not become an opaque crystal outline")
+            }
             return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX + 1), height: CGFloat(maxY - minY + 1))
         }
         let symbols = ["character.bubble.fill", "doc.on.clipboard.fill", "face.smiling.fill", "keyboard.fill", "paintpalette.fill", "rectangle.3.group.fill", "desktopcomputer", "key.glass", "key.color", "candidate.color", "candidate.size"]
@@ -825,19 +833,39 @@ import SwiftUI
             }
         }
         let names = ["语言", "剪贴板", "表情", "单手", "外观", "工具栏", "兼容输入", "按键玻璃", "按键颜色", "文字颜色", "文字大小"]
-        let format = UIGraphicsImageRendererFormat(); format.scale = 3
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 420,height: 352),format: format).image { _ in
-            for (theme,background) in [UIColor(red: 0.96,green: 0.96,blue: 0.98,alpha: 1),UIColor(white: 0.085,alpha: 1)].enumerated() {
-                background.setFill(); UIRectFill(CGRect(x: 0,y: CGFloat(theme*176),width: 420,height: 176))
-                for index in symbols.indices {
-                    let x = CGFloat(index%6)*70, y = CGFloat(theme*176+(index/6)*84)
-                    ToolArtwork.image(symbol: symbols[index],size: 32).draw(in: CGRect(x: x+19,y: y+12,width: 32,height: 32))
-                    (names[index] as NSString).draw(in: CGRect(x: x+2,y: y+53,width: 66,height: 20),withAttributes: [.font:UIFont.systemFont(ofSize: 11),.foregroundColor:theme == 0 ? UIColor(white: 0.12,alpha: 1) : UIColor.white])
-                }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }, window = UIWindow(windowScene: scene)
+        defer { window.isHidden = true; previous?.makeKey() }
+        for style in [UIUserInterfaceStyle.light,.dark] {
+            let dark = style == .dark
+            window.overrideUserInterfaceStyle = style
+            let controller = UIViewController(); window.rootViewController = controller
+            controller.view.backgroundColor = dark ? UIColor(white: 0.085,alpha: 1) : UIColor(red: 0.96,green: 0.96,blue: 0.98,alpha: 1)
+            let canvas = UIView(frame: CGRect(x: 0,y: 80,width: 420,height: 352)); controller.view.addSubview(canvas)
+            // An actual host backdrop, only in this visual fixture: the color
+            // boundary must remain visible through the native glass symbols.
+            for column in 0..<12 {
+                let stripe = UIView(frame: CGRect(x: CGFloat(column)*35,y: 176,width: 35,height: 176))
+                stripe.backgroundColor = column%2 == 0
+                    ? UIColor(red: dark ? 0.12 : 0.58,green: dark ? 0.25 : 0.69,blue: dark ? 0.43 : 0.88,alpha: 1)
+                    : UIColor(red: dark ? 0.36 : 0.85,green: dark ? 0.18 : 0.60,blue: dark ? 0.28 : 0.70,alpha: 1)
+                canvas.addSubview(stripe)
             }
+            for group in 0..<2 { for index in symbols.indices {
+                let x = CGFloat(index%6)*70, y = CGFloat(group*176+(index/6)*84)
+                let icon = ToolIconView(symbol: symbols[index]); icon.frame = CGRect(x: x+19,y: y+12,width: 32,height: 32); canvas.addSubview(icon)
+                let label = UILabel(frame: CGRect(x: x+2,y: y+53,width: 66,height: 20)); label.text = names[index]
+                label.textAlignment = .center; label.font = .systemFont(ofSize: 11); label.textColor = dark ? .white : UIColor(white: 0.12,alpha: 1); canvas.addSubview(label)
+            } }
+            window.makeKeyAndVisible(); window.layoutIfNeeded()
+            try await Task.sleep(nanoseconds: 160_000_000)
+            let format = UIGraphicsImageRendererFormat(); format.scale = 3
+            let image = UIGraphicsImageRenderer(bounds: canvas.bounds,format: format).image { _ in
+                XCTAssertTrue(canvas.drawHierarchy(in: canvas.bounds,afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "Glass56-icons-native-" + (dark ? "dark" : "light")
+            attachment.lifetime = .keepAlways; add(attachment)
         }
-        let attachment = XCTAttachment(image: image); attachment.name = "Glass56-icon-keyline-review"
-        attachment.lifetime = .keepAlways; add(attachment)
     }
 
     func testSelectedAbbreviationIsRememberedBeforeTheNextDecoderQuery() async throws {
