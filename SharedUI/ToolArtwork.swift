@@ -70,9 +70,9 @@ import SwiftUI
               let data = try? Data(contentsOf: url), let source = UIImage(data: data) else {
             return image(symbol: "water.waves", size: size)
         }
-        let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { _ in
-            UIBezierPath(roundedRect: CGRect(x: 1,y: 1,width: size-2,height: size-2), cornerRadius: size*0.27).addClip()
-            source.draw(in: CGRect(x: 0,y: 0,width: size,height: size))
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size),format: format).image { _ in
+            source.draw(in: CGRect(x: 0,y: 0,width: size,height: size),blendMode: .normal,alpha: 0.44)
         }
         cache[key] = image; return image
     }
@@ -98,10 +98,10 @@ import SwiftUI
             // keeps real alpha instead of an opaque simulated glass fill.
             for (offset,color) in [(CGFloat(0.4),UIColor.white.withAlphaComponent(0.58)),
                                    (CGFloat(-0.4),UIColor(hue: hue,saturation: 0.45,brightness: 0.50,alpha: 0.20))] {
-                let edge = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { context in
-                    mask.withTintColor(color,renderingMode: .alwaysOriginal).draw(in: CGRect(x: 0,y: 0,width: 32,height: 32))
-                    context.cgContext.setBlendMode(.destinationOut)
-                    mask.draw(in: CGRect(x: offset,y: offset,width: 32,height: 32))
+                let edge = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { _ in
+                    mask.withTintColor(color.withAlphaComponent(1),renderingMode: .alwaysOriginal)
+                        .draw(in: CGRect(x: 0,y: 0,width: 32,height: 32),blendMode: .normal,alpha: color.cgColor.alpha)
+                    mask.draw(in: CGRect(x: offset,y: offset,width: 32,height: 32),blendMode: .destinationOut,alpha: 1)
                 }
                 edge.draw(in: CGRect(x: 0,y: 0,width: 32,height: 32))
             }

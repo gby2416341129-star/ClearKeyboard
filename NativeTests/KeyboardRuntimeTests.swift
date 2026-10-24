@@ -822,7 +822,8 @@ import SwiftUI
         // Match the shared keyline, not both dimensions: a clipboard must
         // retain its portrait silhouette instead of being padded with a disk.
         for size in [CGFloat(20), 28, 32] {
-            let bounds = try symbols.map { try alphaBounds(ToolArtwork.image(symbol: $0,size: size,scale: 3)) }
+            let artwork = symbols.map { ToolArtwork.image(symbol: $0,size: size,scale: 3) } + [ToolArtwork.brand(size: size)]
+            let bounds = try artwork.map { try alphaBounds($0) }
             let sides = bounds.map { max($0.width,$0.height) }
             XCTAssertLessThan(sides.max()! / sides.min()!, 1.16)
             for rect in bounds {
@@ -832,7 +833,7 @@ import SwiftUI
                 XCTAssertLessThan(abs(rect.midY-size*1.5),size*0.12)
             }
         }
-        let names = ["语言", "剪贴板", "表情", "单手", "外观", "工具栏", "兼容输入", "按键玻璃", "按键颜色", "文字颜色", "文字大小"]
+        let names = ["语言", "剪贴板", "表情", "单手", "外观", "工具栏", "兼容输入", "按键玻璃", "按键颜色", "文字颜色", "文字大小", "澈"]
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }, window = UIWindow(windowScene: scene)
         defer { window.isHidden = true; previous?.makeKey() }
@@ -851,9 +852,10 @@ import SwiftUI
                     : UIColor(red: dark ? 0.36 : 0.85,green: dark ? 0.18 : 0.60,blue: dark ? 0.28 : 0.70,alpha: 1)
                 canvas.addSubview(stripe)
             }
-            for group in 0..<2 { for index in symbols.indices {
+            for group in 0..<2 { for index in names.indices {
                 let x = CGFloat(index%6)*70, y = CGFloat(group*176+(index/6)*84)
-                let icon = ToolIconView(symbol: symbols[index]); icon.frame = CGRect(x: x+19,y: y+12,width: 32,height: 32); canvas.addSubview(icon)
+                let icon: UIView = index < symbols.count ? ToolIconView(symbol: symbols[index]) : UIImageView(image: ToolArtwork.brand(size: 32))
+                icon.frame = CGRect(x: x+19,y: y+12,width: 32,height: 32); canvas.addSubview(icon)
                 let label = UILabel(frame: CGRect(x: x+2,y: y+53,width: 66,height: 20)); label.text = names[index]
                 label.textAlignment = .center; label.font = .systemFont(ofSize: 11); label.textColor = dark ? .white : UIColor(white: 0.12,alpha: 1); canvas.addSubview(label)
             } }
