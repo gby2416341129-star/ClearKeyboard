@@ -34,8 +34,8 @@ final class KeyButton: UIButton {
     private var shadowSize = CGSize.zero
     private var appearanceSettings: KeyboardSettings?
 
-    init(key: KeyboardKey, vibration: KeyboardVibration = .shared) {
-        self.key = key; self.vibration = vibration; super.init(frame: .zero)
+    init(key: KeyboardKey, vibration: KeyboardVibration? = nil) {
+        self.key = key; self.vibration = vibration ?? .shared; super.init(frame: .zero)
         // Keep the entire non-overlapping key cell eligible for remote-host
         // touch delivery, including its transparent margins and rounded corners.
         backgroundColor = UIColor(white: 0.5, alpha: 0.01); isOpaque = false
@@ -116,7 +116,8 @@ final class KeyButton: UIButton {
         let base: CGFloat = key.action == .language ? 14 : key.label.count == 1 ? 23 : 16
         let fontSize = min(base, max(10, min(plate.bounds.width * 0.88, plate.bounds.height * 0.65)))
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
-        lens.frame = plate.bounds; caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
+        lens.bounds = plate.bounds; lens.center = CGPoint(x: plate.bounds.midX, y: plate.bounds.midY)
+        caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
         if shadowSize != plate.bounds.size {
             shadowSize = plate.bounds.size
             plate.layer.shadowPath = plate.bounds.isEmpty ? nil : UIBezierPath(roundedRect: plate.bounds, cornerRadius: 8).cgPath
@@ -158,8 +159,8 @@ final class KeyButton: UIButton {
         didRepeat = false; suppressTap = false
         pressWash.layer.removeAnimation(forKey: "keyRelease"); pressWash.alpha = 1
         pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
-        plate.layer.removeAnimation(forKey: "keySpring")
-        plate.transform = CGAffineTransform(scaleX: 0.975, y: 0.975)
+        lens.layer.removeAnimation(forKey: "keySpring")
+        lens.transform = CGAffineTransform(scaleX: 0.975, y: 0.975)
         onPrepare?(key.action)
         if vibrationEnabled { vibration.pulse(intensity: vibrationIntensity) }
         guard key.action == .delete else { return }
@@ -181,15 +182,15 @@ final class KeyButton: UIButton {
     }
     @objc func cancelPress() {
         repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
-        let scale = plate.layer.presentation()?.value(forKeyPath: "transform.scale") as? CGFloat ?? plate.transform.a
-        plate.transform = .identity; plate.layer.removeAnimation(forKey: "keySpring")
+        let scale = lens.layer.presentation()?.value(forKeyPath: "transform.scale") as? CGFloat ?? lens.transform.a
+        lens.transform = .identity; lens.layer.removeAnimation(forKey: "keySpring")
         if scale < 0.999, window != nil, !UIAccessibility.isReduceMotionEnabled {
             let spring = CASpringAnimation(keyPath: "transform.scale")
             spring.mass = 1; spring.stiffness = 720; spring.damping = 30
             spring.fromValue = scale; spring.toValue = 1; spring.duration = 0.22
             let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
             spring.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
-            plate.layer.add(spring, forKey: "keySpring")
+            lens.layer.add(spring, forKey: "keySpring")
         }
         let opacity = pressWash.layer.presentation()?.opacity ?? Float(pressWash.alpha)
         pressWash.alpha = 0; plate.alpha = cursorMode ? 0.1 : 1

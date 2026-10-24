@@ -16,7 +16,8 @@ import UIKit
         }
         cache[key] = image; return image
     }
-    static func image(symbol: String, size: CGFloat = 28, scale: CGFloat = UIScreen.main.scale) -> UIImage {
+    static func image(symbol: String, size: CGFloat = 28, scale: CGFloat? = nil) -> UIImage {
+        let scale = scale ?? UIScreen.main.scale
         let key = "\(symbol):\(size):\(scale)"
         if let value = cache[key] { return value }
         let glyph: String, hue: CGFloat
