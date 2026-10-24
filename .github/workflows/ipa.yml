@@ -116,6 +116,8 @@ jobs:
             -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testToolbarArtworkHasMatchingVisibleFootprints \
             -only-testing:ClearKeyboardRuntimeTests/GlassDesignRuntimeTests/testUnifiedGlassScreensAtPhoneSizeInLightAndDark \
             -only-testing:ClearKeyboardRuntimeTests/UnifiedRepairTests/testRecentClipboardCanPasteAndOpenHistoryWithoutReplacingTypedPinyin \
+            -only-testing:ClearKeyboardRuntimeTests/UnifiedRepairTests/testCustomKeyTintAndInkStayVisibleAtZeroGlassStrength \
+            -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests/testIndependentAppMaterialSwitchesChangeActualKeyboardPixels \
             -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests/testCandidateHandoffVisualSamplesAndSettledInk \
             -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests/testRapidResultsShareOneClockAndKeepLatestTextAndExactHitGeometry \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNativeDraftSurvivesTransientNilContextWithoutLosingChineseCandidates \

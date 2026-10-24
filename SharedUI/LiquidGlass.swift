@@ -28,7 +28,7 @@ final class LiquidGlassView: UIVisualEffectView {
     }
     func configure(tint: UIColor?, strength: Double, fallback: UIColor, reduced: Bool = UIAccessibility.isReduceTransparencyEnabled, colorOpacity: Double? = nil) {
         let strength = min(1, max(0, strength))
-        let opacity = min(1, max(0, colorOpacity ?? (tint == nil ? 0.02 + strength * 0.035 : 0.54 + strength * 0.14)))
+        let opacity = min(1, max(0, colorOpacity ?? (tint == nil ? 0.02 + strength * 0.18 : 0.66 + strength * 0.16)))
         let key = "\(tint?.description ?? "auto")-\(strength)-\(opacity)-\(reduced)-\(traitCollection.userInterfaceStyle.rawValue)"
         guard signature != key else { return }; signature = key
         UIView.performWithoutAnimation {
@@ -44,10 +44,12 @@ final class LiquidGlassView: UIVisualEffectView {
                 cornerConfiguration = .corners(radius: .fixed(radius))
                 // One color film only. Tinting both the native effect and an
                 // overlay compounded the opacity and made dark keys look molded.
-                tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
+                let neutral: UIColor = traitCollection.userInterfaceStyle == .dark ? .black : .white
+                tintFilm.backgroundColor = clear ? .clear : (tint ?? neutral).withAlphaComponent(CGFloat(opacity))
             } else {
                 effect = UIBlurEffect(style: .systemUltraThinMaterial); backgroundColor = .clear
-                tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
+                let neutral: UIColor = traitCollection.userInterfaceStyle == .dark ? .black : .white
+                tintFilm.backgroundColor = clear ? .clear : (tint ?? neutral).withAlphaComponent(CGFloat(opacity))
             }
         }
     }
