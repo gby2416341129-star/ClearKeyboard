@@ -79,7 +79,10 @@ import SwiftUI
             let pages: [(String, AnyView)] = [
                 ("home", AnyView(HomeView(selectedTab: .constant(.home)))),
                 ("custom", AnyView(CustomizationView())),
-                ("input", AnyView(InputSettingsView()))
+                ("input", AnyView(InputSettingsView())),
+                ("clipboard-settings", AnyView(ClipboardSettingsView())),
+                ("about", AnyView(InputAboutView())),
+                ("fuzzy", AnyView(FuzzySettingsView()))
             ]
             for (name, page) in pages {
                 window.rootViewController = UIHostingController(rootView: NavigationStack { page }.environmentObject(preferences))

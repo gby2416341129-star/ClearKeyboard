@@ -94,7 +94,8 @@ private struct ToolbarEditorView: View {
                         Button { preferences.settings.toolbar.append(item) } label: { Label(item.title, systemImage: "plus.circle") }
                     }
                 }
-            }.environment(\.editMode, .constant(.active)).navigationTitle("快捷工具").navigationBarTitleDisplayMode(.inline)
+            }.scrollContentBackground(.hidden).background(AppPalette.canvas)
+                .environment(\.editMode, .constant(.active)).navigationTitle("快捷工具").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
     }
@@ -137,18 +138,22 @@ struct InputSettingsView: View {
     }
 }
 
-private struct FuzzySettingsView: View {
+struct FuzzySettingsView: View {
     @EnvironmentObject private var preferences: Preferences
     var body: some View {
-        List {
-            Section {
-                ForEach(FuzzyPinyin.availablePairs, id: \.self) { pair in
-                    Toggle(pair.replacingOccurrences(of: "/", with: " ↔ "), isOn: Binding(
+        AppPage(title: "模糊拼音") {
+            AppSectionTitle(title: "发音组合")
+            AppCard {
+                ForEach(Array(FuzzyPinyin.availablePairs.enumerated()), id: \.element) { index, pair in
+                    if index > 0 { Divider() }
+                    PreferenceToggle(title: pair.replacingOccurrences(of: "/", with: " ↔ "), isOn: Binding(
                         get: { preferences.settings.fuzzyPairs.contains(pair) },
                         set: { if $0 { preferences.settings.fuzzyPairs.insert(pair) } else { preferences.settings.fuzzyPairs.remove(pair) } }))
                 }
-            } footer: { Text("只开启你需要的发音组合。普通拼音错按与漏按无需开启模糊拼音。") }
-        }.scrollContentBackground(.hidden).background(AppPalette.canvas).navigationTitle("模糊拼音").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            }
+            Text("只开启你需要的发音组合。普通拼音错按与漏按无需开启模糊拼音。")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
+        }.navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar).tint(AppPalette.accent)
     }
 }
 
@@ -157,34 +162,41 @@ struct ClipboardSettingsView: View {
     @State private var confirmClear = false
     @State private var accessMessage = ""
     var body: some View {
-        List {
-            Section {
-                Toggle("自动收录复制内容", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 }))
+        AppPage(title: "剪贴板") {
+            AppSectionTitle(title: "收录与保留")
+            AppCard {
+                PreferenceToggle(title: "自动收录复制内容", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 }))
+                Divider()
                 Picker("内容保留", selection: $preferences.settings.clipboardLifetimeHours) {
                     Text("15 分钟").tag(0.25); Text("1 小时").tag(1.0); Text("1 天").tag(24.0)
                     Text("7 天").tag(168.0); Text("30 天").tag(720.0); Text("永久").tag(0.0)
-                }
-            } footer: { Text("App 或澈键盘打开时自动收录。常用语不会随保留时间过期。") }
-            Section("粘贴权限") {
+                }.font(.system(size: 16))
+            }
+            Text("App 或澈键盘打开时自动收录。常用语不会随保留时间过期。")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
+            AppSectionTitle(title: "粘贴权限")
+            AppCard {
                 Button("检查粘贴访问") {
                     switch preferences.clipboardCapture.checkAccess() {
                     case .empty: accessMessage = "当前没有可检查的复制内容。请先在其他 App 复制文字、链接或图片，再回来检查。"
                     case .contentRead: accessMessage = "本次读取成功。若希望自动收录时不再询问，请在系统设置中选择「允许」。本次成功不代表已开启长期允许。"
                     case .unavailable: accessMessage = "本次未读取到可保存内容。若系统询问，请按你的意愿选择；也可在系统设置中检查粘贴权限。"
                     }
-                }.accessibilityIdentifier("clipboard.checkAccess")
+                }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("clipboard.checkAccess")
                 if !accessMessage.isEmpty { Text(accessMessage).font(.caption).foregroundStyle(.secondary) }
-                Button("打开系统设置") { preferences.openClipboardSettings() }
+                Button("打开系统设置") { preferences.openClipboardSettings() }.font(.system(size: 16))
+                Divider()
                 ClipboardSaveControl(capture: preferences.clipboardCapture).frame(height: 38)
                 DisclosureGroup("系统粘贴权限说明") {
                     Text("权限由 iOS 管理。首次读取其他 App 的复制内容后，可到系统设置选择询问、拒绝或允许；自动收录需完全访问。")
                         .font(.caption).foregroundStyle(.secondary)
-                }
+                }.font(.system(size: 14))
             }
-            Section {
-                Button("清空剪贴板记录", role: .destructive) { confirmClear = true }
-            } footer: { Text("支持文字、链接、图片和 8 MB 内附件。最多保留 200 条，附件总计 32 MB。图片与附件需复制后在输入框粘贴。") }
-        }.scrollContentBackground(.hidden).background(AppPalette.canvas).navigationTitle("剪贴板").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            Button("清空剪贴板记录", role: .destructive) { confirmClear = true }
+                .buttonStyle(PrimaryAppButton(bodyColor: .red))
+            Text("支持文字、链接、图片和 8 MB 内附件。最多保留 200 条，附件总计 32 MB。图片与附件需复制后在输入框粘贴。")
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
+        }.navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar).tint(AppPalette.accent)
             .confirmationDialog("清空复制记录？", isPresented: $confirmClear) {
                 Button("清空", role: .destructive) { preferences.clearClipboard() }
             }
@@ -193,25 +205,30 @@ struct ClipboardSettingsView: View {
 
 struct InputAboutView: View {
     var body: some View {
-        List {
-            Section("留在本机") {
-                Label("无需账号，也无需联网输入", systemImage: "lock.shield")
+        AppPage(title: "隐私与关于") {
+            AppSectionTitle(title: "留在本机")
+            AppCard {
+                Label("无需账号，也无需联网输入", systemImage: "lock.shield").font(.system(size: 16, weight: .medium))
                 Text("选词记忆保存你主动确认的词和对应拼音，可在输入设置中关闭或清除。剪贴板可单独关闭和清空。")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
-            Section("离线引擎") {
-                Text("Rime · 万象拼音")
+            AppSectionTitle(title: "离线引擎")
+            AppCard {
+                Text("Rime · 万象拼音").font(.system(size: 16, weight: .medium))
                 Text("中文词库与上下文语言模型支持整句、简拼和拼写纠错；中文模式中也可输入 English。")
                     .font(.subheadline).foregroundStyle(.secondary)
-                NavigationLink("开源许可") { LicenseView() }
+                Divider()
+                NavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
             }
-            Section("使用手势") {
+            AppSectionTitle(title: "使用手势")
+            AppCard {
                 Label("长按空格，滑动定位光标", systemImage: "cursorarrow.motionlines")
+                Divider()
                 Label("删除键上滑清空，下滑撤回", systemImage: "delete.left")
                 Text("有拼音时，回车原样输入拼音，空格选择候选；没有拼音时，回车跟随当前 App 的发送、搜索或换行设置。")
                     .font(.subheadline).foregroundStyle(.secondary)
-            }
-        }.scrollContentBackground(.hidden).background(AppPalette.canvas).navigationTitle("隐私与关于").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            }.font(.system(size: 16))
+        }.navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar).tint(AppPalette.accent)
     }
 }
 
@@ -228,7 +245,7 @@ private struct LicenseView: View {
         }.joined(separator: "\n\n")
     }
     var body: some View {
-        ScrollView { Text(license).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(22) }
+        AppPage(title: "开源许可") { AppCard { Text(license).font(.system(size: 12, design: .monospaced)).textSelection(.enabled) } }
             .navigationTitle("开源许可").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
     }
 }
