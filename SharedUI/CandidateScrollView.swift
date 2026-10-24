@@ -393,7 +393,7 @@ import os
     }()
     private let plate = UIView()
     private let label = UILabel()
-    private var transitionDeadline: CFTimeInterval = 0
+    private(set) var transitionDeadline: CFTimeInterval = 0
     private var transitionCleanup: DispatchWorkItem?
     private static let transitionDuration: CFTimeInterval = 0.18
     override init(frame: CGRect) {
@@ -490,11 +490,14 @@ import os
         // into a later word, and never defer input or restart the bounce.
         let deadline = transitionDeadline
         let cleanup = DispatchWorkItem { [weak self] in
-            guard let self, self.transitionDeadline == deadline else { return }
-            self.finishTransition()
+            self?.finishTransition(matching: deadline)
         }
         transitionCleanup = cleanup
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: cleanup)
+    }
+    func finishTransition(matching deadline: CFTimeInterval) {
+        guard transitionDeadline == deadline else { return }
+        finishTransition()
     }
     func finishTransition() {
         transitionCleanup?.cancel(); transitionCleanup = nil

@@ -106,6 +106,7 @@ jobs:
       - name: Check native composition and preview before the longer suites
         run: |
           TEST_DEVICE="$(cat .build/composition-device-id)"
+          set +e
           xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime \
             -configuration Debug -destination "platform=iOS Simulator,id=$TEST_DEVICE" \
             -derivedDataPath .build/Composition -resultBundlePath .build/SolidBoundaryResults.xcresult \
@@ -121,6 +122,14 @@ jobs:
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testPartialConversionInTheAppsActualSwiftUIAppearanceFieldSurvivesIdle \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testConfirmCommitsExactRawSpellingWithoutWaitingForCandidates \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building
+          RESULT=$?
+          xcrun xcresulttool get test-results summary --path .build/SolidBoundaryResults.xcresult || true
+          xcrun xcresulttool get test-results tests --path .build/SolidBoundaryResults.xcresult || true
+          if [ "$RESULT" -ne 0 ]; then
+            xcrun xcresulttool get test-results activities --path .build/SolidBoundaryResults.xcresult --test-id 'CandidateAnimationRuntimeTests/testRapidResultsShareOneClockAndKeepLatestTextAndExactHitGeometry()' || true
+            xcrun xcresulttool get test-results activities --path .build/SolidBoundaryResults.xcresult --test-id 'CandidateAnimationRuntimeTests/testCandidateHandoffVisualSamplesAndSettledInk()' || true
+          fi
+          exit "$RESULT"
       - name: Preserve the focused appearance result
         if: always()
         uses: actions/upload-artifact@v4

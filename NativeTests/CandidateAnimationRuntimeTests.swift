@@ -106,7 +106,7 @@ import UIKit
         XCTAssertTrue(label.superview === button, "The smaller highlight must not clip large animated glyphs")
         XCTAssertGreaterThanOrEqual((label.bounds.height - label.font.lineHeight) / 2, 2)
     }
-    func testRapidResultsShareOneClockAndKeepLatestTextAndExactHitGeometry() async throws {
+    func testRapidResultsShareOneClockAndKeepLatestTextAndExactHitGeometry() throws {
         let button = CandidateButton(frame: CGRect(x: 8, y: 0, width: 260, height: 44))
         let font = UIFont.systemFont(ofSize: 19), originalFrame = button.frame
         button.configure(Candidate(text: "你", consumed: 1), first: true, accent: .systemBlue, font: font, animate: true, reduceMotion: false)
@@ -122,15 +122,18 @@ import UIKit
             XCTAssertEqual(label.text, text); XCTAssertEqual(button.frame, originalFrame)
             XCTAssertEqual(views(button).compactMap { $0 as? UILabel }.count, 1)
         }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        let previousDeadline = button.transitionDeadline
         button.finishTransition()
         button.configure(Candidate(text: "下一次输入", consumed: 5), first: true, accent: .systemBlue,
                          font: font, animate: true, reduceMotion: false)
         let next = try XCTUnwrap(label.layer.animation(forKey: "candidateText"))
-        try await Task.sleep(nanoseconds: 110_000_000)
+        // Deliver a stale completion deterministically. A wall-clock sleep
+        // can resume after the newer burst has naturally finished on a busy
+        // simulator, which cannot establish premature cancellation.
+        button.finishTransition(matching: previousDeadline)
         XCTAssertEqual(label.layer.animation(forKey: "candidateText")?.beginTime, next.beginTime,
                        "A cancelled prior deadline must not settle a newer burst early")
-        try await Task.sleep(nanoseconds: 100_000_000)
+        button.finishTransition(matching: button.transitionDeadline)
         XCTAssertNil(label.layer.animation(forKey: "candidateText"))
         XCTAssertNil(label.layer.animation(forKey: "candidateTextPosition"))
         XCTAssertEqual(label.text, "下一次输入"); XCTAssertEqual(button.frame, originalFrame)
