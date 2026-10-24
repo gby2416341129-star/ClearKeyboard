@@ -54,11 +54,16 @@ final class LiquidGlassView: UIVisualEffectView {
 }
 
 struct LiquidCard: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
     var radius: CGFloat = 24
     var interactive = false
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.glassEffect(.clear.interactive(interactive), in: RoundedRectangle(cornerRadius: radius))
+            content.background {
+                RoundedRectangle(cornerRadius: radius).fill(Color.clear)
+                    .glassEffect(.clear.interactive(interactive), in: RoundedRectangle(cornerRadius: radius))
+                    .opacity(colorScheme == .dark ? 0.42 : 0.72)
+            }
         } else {
             content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
         }

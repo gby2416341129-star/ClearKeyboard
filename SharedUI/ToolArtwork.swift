@@ -92,9 +92,9 @@ import SwiftUI
                 let luminance = red*0.2126 + green*0.7152 + blue*0.0722
                 // Preserve the selected mark's highlights instead of fading
                 // its whole surface equally into a grey silhouette.
-                let opacity = alpha*(0.36 + 0.32*pow(luminance,8))
+                let opacity = alpha*(0.25 + 0.63*pow(luminance,5))
                 for (channel,value) in [red,green,blue].enumerated() {
-                    let color = min(1,max(0,luminance+(value-luminance)*1.16))
+                    let color = min(1,max(0,luminance+(value-luminance)*1.42))
                     raw[offset+channel] = UInt8((color*opacity*255).rounded())
                 }
                 raw[offset+3] = UInt8((opacity*255).rounded())
@@ -116,15 +116,22 @@ import SwiftUI
             guard let bitmap = mask.cgImage else { return }
             c.saveGState(); c.translateBy(x: 0,y: 32); c.scaleBy(x: 1,y: -1)
             c.clip(to: CGRect(x: 0,y: 0,width: 32,height: 32),mask: bitmap)
-            let colors = [UIColor(hue: hue,saturation: 0.78,brightness: 0.98,alpha: 0.44).cgColor,
-                          UIColor(hue: hue,saturation: 0.62,brightness: 1,alpha: 0.32).cgColor]
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: colors as CFArray,locations: [0,1]) {
+            // The colored reflection remains bright on a dark host. A clear
+            // central body transmits the backdrop, instead of dimming every
+            // part of the symbol with the same alpha (which looks grey).
+            let colors = [UIColor(hue: hue,saturation: 0.52,brightness: 1,alpha: 0.72).cgColor,
+                          UIColor(hue: hue,saturation: 0.74,brightness: 1,alpha: 0.78).cgColor,
+                          UIColor(hue: hue,saturation: 0.82,brightness: 1,alpha: 0.42).cgColor,
+                          UIColor(hue: hue,saturation: 0.80,brightness: 1,alpha: 0.34).cgColor,
+                          UIColor(hue: hue,saturation: 0.74,brightness: 1,alpha: 0.44).cgColor,
+                          UIColor(hue: hue,saturation: 0.56,brightness: 1,alpha: 0.68).cgColor]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: colors as CFArray,locations: [0,0.18,0.32,0.70,0.90,1]) {
                 c.drawLinearGradient(gradient,start: CGPoint(x: 16,y: 0),end: CGPoint(x: 16,y: 32),options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
             }
             c.restoreGState()
             // Light catches only a thin edge of the actual symbol. Its face
             // keeps real alpha instead of an opaque simulated glass fill.
-            for (offset,color) in [(CGFloat(0.25),UIColor.white.withAlphaComponent(0.25))] {
+            for (offset,color) in [(CGFloat(0.28),UIColor.white.withAlphaComponent(0.58))] {
                 let edge = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { _ in
                     mask.withTintColor(color.withAlphaComponent(1),renderingMode: .alwaysOriginal)
                         .draw(in: CGRect(x: 0,y: 0,width: 32,height: 32),blendMode: .normal,alpha: color.cgColor.alpha)

@@ -21,8 +21,13 @@ struct AppPage<Content: View>: View {
         }.background {
             AppPalette.canvas.ignoresSafeArea()
                 .overlay(alignment: .topTrailing) {
-                    Ellipse().fill(AppPalette.accent.opacity(0.10)).frame(width: 320, height: 400)
+                    Ellipse().fill(AppPalette.accent.opacity(0.14)).frame(width: 320, height: 500)
                         .blur(radius: 90).offset(x: 130, y: -180).allowsHitTesting(false)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    Ellipse().fill(Color(red: 0.24,green: 0.49,blue: 0.92).opacity(0.07))
+                        .frame(width: 300,height: 480).blur(radius: 100)
+                        .offset(x: -150,y: 120).allowsHitTesting(false)
                 }
         }
             .navigationTitle(title).navigationBarTitleDisplayMode(.large)
