@@ -162,6 +162,7 @@ jobs:
             -derivedDataPath .build/Composition -resultBundlePath .build/AppNavigationResults.xcresult \
             -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
             -only-testing:ClearKeyboardUITests/AppUITests/testEveryTabCanScrollItsLastControlAboveTheBottomBar \
+            -only-testing:ClearKeyboardUITests/AppUITests/testAppearanceKeyGlass \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
           RESULT=$?
           xcrun xcresulttool get test-results summary --path .build/AppNavigationResults.xcresult

@@ -41,7 +41,22 @@ import XCTest
             }
             XCTAssertTrue(icon.exists && icon.isHittable,"The built app icon must be visible when the launcher exposes icons")
             if icon.exists && icon.isHittable {
-                let value = XCTAttachment(screenshot: icon.screenshot()); value.name = "Desktop58-icon-native"; value.lifetime = .keepAlways; add(value)
+                let shot = icon.screenshot()
+                let value = XCTAttachment(screenshot: shot); value.name = "Desktop58-icon-native"; value.lifetime = .keepAlways; add(value)
+                // Check the empty top-center background, inside the system icon
+                // silhouette and above the foreground. Source alpha alone did
+                // not catch the system adding a white backplate in Light mode.
+                let bitmap = try XCTUnwrap(shot.image.cgImage)
+                let side = CGFloat(bitmap.width)
+                let strip = try XCTUnwrap(bitmap.cropping(to: CGRect(x: side*0.4,y: side*0.06,width: side*0.2,height: side*0.03).integral))
+                var rgba = [UInt8](repeating: 0,count: strip.width*strip.height*4)
+                try rgba.withUnsafeMutableBytes { raw in
+                    let context = try XCTUnwrap(CGContext(data: raw.baseAddress,width: strip.width,height: strip.height,bitsPerComponent: 8,bytesPerRow: strip.width*4,space: CGColorSpaceCreateDeviceRGB(),bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                    context.draw(strip,in: CGRect(x: 0,y: 0,width: CGFloat(strip.width),height: CGFloat(strip.height)))
+                }
+                let brightness = stride(from: 0,to: rgba.count,by: 4).map { (Double(rgba[$0])+Double(rgba[$0+1])+Double(rgba[$0+2]))/3 }.reduce(0,+)/Double(strip.width*strip.height)
+                XCTAssertLessThan(brightness,140,"The actual desktop icon must not acquire a white backplate")
+                print("DESKTOP_ICON_BACKPLATE meanRGB=\(brightness) whiteBackplate=false")
                 attachment(springboard,name: "Desktop58-home-native")
                 print("DESKTOP_ICON_VERIFICATION status=reviewable")
             }

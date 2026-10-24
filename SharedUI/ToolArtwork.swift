@@ -94,7 +94,7 @@ import SwiftUI
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
         let image = UIGraphicsImageRenderer(size: CGSize(width: size, height: size),format: format).image { _ in
             material.draw(in: CGRect(x: 0,y: 0,width: size,height: size))
-        }
+        }.withRenderingMode(.alwaysOriginal)
         cache[key] = image; return image
     }
     private static func brandMaterial(_ source: UIImage) -> UIImage {
