@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import SwiftUI
 @testable import ClearKeyboard
 
 @MainActor final class GlassDesignRuntimeTests: XCTestCase {
@@ -51,5 +52,62 @@ import UIKit
         view.slider.value = 0.6823; view.slider.sendActions(for: .valueChanged)
         view.slider.sendActions(for: .valueChanged)
         XCTAssertEqual(changes.count, 1); XCTAssertEqual(changes[0], 0.6823, accuracy: 0.00001)
+    }
+    func testUnifiedGlassScreensAtPhoneSizeInLightAndDark() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        defer { window.isHidden = true; previous?.makeKey() }
+        let suite = "clear.glass.visual." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = Preferences(store: SettingsStore(defaults: defaults))
+        preferences.settings.automaticClipboard = false
+        func views(_ root: UIView) -> [UIView] { [root] + root.subviews.flatMap(views) }
+        func capture(_ name: String) async throws {
+            try await Task.sleep(nanoseconds: 160_000_000); window.layoutIfNeeded()
+            let format = UIGraphicsImageRendererFormat(); format.scale = window.screen.scale
+            let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "Glass56-" + name
+            attachment.lifetime = .keepAlways; add(attachment)
+        }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = style
+            let theme = style == .dark ? "dark" : "light"
+            let pages: [(String, AnyView)] = [
+                ("home", AnyView(HomeView(selectedTab: .constant(.home)))),
+                ("custom", AnyView(CustomizationView())),
+                ("input", AnyView(InputSettingsView()))
+            ]
+            for (name, page) in pages {
+                window.rootViewController = UIHostingController(rootView: NavigationStack { page }.environmentObject(preferences))
+                window.makeKeyAndVisible()
+                try await capture(name + "-" + theme)
+                XCTAssertFalse(views(window).contains { $0.accessibilityIdentifier == "custom.footer" })
+            }
+            var settings = KeyboardSettings(); settings.automaticClipboard = false
+            let controller = TypingLabController(settings: settings)
+            window.rootViewController = controller; window.makeKeyAndVisible(); controller.loadViewIfNeeded(); window.layoutIfNeeded()
+            let surface = try XCTUnwrap(views(controller.view).compactMap { $0 as? KeyboardSurface }.first)
+            let url = SharedStorage.clipboardURL(allowShared: surface.model.document?.fullAccess == true)
+            let original = try? Data(contentsOf: url)
+            defer {
+                controller.model.suspend()
+                if let original { try? original.write(to: url, options: .atomic) }
+                else { try? FileManager.default.removeItem(at: url) }
+            }
+            ClipboardStore(url: url).clear(); ClipboardStore(url: url).add("(021) 3747 9330")
+            surface.model.clipboardCapture.onCapture?()
+            try await capture("recent-clipboard-" + theme)
+            views(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "clipboard.recent.close" }?.sendActions(for: .touchUpInside)
+            try await capture("keyboard-" + theme)
+            surface.showPanel(.clipboard)
+            try await capture("clipboard-panel-" + theme)
+            surface.closePanel()
+            views(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "toolbar.tools" }?.sendActions(for: .touchUpInside)
+            try await capture("tools-" + theme)
+        }
     }
 }
