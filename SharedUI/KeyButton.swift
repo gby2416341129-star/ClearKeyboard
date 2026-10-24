@@ -28,13 +28,14 @@ final class KeyButton: UIButton {
     var accent = UIColor.systemTeal
     private var vibrationEnabled = false
     private var vibrationIntensity: Double = 0.45
+    private let vibration: KeyboardVibration
     private var interactionActive = false
     private var shiftSymbol = ""
     private var shadowSize = CGSize.zero
     private var appearanceSettings: KeyboardSettings?
 
-    init(key: KeyboardKey) {
-        self.key = key; super.init(frame: .zero)
+    init(key: KeyboardKey, vibration: KeyboardVibration = .shared) {
+        self.key = key; self.vibration = vibration; super.init(frame: .zero)
         // Keep the entire non-overlapping key cell eligible for remote-host
         // touch delivery, including its transparent margins and rounded corners.
         backgroundColor = UIColor(white: 0.5, alpha: 0.01); isOpaque = false
@@ -123,7 +124,7 @@ final class KeyButton: UIButton {
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; vibrationEnabled = settings.usesVibration; vibrationIntensity = settings.resolvedVibrationIntensity
-        if vibrationEnabled { KeyboardVibration.shared.prepare() }
+        if vibrationEnabled { vibration.prepare() }
         appearanceSettings = settings; applyAppearance(settings)
         pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
         updateShift(active: active, capsLocked: capsLocked)
@@ -160,7 +161,7 @@ final class KeyButton: UIButton {
         plate.layer.removeAnimation(forKey: "keySpring")
         plate.transform = CGAffineTransform(scaleX: 0.975, y: 0.975)
         onPrepare?(key.action)
-        if vibrationEnabled { KeyboardVibration.shared.pulse(intensity: vibrationIntensity) }
+        if vibrationEnabled { vibration.pulse(intensity: vibrationIntensity) }
         guard key.action == .delete else { return }
         let start = DispatchWorkItem { [weak self] in
             guard let self, self.isHighlighted else { return }

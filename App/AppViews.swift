@@ -142,10 +142,7 @@ struct HomeView: View {
                 Button { showSetup = true } label: {
                     HStack { Image(systemName: "keyboard"); Text("启用键盘"); Spacer(); Image(systemName: "arrow.up.right") }.padding(.horizontal, 16)
                 }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("home.setup")
-            }.padding(22).background {
-                RoundedRectangle(cornerRadius: 24).fill(AppPalette.card)
-                    .overlay(RoundedRectangle(cornerRadius: 24).fill(LinearGradient(colors: [AppPalette.accent.opacity(0.12), Color.blue.opacity(0.025)], startPoint: .topLeading, endPoint: .bottomTrailing)))
-            }
+            }.padding(22).modifier(LiquidCard(radius: 28))
             AppCard {
                 Button { selectedTab = .custom } label: { AppRow(title: "外观与手感", detail: "按你的喜好", symbol: "slider.horizontal.3") }
                 Divider()

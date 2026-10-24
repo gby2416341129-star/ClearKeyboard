@@ -188,6 +188,7 @@ import ImageIO
 
 @MainActor private final class ClipboardCardCell: UITableViewCell {
     private let card = UIView()
+    private let glass = LiquidGlassView(radius: 16)
     private let label = UILabel()
     let preview = UIImageView()
     private let more = UIButton(type: .system)
@@ -196,7 +197,9 @@ import ImageIO
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear; selectionStyle = .none
-        card.backgroundColor = .secondarySystemFill; card.layer.cornerRadius = 13
+        card.backgroundColor = .clear; card.layer.cornerRadius = 16
+        glass.translatesAutoresizingMaskIntoConstraints = false; card.addSubview(glass)
+        NSLayoutConstraint.activate([glass.leadingAnchor.constraint(equalTo: card.leadingAnchor), glass.trailingAnchor.constraint(equalTo: card.trailingAnchor), glass.topAnchor.constraint(equalTo: card.topAnchor), glass.bottomAnchor.constraint(equalTo: card.bottomAnchor)])
         contentView.addSubview(card); card.translatesAutoresizingMaskIntoConstraints = false
         let content = UIStackView(); content.axis = .vertical; content.spacing = 9
         content.translatesAutoresizingMaskIntoConstraints = false; card.addSubview(content)

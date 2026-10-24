@@ -13,6 +13,18 @@ import UIKit
         feedback.pulse(intensity: 0); feedback.pulse(intensity: .nan)
         try await Task.sleep(nanoseconds: 80_000_000)
         XCTAssertEqual(received.count, 200, "No delayed, duplicate, zero-strength or invalid pulses")
+        received = []
+        let key = KeyButton(key: KeyboardKey("Q"), vibration: feedback)
+        var settings = KeyboardSettings(); settings.vibrationEnabled = true; settings.vibrationIntensity = 0.6823
+        key.apply(settings)
+        var actions = 0
+        key.onAction = { _ in actions += 1; XCTAssertEqual(received.count, actions, "Exactly one synchronous impact precedes each accepted tap") }
+        for _ in 0..<200 { key.sendActions(for: .touchDown); key.sendActions(for: .touchUpInside) }
+        XCTAssertEqual(actions, 200); XCTAssertEqual(received.count, 200)
+        key.onAction = nil
+        settings.vibrationEnabled = false; key.apply(settings)
+        key.sendActions(for: .touchDown); key.sendActions(for: .touchUpInside)
+        XCTAssertEqual(received.count, 200, "Disabled feedback must not submit actuator events")
     }
     func testRetiredMaterialAndTapFeedbackKeysAreNotWrittenBack() throws {
         let original = KeyboardSettings()

@@ -376,6 +376,7 @@ import SwiftUI
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
+        if #available(iOS 26.0, *), navigationIcon { config = .glass() }
         if let image { config.image = image }
         else if let symbol {
             config.image = navigationIcon
@@ -383,7 +384,7 @@ import SwiftUI
                 : ToolArtwork.image(symbol: symbol, size: 28)
         }
         config.baseForegroundColor = .secondaryLabel
-        config.background.backgroundColor = navigationIcon ? .secondarySystemFill : .clear
+        if #unavailable(iOS 26.0) { config.background.backgroundColor = navigationIcon ? .secondarySystemFill : .clear }
         config.background.cornerRadius = navigationIcon ? 17 : 0
         config.contentInsets = .zero
         button.configuration = config; button.accessibilityLabel = label

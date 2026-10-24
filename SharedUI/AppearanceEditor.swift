@@ -219,10 +219,10 @@ struct KeyboardAppearancePanel: View {
                         ForEach(AppearanceItem.allCases) { item in
                             Button { selected = item } label: {
                                 HStack(spacing: 12) {
-                                    Image(systemName: item.symbol).frame(width: 24)
+                                    Image(uiImage: ToolArtwork.image(symbol: item.symbol, size: 26)).renderingMode(.original).frame(width: 28)
                                     Text(item.title); Spacer(); Image(systemName: "chevron.right").font(.caption)
                                 }.font(.subheadline).foregroundStyle(.primary).padding(13)
-                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
+                                    .modifier(LiquidCard(radius: 18, interactive: true))
                             }.buttonStyle(.plain)
                         }
                     }.padding(10)

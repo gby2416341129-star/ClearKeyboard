@@ -461,11 +461,13 @@ import SwiftUI
             let face = try XCTUnwrap(descendants(key).first { $0.accessibilityIdentifier == "key.face" })
             let image = materialImage(key)
             let bitmap = try XCTUnwrap(image.cgImage)
-            let faceRect = face.convert(face.bounds, to: key)
-            // Sample the actual solid face above the glyph, then inspect the
-            // rendered central glyph area. Resolving a UIColor alone missed
-            // the fixed light face / dynamic white legend mismatch.
-            let base = try materialPixel(image, at: CGPoint(x: faceRect.midX, y: faceRect.minY + 3))
+            let scaleX = CGFloat(bitmap.width) / key.bounds.width
+            let scaleY = CGFloat(bitmap.height) / key.bounds.height
+            let faceRect = face.convert(face.bounds, to: key).applying(CGAffineTransform(scaleX: scaleX, y: scaleY))
+            // Inspect the composited window crop in its actual display size,
+            // below the glass rim and above the glyph, with no isolated lens
+            // snapshot or native-coordinate samples on a scaled preview.
+            let base = try materialPixel(image, at: CGPoint(x: faceRect.midX, y: faceRect.minY + 6 * scaleY))
             XCTAssertGreaterThan(base[3], 250, phase)
             if let expectedDarkFace {
                 if expectedDarkFace { XCTAssertLessThan(base.prefix(3).max() ?? 255, 160, phase) }
@@ -486,7 +488,7 @@ import SwiftUI
                 return linear(red) * 0.2126 + linear(green) * 0.7152 + linear(blue) * 0.0722
             }
             let background = luminance(base[0], base[1], base[2])
-            let glyphArea = faceRect.insetBy(dx: 8, dy: 8).intersection(key.bounds)
+            let glyphArea = faceRect.insetBy(dx: 8 * scaleX, dy: 8 * scaleY).intersection(CGRect(x: 0,y: 0,width: bitmap.width,height: bitmap.height))
             var visibleInkPixels = 0
             for y in max(0, Int(ceil(glyphArea.minY)))..<min(bitmap.height, Int(floor(glyphArea.maxY))) {
                 for x in max(0, Int(ceil(glyphArea.minX)))..<min(bitmap.width, Int(floor(glyphArea.maxX))) {
