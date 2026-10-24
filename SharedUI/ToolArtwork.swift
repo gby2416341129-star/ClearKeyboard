@@ -24,13 +24,34 @@ import SwiftUI
     static func tint(_ symbol: String) -> UIColor {
         UIColor(hue: descriptor(symbol).1,saturation: 0.56,brightness: 0.88,alpha: 1)
     }
+    private static func visibleGlyph(_ image: UIImage,scale: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false; format.preferredRange = .standard
+        let raster = UIGraphicsImageRenderer(size: image.size,format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero,size: image.size))
+        }
+        guard let source = raster.cgImage else { return image }
+        let width = source.width, height = source.height
+        var pixels = [UInt8](repeating: 0,count: width*height*4)
+        return pixels.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(data: raw.baseAddress,width: width,height: height,bitsPerComponent: 8,bytesPerRow: width*4,space: CGColorSpaceCreateDeviceRGB(),bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return image }
+            context.draw(source,in: CGRect(x: 0,y: 0,width: CGFloat(width),height: CGFloat(height)))
+            var minX = width, minY = height, maxX = -1, maxY = -1
+            for y in 0..<height { for x in 0..<width where raw[(y*width+x)*4+3] > 24 {
+                minX = min(minX,x); minY = min(minY,y); maxX = max(maxX,x); maxY = max(maxY,y)
+            } }
+            guard maxX >= minX, maxY >= minY,
+                  let bitmap = context.makeImage()?.cropping(to: CGRect(x: CGFloat(minX),y: CGFloat(minY),width: CGFloat(maxX-minX+1),height: CGFloat(maxY-minY+1))) else { return image }
+            return UIImage(cgImage: bitmap,scale: scale,orientation: .up)
+        }
+    }
     static func stencil(_ symbol: String,scale: CGFloat = 3) -> UIImage {
         let key = "mask:\(symbol):\(scale)"
         if let image = cache[key] { return image }
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
         let image = UIGraphicsImageRenderer(size: CGSize(width: 32,height: 32),format: format).image { _ in
             let config = UIImage.SymbolConfiguration(pointSize: 26,weight: .semibold)
-            guard let icon = UIImage(systemName: descriptor(symbol).0,withConfiguration: config)?.withTintColor(.white,renderingMode: .alwaysOriginal) else { return }
+            guard let original = UIImage(systemName: descriptor(symbol).0,withConfiguration: config)?.withTintColor(.white,renderingMode: .alwaysOriginal) else { return }
+            let icon = visibleGlyph(original,scale: scale)
             let side: CGFloat = symbol == "candidate.color" ? 22 : 26
             let ratio = min(side/icon.size.width,side/icon.size.height)
             let width = icon.size.width*ratio, height = icon.size.height*ratio
