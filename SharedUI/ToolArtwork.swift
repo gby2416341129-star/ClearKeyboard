@@ -169,7 +169,7 @@ import SwiftUI
         if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled {
             ink.image = ToolArtwork.image(symbol: symbol,size: 32)
             let effect = UIGlassEffect(style: .clear)
-            effect.tintColor = nil
+            effect.tintColor = ToolArtwork.tint(symbol).withAlphaComponent(0.55)
             lens.effect = effect; lens.isHidden = false; ink.alpha = 1
         } else {
             lens.effect = nil; lens.isHidden = true

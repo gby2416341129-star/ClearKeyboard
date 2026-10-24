@@ -866,6 +866,31 @@ import SwiftUI
             let image = UIGraphicsImageRenderer(bounds: canvas.bounds,format: format).image { _ in
                 XCTAssertTrue(canvas.drawHierarchy(in: canvas.bounds,afterScreenUpdates: true))
             }
+            if dark {
+                let bitmap = try XCTUnwrap(image.cgImage)
+                var rgba = [UInt8](repeating: 0,count: bitmap.width*bitmap.height*4)
+                try rgba.withUnsafeMutableBytes { raw in
+                    let context = try XCTUnwrap(CGContext(data: raw.baseAddress,width: bitmap.width,height: bitmap.height,bitsPerComponent: 8,bytesPerRow: bitmap.width*4,space: CGColorSpaceCreateDeviceRGB(),bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+                    context.draw(bitmap,in: CGRect(x: 0,y: 0,width: CGFloat(bitmap.width),height: CGFloat(bitmap.height)))
+                }
+                let firstPixelIsTop = Int(max(rgba[0],rgba[1],rgba[2]))-Int(min(rgba[0],rgba[1],rgba[2])) < 10
+                for index in symbols.indices {
+                    let left = (19+index%6*70)*3, top = (12+index/6*84)*3
+                    var chromaticBrightness: [UInt8] = []
+                    for y in top..<(top+96) { for x in left..<(left+96) {
+                        let rasterY = firstPixelIsTop ? y : bitmap.height-1-y
+                        let offset = (rasterY*bitmap.width+x)*4
+                        let peak = max(rgba[offset],rgba[offset+1],rgba[offset+2])
+                        let low = min(rgba[offset],rgba[offset+1],rgba[offset+2])
+                        if peak > 45 && Int(peak)-Int(low) > 10 { chromaticBrightness.append(peak) }
+                    } }
+                    chromaticBrightness.sort()
+                    XCTAssertFalse(chromaticBrightness.isEmpty,symbols[index])
+                    if !chromaticBrightness.isEmpty {
+                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count*9/10],140,"Normal colored reflections must remain visible on a dark host: \(symbols[index])")
+                    }
+                }
+            }
             let attachment = XCTAttachment(image: image); attachment.name = "Glass57-icons-native-" + (dark ? "dark" : "light")
             attachment.lifetime = .keepAlways; add(attachment)
         }
