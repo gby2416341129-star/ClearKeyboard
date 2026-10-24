@@ -21,6 +21,26 @@ import SwiftUI
         default: return (symbol,0.64)
         }
     }
+    private static func resource(_ symbol: String) -> String? {
+        switch symbol {
+        case "character.bubble.fill": return "language"
+        case "doc.on.clipboard.fill", "doc.on.clipboard": return "clipboard"
+        case "face.smiling.fill": return "emoji"
+        case "keyboard.fill": return "single-hand"
+        case "paintpalette.fill": return "appearance"
+        case "rectangle.3.group.fill", "rectangle.3.group": return "toolbar"
+        case "desktopcomputer": return "compatibility"
+        case "key.glass", "keyboard": return "key-glass"
+        case "key.color": return "key-color"
+        case "candidate.color": return "text-color"
+        case "candidate.size": return "text-size"
+        case "slider.horizontal.3": return "settings"
+        case "lock.shield": return "privacy"
+        case "waveform": return "phonetic"
+        case "doc.text": return "license"
+        default: return nil
+        }
+    }
     static func tint(_ symbol: String) -> UIColor {
         UIColor(hue: descriptor(symbol).1,saturation: 0.52,brightness: 1,alpha: 1)
     }
@@ -89,6 +109,19 @@ import SwiftUI
         let key = "\(symbol):\(size):\(scale)"
         if let image = cache[key] { return image }
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
+        if let name = resource(symbol),
+           let url = Bundle.main.url(forResource: "tool-" + name,withExtension: "png"),
+           let source = UIImage(contentsOfFile: url.path) {
+            let icon = visibleGlyph(source,scale: scale)
+            let ratio = min(size*0.8125/icon.size.width,size*0.8125/icon.size.height)
+            let width = icon.size.width*ratio, height = icon.size.height*ratio
+            let value = UIGraphicsImageRenderer(size: CGSize(width: size,height: size),format: format).image { _ in
+                // Retain generated partial alpha and shallow glass volume.
+                // A quiet overall opacity also softens the fine specular rim.
+                icon.draw(in: CGRect(x: (size-width)/2,y: (size-height)/2,width: width,height: height),blendMode: .normal,alpha: 0.86)
+            }.withRenderingMode(.alwaysOriginal)
+            cache[key] = value; return value
+        }
         let mask = stencil(symbol,scale: scale)
         let value = UIGraphicsImageRenderer(size: CGSize(width: size,height: size),format: format).image { renderer in
             let c = renderer.cgContext; c.scaleBy(x: size/32,y: size/32)
@@ -105,45 +138,23 @@ import SwiftUI
     }
 }
 
-/// Live system material is clipped to the functional shape itself. The small
-/// colored face preserves legibility; no photographed highlights or badge surround it.
+/// One shared transparent artwork path for live icons, cached images and drag
+/// previews. Do not put another glass lens over the artwork's own quiet rim.
 @MainActor final class ToolIconView: UIView {
-    private let lens = UIVisualEffectView(effect: nil)
-    private let shape = UIImageView()
     private let ink = UIImageView()
     private var symbol = ""
     init(symbol: String) {
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear
         isUserInteractionEnabled = false; isAccessibilityElement = false
-        shape.contentMode = .scaleAspectFit; ink.contentMode = .scaleAspectFit
-        addSubview(lens); addSubview(ink); lens.mask = shape
-        setSymbol(symbol)
+        ink.contentMode = .scaleAspectFit; addSubview(ink); setSymbol(symbol)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func setSymbol(_ value: String) {
         guard symbol != value else { return }; symbol = value
-        shape.image = ToolArtwork.stencil(value)
-        configureMaterial()
+        ink.image = ToolArtwork.image(symbol: value,size: 32)
     }
-    private func configureMaterial() {
-        if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled {
-            ink.image = ToolArtwork.image(symbol: symbol,size: 32)
-            let effect = UIGlassEffect(style: .clear)
-            effect.tintColor = nil
-            lens.effect = effect; lens.isHidden = false; ink.alpha = 1
-        } else {
-            lens.effect = nil; lens.isHidden = true
-            ink.image = ToolArtwork.stencil(symbol).withTintColor(ToolArtwork.tint(symbol),renderingMode: .alwaysOriginal)
-            ink.alpha = 1
-        }
-    }
-    override func layoutSubviews() {
-        super.layoutSubviews(); lens.frame = bounds; shape.frame = lens.bounds; ink.frame = bounds
-    }
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection); configureMaterial()
-    }
+    override func layoutSubviews() { super.layoutSubviews(); ink.frame = bounds }
 }
 
 struct ToolIcon: UIViewRepresentable {

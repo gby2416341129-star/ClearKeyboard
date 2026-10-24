@@ -111,11 +111,11 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack { HomeView(selectedTab: $tab) }
-                .tabItem { Label("澈", systemImage: "square.stack.3d.up") }.tag(AppTab.home)
+                .tabItem { Label { Text("澈") } icon: { Image(uiImage: ClearBrand.image(28)).renderingMode(.original) } }.tag(AppTab.home)
             NavigationStack { CustomizationView() }
-                .tabItem { Label("定制", systemImage: "slider.horizontal.3") }.tag(AppTab.custom)
+                .tabItem { Label { Text("定制") } icon: { Image(uiImage: ToolArtwork.image(symbol: "slider.horizontal.3")).renderingMode(.original) } }.tag(AppTab.custom)
             NavigationStack { InputSettingsView() }
-                .tabItem { Label("输入", systemImage: AppTab.input.symbol) }.tag(AppTab.input)
+                .tabItem { Label { Text("输入") } icon: { Image(uiImage: ToolArtwork.image(symbol: AppTab.input.symbol)).renderingMode(.original) } }.tag(AppTab.input)
         }.tint(AppPalette.accent)
             .onAppear { preferences.activate() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }

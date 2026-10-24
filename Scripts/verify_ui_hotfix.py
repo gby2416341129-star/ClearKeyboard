@@ -25,6 +25,9 @@ ALLOWED={
     'Scripts/setup_keyboard_shell_sim.py','Scripts/test-keyboard-shell.sh',
 }
 changed=set(subprocess.check_output(['git','diff','--name-only',BASE,'HEAD'],text=True).splitlines())
+ALLOWED.update("SharedUI/Resources/ToolGlass/" + p for p in [
+    'tool-appearance.png','tool-clipboard.png','tool-compatibility.png','tool-emoji.png','tool-key-color.png','tool-key-glass.png','tool-language.png','tool-license.png','tool-phonetic.png','tool-privacy.png','tool-settings.png','tool-single-hand.png','tool-text-color.png','tool-text-size.png','tool-toolbar.png'
+])
 assert changed and changed<=ALLOWED,sorted(changed-ALLOWED)
 subprocess.run(['git','diff','--exit-code',BASE,'HEAD','--','Core',':(exclude)Core/HostTextState.swift',':(exclude)Core/Settings.swift',
     'CRime','Data','Tests/Evaluation','Licenses'],check=True)

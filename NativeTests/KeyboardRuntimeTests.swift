@@ -816,7 +816,7 @@ import SwiftUI
                 if brand {
                     XCTAssertLessThan(visibleAlpha[visibleAlpha.count/2],128,"Keep the approved organic brand material translucent")
                 } else {
-                    XCTAssertGreaterThan(visibleAlpha[visibleAlpha.count/2],190,"The whole colored symbol must stay bright, including its center")
+                    XCTAssertGreaterThan(visibleAlpha[visibleAlpha.count/2],120,"The transparent glass body must remain visible at actual icon size")
                     XCTAssertLessThan(visibleAlpha[visibleAlpha.count/2],225,"Keep actual backdrop transmission in the colored face")
                 }
                 XCTAssertLessThan(visibleAlpha.last!,230,"Even the fine rim must not become an opaque crystal outline")
@@ -892,8 +892,8 @@ import SwiftUI
                     chromaticBrightness.sort()
                     XCTAssertFalse(chromaticBrightness.isEmpty,symbols[index])
                     if !chromaticBrightness.isEmpty {
-                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count/2],175,"The body, not just one reflection, must have a normal bright color: \(symbols[index])")
-                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count*9/10],190,"Normal colors must remain bright on a dark host: \(symbols[index])")
+                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count/2],150,"The body, not just one reflection, must have a normal bright color: \(symbols[index])")
+                        XCTAssertGreaterThanOrEqual(chromaticBrightness[chromaticBrightness.count*9/10],180,"Normal colors must remain bright on a dark host: \(symbols[index])")
                     }
                 }
             }

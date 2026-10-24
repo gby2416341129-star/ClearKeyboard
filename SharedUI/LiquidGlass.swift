@@ -4,7 +4,9 @@ import CoreHaptics
 
 /// Each instance owns exactly one control's bounds. There is no keyboard-wide
 /// backdrop, noncontiguous material mask, or frozen intensity animator.
-final class LiquidGlassView: UIVisualEffectView {
+final class LiquidGlassView: UIView {
+    private let lens = UIVisualEffectView(effect: nil)
+    var effect: UIVisualEffect? { lens.effect }
     private let radius: CGFloat
     private let tintFilm = UIView()
     private let keycap: Bool
@@ -12,18 +14,19 @@ final class LiquidGlassView: UIVisualEffectView {
     private var signature = ""
     init(radius: CGFloat, keycap: Bool = false, clear: Bool = false) {
         self.radius = radius; self.keycap = keycap; self.clear = clear
-        super.init(effect: nil)
+        super.init(frame: .zero)
         isUserInteractionEnabled = false
         layer.cornerRadius = radius; layer.cornerCurve = .continuous; clipsToBounds = true
-        contentView.addSubview(tintFilm); tintFilm.isUserInteractionEnabled = false
+        addSubview(lens); addSubview(tintFilm); tintFilm.isUserInteractionEnabled = false
+        lens.isUserInteractionEnabled = false
         configure(tint: nil, strength: 0.55, fallback: .secondarySystemBackground)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let rect = contentView.bounds
+        let rect = bounds
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        tintFilm.frame = rect
+        lens.frame = rect; tintFilm.frame = rect
         CATransaction.commit()
     }
     func configure(tint: UIColor?, strength: Double, fallback: UIColor, reduced: Bool = UIAccessibility.isReduceTransparencyEnabled, colorOpacity: Double? = nil) {
@@ -35,18 +38,21 @@ final class LiquidGlassView: UIVisualEffectView {
             CATransaction.begin(); CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
             if reduced {
-                effect = nil; backgroundColor = fallback; tintFilm.backgroundColor = .clear
+                lens.effect = nil; lens.alpha = 1; backgroundColor = fallback; tintFilm.backgroundColor = .clear
             } else if #available(iOS 26.0, *) {
                 let glass = UIGlassEffect(style: (clear || keycap) ? .clear : .regular)
                 glass.isInteractive = !keycap && !clear
                 glass.tintColor = nil
-                effect = glass; backgroundColor = .clear
-                cornerConfiguration = .corners(radius: .fixed(radius))
+                lens.effect = glass; backgroundColor = .clear
+                // Only the lens fades; captions and chosen color remain independent.
+                // Increasing transmission lowers reflections as well as face opacity.
+                lens.alpha = keycap ? CGFloat(0.78 - 0.34 * strength) : (clear ? 0.66 : 0.78)
+                lens.cornerConfiguration = .corners(radius: .fixed(radius))
                 // The native lens owns its edge and reflections. Higher
                 // transmission removes the face film; never add a dark veil.
                 tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
             } else {
-                effect = UIBlurEffect(style: .systemUltraThinMaterial); backgroundColor = .clear
+                lens.effect = UIBlurEffect(style: .systemUltraThinMaterial); lens.alpha = 1; backgroundColor = .clear
                 tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
             }
         }
@@ -62,7 +68,7 @@ struct LiquidCard: ViewModifier {
             content.background {
                 RoundedRectangle(cornerRadius: radius).fill(Color.clear)
                     .glassEffect(.clear.interactive(interactive), in: RoundedRectangle(cornerRadius: radius))
-                    .opacity(colorScheme == .dark ? 0.42 : 0.72)
+                    .opacity(colorScheme == .dark ? 0.32 : 0.58)
             }
         } else {
             content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
