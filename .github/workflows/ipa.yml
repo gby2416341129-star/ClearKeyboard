@@ -114,6 +114,7 @@ jobs:
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 60 \
             -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testAppearancePreviewUsesOneUniformlyScaledKeyboardCanvas \
             -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testToolbarArtworkHasMatchingVisibleFootprints \
+            -only-testing:ClearKeyboardRuntimeTests/GlassDesignRuntimeTests/testUnifiedGlassScreensAtPhoneSizeInLightAndDark \
             -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests/testCandidateHandoffVisualSamplesAndSettledInk \
             -only-testing:ClearKeyboardRuntimeTests/CandidateAnimationRuntimeTests/testRapidResultsShareOneClockAndKeepLatestTextAndExactHitGeometry \
             -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testNativeDraftSurvivesTransientNilContextWithoutLosingChineseCandidates \

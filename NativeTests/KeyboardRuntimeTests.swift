@@ -843,6 +843,7 @@ import SwiftUI
             let controller = UIViewController(); window.rootViewController = controller
             controller.view.backgroundColor = dark ? UIColor(white: 0.085,alpha: 1) : UIColor(red: 0.96,green: 0.96,blue: 0.98,alpha: 1)
             let canvas = UIView(frame: CGRect(x: 0,y: 80,width: 420,height: 352)); controller.view.addSubview(canvas)
+            canvas.backgroundColor = controller.view.backgroundColor
             // An actual host backdrop, only in this visual fixture: the color
             // boundary must remain visible through the native glass symbols.
             for column in 0..<12 {

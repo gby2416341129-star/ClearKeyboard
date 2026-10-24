@@ -119,7 +119,9 @@ import SwiftUI
     private var symbol = ""
     init(symbol: String) {
         super.init(frame: .zero)
+        isOpaque = false; backgroundColor = .clear
         isUserInteractionEnabled = false; isAccessibilityElement = false
+        shape.contentMode = .scaleAspectFit; ink.contentMode = .scaleAspectFit
         addSubview(lens); addSubview(ink); lens.mask = shape
         setSymbol(symbol)
     }
@@ -127,15 +129,19 @@ import SwiftUI
     func setSymbol(_ value: String) {
         guard symbol != value else { return }; symbol = value
         shape.image = ToolArtwork.stencil(value)
-        ink.image = ToolArtwork.image(symbol: value,size: 32)
         configureMaterial()
     }
     private func configureMaterial() {
         if #available(iOS 26.0, *), !UIAccessibility.isReduceTransparencyEnabled {
+            ink.image = ToolArtwork.image(symbol: symbol,size: 32)
             let effect = UIGlassEffect(style: .clear)
             effect.tintColor = ToolArtwork.tint(symbol).withAlphaComponent(0.16)
             lens.effect = effect; lens.isHidden = false; ink.alpha = 1
-        } else { lens.effect = nil; lens.isHidden = true; ink.alpha = 1 }
+        } else {
+            lens.effect = nil; lens.isHidden = true
+            ink.image = ToolArtwork.stencil(symbol).withTintColor(ToolArtwork.tint(symbol),renderingMode: .alwaysOriginal)
+            ink.alpha = 1
+        }
     }
     override func layoutSubviews() {
         super.layoutSubviews(); lens.frame = bounds; shape.frame = lens.bounds; ink.frame = bounds
@@ -171,8 +177,8 @@ struct ToolIcon: UIViewRepresentable {
     override func layoutSubviews() {
         super.layoutSubviews()
         lens.frame = bounds
-        artwork.frame = CGRect(x: bounds.midX-16,y: 8,width: 32,height: 32)
-        caption.frame = CGRect(x: 5,y: 46,width: max(0,bounds.width-10),height: 16)
+        artwork.frame = CGRect(x: bounds.midX-14,y: 7,width: 28,height: 28)
+        caption.frame = CGRect(x: 5,y: 40,width: max(0,bounds.width-10),height: 16)
     }
     override var isHighlighted: Bool {
         didSet { lens.alpha = isHighlighted ? 0.72 : 1 }

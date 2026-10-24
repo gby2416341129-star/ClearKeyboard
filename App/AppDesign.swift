@@ -59,6 +59,7 @@ struct AppRow: View {
     var body: some View {
         HStack(spacing: 13) {
             ToolIcon(symbol: symbol)
+                .frame(width: 28, height: 28)
                 .frame(width: 32, height: 34)
             Text(title).font(.system(size: 16)).foregroundStyle(.primary)
             Spacer(minLength: 6)

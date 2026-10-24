@@ -702,7 +702,7 @@ import SwiftUI
                 let (title, symbol, action) = items[start + offset]
                 let button = ToolTileButton(title: title, symbol: symbol, action: action)
                 button.accessibilityIdentifier = identifiers[title]
-                button.heightAnchor.constraint(equalToConstant: 70).isActive = true; row.addArrangedSubview(button)
+                button.heightAnchor.constraint(equalToConstant: 60).isActive = true; row.addArrangedSubview(button)
             }
             stack.addArrangedSubview(row)
         }
