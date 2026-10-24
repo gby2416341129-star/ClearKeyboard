@@ -104,15 +104,38 @@ import SwiftUI
         let result = UIImage(cgImage: image,scale: source.scale,orientation: .up)
         cache["brand.material"] = result; return result
     }
-    static func image(symbol: String, size: CGFloat = 28, scale: CGFloat? = nil) -> UIImage {
+    private static func surface(_ source: UIImage, style: UIUserInterfaceStyle) -> UIImage {
+        guard style == .dark, let bitmap = source.cgImage else { return source }
+        let width = bitmap.width, height = bitmap.height
+        var pixels = [UInt8](repeating: 0,count: width*height*4)
+        return pixels.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(data: raw.baseAddress,width: width,height: height,bitsPerComponent: 8,bytesPerRow: width*4,space: CGColorSpaceCreateDeviceRGB(),bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return source }
+            context.draw(bitmap,in: CGRect(x: 0,y: 0,width: CGFloat(width),height: CGFloat(height)))
+            for p in stride(from: 0,to: raw.count,by: 4) where raw[p+3] > 0 {
+                let alpha = Double(raw[p+3])/255
+                let white = Double(min(raw[p],raw[p+1],raw[p+2]))/(255*alpha)
+                let t = min(1,max(0,(white-0.80)/0.18))
+                let glare = t*t*(3-2*t)
+                // White reflections that are quiet on a light canvas become
+                // conspicuous on black. Transmit the host through those areas
+                // without graying or darkening the icon's colored body.
+                let gain = 1-0.34*glare
+                for channel in 0..<4 { raw[p+channel] = UInt8(clamping: Int((Double(raw[p+channel])*gain).rounded())) }
+            }
+            guard let result = context.makeImage() else { return source }
+            return UIImage(cgImage: result,scale: source.scale,orientation: .up)
+        }
+    }
+    static func image(symbol: String, size: CGFloat = 28, scale: CGFloat? = nil, style: UIUserInterfaceStyle? = nil) -> UIImage {
         let scale = scale ?? UIScreen.main.scale
-        let key = "\(symbol):\(size):\(scale)"
+        let style = style ?? UITraitCollection.current.userInterfaceStyle
+        let key = "\(symbol):\(size):\(scale):\(style.rawValue)"
         if let image = cache[key] { return image }
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
         if let name = resource(symbol),
            let url = Bundle.main.url(forResource: "tool-" + name,withExtension: "png"),
            let source = UIImage(contentsOfFile: url.path) {
-            let icon = visibleGlyph(source,scale: scale)
+            let icon = visibleGlyph(surface(source,style: style),scale: scale)
             let ratio = min(size*0.8125/icon.size.width,size*0.8125/icon.size.height)
             let width = icon.size.width*ratio, height = icon.size.height*ratio
             let value = UIGraphicsImageRenderer(size: CGSize(width: size,height: size),format: format).image { _ in
@@ -152,7 +175,11 @@ import SwiftUI
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func setSymbol(_ value: String) {
         guard symbol != value else { return }; symbol = value
-        ink.image = ToolArtwork.image(symbol: value,size: 32)
+        updateArtwork()
+    }
+    private func updateArtwork() { ink.image = ToolArtwork.image(symbol: symbol,size: 32,style: traitCollection.userInterfaceStyle) }
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection); updateArtwork()
     }
     override func layoutSubviews() { super.layoutSubviews(); ink.frame = bounds }
 }

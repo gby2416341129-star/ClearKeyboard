@@ -107,15 +107,16 @@ enum AppTab: String, CaseIterable {
 
 struct RootView: View {
     @EnvironmentObject private var preferences: Preferences
+    @Environment(\.colorScheme) private var colorScheme
     @State private var tab: AppTab = .home
     var body: some View {
         TabView(selection: $tab) {
             NavigationStack { HomeView(selectedTab: $tab) }
                 .tabItem { Label { Text("澈") } icon: { Image(uiImage: ClearBrand.image(28)).renderingMode(.original) } }.tag(AppTab.home)
             NavigationStack { CustomizationView() }
-                .tabItem { Label { Text("定制") } icon: { Image(uiImage: ToolArtwork.image(symbol: "slider.horizontal.3")).renderingMode(.original) } }.tag(AppTab.custom)
+                .tabItem { Label { Text("定制") } icon: { Image(uiImage: ToolArtwork.image(symbol: "slider.horizontal.3",style: colorScheme == .dark ? .dark : .light)).renderingMode(.original) } }.tag(AppTab.custom)
             NavigationStack { InputSettingsView() }
-                .tabItem { Label { Text("输入") } icon: { Image(uiImage: ToolArtwork.image(symbol: AppTab.input.symbol)).renderingMode(.original) } }.tag(AppTab.input)
+                .tabItem { Label { Text("输入") } icon: { Image(uiImage: ToolArtwork.image(symbol: AppTab.input.symbol,style: colorScheme == .dark ? .dark : .light)).renderingMode(.original) } }.tag(AppTab.input)
         }.tint(AppPalette.accent)
             .onAppear { preferences.activate() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }

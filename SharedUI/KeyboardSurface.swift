@@ -496,7 +496,7 @@ import SwiftUI
             .first { $0.accessibilityIdentifier == "toolbar.\(tool.rawValue)" }
     }
     private func toolbarPreviewView(_ tool: ToolbarTool) -> UIImageView {
-        let view = UIImageView(image: ToolArtwork.image(symbol: tool.symbol, size: 28))
+        let view = UIImageView(image: ToolArtwork.image(symbol: tool.symbol, size: 28, style: traitCollection.userInterfaceStyle))
         view.frame = CGRect(x: 0, y: 0, width: 28, height: 28)
         view.backgroundColor = .clear; view.isOpaque = false; view.contentMode = .scaleAspectFit
         return view
@@ -610,7 +610,7 @@ import SwiftUI
             clipboardGlass.bottomAnchor.constraint(equalTo: clipboardSuggestion.bottomAnchor, constant: -2)
         ])
         var config = UIButton.Configuration.plain()
-        config.image = ToolArtwork.image(symbol: "doc.on.clipboard.fill", size: 24)
+        config.image = ToolArtwork.image(symbol: "doc.on.clipboard.fill", size: 24, style: traitCollection.userInterfaceStyle)
         config.imagePadding = 10; config.contentInsets = .zero; config.baseForegroundColor = .label
         config.titleLineBreakMode = .byTruncatingTail
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in
