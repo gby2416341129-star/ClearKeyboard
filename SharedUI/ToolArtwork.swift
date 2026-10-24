@@ -1,7 +1,7 @@
 import UIKit
 import SwiftUI
 
-/// The symbol itself is the glass object. No enclosing badge or common disk.
+/// Compact, normally colored settings symbols with a shared optical keyline.
 @MainActor enum ToolArtwork {
     private static var cache: [String: UIImage] = [:]
     private static func descriptor(_ symbol: String) -> (String,CGFloat) {
@@ -10,39 +10,24 @@ import SwiftUI
         case "doc.on.clipboard.fill", "doc.on.clipboard": return ("list.clipboard.fill",0.57)
         case "face.smiling.fill": return ("face.smiling.fill",0.105)
         case "keyboard.fill": return ("hand.point.up.left.fill",0.62)
-        case "paintpalette.fill": return ("paintpalette.fill",0.80)
+        case "paintpalette.fill": return ("paintbrush.pointed.fill",0.075)
         case "rectangle.3.group.fill", "rectangle.3.group": return ("square.grid.2x2.fill",0.68)
         case "desktopcomputer": return ("desktopcomputer",0.56)
         case "key.glass": return ("keyboard.fill",0.60)
         case "key.color": return ("square.on.square.fill",0.70)
         case "candidate.color": return ("character",0.77)
         case "candidate.size": return ("textformat.size",0.63)
+        case "slider.horizontal.3": return ("slider.horizontal.3",0.57)
+        case "lock.shield": return ("lock.shield.fill",0.57)
+        case "waveform": return ("waveform",0.48)
+        case "doc.text": return ("doc.text.fill",0.56)
+        case "keyboard": return ("keyboard.fill",0.57)
         case "clear.mark": return ("water.waves",0.60)
         default: return (symbol,0.64)
         }
     }
-    private static func resource(_ symbol: String) -> String? {
-        switch symbol {
-        case "character.bubble.fill": return "language"
-        case "doc.on.clipboard.fill", "doc.on.clipboard": return "clipboard"
-        case "face.smiling.fill": return "emoji"
-        case "keyboard.fill": return "single-hand"
-        case "paintpalette.fill": return "appearance"
-        case "rectangle.3.group.fill", "rectangle.3.group": return "toolbar"
-        case "desktopcomputer": return "compatibility"
-        case "key.glass", "keyboard": return "key-glass"
-        case "key.color": return "key-color"
-        case "candidate.color": return "text-color"
-        case "candidate.size": return "text-size"
-        case "slider.horizontal.3": return "settings"
-        case "lock.shield": return "privacy"
-        case "waveform": return "phonetic"
-        case "doc.text": return "license"
-        default: return nil
-        }
-    }
     static func tint(_ symbol: String) -> UIColor {
-        UIColor(hue: descriptor(symbol).1,saturation: 0.52,brightness: 1,alpha: 1)
+        UIColor(hue: descriptor(symbol).1,saturation: 0.83,brightness: 0.98,alpha: 1)
     }
     private static func visibleGlyph(_ image: UIImage,scale: CGFloat) -> UIImage {
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false; format.preferredRange = .standard
@@ -104,65 +89,32 @@ import SwiftUI
         let result = UIImage(cgImage: image,scale: source.scale,orientation: .up)
         cache["brand.material"] = result; return result
     }
-    private static func surface(_ source: UIImage, style: UIUserInterfaceStyle) -> UIImage {
-        guard style == .dark, let bitmap = source.cgImage else { return source }
-        let width = bitmap.width, height = bitmap.height
-        var pixels = [UInt8](repeating: 0,count: width*height*4)
-        return pixels.withUnsafeMutableBytes { raw in
-            guard let context = CGContext(data: raw.baseAddress,width: width,height: height,bitsPerComponent: 8,bytesPerRow: width*4,space: CGColorSpaceCreateDeviceRGB(),bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return source }
-            context.draw(bitmap,in: CGRect(x: 0,y: 0,width: CGFloat(width),height: CGFloat(height)))
-            for p in stride(from: 0,to: raw.count,by: 4) where raw[p+3] > 0 {
-                let alpha = Double(raw[p+3])/255
-                let white = Double(min(raw[p],raw[p+1],raw[p+2]))/(255*alpha)
-                let t = min(1,max(0,(white-0.80)/0.18))
-                let glare = t*t*(3-2*t)
-                // White reflections that are quiet on a light canvas become
-                // conspicuous on black. Transmit the host through those areas
-                // without graying or darkening the icon's colored body.
-                let gain = 1-0.34*glare
-                for channel in 0..<4 { raw[p+channel] = UInt8(clamping: Int((Double(raw[p+channel])*gain).rounded())) }
-            }
-            guard let result = context.makeImage() else { return source }
-            return UIImage(cgImage: result,scale: source.scale,orientation: .up)
-        }
-    }
     static func image(symbol: String, size: CGFloat = 28, scale: CGFloat? = nil, style: UIUserInterfaceStyle? = nil) -> UIImage {
         let scale = scale ?? UIScreen.main.scale
-        let style = style ?? UITraitCollection.current.userInterfaceStyle
-        let key = "\(symbol):\(size):\(scale):\(style.rawValue)"
+        let key = "settings:\(symbol):\(size):\(scale)"
         if let image = cache[key] { return image }
         let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
-        if let name = resource(symbol),
-           let url = Bundle.main.url(forResource: "tool-" + name,withExtension: "png"),
-           let source = UIImage(contentsOfFile: url.path) {
-            let icon = visibleGlyph(surface(source,style: style),scale: scale)
-            let ratio = min(size*0.8125/icon.size.width,size*0.8125/icon.size.height)
-            let width = icon.size.width*ratio, height = icon.size.height*ratio
-            let value = UIGraphicsImageRenderer(size: CGSize(width: size,height: size),format: format).image { _ in
-                // Retain generated partial alpha and shallow glass volume.
-                // A quiet overall opacity also softens the fine specular rim.
-                icon.draw(in: CGRect(x: (size-width)/2,y: (size-height)/2,width: width,height: height),blendMode: .normal,alpha: 0.86)
-            }.withRenderingMode(.alwaysOriginal)
-            cache[key] = value; return value
-        }
         let mask = stencil(symbol,scale: scale)
         let value = UIGraphicsImageRenderer(size: CGSize(width: size,height: size),format: format).image { renderer in
             let c = renderer.cgContext; c.scaleBy(x: size/32,y: size/32)
             guard let bitmap = mask.cgImage else { return }
             c.saveGState(); c.translateBy(x: 0,y: 32); c.scaleBy(x: 1,y: -1)
             c.clip(to: CGRect(x: 0,y: 0,width: 32,height: 32),mask: bitmap)
-            // A single translucent color keeps the whole symbol equally bright.
-            // Shape and depth come from live clear glass, not a painted dark band.
-            c.setFillColor(tint(symbol).withAlphaComponent(0.82).cgColor)
-            c.fill(CGRect(x: 0,y: 0,width: 32,height: 32))
+            let color = tint(symbol)
+            var r: CGFloat = 0,g: CGFloat = 0,b: CGFloat = 0,a: CGFloat = 0
+            color.getRed(&r,green: &g,blue: &b,alpha: &a)
+            let light = UIColor(red: r+(1-r)*0.16,green: g+(1-g)*0.16,blue: b+(1-b)*0.16,alpha: 1)
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),colors: [light.cgColor,color.cgColor] as CFArray,locations: [0,1]) {
+                c.drawLinearGradient(gradient,start: CGPoint(x: 16,y: 32),end: CGPoint(x: 16,y: 0),options: [])
+            }
             c.restoreGState()
-        }
+        }.withRenderingMode(.alwaysOriginal)
         cache[key] = value; return value
     }
+
 }
 
-/// One shared transparent artwork path for live icons, cached images and drag
-/// previews. Do not put another glass lens over the artwork's own quiet rim.
+/// The same clean settings artwork is used in rows, tools and drag previews.
 @MainActor final class ToolIconView: UIView {
     private let ink = UIImageView()
     private var symbol = ""
@@ -192,7 +144,7 @@ struct ToolIcon: UIViewRepresentable {
 
 /// Compact rectangular controls, with separate readable artwork and thin clear glass.
 @MainActor final class ToolTileButton: UIButton {
-    private let lens = LiquidGlassView(radius: 16, keycap: true, clear: true)
+    private let lens = LiquidGlassView(radius: 10, keycap: true, clear: true)
     private let artwork: ToolIconView
     private let caption = UILabel()
     init(title: String, symbol: String, action: @escaping () -> Void) {

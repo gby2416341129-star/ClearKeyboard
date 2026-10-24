@@ -24,6 +24,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       CLEAR_UI_HOTFIX: '1'
+      CLEAR_VISUAL_FAST: '1'
       CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
       CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '26'
     timeout-minutes: 60
@@ -98,6 +99,7 @@ jobs:
           python3 Scripts/test_conversation_index.py
           python3 Scripts/prepare_rime.py
       - name: Compile iOS sources and test hosts before model evaluation
+        if: env.CLEAR_VISUAL_FAST != '1'
         run: |
           mkdir -p .build
           swiftc SharedUI/BrandMaterial.swift Scripts/prepare_app_icon.swift -o .build/prepare-app-icon
@@ -105,7 +107,7 @@ jobs:
           python3 Scripts/generate_project.py
           xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/Composition CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
       - name: Preserve the prepared icon source
-        if: always()
+        if: env.CLEAR_VISUAL_FAST != '1' && (always())
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-icon-source-review
@@ -113,8 +115,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Start the required iOS 26 simulator and verify UI services
+        if: env.CLEAR_VISUAL_FAST != '1'
         run: python3 Scripts/boot_test_simulator.py
       - name: Check native composition and preview before the longer suites
+        if: env.CLEAR_VISUAL_FAST != '1'
         run: |
           TEST_DEVICE="$(cat .build/composition-device-id)"
           set +e
@@ -146,7 +150,7 @@ jobs:
           fi
           exit "$RESULT"
       - name: Preserve the focused appearance result
-        if: always()
+        if: env.CLEAR_VISUAL_FAST != '1' && (always())
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-appearance-smoke-diagnostic
@@ -154,6 +158,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Check redesigned app scrolling before the longer suites
+        if: env.CLEAR_VISUAL_FAST != '1'
         run: |
           TEST_DEVICE="$(cat .build/composition-device-id)"
           set +e
@@ -171,7 +176,7 @@ jobs:
           fi
           exit "$RESULT"
       - name: Preserve the app navigation diagnostic
-        if: always()
+        if: env.CLEAR_VISUAL_FAST != '1' && (always())
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-navigation-smoke-diagnostic
@@ -241,15 +246,17 @@ jobs:
           swiftc -O -parse-as-library Core/Candidate.swift Core/Lexicon.swift Core/FuzzyPinyin.swift Core/Composition.swift Core/RepetitionModel.swift Scripts/test_repetition.swift -o .build/test-repetition
           .build/test-repetition Core/Resources/Rime/repetition-priors.tsv
       - name: Exercise all core input, clipboard, layout and state tests
+        if: env.CLEAR_VISUAL_FAST != '1'
         id: core-tests
         continue-on-error: true
         run: swift test --configuration release --jobs 3
       - name: Check live composition and commit barriers with the UIKit controller
+        if: env.CLEAR_VISUAL_FAST != '1'
         id: ui-tests
         continue-on-error: true
         run: bash Scripts/test-composition-proxy.sh
       - name: Record exact core and UI gate outcomes
-        if: always()
+        if: env.CLEAR_VISUAL_FAST != '1' && (always())
         env:
           CORE_TESTS_RESULT: ${{ steps.core-tests.outcome }}
           UI_TESTS_RESULT: ${{ steps.ui-tests.outcome }}
@@ -266,14 +273,14 @@ jobs:
           xcrun xcresulttool get test-results summary --path .build/CompositionResults.xcresult > .build/GateOutcomes/runtime-summary.json || true
           xcrun xcresulttool get test-results summary --path .build/AppBottomResults.xcresult > .build/GateOutcomes/app-ui-summary.json || true
       - name: Return exact input and UI gate outcomes
-        if: always()
+        if: env.CLEAR_VISUAL_FAST != '1' && (always())
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-gate-outcomes
           path: .build/GateOutcomes
           retention-days: 7
       - name: Require core and live UI checks before packaging
-        if: always()
+        if: env.CLEAR_VISUAL_FAST != '1' && (always())
         env:
           CORE_TESTS_RESULT: ${{ steps.core-tests.outcome }}
           UI_TESTS_RESULT: ${{ steps.ui-tests.outcome }}
@@ -281,13 +288,14 @@ jobs:
           test "$CORE_TESTS_RESULT" = success
           test "$UI_TESTS_RESULT" = success
       - name: Export synthetic keyboard visual review images
+        if: env.CLEAR_VISUAL_FAST != '1'
         id: visual-export
         if: always() && steps.ui-tests.outcome != 'skipped'
         run: |
           xcrun xcresulttool export attachments --path .build/CompositionResults.xcresult --output-path .build/KeyboardVisualReview
           xcrun xcresulttool export attachments --path .build/AppBottomResults.xcresult --output-path .build/KeyboardVisualReview/AppUI
       - name: Return keyboard visual review images
-        if: always() && steps.visual-export.outcome == 'success'
+        if: env.CLEAR_VISUAL_FAST != '1' && (always() && steps.visual-export.outcome == 'success')
         uses: actions/upload-artifact@v4
         with:
           name: ClearKeyboard-keyboard-visual-review

@@ -6,7 +6,7 @@ enum AppearanceItem: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .keyGlass: return "按键玻璃"
+        case .keyGlass: return "按键通透"
         case .keyColor: return "按键颜色"
         case .candidateColor: return "候选文字颜色"
         case .candidateSize: return "候选文字大小"

@@ -37,24 +37,15 @@ final class LiquidGlassView: UIView {
         UIView.performWithoutAnimation {
             CATransaction.begin(); CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
-            if reduced {
-                lens.effect = nil; lens.alpha = 1; backgroundColor = fallback; tintFilm.backgroundColor = .clear
-            } else if #available(iOS 26.0, *) {
-                let glass = UIGlassEffect(style: (clear || keycap) ? .clear : .regular)
-                glass.isInteractive = !keycap && !clear
-                glass.tintColor = nil
-                lens.effect = glass; backgroundColor = .clear
-                // Only the lens fades; captions and chosen color remain independent.
-                // Increasing transmission lowers reflections as well as face opacity.
-                lens.alpha = keycap ? CGFloat(0.78 - 0.34 * strength) : (clear ? 0.66 : 0.78)
-                lens.cornerConfiguration = .corners(radius: .fixed(radius))
-                // The native lens owns its edge and reflections. Higher
-                // transmission removes the face film; never add a dark veil.
-                tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
-            } else {
-                lens.effect = UIBlurEffect(style: .systemUltraThinMaterial); lens.alpha = 1; backgroundColor = .clear
-                tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
-            }
+            lens.effect = nil; lens.alpha = 1
+            backgroundColor = .clear
+            let dark = traitCollection.userInterfaceStyle == .dark
+            let base = tint ?? (dark ? UIColor(white: keycap && !clear ? 0.26 : 0.16,alpha: 1) : .white)
+            let faceOpacity: CGFloat = reduced ? 1 : (tint == nil ? CGFloat(0.98-strength*0.12) : CGFloat(opacity))
+            tintFilm.backgroundColor = base.withAlphaComponent(faceOpacity)
+            layer.borderWidth = keycap ? 0 : 0.5
+            layer.borderColor = UIColor.separator.withAlphaComponent(0.18).cgColor
+
         }
     }
 }
@@ -63,17 +54,14 @@ struct LiquidCard: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     var radius: CGFloat = 24
     var interactive = false
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.background {
-                RoundedRectangle(cornerRadius: radius).fill(Color.clear)
-                    .glassEffect(.clear.interactive(interactive), in: RoundedRectangle(cornerRadius: radius))
-                    .opacity(colorScheme == .dark ? 0.32 : 0.58)
-            }
-        } else {
-            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
+    func body(content: Content) -> some View {
+        content.background {
+            RoundedRectangle(cornerRadius: min(radius,14))
+                .fill(colorScheme == .dark ? Color(red: 0.14,green: 0.15,blue: 0.17) : .white)
+                .overlay(RoundedRectangle(cornerRadius: min(radius,14)).strokeBorder(Color.primary.opacity(0.055),lineWidth: 0.5))
         }
     }
+
 }
 
 /// One prepared actuator per keyboard process. Direct, ordered main-thread

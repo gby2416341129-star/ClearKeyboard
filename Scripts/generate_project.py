@@ -27,7 +27,6 @@ def phase(target, name, isa, files, **fields):
 if __name__ == "__main__":
     sources = sorted(p.relative_to(ROOT).as_posix() for directory in ["App", "Core", "SharedUI", "KeyboardExtension"] for p in (ROOT / directory).glob("*.swift"))
     resources = ["SharedUI/Resources/BrandMark.png", "Core/Resources/Rime", "Core/Resources/associations.clx", "Core/Resources/pinyin.clx", "Core/Resources/english.clx", "Core/Resources/pinyin-corrections.clx", "Config/PrivacyInfo.xcprivacy"]
-    resources += sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "SharedUI/Resources/ToolGlass").glob("*.png"))
     licenses = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Licenses").glob("*.txt"))
     config = ["Config/Project.xcconfig", "Config/App-Info.plist", "Config/Keyboard-Info.plist", "Config/App.entitlements", "Config/Keyboard.entitlements"]
     asset = "App/Assets.xcassets"

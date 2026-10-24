@@ -55,7 +55,9 @@ import UIKit
                     let context = try XCTUnwrap(CGContext(data: raw.baseAddress,width: strip.width,height: strip.height,bitsPerComponent: 8,bytesPerRow: strip.width*4,space: CGColorSpaceCreateDeviceRGB(),bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
                     context.draw(strip,in: CGRect(x: 0,y: 0,width: CGFloat(strip.width),height: CGFloat(strip.height)))
                 }
-                let brightness = stride(from: 0,to: rgba.count,by: 4).map { (Double(rgba[$0])+Double(rgba[$0+1])+Double(rgba[$0+2]))/3 }.reduce(0,+)/Double(strip.width*strip.height)
+                var brightnessTotal: Double = 0
+                for offset in stride(from: 0,to: rgba.count,by: 4) { brightnessTotal += (Double(rgba[offset])+Double(rgba[offset+1])+Double(rgba[offset+2]))/3 }
+                let brightness = brightnessTotal/Double(strip.width*strip.height)
                 XCTAssertLessThan(brightness,140,"The actual desktop icon must not acquire a white backplate")
                 print("DESKTOP_ICON_BACKPLATE meanRGB=\(brightness) whiteBackplate=false")
                 attachment(springboard,name: "Desktop58-home-native")
