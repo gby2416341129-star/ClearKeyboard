@@ -2,7 +2,7 @@ import UIKit
 import ImageIO
 import SwiftUI
 
-@MainActor final class KeyboardSurface: UIView, UIDragInteractionDelegate, UIDropInteractionDelegate, UIScrollViewDelegate, UIScrollViewDelegate {
+@MainActor final class KeyboardSurface: UIView, UIDragInteractionDelegate, UIDropInteractionDelegate, UIScrollViewDelegate {
     let model: KeyboardModel
     let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
