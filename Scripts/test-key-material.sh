@@ -28,6 +28,6 @@ import json
 from pathlib import Path
 s=json.loads(Path('.build/KeyMaterialReview/test-summary.json').read_text())
 print(json.dumps(s,ensure_ascii=False),flush=True)
-assert s['failedTests']==0 and s['passedTests']==6,s
+assert s['failedTests']==0 and s['passedTests']==7,s
 print('KEY_MATERIAL_CHECKS '+json.dumps(dict(passed=s['passedTests'],failed=s['failedTests'],scope='toolbar haptic dispatch, rapid panel interruption, compatibility in-place indicator, phone layouts in both themes, preview bounds')))
 PY
