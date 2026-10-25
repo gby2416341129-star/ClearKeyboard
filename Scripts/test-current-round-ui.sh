@@ -1,6 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+mkdir -p .build
+swiftc SharedUI/BrandMaterial.swift Scripts/prepare_app_icon.swift -o .build/prepare-app-icon
+.build/prepare-app-icon
+python3 Scripts/generate_project.py
+python3 Scripts/boot_test_simulator.py
 DEVICE="$(cat .build/composition-device-id)"
 mkdir -p .build/CurrentRoundUI
 xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
@@ -31,5 +36,6 @@ set -e
 xcrun xcresulttool get test-results summary --path .build/CurrentRoundUIResults.xcresult > .build/CurrentRoundUI/summary.json || true
 xcrun xcresulttool export attachments --path .build/CurrentRoundUIResults.xcresult --output-path .build/CurrentRoundUI/Images || true
 xcrun simctl spawn "$DEVICE" log show --last 10m --style compact --predicate 'process == "ClearKeyboardExtension"' > .build/CurrentRoundUI/extension.log 2>&1 || true
+xcrun simctl spawn "$DEVICE" log show --last 10m --style compact --predicate 'eventMessage CONTAINS "com.example.clearkeyboard.Keyboard" AND (process == "SpringBoard" OR process == "runningboardd")' > .build/CurrentRoundUI/extension-host.log 2>&1 || true
 cat .build/CurrentRoundUI/summary.json
 exit "$RESULT"

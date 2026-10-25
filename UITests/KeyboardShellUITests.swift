@@ -170,6 +170,17 @@ import UIKit
         // gains focus. Confirm its actual keys before opening a second picker.
         // All subsequent typed-text and production-state assertions still run.
         if label == "澈", key(app, "q").waitForExistence(timeout: 5), key(app, "q").isHittable { return true }
+        if label == "澈" {
+            // Cycle the real system globe, avoiding ambiguous menu containers.
+            // A visible, hittable extension key is the only success condition.
+            for index in 0..<4 {
+                guard let next = self.globe(in: app) else { break }
+                next.tap()
+                if key(app, "q").waitForExistence(timeout: 5), key(app, "q").isHittable { return true }
+                screen("custom-cycle-\(index)"); attachTree(app, "custom-cycle-\(index)")
+            }
+            throw unavailable("System keyboard cycling did not expose the actual extension", in: app)
+        }
         guard let globe = self.globe(in: app) else {
             if required { throw unavailable("System keyboard picker is unavailable after Settings-list confirmation", in: app) }
             hostLimitations.append("App ASCII HEX field: system keyboard picker unavailable; no extension connection claimed")

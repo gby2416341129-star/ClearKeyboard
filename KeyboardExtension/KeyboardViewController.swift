@@ -52,6 +52,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private let hostLog = OSLog(subsystem: "ClearKeyboard", category: "HostWrite")
 
     override func viewDidLoad() {
+#if DEBUG
+        NSLog("CLEAR66_STARTUP load.begin")
+#endif
         super.viewDidLoad()
         view.backgroundColor = .clear; view.isOpaque = false
         view.accessibilityIdentifier = "clear.keyboard.root"
@@ -64,12 +67,24 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
 #endif
         inputView?.allowsSelfSizing = false
         refreshHostState(refreshTraits: true)
+#if DEBUG
+        NSLog("CLEAR66_STARTUP host.ready")
+#endif
         // Only the real extension acknowledges an App appearance revision.
         // App previews and hosted test models must not produce that receipt.
         let appearanceLink: AppearanceSettingsLink? = Bundle.main.bundleURL.pathExtension == "appex"
             ? .production(role: .keyboard) : nil
+#if DEBUG
+        NSLog("CLEAR66_STARTUP settings.ready")
+#endif
         model = KeyboardModel(document: self, appearanceLink: appearanceLink)
+#if DEBUG
+        NSLog("CLEAR66_STARTUP model.ready")
+#endif
         surface = KeyboardSurface(model: model, systemBacked: true)
+#if DEBUG
+        NSLog("CLEAR66_STARTUP surface.ready")
+#endif
         surface.configureGlobe = { [weak self] button in
             guard let self else { return }
             button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
@@ -100,6 +115,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         surface?.setNeedsLayout()
     }
     override func viewDidAppear(_ animated: Bool) {
+#if DEBUG
+        NSLog("CLEAR66_STARTUP appeared")
+#endif
         super.viewDidAppear(animated)
         if let surface { updateHeight(surface.desiredHeight) }
         model?.refreshAppearanceConnection()

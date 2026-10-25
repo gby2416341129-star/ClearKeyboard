@@ -305,24 +305,6 @@ jobs:
           retention-days: 7
       - name: Verify all core regressions
         run: swift test --configuration release --jobs 3
-      - name: Verify all native interaction regressions
-        run: bash Scripts/test-key-material.sh
-      - name: Return focused key material review
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClearKeyboard-key-material-review
-          path: .build/KeyMaterialReview
-          if-no-files-found: ignore
-          retention-days: 7
-      - name: Preserve focused key material diagnostic on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ClearKeyboard-key-material-diagnostic
-          path: .build/KeyMaterialResults.xcresult
-          if-no-files-found: ignore
-          retention-days: 7
       - name: Verify App controls and actual installed keyboard settings/clipboard/gestures
         if: env.CLEAR_USER_DEVICE_REVIEW != '1'
         run: bash Scripts/test-current-round-ui.sh
@@ -340,6 +322,29 @@ jobs:
         with:
           name: ClearKeyboard-current-round-ui-diagnostic
           path: .build/CurrentRoundUIResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Reset disposable simulator before native regressions
+        run: |
+          DEVICE="$(cat .build/composition-device-id)"
+          xcrun simctl shutdown "$DEVICE" || true
+          xcrun simctl erase "$DEVICE"
+      - name: Verify all native interaction regressions
+        run: bash Scripts/test-key-material.sh
+      - name: Return focused key material review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-key-material-review
+          path: .build/KeyMaterialReview
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Preserve focused key material diagnostic on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-key-material-diagnostic
+          path: .build/KeyMaterialResults.xcresult
           if-no-files-found: ignore
           retention-days: 7
       - name: Compile repaired app and keyboard for iPhone, then package IPA
