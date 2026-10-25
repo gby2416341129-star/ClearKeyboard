@@ -45,6 +45,51 @@ import UIKit
         let merged = try AppearanceSyncClient.decode(data).get()
         XCTAssertEqual(merged.snapshot.keyColorHex, "#112233"); XCTAssertEqual(merged.snapshot.vibrationIntensity, 0.87)
     }
+    func testCoalescingDoesNotTurnBootstrapDefaultsIntoNewUserEdits() async throws {
+        let backend = Repair66CaptureBackend()
+        let link = AppearanceSettingsLink(role: .app, client: AppearanceSyncClient(backend: backend, coalesceInterval: 0.05), includeInputPreferences: true)
+        defer { link.deactivate() }
+        let initial = KeyboardSettings(); var color = initial; color.keyColorHex = "#112233"
+        var haptic = color; haptic.vibrationIntensity = 0.87
+        link.publish(initial); link.publish(color, previous: initial); link.publish(haptic, previous: color)
+        for _ in 0..<200 { if backend.snapshot() != nil { break }; try await Task.sleep(nanoseconds: 10_000_000) }
+        let envelope = try AppearanceSyncClient.decode(XCTUnwrap(backend.snapshot())).get()
+        XCTAssertEqual(envelope.fieldDates?["hand"], .distantPast)
+        let colorDate = try XCTUnwrap(envelope.fieldDates?["keyColorHex"])
+        XCTAssertGreaterThan(colorDate, .distantPast)
+        XCTAssertGreaterThan(try XCTUnwrap(envelope.fieldDates?["vibrationIntensity"]), colorDate)
+    }
+    func testJournalCompactionKeepsOlderRealEditsAheadOfNewBootstrapValues() throws {
+        let backend = AppearanceKeychainBackend(service: "clear.repair66.compaction." + UUID().uuidString, accessGroup: nil)
+        let account = AppearanceSyncClient.settingsAccount
+        defer { _ = backend.remove(account: account) }
+        var color = KeyboardSettings(); color.keyColorHex = "#112233"; color.keyHeight = 57
+        let edit = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: color), updatedAt: Date(timeIntervalSince1970: 1), changedFields: ["keyColorHex"])
+        _ = try backend.write(try AppearanceSyncClient.encode(edit).get(), account: account).get()
+        for index in 2...113 {
+            var dates = Dictionary(uniqueKeysWithValues: AppearanceSnapshot.fieldNames.map { ($0, Date.distantPast) })
+            dates["vibrationIntensity"] = Date(timeIntervalSince1970: Double(index))
+            let patch = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: KeyboardSettings()), updatedAt: Date(timeIntervalSince1970: Double(index)), fieldDates: dates)
+            _ = try backend.write(try AppearanceSyncClient.encode(patch).get(), account: account).get()
+        }
+        let data = try XCTUnwrap(backend.read(account: account).get()?.data)
+        let snapshot = try AppearanceSyncClient.decode(data).get().snapshot
+        XCTAssertEqual(snapshot.keyColorHex, "#112233"); XCTAssertEqual(snapshot.keyHeight, 57)
+    }
+    func testFirstPartialFileWriteRetainsItsFallbackWhenAnotherClientBootstraps() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let backend = AppearanceMirroredBackend(groupRoot: root, keychain: Repair66CaptureBackend())
+        let account = AppearanceSyncClient.settingsAccount
+        var custom = KeyboardSettings(); custom.keyHeight = 57; custom.keyColorHex = "#112233"
+        let edit = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: custom), updatedAt: Date(timeIntervalSince1970: 2), changedFields: ["keyColorHex"])
+        _ = try backend.write(try AppearanceSyncClient.encode(edit).get(), account: account).get()
+        let boot = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: KeyboardSettings()), updatedAt: Date(timeIntervalSince1970: 3), fieldDates: Dictionary(uniqueKeysWithValues: AppearanceSnapshot.fieldNames.map { ($0, Date.distantPast) }))
+        _ = try backend.write(try AppearanceSyncClient.encode(boot).get(), account: account).get()
+        let record = try XCTUnwrap(backend.read(account: account).get())
+        let snapshot = try AppearanceSyncClient.decode(record.data).get().snapshot
+        XCTAssertEqual(snapshot.keyHeight, 57); XCTAssertEqual(snapshot.keyColorHex, "#112233")
+    }
     func testInvalidSettingsFieldIsRejected() {
         let bad = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: KeyboardSettings()), changedFields: ["unknown"])
         if case .success = AppearanceSyncClient.encode(bad) { XCTFail("Unknown field must not be persisted") }
@@ -65,5 +110,17 @@ import UIKit
         let second = ClipboardObservation(defaults: defaults, owner: .keyboard)
         XCTAssertFalse(second.shouldRead(changeCount: 72, hasContent: true))
         XCTAssertTrue(second.shouldRead(changeCount: 73, hasContent: true))
+    }
+}
+private final class Repair66CaptureBackend: AppearanceSyncBackend {
+    var diagnostics = AppearanceBackendDiagnostics(configuredGroup: nil)
+    private let lock = NSLock()
+    private var data: Data?
+    func snapshot() -> Data? { lock.lock(); defer { lock.unlock() }; return data }
+    func read(account: String) -> Result<AppearanceBackendRecord?, AppearanceSyncError> {
+        .success(snapshot().map { AppearanceBackendRecord(data: $0, accessGroup: "fixture") })
+    }
+    func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
+        lock.lock(); self.data = data; lock.unlock(); return .success("fixture")
     }
 }

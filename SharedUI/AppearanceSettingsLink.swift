@@ -105,7 +105,8 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
                     if account == AppearanceSyncClient.settingsAccount,
                        let incoming = try? AppearanceSyncClient.decode(data).get() {
                         let existing = (try? Data(contentsOf: file)).flatMap { try? AppearanceSyncClient.decode($0).get() }
-                        if let merged = AppearanceEnvelope.reconciling([existing, incoming].compactMap { $0 }), merged != incoming { bytes = try AppearanceSyncClient.encode(merged).get() }
+                        let merged = existing.flatMap { AppearanceEnvelope.reconciling([$0, incoming]) } ?? incoming.initialFileSnapshot()
+                        if merged != incoming { bytes = try AppearanceSyncClient.encode(merged).get() }
                     }
                     try bytes.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                 }
@@ -231,12 +232,17 @@ private enum AppearanceSyncNotification {
         }
         let bootstrap = previous == nil && localSnapshot == nil && latest == nil
         let old = previous.map { AppearanceSnapshot(settings: $0, includeInputPreferences: includeInputPreferences) } ?? localSnapshot
-        var fields = old.map { snapshot.changedFields(from: $0) } ?? Array(AppearanceSnapshot.fieldNames)
+        let changed = old.map { snapshot.changedFields(from: $0) } ?? Array(AppearanceSnapshot.fieldNames)
+        var fields = changed
+        var fieldDates = pendingEnvelope?.fieldDates ?? [:]
+        if let pending = pendingEnvelope {
+            for field in pending.changedFields ?? Array(AppearanceSnapshot.fieldNames) where fieldDates[field] == nil { fieldDates[field] = pending.updatedAt }
+        }
         if let pending = pendingEnvelope { fields = Array(Set(fields).union(pending.changedFields ?? Array(AppearanceSnapshot.fieldNames))) }
         generation += 1; localSnapshot = snapshot
         let date = max(Date(), (latest?.updatedAt ?? .distantPast).addingTimeInterval(0.0001))
-        let baselineDates = bootstrap ? Dictionary(uniqueKeysWithValues: AppearanceSnapshot.fieldNames.map { ($0, Date.distantPast) }) : nil
-        let envelope = AppearanceEnvelope(snapshot: snapshot, updatedAt: date, changedFields: fields, fieldDates: baselineDates); latest = envelope; pendingEnvelope = envelope
+        for field in changed { fieldDates[field] = bootstrap ? .distantPast : date }
+        let envelope = AppearanceEnvelope(snapshot: snapshot, updatedAt: date, changedFields: fields, fieldDates: fieldDates); latest = envelope; pendingEnvelope = envelope
         diagnostics.latestRevision = envelope.revision; diagnostics.event = "local-edit"
         diagnostics.rejection = nil
         onStatus?(.saved)

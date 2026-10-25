@@ -99,6 +99,7 @@ struct AppearanceSnapshot: Codable, Equatable {
 }
 
 struct AppearanceEnvelope: Codable, Equatable {
+    static let baselineDate = Date.distantPast.addingTimeInterval(1)
     let schema: Int
     let revision: UUID
     let updatedAt: Date
@@ -112,6 +113,16 @@ struct AppearanceEnvelope: Codable, Equatable {
     var hasValidFields: Bool {
         (changedFields.map { Set($0).isSubset(of: AppearanceSnapshot.fieldNames) } ?? true) &&
             (fieldDates?.allSatisfy { AppearanceSnapshot.fieldNames.contains($0.key) && $0.value.timeIntervalSince1970.isFinite } ?? true)
+    }
+    func initialBaseline() -> AppearanceEnvelope {
+        AppearanceEnvelope(snapshot: snapshot, revision: revision, updatedAt: Self.baselineDate,
+            fieldDates: Dictionary(uniqueKeysWithValues: AppearanceSnapshot.fieldNames.map { ($0, Self.baselineDate) }))
+    }
+    func initialFileSnapshot() -> AppearanceEnvelope {
+        guard let changedFields else { return self }
+        var dates = initialBaseline().fieldDates!
+        for field in changedFields { dates[field] = max(Self.baselineDate, fieldDates?[field] ?? updatedAt) }
+        return AppearanceEnvelope(snapshot: snapshot, revision: revision, updatedAt: updatedAt, fieldDates: dates)
     }
     static func reconciling(_ envelopes: [AppearanceEnvelope]) -> AppearanceEnvelope? {
         if let first = envelopes.first, envelopes.allSatisfy({ $0 == first }) { return first }
@@ -322,6 +333,18 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         guard data.count <= AppearanceSyncClient.maximumPayloadBytes else { return .failure(.invalidPayload) }
         if account == AppearanceSyncClient.settingsAccount {
             guard let envelope = try? AppearanceSyncClient.decode(data).get() else { return .failure(.invalidPayload) }
+            guard let baselineData = try? AppearanceSyncClient.encode(envelope.initialBaseline()).get() else { return .failure(.invalidPayload) }
+            // First writer establishes the fallback values atomically. Unlike
+            // deltas, this record is never replaced or compacted away.
+            var baseline = query(account)
+            baseline[kSecValueData as String] = baselineData
+            baseline[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            var status = SecItemAdd(baseline as CFDictionary, nil)
+            if status == errSecMissingEntitlement {
+                baseline.removeValue(forKey: kSecAttrAccessGroup as String)
+                status = SecItemAdd(baseline as CFDictionary, nil)
+            }
+            guard status == errSecSuccess || status == errSecDuplicateItem else { return .failure(.keychain(status)) }
             // Append immutable deltas. Two processes can never overwrite each
             // other's unrelated edits, even without a shared filesystem group.
             let result = write(data, account: account + ".patch." + envelope.revision.uuidString)
@@ -376,11 +399,16 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
             return (name, value, attributes[kSecAttrAccessGroup as String] as? String)
         }.sorted { $0.1.updatedAt > $1.1.updatedAt }
         guard patches.count > 96 else { return }
-        var keep = Set(patches.prefix(64).map(\.0)), covered = Set<String>()
+        var keep = Set(patches.prefix(64).map(\.0))
+        var winners: [String: (Date, String, String)] = [:]
         for patch in patches {
-            let fields = Set(patch.1.changedFields ?? Array(AppearanceSnapshot.fieldNames))
-            if !fields.isSubset(of: covered) { keep.insert(patch.0); covered.formUnion(fields) }
+            for field in patch.1.changedFields ?? Array(AppearanceSnapshot.fieldNames) {
+                let date = patch.1.fieldDates?[field] ?? patch.1.updatedAt, revision = patch.1.revision.uuidString
+                if let old = winners[field], old.0 > date || (old.0 == date && old.1 >= revision) { continue }
+                winners[field] = (date, revision, patch.0)
+            }
         }
+        keep.formUnion(winners.values.map { $0.2 })
         for patch in patches where !keep.contains(patch.0) {
             var deletion = query(patch.0)
             if let group = patch.2 { deletion[kSecAttrAccessGroup as String] = group }
