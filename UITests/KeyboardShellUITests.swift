@@ -521,9 +521,12 @@ import UIKit
         if recentClose.exists && recentClose.isHittable { recentClose.tap() }
         let source = control(safari, "toolbar.clipboard"), destination = control(safari, "toolbar.appearance")
         source.press(forDuration: 0.8, thenDragTo: destination)
-        awaitEvidence("Direct toolbar hold/reorder without editor") {
+        awaitEvidence("Toolbar hold enters editing and persists the reordered tools") {
             (($0["settings"] as? [String: Any])?["toolbar"] as? [String]) == ["language", "emoji", "appearance", "clipboard"]
         }
+        let finishEditing = control(safari, "toolbar.tools")
+        XCTAssertEqual(finishEditing.label, "完成工具栏编辑")
+        finishEditing.tap()
         control(safari, "toolbar.appearance").tap()
         let colorRow = control(safari, "keyboard.appearance.keyColor")
         XCTAssertTrue(colorRow.waitForExistence(timeout: 3)); colorRow.tap()

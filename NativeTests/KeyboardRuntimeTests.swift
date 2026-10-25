@@ -417,13 +417,13 @@ import SwiftUI
         XCTAssertEqual(surface.layer.cornerRadius, 0)
         XCTAssertFalse(input.subviews.contains { $0 is UIVisualEffectView }, "The extension must use the system base without a custom background layer")
     }
-    private func materialImage(_ view: UIView) -> UIImage {
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+    private func materialImage(_ view: UIView, scale: CGFloat = 1) -> UIImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.preferredRange = .standard
         let target = view.window ?? view
         let image = UIGraphicsImageRenderer(bounds: target.bounds, format: format).image { _ in
             XCTAssertTrue(target.drawHierarchy(in: target.bounds, afterScreenUpdates: true))
         }
-        let rect = view.convert(view.bounds, to: target)
+        let rect = view.convert(view.bounds, to: target).applying(CGAffineTransform(scaleX: scale, y: scale))
         guard let cropped = image.cgImage?.cropping(to: rect) else { return image }
         return UIImage(cgImage: cropped)
     }
@@ -459,7 +459,9 @@ import SwiftUI
         func assertRenderedContrast(_ key: KeyButton, phase: String, expectedDarkFace: Bool? = nil) throws {
             settleLayout(key)
             let face = try XCTUnwrap(descendants(key).first { $0.accessibilityIdentifier == "key.face" })
-            let image = materialImage(key)
+            // Inspect the pixels actually shown by the phone. A 1x point-space
+            // reduction blends away a thin edge on a 3x keyboard preview.
+            let image = materialImage(key, scale: key.window?.screen.scale ?? 3)
             let bitmap = try XCTUnwrap(image.cgImage)
             let scaleX = CGFloat(bitmap.width) / key.bounds.width
             let scaleY = CGFloat(bitmap.height) / key.bounds.height
