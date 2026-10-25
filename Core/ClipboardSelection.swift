@@ -8,9 +8,13 @@ public enum ClipboardSelection {
     }
     public static func tokens(_ text: String) -> [Token] {
         let string = text as NSString
-        return expression.matches(in: text, range: NSRange(location: 0, length: string.length)).filter { !string.substring(with: $0.range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map {
-            Token(text: string.substring(with: $0.range), range: $0.range)
+        var result: [Token] = []
+        expression.enumerateMatches(in: text, range: NSRange(location: 0, length: string.length)) { match, _, _ in
+            guard let match else { return }
+            let value = string.substring(with: match.range)
+            if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { result.append(Token(text: value, range: match.range)) }
         }
+        return result
     }
     public static func text(_ source: String, tokens: [Token], selected: Set<Int>) -> String {
         let indices = selected.filter { tokens.indices.contains($0) }.sorted()

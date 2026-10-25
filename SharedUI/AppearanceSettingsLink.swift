@@ -229,12 +229,14 @@ private enum AppearanceSyncNotification {
             if let pendingEnvelope { send(pendingEnvelope) }
             return
         }
-        let old = latest == nil && localSnapshot == nil ? nil : (previous.map { AppearanceSnapshot(settings: $0, includeInputPreferences: includeInputPreferences) } ?? localSnapshot)
+        let bootstrap = previous == nil && localSnapshot == nil && latest == nil
+        let old = previous.map { AppearanceSnapshot(settings: $0, includeInputPreferences: includeInputPreferences) } ?? localSnapshot
         var fields = old.map { snapshot.changedFields(from: $0) } ?? Array(AppearanceSnapshot.fieldNames)
         if let pending = pendingEnvelope { fields = Array(Set(fields).union(pending.changedFields ?? Array(AppearanceSnapshot.fieldNames))) }
         generation += 1; localSnapshot = snapshot
         let date = max(Date(), (latest?.updatedAt ?? .distantPast).addingTimeInterval(0.0001))
-        let envelope = AppearanceEnvelope(snapshot: snapshot, updatedAt: date, changedFields: fields); latest = envelope; pendingEnvelope = envelope
+        let baselineDates = bootstrap ? Dictionary(uniqueKeysWithValues: AppearanceSnapshot.fieldNames.map { ($0, Date.distantPast) }) : nil
+        let envelope = AppearanceEnvelope(snapshot: snapshot, updatedAt: date, changedFields: fields, fieldDates: baselineDates); latest = envelope; pendingEnvelope = envelope
         diagnostics.latestRevision = envelope.revision; diagnostics.event = "local-edit"
         diagnostics.rejection = nil
         onStatus?(.saved)

@@ -130,7 +130,7 @@ import UIKit
             }
         }
     }
-    func testLongArticleIsCapturedAndInlinePreviewRetainsAllText() throws {
+    func testLongArticleIsCapturedAndInlinePreviewRetainsAllText() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
         defer { try? FileManager.default.removeItem(at: url) }
         let text = String(repeating: "这是一篇完整的长文章。", count: 1200)
@@ -139,7 +139,7 @@ import UIKit
         XCTAssertEqual(ClipboardStore(url: url).clips.first?.text, text); XCTAssertEqual(captures, 1)
         let inline = ClipboardInlinePreview(); inline.frame = CGRect(x: 0, y: 0, width: 200, height: 38); inline.show(text)
         let ready = Date().addingTimeInterval(10)
-        while !inline.isReady && Date() < ready { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        while !inline.isReady && Date() < ready { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertTrue(inline.isReady); inline.layoutIfNeeded()
         XCTAssertEqual(inline.text, text); XCTAssertGreaterThan(inline.contentSize.width, 200)
     }

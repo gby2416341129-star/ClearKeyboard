@@ -102,7 +102,7 @@
     {
       "id": "old-code",
       "scope": "旧API/并发警告、未使用拖动路径与状态、实际路径测试",
-      "status": "pending",
+      "status": "implemented_pending_verification",
       "verification": []
     },
     {

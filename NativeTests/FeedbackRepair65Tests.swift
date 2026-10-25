@@ -51,13 +51,13 @@ import UIKit
         let attachment = XCTAttachment(image: image); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
         return image
     }
-    func testLongArticleActuallyDrawsTheMiddleAndTailWithoutAWideBackingView() throws {
+    func testLongArticleActuallyDrawsTheMiddleAndTailWithoutAWideBackingView() async throws {
         let preview = ClipboardInlinePreview(); preview.frame = CGRect(x: 12, y: 20, width: 260, height: 40)
         let window = try display(preview); defer { window.isHidden = true }
         let text = (0..<2400).map { "第\($0)段 中文😀 e\u{301} https://example.org/\($0)。" }.joined(separator: "\n") + "文章终点甲乙丙丁"
         preview.show(text); preview.layoutIfNeeded()
         let ready = Date().addingTimeInterval(10)
-        while !preview.isReady && Date() < ready { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        while !preview.isReady && Date() < ready { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertTrue(preview.isReady); preview.layoutIfNeeded()
         let end = preview.contentSize.width - preview.bounds.width
         XCTAssertGreaterThan(end, 100_000)

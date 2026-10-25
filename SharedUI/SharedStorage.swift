@@ -64,8 +64,8 @@ enum SharedStorage {
         return defaults
     }
     /// Adopt the complete legacy folder so attachment paths, dates and pins
-    /// remain valid. Exclusive rename never replaces a shared store and never
-    /// falls back to copying attachment bytes on the keyboard's active path.
+    /// remain valid. Existing shared stores merge on a background queue;
+    /// exclusive rename handles a new shared directory without copying bytes.
     static func adoptLegacyClipboardDirectory(from source: URL, to destination: URL, defaults: UserDefaults, groupIdentifier: String) {
         guard source.isFileURL, destination.isFileURL else { return }
         let source = source.standardizedFileURL, destination = destination.standardizedFileURL

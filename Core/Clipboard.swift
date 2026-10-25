@@ -135,7 +135,8 @@ public final class ClipboardStore {
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let filename = digest + ".bin"
         guard let asset = assetURL(filename) else { return false }
-        return transaction { values in
+        let existed = FileManager.default.fileExists(atPath: asset.path)
+        let saved = transaction { values in
             try FileManager.default.createDirectory(at: asset.deletingLastPathComponent(), withIntermediateDirectories: true)
             let pinned = values.first { $0.attachment?.filename == filename }?.pinned ?? false
             let value = Clip(text: name, createdAt: now, pinned: pinned, attachment: ClipAttachment(filename: filename, typeIdentifier: typeIdentifier, byteCount: data.count))
@@ -149,6 +150,14 @@ public final class ClipboardStore {
             #endif
             return true
         }
+        if !saved && !existed {
+            try? SharedFileLock.perform(at: url.appendingPathExtension("lock")) {
+                let sibling = url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent == "clipboard.json" ? "common-phrases.json" : "clipboard.json")
+                let referenced = try Self.read(url) + Self.read(sibling)
+                if !referenced.contains(where: { $0.attachment?.filename == filename }) { try? FileManager.default.removeItem(at: asset) }
+            }
+        }
+        return saved
     }
     public static func boundedAttachment(at url: URL) throws -> Data {
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max

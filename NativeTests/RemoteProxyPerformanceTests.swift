@@ -946,6 +946,47 @@ import SwiftUI
         XCTAssertEqual(label.text, "立即选词"); XCTAssertNil(label.layer.animation(forKey: "candidateText"))
         print("CANDIDATE_INK_CLOCK replacements=4 restarts=0 textImmediate=true geometryImmediate=true readableSingleLayer=true")
     }
+
+    func testCursorTransportConvertsWholeGraphemesIntoUIKitStorageOffsets() {
+        let field = UITextView(); field.text = "A👨‍👩‍👧‍👦e\u{301}BC"
+        field.selectedRange = NSRange(location: "A👨‍👩‍👧‍👦e\u{301}".utf16.count, length: 0)
+        let proxy = UIKitFieldDocumentProxy(field), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        controller.moveCursor(-1); XCTAssertEqual(proxy.documentContextBeforeInput, "A👨‍👩‍👧‍👦")
+        controller.moveCursor(-1); XCTAssertEqual(proxy.documentContextBeforeInput, "A")
+        controller.moveCursor(1); XCTAssertEqual(proxy.documentContextBeforeInput, "A👨‍👩‍👧‍👦")
+    }
+    func testClipboardMarkedSelectionReplacesOnlyItsOwnedRangeInRealUIKit() throws {
+        let field = UITextView(); field.text = "原文🙂尾巴"
+        field.selectedRange = NSRange(location: "原文🙂".utf16.count, length: 0)
+        let proxy = UIKitFieldDocumentProxy(field), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let session = ClipboardTextSession(document: controller)
+        for value in ["甲", "甲乙", "乙", "", "丙"] {
+            XCTAssertTrue(session.apply(value)); XCTAssertEqual(field.text, "原文🙂" + value + "尾巴")
+        }
+        session.finish(); XCTAssertEqual(proxy.deleteWrites, 0)
+    }
+    func testRejectedClipboardSelectionCannotDeleteOriginalText() throws {
+        let field = UITextView(); field.text = "原文🙂"; field.selectedRange = NSRange(location: field.text.utf16.count, length: 0)
+        let proxy = UIKitFieldDocumentProxy(field); proxy.markedLimit = 1
+        let controller = ProxyKeyboardController(); controller.proxy = proxy; controller.loadViewIfNeeded()
+        let session = ClipboardTextSession(document: controller)
+        XCTAssertFalse(session.apply("甲乙丙")); XCTAssertFalse(session.apply(""))
+        XCTAssertTrue(field.text.hasPrefix("原文🙂")); XCTAssertEqual(proxy.deleteWrites, 0)
+    }
+    func testLongClearAndUndoRestoreTheOriginalSelectionInRealUIKit() async throws {
+        let field = UITextView(); let text = String(repeating: "中文😀", count: 1700); field.text = text
+        let range = NSRange(location: 12, length: 12); field.selectedRange = range
+        let proxy = UIKitFieldDocumentProxy(field), controller = ProxyKeyboardController()
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        let value: DeletedInput? = await withCheckedContinuation { continuation in
+            controller.clearInput { continuation.resume(returning: $0) }
+        }
+        XCTAssertEqual(field.text, "")
+        XCTAssertTrue(controller.restoreInput(try XCTUnwrap(value)))
+        XCTAssertEqual(field.text, text); XCTAssertEqual(field.selectedRange, range)
+    }
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<200 { if condition() { return }; try await Task.sleep(nanoseconds: 10_000_000) }
         XCTFail("Current candidates did not arrive")
@@ -1466,6 +1507,21 @@ import SwiftUI
         XCTAssertEqual(model.candidates.first?.text, "你好")
         XCTAssertEqual(model.candidateContext?.before, document.before)
     }
+    func testDismissalPreservesQueuedKeysAndTheirCaseWhileDecoderIsPending() {
+        let document = WordLookupDocument()
+        let name = UUID().uuidString, defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        var settings = KeyboardSettings(); settings.language = .chinese
+        settings.learnChoices = false; settings.predictions = false; settings.automaticClipboard = false
+        let model = KeyboardModel(document: document, settings: settings, defaults: defaults) { engine, raw, preferred in
+            Thread.sleep(forTimeInterval: 0.2); return engine.immediateCandidates(raw, preferred: preferred)
+        }
+        for character in "xqzabc" { model.handle(.text(String(character))) }
+        model.handle(.space); model.handle(.text("x")); model.handle(.shift); model.handle(.text("a")); model.handle(.literal("#"))
+        model.finishCompositionAsTyped()
+        XCTAssertEqual(document.before, "xqzabc xA#"); XCTAssertTrue(document.marked.isEmpty)
+        model.suspend()
+    }
     func testConfirmCommitsExactRawSpellingWithoutWaitingForCandidates() async throws {
         let document = WordLookupDocument()
         var settings = KeyboardSettings()
@@ -1680,6 +1736,7 @@ import SwiftUI
     let input: UIView & UITextInput
     let documentIdentifier = UUID()
     var insertedTexts: [String] = [], markedWrites: [String] = []
+    var markedLimit: Int?
     var unmarkWrites = 0, deleteWrites = 0
     var onMutation: (() -> Void)?
     var hidesContext = false
@@ -1707,7 +1764,7 @@ import SwiftUI
     func insertText(_ text: String) { insertedTexts.append(text); input.insertText(text); onMutation?() }
     func deleteBackward() { deleteWrites += 1; input.deleteBackward(); onMutation?() }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
-        markedWrites.append(text); input.setMarkedText(text, selectedRange: selectedRange); onMutation?()
+        markedWrites.append(text); input.setMarkedText(markedLimit.map { String(text.prefix($0)) } ?? text, selectedRange: selectedRange); onMutation?()
     }
     func unmarkText() { unmarkWrites += 1; input.unmarkText(); onMutation?() }
     func adjustTextPosition(byCharacterOffset offset: Int) {

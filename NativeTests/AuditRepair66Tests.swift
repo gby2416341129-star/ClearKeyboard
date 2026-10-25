@@ -17,6 +17,34 @@ import UIKit
         let merged = try XCTUnwrap(AppearanceEnvelope.reconciling([first, color, haptic, reset]))
         XCTAssertNil(merged.snapshot.keyColorHex); XCTAssertEqual(merged.snapshot.vibrationIntensity, 0.87)
     }
+    func testLateBootstrapCannotOverwriteAUserEditAndPartialFirstWriteKeepsExistingSettings() throws {
+        var prior = KeyboardSettings(); prior.keyHeight = 57
+        var edited = prior; edited.keyColorHex = "#112233"
+        let patch = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: edited, includeInputPreferences: true), updatedAt: Date(timeIntervalSince1970: 2), changedFields: ["keyColorHex"])
+        let initial = try XCTUnwrap(AppearanceEnvelope.reconciling([patch]))
+        XCTAssertEqual(initial.snapshot.keyHeight, 57)
+        let boot = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: prior, includeInputPreferences: true), updatedAt: Date(timeIntervalSince1970: 3), fieldDates: Dictionary(uniqueKeysWithValues: AppearanceSnapshot.fieldNames.map { ($0, Date.distantPast) }))
+        for records in [[patch, boot], [boot, patch], [initial, boot]] {
+            let merged = try XCTUnwrap(AppearanceEnvelope.reconciling(records))
+            XCTAssertEqual(merged.snapshot.keyColorHex, "#112233"); XCTAssertEqual(merged.snapshot.keyHeight, 57)
+        }
+    }
+    func testIndependentKeychainWritersKeepBothSettingsChanges() throws {
+        let service = "clear.repair66." + UUID().uuidString
+        let first = AppearanceKeychainBackend(service: service, accessGroup: nil)
+        let second = AppearanceKeychainBackend(service: service, accessGroup: nil)
+        let account = AppearanceSyncClient.settingsAccount
+        defer { _ = first.remove(account: account) }
+        var a = KeyboardSettings(), b = a
+        a.keyColorHex = "#112233"; b.vibrationIntensity = 0.87
+        let color = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: a), updatedAt: Date(timeIntervalSince1970: 2), changedFields: ["keyColorHex"])
+        let haptic = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: b), updatedAt: Date(timeIntervalSince1970: 3), changedFields: ["vibrationIntensity"])
+        _ = try first.write(try AppearanceSyncClient.encode(color).get(), account: account).get()
+        _ = try second.write(try AppearanceSyncClient.encode(haptic).get(), account: account).get()
+        let data = try XCTUnwrap(first.read(account: account).get()?.data)
+        let merged = try AppearanceSyncClient.decode(data).get()
+        XCTAssertEqual(merged.snapshot.keyColorHex, "#112233"); XCTAssertEqual(merged.snapshot.vibrationIntensity, 0.87)
+    }
     func testInvalidSettingsFieldIsRejected() {
         let bad = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: KeyboardSettings()), changedFields: ["unknown"])
         if case .success = AppearanceSyncClient.encode(bad) { XCTFail("Unknown field must not be persisted") }

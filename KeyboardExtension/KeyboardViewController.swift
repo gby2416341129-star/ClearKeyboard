@@ -608,7 +608,18 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     func deleteBackward() { performHostEdit { hostState.deleteBackward(); textDocumentProxy.deleteBackward() } }
     func moveCursor(_ offset: Int) {
-        performHostEdit { hostState.moveCursor(offset); textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) }
+        performHostEdit {
+            let before = contextBefore, selected = selectedText, after = contextAfter
+            let units: Int
+            if selected.isEmpty {
+                units = offset < 0 ? -String(before.suffix(-offset)).utf16.count : String(after.prefix(offset)).utf16.count
+            } else {
+                let whole = before + selected + after
+                let target = max(0, min(whole.count, before.count + offset))
+                units = String(whole.prefix(target)).utf16.count - before.utf16.count - selected.utf16.count
+            }
+            hostState.moveCursor(offset); textDocumentProxy.adjustTextPosition(byCharacterOffset: units)
+        }
     }
     func beginTrackpad() { trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter) }
     func trackCursor(translation: CGPoint) {
@@ -641,13 +652,14 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let value = DeletedInput(text: text, selection: NSRange(location: before.utf16.count, length: selected.utf16.count))
         if !selected.isEmpty { insert("") }
         if !after.isEmpty { moveCursor(after.count) }
+        func abort() { refreshHostState(refreshTraits: true); completion(nil) }
         func step(_ remaining: Int) {
-            guard connectedDocumentIdentifier()?.uuidString == identity else { completion(nil); return }
+            guard connectedDocumentIdentifier()?.uuidString == identity else { abort(); return }
             let actual = readHostSnapshot()
-            guard actual.connected, HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: actual.snapshot) else { completion(nil); return }
+            guard actual.connected, HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: actual.snapshot) else { abort(); return }
             let count = min(32, remaining)
             for _ in 0..<count {
-                guard connectedDocumentIdentifier()?.uuidString == identity else { completion(nil); return }
+                guard connectedDocumentIdentifier()?.uuidString == identity else { abort(); return }
                 deleteBackward()
             }
             if remaining > count { DispatchQueue.main.async { step(remaining - count) } }

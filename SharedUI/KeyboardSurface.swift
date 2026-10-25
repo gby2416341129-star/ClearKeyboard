@@ -2,7 +2,7 @@ import UIKit
 import ImageIO
 import SwiftUI
 
-@MainActor final class KeyboardSurface: UIView, UIDragInteractionDelegate, UIDropInteractionDelegate, UIScrollViewDelegate {
+@MainActor final class KeyboardSurface: UIView, UIScrollViewDelegate {
     let model: KeyboardModel
     let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
@@ -99,7 +99,6 @@ import SwiftUI
         toolbarScroll.pendingOffset = toolbarOffset
         toolbarScroll.backgroundColor = .clear
         toolbarScroll.contentInsetAdjustmentBehavior = .never
-        toolbarScroll.addInteraction(UIDropInteraction(delegate: self))
         toolbarShortcuts.axis = .horizontal; toolbarShortcuts.alignment = .center; toolbarShortcuts.spacing = 10
         toolbarShortcuts.translatesAutoresizingMaskIntoConstraints = false
         toolbarScroll.addSubview(toolbarShortcuts)
@@ -302,6 +301,17 @@ import SwiftUI
         let toolSignature = "\(settings.toolbar)-\(toolbarEditing)"
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
         updateToolbarState()
+        if panelKind == .oneHand, let panel {
+            func update(_ view: UIView) {
+                if let segment = view as? UISegmentedControl { segment.selectedSegmentIndex = HandMode.allCases.firstIndex(of: settings.hand) ?? 0 }
+                if let slider = view as? UISlider, !slider.isTracking {
+                    if slider.accessibilityLabel == "单手键盘宽度" { slider.value = Float(settings.oneHandFraction) }
+                    if slider.accessibilityIdentifier == "keyboard.heightSlider" { slider.value = Float(settings.keyHeight) }
+                }
+                view.subviews.forEach(update)
+            }
+            update(panel)
+        }
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
         let style = "\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
@@ -679,28 +689,6 @@ import SwiftUI
         tools.remove(at: from); tools.insert(tool, at: min(to, tools.count))
         model.settings.toolbar = tools
     }
-    func dragInteraction(_ interaction: UIDragInteraction, itemsForBeginning session: UIDragSession) -> [UIDragItem] {
-        guard let identifier = interaction.view?.accessibilityIdentifier,
-              let tool = ToolbarTool(rawValue: identifier.replacingOccurrences(of: "toolbar.", with: "")),
-              beginToolbarDrag(tool) else { return [] }
-        let item = UIDragItem(itemProvider: NSItemProvider(object: tool.rawValue as NSString)); item.localObject = tool
-        item.previewProvider = { [weak self] in self?.toolbarDragPreview(for: tool) }
-        return [item]
-    }
-    func dragInteraction(_ interaction: UIDragInteraction, previewForLifting item: UIDragItem, session: UIDragSession) -> UITargetedDragPreview? {
-        (item.localObject as? ToolbarTool).flatMap { toolbarTargetedPreview(for: $0) }
-    }
-    func dragInteraction(_ interaction: UIDragInteraction, previewForCancelling item: UIDragItem, withDefault defaultPreview: UITargetedDragPreview) -> UITargetedDragPreview? {
-        (item.localObject as? ToolbarTool).flatMap { toolbarTargetedPreview(for: $0) }
-    }
-    func dragInteraction(_ interaction: UIDragInteraction, session: UIDragSession, didEndWith operation: UIDropOperation) { finishToolbarDrag() }
-    func dragInteraction(_ interaction: UIDragInteraction, sessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool { true }
-    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool { session.localDragSession != nil }
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal { UIDropProposal(operation: session.localDragSession != nil ? .move : .cancel) }
-    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
-        guard session.localDragSession != nil, let tool = session.items.first?.localObject as? ToolbarTool else { return }
-        performToolbarDrop(tool, at: session.location(in: self))
-    }
     private func rebuildRail() {
         sideRail.arrangedSubviews.forEach { sideRail.removeArrangedSubview($0); $0.removeFromSuperview() }
         let opposite: HandMode = model.settings.hand == .right ? .left : .right
@@ -835,7 +823,8 @@ import SwiftUI
     }
     private func reloadClipboardSuggestion(fresh: Bool = true) {
         let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true))
-        recentClip = store.clips.first.flatMap {
+        let lifetime = model.settings.clipboardLifetimeHours * 3600, now = Date()
+        recentClip = store.clips.first(where: { lifetime <= 0 || $0.pinned || now.timeIntervalSince($0.createdAt) <= lifetime }).flatMap {
             !clipboardSuggestionState.isConsumed($0, revision: UIPasteboard.general.changeCount) &&
                 (fresh || Date().timeIntervalSince($0.createdAt) < 900) ? $0 : nil
         }

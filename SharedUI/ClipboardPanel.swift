@@ -10,7 +10,11 @@ import CoreText
     private let phrasesURL: URL
     private var store: ClipboardStore
     private var phrases: ClipboardStore
-    private var items: [Clip] { tabs.selectedSegmentIndex == 1 ? phrases.clips : store.clips }
+    private var items: [Clip] {
+        if tabs.selectedSegmentIndex == 1 { return phrases.clips }
+        let lifetime = model.settings.clipboardLifetimeHours * 3600, now = Date()
+        return store.clips.filter { lifetime <= 0 || $0.pinned || now.timeIntervalSince($0.createdAt) <= lifetime }
+    }
     private let tabs = UISegmentedControl(items: ["剪贴板", "常用语"])
     private let more = UIButton(type: .system)
     private let send = UIButton(type: .system)
@@ -246,6 +250,8 @@ import CoreText
         guard let source = selectionSource, indices != selectedTokens else { return true }
         guard let session = selectionSession,
               model.updateClipboardSelection(session, text: ClipboardSelection.text(source, tokens: tokens, selected: indices)) else {
+            selectionLink?.invalidate(); selectionLink = nil; selectionPoint = nil; dragStart = nil
+            model.onNotice?("输入位置已变化，请重新打开选词")
             UIAccessibility.post(notification: .announcement, argument: "输入位置已变化，请重新打开选词")
             return false
         }

@@ -114,12 +114,15 @@ struct AppearanceEnvelope: Codable, Equatable {
             (fieldDates?.allSatisfy { AppearanceSnapshot.fieldNames.contains($0.key) && $0.value.timeIntervalSince1970.isFinite } ?? true)
     }
     static func reconciling(_ envelopes: [AppearanceEnvelope]) -> AppearanceEnvelope? {
+        if let first = envelopes.first, envelopes.allSatisfy({ $0 == first }) { return first }
         if envelopes.count == 1, envelopes[0].changedFields == nil { return envelopes[0] }
         guard let latest = envelopes.max(by: {
             $0.updatedAt == $1.updatedAt ? $0.revision.uuidString < $1.revision.uuidString : $0.updatedAt < $1.updatedAt
         }) else { return nil }
-        var values = AppearanceSnapshot(settings: KeyboardSettings(), includeInputPreferences: true).fieldValues
-        var dates: [String: Date] = [:], revisions: [String: String] = [:]
+        let baseline = envelopes.min { $0.updatedAt < $1.updatedAt }!.snapshot
+        var values = baseline.fieldValues
+        var dates = Dictionary(uniqueKeysWithValues: AppearanceSnapshot.fieldNames.map { ($0, Date.distantPast) })
+        var revisions: [String: String] = [:]
         for envelope in envelopes {
             let incoming = envelope.snapshot.fieldValues
             for key in envelope.changedFields ?? Array(AppearanceSnapshot.fieldNames) {

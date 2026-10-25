@@ -539,16 +539,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
         for action in pending where document?.documentIdentity == identity {
             switch action {
             case .text(let text):
-                insertText(shifted ? text.uppercased() : text)
+                let decimal = page == .numbers && text == "."
+                insertText(shifted && page == .letters ? text.uppercased() : decimal ? text : punctuation(text))
                 if !capsLocked { shifted = false; manualShift = false }
-            case .literal(let text): insertText(text)
+                if !decimal, page != .letters && [".", ",", "?", "!", "。", "，", "？", "！"].contains(text) { page = .letters }
+            case .literal(let text):
+                insertText(text)
+                if !capsLocked { shifted = false; manualShift = false }
             case .space: insertText(" ")
             case .enter: insertText("\n")
             case .delete: document?.deleteBackward()
-            case .shift: shiftState.tap(now: ProcessInfo.processInfo.systemUptime)
+            case .shift: shiftState.tap(now: ProcessInfo.processInfo.systemUptime); manualShift = true
             case .page(let next): page = next
-            case .language: settings.language = settings.language == .chinese ? .english : .chinese
-            case .globe: break
+            case .language: toggleLanguage()
+            case .globe: document?.nextKeyboard()
             }
         }
     }

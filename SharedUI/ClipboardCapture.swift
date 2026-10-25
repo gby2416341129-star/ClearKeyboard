@@ -95,22 +95,25 @@ import UniformTypeIdentifiers
         // must not permanently suppress the same revision after reopening.
         observation.didAttempt(changeCount: count)
         if systemAttachments {
-            if hasStrings(), let text = readText() { acceptText(text, revision: count) }
-            else { ClipboardItemLoader.load(UIPasteboard.general.itemProviders, revision: count, into: self) }
+            let providers = UIPasteboard.general.itemProviders
+            if !providers.isEmpty { ClipboardItemLoader.load(providers, revision: count, into: self) }
+            else if hasStrings(), let text = readText() { acceptText(text, revision: count) }
+            else { reportFailure(nil) }
             return
         }
         if saveCurrentContent() {
             if count == changeCount() { observation.didCapture(changeCount: count) }
             captured()
-        } else if systemAttachments, !hasStrings() {
-            ClipboardItemLoader.load(UIPasteboard.general.itemProviders, revision: count, into: self)
+
         }
     }
     @discardableResult func captureManually() -> Bool {
         let count = changeCount()
         if systemAttachments, hasContent() {
-            if hasStrings(), let text = readText() { acceptText(text, revision: count) }
-            else { ClipboardItemLoader.load(UIPasteboard.general.itemProviders, revision: count, into: self) }
+            let providers = UIPasteboard.general.itemProviders
+            if !providers.isEmpty { ClipboardItemLoader.load(providers, revision: count, into: self) }
+            else if hasStrings(), let text = readText() { acceptText(text, revision: count) }
+            else { reportFailure(nil) }
             return true
         }
         let saved = saveCurrentContent()
