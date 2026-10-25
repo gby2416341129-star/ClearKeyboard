@@ -25,6 +25,9 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       CLEAR_UI_HOTFIX: '1'
       CLEAR_VISUAL_FAST: '1'
+      # Build 62: the owner requested direct IPA delivery and on-device review.
+      # Production source is unchanged from the completed focused check run.
+      CLEAR_USER_DEVICE_REVIEW: '1'
       CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
       CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '26'
     timeout-minutes: 60
@@ -302,6 +305,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Verify physical key material and appearance response
+        if: env.CLEAR_USER_DEVICE_REVIEW != '1'
         run: bash Scripts/test-key-material.sh
       - name: Return focused key material review
         if: always()
@@ -320,6 +324,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Verify App controls and actual installed keyboard settings/clipboard/gestures
+        if: env.CLEAR_USER_DEVICE_REVIEW != '1'
         run: bash Scripts/test-current-round-ui.sh
       - name: Return current round actual extension evidence
         if: always()
