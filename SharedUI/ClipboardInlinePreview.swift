@@ -70,8 +70,15 @@ import CoreText
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func shape(_ value: String) {
         let font = UIFont.systemFont(ofSize: 15, weight: .medium)
+        // The private UIFont name is not a public Core Text family name; using
+        // it by name can silently fall back to Times for Latin text.
+        let system = CTFontCreateUIFontForLanguage(.system, font.pointSize, nil)!
+        let descriptor = CTFontDescriptorCreateWithAttributes([
+            kCTFontTraitsAttribute: [kCTFontWeightTrait: UIFont.Weight.medium.rawValue]
+        ] as CFDictionary)
+        let face = CTFontCreateCopyWithAttributes(system, font.pointSize, nil, descriptor)
         let attributes: [NSAttributedString.Key: Any] = [
-            NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil),
+            NSAttributedString.Key(kCTFontAttributeName as String): face,
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): UIColor.label.resolvedColor(with: traitCollection).cgColor]
         let shaped = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes) as CFAttributedString)
         line = shaped; chunks = []
