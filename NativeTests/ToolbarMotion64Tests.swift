@@ -217,6 +217,7 @@ import Security
         defer { UserDefaults.standard.set(old, forKey: "clear.toolbar.offset.v1") }
         let (document, _, surface) = fixture(); defer { withExtendedLifetime(document) {} }
         let scroll = try XCTUnwrap(views(surface).compactMap { $0 as? ToolbarScrollView }.first)
+        XCTAssertEqual((scroll.bounds.width - 1).truncatingRemainder(dividingBy: 44), 0, accuracy: 0.5)
         scroll.setContentOffset(CGPoint(x: 65, y: 0), animated: false)
         surface.scrollViewDidEndDragging(scroll, willDecelerate: false)
         XCTAssertEqual(scroll.contentOffset.x, 44, accuracy: 0.5)

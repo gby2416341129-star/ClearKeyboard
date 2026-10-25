@@ -220,7 +220,8 @@ import SwiftUI
         panel?.frame = layout.panel
         let contentWidth = CGFloat(toolbarButtons.count * 34 + max(0, toolbarButtons.count - 1) * 10 + 11)
         toolbarScroll.expectedContentWidth = contentWidth
-        let available = max(0, layout.header.width - 44)
+        // Brand (34pt) and the stack's two 10pt gaps also occupy the row.
+        let available = max(0, layout.header.width - 54)
         let visibleSlots = max(1, floor((available - 1) / ToolbarScrollView.itemPitch))
         toolbarWidth?.constant = min(contentWidth, min(available, visibleSlots * ToolbarScrollView.itemPitch + 1))
         toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
