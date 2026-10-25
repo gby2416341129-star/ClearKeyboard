@@ -1,10 +1,13 @@
 import UIKit
 import UniformTypeIdentifiers
 
-/// Event-driven capture: there is no timer, background task, or content polling.
+/// Observe copy notifications, with a foreground metadata check for remote-host
+/// copies whose notification does not reach the keyboard extension. Payloads are
+/// read only for a new clipboard revision or an explicit paste/save gesture.
 @MainActor final class ClipboardCapture {
     enum AccessCheck { case empty, contentRead, unavailable }
     private var observer: NSObjectProtocol?
+    private var revisionTimer: Timer?
     private var active = false
     private var settings = KeyboardSettings()
     private let observation: ClipboardObservation
@@ -15,11 +18,13 @@ import UniformTypeIdentifiers
     private let readText: () -> String?
     private let readAttachment: () -> (Data, String, String)?
     private let notificationName: Notification.Name
+    private let revisionCheckInterval: TimeInterval
     var onCapture: (() -> Void)?
 
     init(defaults: UserDefaults? = nil, makeStore: (() -> ClipboardStore)? = nil,
          changeCount: (() -> Int)? = nil, hasStrings: (() -> Bool)? = nil, hasContent: (() -> Bool)? = nil,
-         readText: (() -> String?)? = nil, readAttachment: (() -> (Data, String, String)?)? = nil, notificationName: Notification.Name = UIPasteboard.changedNotification) {
+         readText: (() -> String?)? = nil, readAttachment: (() -> (Data, String, String)?)? = nil, notificationName: Notification.Name = UIPasteboard.changedNotification,
+         revisionCheckInterval: TimeInterval = 0.75) {
         let accessDefaults = defaults ?? SharedStorage.defaults(allowShared: true)
         observation = ClipboardObservation(defaults: accessDefaults,
             owner: Bundle.main.bundleURL.pathExtension == "appex" ? .keyboard : .app)
@@ -34,6 +39,7 @@ import UniformTypeIdentifiers
         else if readText != nil { self.readAttachment = { nil } }
         else { self.readAttachment = { Self.systemAttachment() } }
         self.notificationName = notificationName
+        self.revisionCheckInterval = revisionCheckInterval.isFinite && revisionCheckInterval > 0 ? revisionCheckInterval : 0.75
     }
     func activate(settings: KeyboardSettings, allowed: Bool, retryPermission: Bool = false) {
         self.settings = settings
@@ -45,6 +51,13 @@ import UniformTypeIdentifiers
             observer = NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.captureIfChanged() }
             }
+        }
+        if revisionTimer == nil {
+            let timer = Timer(timeInterval: revisionCheckInterval, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.captureIfChanged() }
+            }
+            revisionTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
         }
         captureIfChanged()
     }
@@ -70,17 +83,25 @@ import UniformTypeIdentifiers
     func retryAfterPermissionChange() { observation.retry(); captureIfChanged() }
     func acceptText(_ text: String) {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600); store.add(text)
+        guard makeStore().clips.contains(where: { $0.attachment == nil && $0.text == String(text.prefix(2_000)) }) else { return }
         observation.didAttempt(changeCount: changeCount()); onCapture?()
     }
     func acceptAttachment(_ data: Data, typeIdentifier: String, name: String) {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600)
-        if store.addAttachment(data, typeIdentifier: typeIdentifier, name: name) { observation.didAttempt(changeCount: changeCount()); onCapture?() }
+        if store.addAttachment(data, typeIdentifier: typeIdentifier, name: name),
+           let saved = store.clips.first, makeStore().clips.contains(where: { $0.id == saved.id }) {
+            observation.didAttempt(changeCount: changeCount()); onCapture?()
+        }
     }
     private func saveCurrentContent() -> Bool {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600)
-        if let (data, type, name) = readAttachment() { return store.addAttachment(data, typeIdentifier: type, name: name) }
+        if let (data, type, name) = readAttachment() {
+            guard store.addAttachment(data, typeIdentifier: type, name: name), let saved = store.clips.first else { return false }
+            return makeStore().clips.contains { $0.id == saved.id }
+        }
         guard hasStrings(), let text = readText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        store.add(text); return true
+        store.add(text)
+        return makeStore().clips.contains { $0.attachment == nil && $0.text == String(text.prefix(2_000)) }
     }
     private static func systemAttachment() -> (Data, String, String)? {
         let board = UIPasteboard.general
@@ -102,8 +123,9 @@ import UniformTypeIdentifiers
     }
     func stop() {
         active = false
+        revisionTimer?.invalidate(); revisionTimer = nil
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
     }
-    deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
+    deinit { revisionTimer?.invalidate(); if let observer { NotificationCenter.default.removeObserver(observer) } }
 }

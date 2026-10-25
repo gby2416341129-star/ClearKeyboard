@@ -719,6 +719,7 @@ import SwiftUI
         if panelKind == kind { closePanel(); return }
         closePanel(); panelKind = kind
         if kind == .clipboard {
+            model.startClipboardCapture()
             let content = ClipboardPanel(model: model)
             content.onClose = { [weak self] in self?.closePanel() }
             addSubview(content); panel = content; keyGlassGroup.isHidden = true; render(); return

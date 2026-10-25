@@ -20,6 +20,7 @@ ALLOWED={
     'NativeTests/UnifiedRepairTests.swift','NativeTests/CustomizationRuntimeTests.swift',
     'UITests/AppUITests.swift','NativeTests/AppearanceSyncRuntimeTests.swift','NativeTests/AppearanceReceiverRuntimeTests.swift',
     'NativeTests/KeyboardRuntimeTests.swift','NativeTests/RemoteProxyPerformanceTests.swift','NativeTests/CandidateAnimationRuntimeTests.swift',
+    'SharedUI/ClipboardCapture.swift','NativeTests/ClipboardCaptureRepairTests.swift',
     'Core/HostTextState.swift','Tests/HostTextStateTests.swift','Core/Settings.swift','Tests/StateTests.swift',
     'NativeTests/ToolbarRuntimeTests.swift','UITests/KeyboardShellUITests.swift',
     'Scripts/setup_keyboard_shell_sim.py','Scripts/test-keyboard-shell.sh',

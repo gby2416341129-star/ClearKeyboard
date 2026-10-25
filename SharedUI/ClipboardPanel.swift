@@ -15,6 +15,8 @@ import ImageIO
     private let more = UIButton(type: .system)
     private let send = UIButton(type: .system)
     private let empty = UILabel()
+    private let pasteControl: ClipboardPasteButton
+    private var manualReadFailed = false
     private let table = UITableView(frame: .zero, style: .plain)
     private let words = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewFlowLayout())
     private var selectionSource: String?
@@ -23,12 +25,14 @@ import ImageIO
     var onClose: (() -> Void)?
     init(model: KeyboardModel) {
         self.model = model
+        pasteControl = ClipboardPasteButton(capture: model.clipboardCapture)
         url = SharedStorage.clipboardURL(allowShared: true)
         phrasesURL = url.deletingLastPathComponent().appendingPathComponent("common-phrases.json")
         store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL)
         super.init(frame: .zero)
         accessibilityIdentifier = "clipboard.panel"
-        [tabs, back, more, send, table, words, empty].forEach(addSubview)
+        [tabs, back, more, send, table, words, empty, pasteControl].forEach(addSubview)
+        pasteControl.isUserInteractionEnabled = model.document?.fullAccess == true
         tabs.accessibilityIdentifier = "clipboard.tabs"
         tabs.selectedSegmentIndex = 0
         tabs.addAction(UIAction { [weak self] _ in self?.reload() }, for: .valueChanged)
@@ -71,16 +75,25 @@ import ImageIO
         tabs.frame = CGRect(x: max(40, (bounds.width - 164) / 2), y: 7, width: min(164, max(0, bounds.width - 80)), height: 31)
         send.frame = CGRect(x: bounds.width - 56, y: 5, width: 56, height: 34)
         let content = CGRect(x: 0, y: 51, width: bounds.width, height: max(0, bounds.height - 51))
-        table.frame = content; words.frame = content; empty.frame = content
+        let recoveryFooter = manualReadFailed && !items.isEmpty && tabs.selectedSegmentIndex == 0 && selectionSource == nil
+        table.frame = CGRect(x: content.minX, y: content.minY, width: content.width, height: max(0, content.height - (recoveryFooter ? 82 : 0)))
+        words.frame = content
+        let recoveryY = recoveryFooter ? content.maxY - 82 : content.midY - 44
+        empty.frame = CGRect(x: 8, y: recoveryY, width: max(0, bounds.width - 16), height: 34)
+        pasteControl.frame = CGRect(x: (bounds.width - 114) / 2, y: recoveryY + 40, width: 114, height: 38)
     }
-    func reloadFromDisk() { store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL); reload() }
+    func reloadFromDisk(clearRecovery: Bool = true) {
+        if clearRecovery { manualReadFailed = false }
+        store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL); reload()
+    }
     private func reload() {
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3_600)
         let choosing = selectionSource != nil
         tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing
         send.isEnabled = selection != nil; words.isHidden = !choosing; table.isHidden = choosing
-        empty.isHidden = choosing || !items.isEmpty
-        empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : "暂无复制内容"
+        empty.isHidden = choosing || (!items.isEmpty && !manualReadFailed)
+        empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : manualReadFailed ? "本次未读到内容，可点下方粘贴收录" : "暂无复制内容，可粘贴收录"
+        pasteControl.isHidden = choosing || tabs.selectedSegmentIndex == 1 || (!items.isEmpty && !manualReadFailed) || model.document?.fullAccess != true
         more.menu = overflowMenu()
         table.reloadData(); words.reloadData(); setNeedsLayout()
     }
@@ -95,7 +108,9 @@ import ImageIO
                 guard let self else { return }; self.model.settings.automaticClipboard = !self.model.settings.capturesClipboard; self.reload()
             },
             UIAction(title: "收录当前复制内容", image: ToolArtwork.image(symbol: "plus", size: 24), attributes: model.document?.fullAccess == true ? [] : .disabled) { [weak self] _ in
-                self?.model.clipboardCapture.captureIfChanged(); self?.reloadFromDisk()
+                guard let self else { return }
+                self.manualReadFailed = !self.model.clipboardCapture.captureManually()
+                self.reloadFromDisk(clearRecovery: false)
             }, lifetime,
             UIAction(title: tabs.selectedSegmentIndex == 1 ? "清空常用语" : "清空剪贴板", image: ToolArtwork.image(symbol: "trash", size: 24), attributes: .destructive) { [weak self] _ in
                 guard let self else { return }
