@@ -104,7 +104,7 @@ import UniformTypeIdentifiers
     func retryAfterPermissionChange() { observation.retry(); captureIfChanged() }
     func acceptText(_ text: String) {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600); store.add(text)
-        guard makeStore().clips.contains(where: { $0.attachment == nil && $0.text == String(text.prefix(2_000)) }) else { return }
+        guard makeStore().clips.contains(where: { $0.attachment == nil && $0.text == text }) else { return }
         observation.didAttempt(changeCount: changeCount()); captured()
     }
     func acceptAttachment(_ data: Data, typeIdentifier: String, name: String) {
@@ -122,7 +122,7 @@ import UniformTypeIdentifiers
         }
         guard hasStrings(), let text = readText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         store.add(text)
-        return makeStore().clips.contains { $0.attachment == nil && $0.text == String(text.prefix(2_000)) }
+        return makeStore().clips.contains { $0.attachment == nil && $0.text == text }
     }
     private static func systemAttachment() -> (Data, String, String)? {
         let board = UIPasteboard.general

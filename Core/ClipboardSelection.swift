@@ -12,6 +12,20 @@ public enum ClipboardSelection {
             Token(text: string.substring(with: $0.range), range: $0.range)
         }
     }
+    public static func text(_ source: String, tokens: [Token], selected: Set<Int>) -> String {
+        let indices = selected.filter { tokens.indices.contains($0) }.sorted()
+        guard let first = indices.first else { return "" }
+        var start = first, end = first, parts: [String] = []
+        for index in indices.dropFirst() {
+            if index == end + 1 { end = index }
+            else { parts.append(text(source, tokens: tokens, from: start, through: end)); start = index; end = index }
+        }
+        parts.append(text(source, tokens: tokens, from: start, through: end))
+        return parts.reduce("") { result, part in
+            let separator = result.last?.isASCII == true && result.last?.isLetter == true && part.first?.isASCII == true && part.first?.isLetter == true ? " " : ""
+            return result + separator + part
+        }
+    }
     public static func text(_ source: String, tokens: [Token], from: Int, through: Int) -> String {
         let low = min(from, through), high = max(from, through)
         guard low >= 0, high < tokens.count else { return "" }

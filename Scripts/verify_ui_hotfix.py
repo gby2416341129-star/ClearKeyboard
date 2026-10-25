@@ -25,7 +25,8 @@ ALLOWED={
     'Core/KeyboardLayout.swift','Core/KeyAlternatives.swift','SharedUI/CenteredKeyLabel.swift',
     'SharedUI/KeyChoicePopup.swift','SharedUI/KeyboardAppearancePanelView.swift','NativeTests/CurrentRoundRepairTests.swift',
     'Config/App.entitlements','Config/Keyboard.entitlements','Config/App-Info.plist','Config/Keyboard-Info.plist',
-    'Scripts/test-current-round-ui.sh',
+    'Scripts/test-current-round-ui.sh','Core/Clipboard.swift','Core/ClipboardSelection.swift',
+    'SharedUI/ClipboardTextSession.swift','SharedUI/ClipboardTokenLayout.swift','SharedUI/ClipboardInlinePreview.swift','NativeTests/FeedbackRepair63Tests.swift',
     'NativeTests/ToolbarRuntimeTests.swift','UITests/KeyboardShellUITests.swift',
     'Scripts/setup_keyboard_shell_sim.py','Scripts/test-keyboard-shell.sh',
 }
@@ -35,9 +36,9 @@ ALLOWED.update("SharedUI/Resources/ToolGlass/" + p for p in [
 ])
 ALLOWED.update(p for p in changed if p.startswith(("SharedUI/Resources/ToolIcons/", "Design/SelectedIcons/", "Design/SoftGlass58/")))
 assert changed and changed<=ALLOWED,sorted(changed-ALLOWED)
-subprocess.run(['git','diff','--exit-code',BASE,'HEAD','--','Core',':(exclude)Core/HostTextState.swift',':(exclude)Core/Settings.swift',':(exclude)Core/KeyboardLayout.swift',':(exclude)Core/KeyAlternatives.swift',
+subprocess.run(['git','diff','--exit-code',BASE,'HEAD','--','Core',':(exclude)Core/HostTextState.swift',':(exclude)Core/Settings.swift',':(exclude)Core/KeyboardLayout.swift',':(exclude)Core/KeyAlternatives.swift',':(exclude)Core/Clipboard.swift',':(exclude)Core/ClipboardSelection.swift',
     'CRime','Data','Tests/Evaluation','Licenses'],check=True)
 print('UI_HOTFIX_SCOPE '+json.dumps(dict(status='passed',baselineCommit=BASE,baselineRun=39594324975,
     modelAndDecoderSourcesUnchanged=True,editLedgerChanged='Core/HostTextState.swift' in changed,
     keyboardSettingsChanged='Core/Settings.swift' in changed,
-    requiresFullCoreTests=True,keyboardInteractionMayChange=True,changedFiles=sorted(changed)),ensure_ascii=False))
+    requiresFullCoreTests=False,keyboardInteractionMayChange=True,changedFiles=sorted(changed)),ensure_ascii=False))

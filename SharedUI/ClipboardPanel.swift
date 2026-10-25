@@ -18,10 +18,14 @@ import ImageIO
     private let pasteControl: ClipboardPasteButton
     private var manualReadFailed = false
     private let table = UITableView(frame: .zero, style: .plain)
-    private let words = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewFlowLayout())
+    private let words = UICollectionView(frame: .zero, collectionViewLayout: ClipboardTokenLayout())
     private var selectionSource: String?
     private var tokens: [ClipboardSelection.Token] = []
-    private var selection: (Int, Int)?
+    private var selectedTokens = Set<Int>()
+    private var selectionSession: ClipboardTextSession?
+    private var dragBaseline = Set<Int>()
+    private var dragStart: Int?
+    private var dragAdds = true
     var onClose: (() -> Void)?
     init(model: KeyboardModel, showPhrases: Bool = false) {
         self.model = model
@@ -39,16 +43,15 @@ import ImageIO
         back.setImage(ToolArtwork.image(symbol: "chevron.up", size: 24), for: .normal); back.accessibilityLabel = "返回键盘"
         back.addAction(UIAction { [weak self] _ in
             guard let self else { return }
-            if self.selectionSource != nil { self.selectionSource = nil; self.selection = nil; self.reload() }
+            if self.selectionSource != nil { self.selectionSource = nil; self.selectedTokens = []; self.selectionSession = nil; self.reload() }
             else { self.onClose?() }
         }, for: .touchUpInside)
         more.setImage(ToolArtwork.image(symbol: "ellipsis", size: 24), for: .normal); more.accessibilityLabel = "剪贴板选项"
         more.showsMenuAsPrimaryAction = true
-        send.setTitle("输入", for: .normal); send.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        send.setTitle("完成", for: .normal); send.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         send.accessibilityIdentifier = "clipboard.insertSelection"
         send.addAction(UIAction { [weak self] _ in
-            guard let self, let source = self.selectionSource, let (from, to) = self.selection else { return }
-            self.model.insertLiteral(ClipboardSelection.text(source, tokens: self.tokens, from: from, through: to)); self.onClose?()
+            self?.selectionSession = nil; self?.onClose?()
         }, for: .touchUpInside)
         for button in [back, more] {
             button.backgroundColor = .tertiarySystemFill; button.layer.cornerRadius = 17
@@ -58,13 +61,19 @@ import ImageIO
         table.register(ClipboardCardCell.self, forCellReuseIdentifier: "clip")
         table.showsVerticalScrollIndicator = false; table.delaysContentTouches = false
         empty.textAlignment = .center; empty.textColor = .tertiaryLabel; empty.font = .systemFont(ofSize: 13)
+        words.accessibilityIdentifier = "clipboard.selection.words"
         words.prepareForKeyboardPanel(); words.dataSource = self; words.delegate = self
         words.register(ClipboardTokenCell.self, forCellWithReuseIdentifier: "token")
-        if let flow = words.collectionViewLayout as? UICollectionViewFlowLayout {
-            flow.minimumInteritemSpacing = 6; flow.minimumLineSpacing = 7
+        if let layout = words.collectionViewLayout as? ClipboardTokenLayout {
+            layout.widthForToken = { [weak self] index in
+                guard let self, self.tokens.indices.contains(index) else { return 28 }
+                return (self.tokens[index].text as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 18)]).width + 12
+            }
         }
         let drag = UIPanGestureRecognizer(target: self, action: #selector(selectWords(_:))); drag.delegate = self
-        words.addGestureRecognizer(drag)
+        words.addGestureRecognizer(drag); words.panGestureRecognizer.require(toFail: drag)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapWord(_:)))
+        tap.require(toFail: drag); words.addGestureRecognizer(tap)
         reload()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -90,7 +99,7 @@ import ImageIO
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3_600)
         let choosing = selectionSource != nil
         tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing
-        send.isEnabled = selection != nil; words.isHidden = !choosing; table.isHidden = choosing
+        send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
         empty.isHidden = choosing || (!items.isEmpty && !manualReadFailed)
         empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : manualReadFailed ? "本次未读到内容，可点下方粘贴收录" : "暂无复制内容，可粘贴收录"
         pasteControl.isHidden = choosing || tabs.selectedSegmentIndex == 1 || (!items.isEmpty && !manualReadFailed) || model.document?.fullAccess != true
@@ -172,32 +181,65 @@ import ImageIO
         if tabs.selectedSegmentIndex == 1 { phrases.delete(clip.id) } else { store.delete(clip.id) }; reload()
     }
     func selectText(_ text: String) {
-        selectionSource = text; tokens = ClipboardSelection.tokens(text); selection = nil; reload()
+        selectionSource = text; tokens = ClipboardSelection.tokens(text); selectedTokens = []
+        selectionSession = model.beginClipboardSelection(); reload()
         words.setContentOffset(.zero, animated: false)
     }
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { tokens.count }
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "token", for: indexPath) as! ClipboardTokenCell
-        let selected = selection.map { (min($0.0, $0.1)...max($0.0, $0.1)).contains(indexPath.item) } ?? false
-        cell.label.text = tokens[indexPath.item].text
+        configure(cell, at: indexPath.item); return cell
+    }
+    private func configure(_ cell: ClipboardTokenCell, at index: Int) {
+        let selected = selectedTokens.contains(index)
+        cell.label.text = tokens[index].text
         cell.backgroundColor = selected ? tintColor.withAlphaComponent(0.28) : .tertiarySystemFill
         cell.label.textColor = selected ? tintColor : .label
-        return cell
+        cell.accessibilityTraits = selected ? [.button, .selected] : .button
     }
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = (tokens[indexPath.item].text as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 18)]).width + 18
-        return CGSize(width: min(max(34, width), max(34, words.bounds.width)), height: 36)
+    private func index(at point: CGPoint) -> Int? {
+        if let index = words.indexPathForItem(at: point)?.item { return index }
+        return words.collectionViewLayout.layoutAttributesForElements(in: CGRect(x: point.x - 24, y: point.y - 20, width: 48, height: 40))?
+            .min(by: { hypot($0.center.x - point.x, $0.center.y - point.y) < hypot($1.center.x - point.x, $1.center.y - point.y) })?.indexPath.item
     }
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) { selection = (indexPath.item, indexPath.item); words.reloadData(); send.isEnabled = true }
+    @discardableResult func setSelection(_ indices: Set<Int>) -> Bool {
+        guard let source = selectionSource, indices != selectedTokens else { return true }
+        guard let session = selectionSession,
+              model.updateClipboardSelection(session, text: ClipboardSelection.text(source, tokens: tokens, selected: indices)) else {
+            UIAccessibility.post(notification: .announcement, argument: "输入位置已变化，请重新打开选词")
+            return false
+        }
+        selectedTokens = indices
+        for case let cell as ClipboardTokenCell in words.visibleCells {
+            if let index = words.indexPath(for: cell)?.item { configure(cell, at: index) }
+        }
+        send.isEnabled = !selectedTokens.isEmpty; return true
+    }
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        var next = selectedTokens
+        if next.contains(indexPath.item) { next.remove(indexPath.item) } else { next.insert(indexPath.item) }
+        _ = setSelection(next)
+    }
+    @objc private func tapWord(_ gesture: UITapGestureRecognizer) {
+        guard let index = index(at: gesture.location(in: words)) else { return }
+        collectionView(words, didSelectItemAt: IndexPath(item: index, section: 0))
+    }
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: words); return abs(velocity.x) > abs(velocity.y)
+        let velocity = pan.velocity(in: words)
+        return abs(velocity.x) >= abs(velocity.y) * 0.65
     }
     @objc private func selectWords(_ gesture: UIPanGestureRecognizer) {
-        guard let index = words.indexPathForItem(at: gesture.location(in: words))?.item else { return }
-        if gesture.state == .began { selection = (index, index) }
-        else if gesture.state == .changed, let start = selection?.0 { selection = (start, index) }
-        words.reloadData(); send.isEnabled = selection != nil
+        let point = gesture.location(in: words)
+        guard let index = index(at: point) else { return }
+        if gesture.state == .began {
+            dragStart = index; dragBaseline = selectedTokens; dragAdds = !selectedTokens.contains(index)
+        }
+        if let start = dragStart, gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
+            let range = Set(min(start, index)...max(start, index))
+            _ = setSelection(dragAdds ? dragBaseline.union(range) : dragBaseline.subtracting(range))
+        }
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed { dragStart = nil }
     }
 }
 

@@ -107,7 +107,7 @@ final class KeyboardAppearancePreview: UIView {
     }
     private func updateOwnedDisplayScale(_ view: UIView, scale: CGFloat) {
         // UIKit manages a visual effect's internal render surfaces itself.
-        guard !(view is UIVisualEffectView) else { return }
+        guard !(view is UIVisualEffectView), !(view is UIImageView) else { return }
         view.contentScaleFactor = scale; view.layer.contentsScale = scale; view.setNeedsDisplay()
         for child in view.subviews { updateOwnedDisplayScale(child, scale: scale) }
     }

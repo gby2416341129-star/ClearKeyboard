@@ -32,7 +32,7 @@ public struct Clip: Codable, Equatable, Identifiable {
     public var pinned: Bool
     public let attachment: ClipAttachment?
     public init(text: String, createdAt: Date = Date(), pinned: Bool = false, attachment: ClipAttachment? = nil) {
-        id = UUID(); self.text = String(text.prefix(2_000)); self.createdAt = createdAt; self.pinned = pinned
+        id = UUID(); self.text = text; self.createdAt = createdAt; self.pinned = pinned
         self.attachment = attachment
     }
 }
@@ -57,7 +57,7 @@ public final class ClipboardStore {
     public func add(_ text: String, now: Date = Date()) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let previous = clips
-        let clean = String(text.prefix(2_000))
+        let clean = text
         if let old = clips.first(where: { $0.attachment == nil && $0.text == clean && $0.pinned }) { clips.removeAll { $0.id == old.id }; clips.insert(old, at: 0) }
         else { clips.removeAll { $0.attachment == nil && $0.text == clean }; clips.insert(Clip(text: clean, createdAt: now), at: 0) }
         while clips.count > Self.itemLimit {

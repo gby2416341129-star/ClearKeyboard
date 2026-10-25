@@ -54,7 +54,7 @@ final class KeyButton: UIButton {
         pressWash.alpha = 0
         pressWash.layer.cornerRadius = 8; pressWash.layer.cornerCurve = .continuous
         plate.addSubview(caption); caption.isUserInteractionEnabled = false; caption.contentMode = .redraw
-        plate.addSubview(icon); icon.isUserInteractionEnabled = false; icon.contentMode = .center
+        plate.addSubview(icon); icon.isUserInteractionEnabled = false; icon.contentMode = .scaleAspectFit
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 21, weight: .regular)
         caption.textAlignment = .center; caption.text = key.label
         caption.font = .systemFont(ofSize: key.label.count == 1 ? 23 : 16)
@@ -143,8 +143,9 @@ final class KeyButton: UIButton {
         lens.bounds = plate.bounds; lens.center = CGPoint(x: plate.bounds.midX, y: plate.bounds.midY)
         caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
         shiftStateWash?.frame = plate.bounds
-        if key.action == .globe {
-            let side = max(0, min(32, min(plate.bounds.width - 2, plate.bounds.height - 2)))
+        if icon.image != nil {
+            let limit: CGFloat = key.action == .globe ? 32 : key.action == .shift ? 24 : 28
+            let side = max(0, min(limit, min(plate.bounds.width - 4, plate.bounds.height - 6)))
             icon.contentMode = .scaleAspectFit
             icon.frame = CGRect(x: (plate.bounds.width - side) / 2, y: (plate.bounds.height - side) / 2, width: side, height: side)
         }

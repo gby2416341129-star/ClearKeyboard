@@ -2,15 +2,27 @@ import UIKit
 import ImageIO
 import SwiftUI
 
-@MainActor final class KeyboardSurface: UIView, UIDragInteractionDelegate, UIDropInteractionDelegate {
+@MainActor final class KeyboardSurface: UIView, UIDragInteractionDelegate, UIDropInteractionDelegate, UIScrollViewDelegate, UIScrollViewDelegate {
     let model: KeyboardModel
     let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
     var configureGlobe: ((UIButton) -> Void)? { didSet { layoutSignature = ""; render() } }
     private let toolbar = UIStackView()
-    private let toolbarScroll = UIScrollView()
+    private let toolbarScroll = ToolbarScrollView()
     private let toolbarShortcuts = UIStackView()
     private var toolbarWidth: NSLayoutConstraint?
+    private var toolbarButtons: [ToolbarTool: FeedbackButton] = [:]
+    private var toolbarBrand: UIButton?
+    private var toolbarNavigationState = ""
+    private var editorTiles: [ToolbarTool: ToolTileButton] = [:]
+    private var activeTool: ToolbarTool?
+    private var toolbarOffset = CGFloat(UserDefaults.standard.double(forKey: "clear.toolbar.offset.v1"))
+    private var draggedTool: ToolbarTool?
+    private var dragIcon: UIImageView?
+    private var dragPoint = CGPoint.zero
+    private var toolbarEdgeTimer: Timer?
+    private var appearancePanelCache: KeyboardAppearancePanelView?
+    private let clipboardText = ClipboardInlinePreview()
     private var toolbarDragActive = false
     private var toolbarRebuildPending = false
     private var toolbarTapBlockedUntil: CFTimeInterval = 0
@@ -79,6 +91,8 @@ import SwiftUI
         toolbarScroll.accessibilityIdentifier = "toolbar.shortcuts"
         toolbarScroll.showsHorizontalScrollIndicator = false; toolbarScroll.showsVerticalScrollIndicator = false
         toolbarScroll.delaysContentTouches = false; toolbarScroll.canCancelContentTouches = true
+        toolbarScroll.delegate = self; toolbarScroll.alwaysBounceHorizontal = true
+        toolbarScroll.backgroundColor = UIColor(white: 0.5, alpha: 0.01)
         toolbarScroll.contentInsetAdjustmentBehavior = .never
         toolbarScroll.addInteraction(UIDropInteraction(delegate: self))
         toolbarShortcuts.axis = .horizontal; toolbarShortcuts.alignment = .center; toolbarShortcuts.spacing = 10
@@ -199,9 +213,14 @@ import SwiftUI
         }
         layoutCandidateHeader()
         renderCandidates()
-        if panelKind == .clipboard || panelKind == .phrases {
-            panel?.frame = CGRect(x: layout.panel.minX, y: 0, width: layout.panel.width, height: layout.panel.maxY)
-        } else { panel?.frame = layout.panel }
+        panel?.frame = layout.panel
+        let contentWidth = CGFloat(toolbarButtons.count * 34 + max(0, toolbarButtons.count - 1) * 10 + 11)
+        toolbarWidth?.constant = min(contentWidth, max(0, layout.header.width - 44))
+        toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
+        if !toolbarScroll.isDragging, !toolbarScroll.isDecelerating {
+            let x = min(max(0, toolbarOffset), max(0, toolbarScroll.contentSize.width - toolbarScroll.bounds.width))
+            if abs(toolbarScroll.contentOffset.x - x) > 0.5 { toolbarScroll.contentOffset.x = x }
+        }
     }
     func render() {
         guard initialized else { return }
@@ -258,8 +277,9 @@ import SwiftUI
             }
             appearanceSignature = ""; keyPresentation = nil; keyFramesNeedLayout = true
         }
-        let toolSignature = "\(settings.toolbar)-\(toolbarEditing)-\(toolboxVisible)-\(panelKind?.rawValue ?? "")"
+        let toolSignature = "\(settings.toolbar)-\(toolbarEditing)"
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
+        updateToolbarState()
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
         let style = "\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
@@ -269,7 +289,7 @@ import SwiftUI
         let presentation = KeyPresentation(uppercase: uppercase, chinese: settings.language == .chinese,
             shifted: model.shifted, capsLocked: model.capsLocked,
             enter: model.composition.isEmpty ? (model.document?.enterTitle ?? "换行") : "确认")
-        if appearanceChanged || keyPresentation != presentation {
+        if panel == nil && (appearanceChanged || keyPresentation != presentation) {
             keyPresentation = presentation
             for (button, _, _, _) in keys {
                 var title: String? = nil
@@ -328,12 +348,12 @@ import SwiftUI
         let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && model.arithmetic == nil && !model.hasEnglishPrefix && recentClip != nil
         model.englishSpaceSelectionIsVisible = !clipboardVisible && !panelOpen
         clipboardSuggestion.isHidden = !clipboardVisible
-        toolbar.isHidden = clipboardVisible || panelKind == .clipboard || panelKind == .phrases || (!panelOpen && candidateHeight > 0)
+        toolbar.isHidden = clipboardVisible || (!panelOpen && candidateHeight > 0)
         candidateScroll.isHidden = clipboardVisible || panelOpen || movingCursor || candidateHeight == 0
         characterButton.isHidden = panelOpen || movingCursor || model.settings.language != .chinese || model.composition.isEmpty
         characterButton.setTitle(model.characterSelectionMode ? "词" : "字", for: .normal)
         characterButton.accessibilityLabel = model.characterSelectionMode ? "返回词组候选" : "按单字选词"
-        nativeAppearance?.apply(model.settings)
+        if panelKind == .appearance { nativeAppearance?.apply(model.settings) }
         hint.isHidden = panelOpen || !movingCursor; hint.text = movingCursor ? "滑动键盘，移动光标" : nil
         // Candidate updates only touch the header, never the keys or glass layers.
         // The collection lays out in UIKit's normal pass, never synchronously
@@ -387,7 +407,7 @@ import SwiftUI
         return true
     }
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
-        let button = UIButton(type: .system)
+        let button = FeedbackButton(type: .system)
         var config = UIButton.Configuration.plain()
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
         if #available(iOS 26.0, *), navigationIcon { config = .glass() }
@@ -410,89 +430,166 @@ import SwiftUI
         return button
     }
     private func rebuildToolbar() {
-        // A settings save renders synchronously. Keep the source and all drop
-        // targets alive until UIKit finishes the drag and its cancel animation.
-        guard !toolbarDragActive else { toolbarRebuildPending = true; return }
-        let offset = toolbarScroll.contentOffset
-        toolbar.removeArrangedSubview(toolbarScroll); toolbarScroll.removeFromSuperview()
-        toolbar.arrangedSubviews.forEach { toolbar.removeArrangedSubview($0); $0.removeFromSuperview() }
-        toolbarShortcuts.arrangedSubviews.forEach { toolbarShortcuts.removeArrangedSubview($0); $0.removeFromSuperview() }
-        let panelOpen = panel != nil
-        let brand = circleButton(symbol: toolbarEditing ? "checkmark" : (panelOpen ? "chevron.down" : nil),
-            image: panelOpen ? nil : ToolArtwork.brand(size: 32),
-            label: toolbarEditing ? "完成工具栏编辑" : (panelOpen ? "返回键盘" : "键盘工具")) { [weak self] in
+        if toolbarBrand == nil {
+            let brand = circleButton(image: ToolArtwork.brand(size: 32), label: "键盘工具") { [weak self] in
                 guard let self else { return }
-                if self.panel != nil { self.closePanel() }
-                else { self.showToolbox() }
+                if self.panel != nil { self.closePanel() } else { self.showToolbox() }
             }
-        brand.configuration?.baseForegroundColor = panelOpen ? .secondaryLabel : model.settings.accentInkColor
-        brand.accessibilityIdentifier = "toolbar.tools"
-        toolbar.addArrangedSubview(brand)
-        let spacer = UIView(); spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).isActive = true
-        toolbar.addArrangedSubview(spacer)
-        let tools = model.settings.toolbar.filter { $0 != .language }
-        for tool in tools {
-            let button = circleButton(symbol: tool.symbol, label: tool.title) { [weak self] in
-                guard let self, !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil else { return }
-                if self.toolbarEditing { self.setToolPinned(tool, pinned: false) }
-                else { self.activateTool(tool) }
-            }
-            button.addAction(UIAction { [weak self] _ in
-                guard let self, !self.toolbarDragActive else { return }
-                self.toolbarTapBlockedUntil = 0
-            }, for: .touchDown)
-            button.accessibilityIdentifier = "toolbar.\(tool.rawValue)"
-            let drag = UIDragInteraction(delegate: self); drag.isEnabled = true; button.addInteraction(drag)
-            button.addInteraction(UIDropInteraction(delegate: self))
-            if toolbarEditing {
-                let badge = UILabel(frame: CGRect(x: 22, y: 0, width: 12, height: 12))
-                badge.text = "−"; badge.textAlignment = .center; badge.font = .systemFont(ofSize: 12, weight: .bold)
-                badge.backgroundColor = .secondaryLabel; badge.textColor = .systemBackground
-                badge.layer.cornerRadius = 6.5; badge.clipsToBounds = true; button.addSubview(badge)
-                button.accessibilityLabel = "移除" + tool.title + "，拖动可排序"
-            }
-            toolbarShortcuts.addArrangedSubview(button)
+            brand.accessibilityIdentifier = "toolbar.tools"; toolbarBrand = brand
+            toolbar.addArrangedSubview(brand)
+            let spacer = UIView(); spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            toolbar.addArrangedSubview(spacer); toolbar.addArrangedSubview(toolbarScroll)
         }
-        toolbarWidth?.constant = CGFloat(tools.count * 34 + max(0, tools.count - 1) * 10 + 11)
-        toolbar.addArrangedSubview(toolbarScroll)
-        toolbarScroll.setContentOffset(offset, animated: false)
-        setNeedsLayout()
+        let tools = model.settings.toolbar.filter { $0 != .language }
+        let animate = window != nil && !UIAccessibility.isReduceMotionEnabled
+        for tool in Array(toolbarButtons.keys) where !tools.contains(tool) {
+            guard let button = toolbarButtons.removeValue(forKey: tool) else { continue }
+            if animate {
+                let ghost = UIImageView(image: ToolArtwork.image(symbol: tool.symbol, size: 28))
+                ghost.contentMode = .scaleAspectFit; ghost.frame = button.convert(button.bounds, to: self); addSubview(ghost)
+                UIView.animate(withDuration: 0.18, animations: { ghost.alpha = 0; ghost.transform = CGAffineTransform(scaleX: 0.65, y: 0.65) }, completion: { _ in ghost.removeFromSuperview() })
+            }
+            toolbarShortcuts.removeArrangedSubview(button); button.removeFromSuperview()
+        }
+        for (index, tool) in tools.enumerated() {
+            let button: FeedbackButton
+            if let existing = toolbarButtons[tool] { button = existing }
+            else {
+                button = circleButton(symbol: tool.symbol, label: tool.title) { [weak self] in
+                    guard let self, !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil else { return }
+                    if self.toolbarEditing { self.setToolPinned(tool, pinned: false) } else { self.activateTool(tool) }
+                } as! FeedbackButton
+                button.accessibilityIdentifier = "toolbar." + tool.rawValue
+                let hold = UILongPressGestureRecognizer(target: self, action: #selector(toolbarHold(_:)))
+                hold.minimumPressDuration = 0.35; button.addGestureRecognizer(hold)
+                toolbarButtons[tool] = button
+                if animate {
+                    button.alpha = 0; button.transform = CGAffineTransform(scaleX: 0.75, y: 0.75)
+                    UIView.animate(withDuration: 0.20, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) { button.alpha = 1; button.transform = .identity }
+                }
+            }
+            if toolbarShortcuts.arrangedSubviews.firstIndex(of: button) != index {
+                toolbarShortcuts.removeArrangedSubview(button); toolbarShortcuts.insertArrangedSubview(button, at: index)
+            }
+        }
+        updateToolbarState(); setNeedsLayout()
+        if animate {
+            UIView.animate(withDuration: 0.20, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]) { self.toolbarShortcuts.layoutIfNeeded() }
+        }
     }
-    @objc private func editToolbar(_ gesture: UILongPressGestureRecognizer) { if gesture.state == .began && !toolbarEditing { showToolbarEditor() } }
+    private func updateToolbarState() {
+        let state = "\(toolbarEditing)-\(panel != nil)"
+        if state != toolbarNavigationState, let brand = toolbarBrand {
+            toolbarNavigationState = state
+            var config = UIButton.Configuration.plain()
+            if #available(iOS 26.0, *), panel != nil { config = .glass() }
+            config.contentInsets = .zero
+            config.image = toolbarEditing ? ToolArtwork.image(symbol: "checkmark", size: 24)
+                : panel != nil ? ToolArtwork.image(symbol: "chevron.down", size: 24) : ToolArtwork.brand(size: 32)
+            brand.configuration = config
+            brand.accessibilityLabel = toolbarEditing ? "完成工具栏编辑" : panel != nil ? "返回键盘" : "键盘工具"
+        }
+        for (tool, button) in toolbarButtons {
+            let badgeTag = 6301
+            if toolbarEditing, button.viewWithTag(badgeTag) == nil {
+                let badge = UILabel(frame: CGRect(x: 21, y: 0, width: 13, height: 13))
+                badge.tag = badgeTag; badge.text = "−"; badge.textAlignment = .center
+                badge.font = .systemFont(ofSize: 12, weight: .semibold)
+                badge.backgroundColor = .tertiarySystemFill; badge.textColor = .label
+                badge.layer.cornerRadius = 6.5; badge.clipsToBounds = true; badge.isUserInteractionEnabled = false
+                button.addSubview(badge)
+            } else if !toolbarEditing { button.viewWithTag(badgeTag)?.removeFromSuperview() }
+            button.setEditingMotion(toolbarEditing && draggedTool != tool)
+            button.accessibilityLabel = toolbarEditing ? "移除" + tool.title + "，长按拖动排序" : tool.title
+            button.accessibilityTraits = activeTool == tool ? [.button, .selected] : .button
+        }
+        for (tool, tile) in editorTiles { tile.configureManagement(title: tool.title, pinned: model.settings.toolbar.contains(tool)) }
+    }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { rememberToolbarOffset() }
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { rememberToolbarOffset() }
+    private func rememberToolbarOffset() {
+        toolbarOffset = max(0, toolbarScroll.contentOffset.x)
+        UserDefaults.standard.set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
+    }
+    private func editorPulse() {
+        KeyboardVibration.shared.attach(to: self)
+        KeyboardVibration.shared.pulse(intensity: 0.42)
+    }
     func setToolPinned(_ tool: ToolbarTool, pinned: Bool) {
         guard tool != .language else { return }
         var tools = model.settings.toolbar
-        if pinned {
-            guard !tools.contains(tool) else { return }
-            tools.append(tool)
-        } else { tools.removeAll { $0 == tool } }
+        if pinned { guard !tools.contains(tool) else { return }; tools.append(tool) }
+        else { guard tools.contains(tool) else { return }; tools.removeAll { $0 == tool }; editorPulse() }
         model.settings.toolbar = tools
-        if toolbarEditing { showToolbarEditor() }
+        render(); updateToolbarState()
     }
     func reorderToolbarTool(_ tool: ToolbarTool, before target: ToolbarTool) {
         var tools = model.settings.toolbar
         guard tool != .language, target != .language, tool != target, let from = tools.firstIndex(of: tool), tools.contains(target) else { return }
         tools.remove(at: from)
         guard let to = tools.firstIndex(of: target) else { return }
-        tools.insert(tool, at: to)
-        model.settings.toolbar = tools
+        tools.insert(tool, at: to); model.settings.toolbar = tools
     }
     func exchangeToolbarTool(_ tool: ToolbarTool, with target: ToolbarTool) {
         var tools = model.settings.toolbar
-        guard tool != .language, target != .language, tool != target,
-              let from = tools.firstIndex(of: tool), let to = tools.firstIndex(of: target) else { return }
+        guard tool != .language, target != .language, let from = tools.firstIndex(of: tool), let to = tools.firstIndex(of: target) else { return }
         tools.swapAt(from, to); model.settings.toolbar = tools
     }
     @discardableResult func beginToolbarDrag(_ tool: ToolbarTool) -> Bool {
         guard tool != .language, model.settings.toolbar.contains(tool) else { return false }
-        toolbarDragActive = true; toolbarTapBlockedUntil = .infinity
-        return true
+        toolbarDragActive = true; toolbarTapBlockedUntil = .infinity; return true
     }
     func finishToolbarDrag() {
-        guard toolbarDragActive else { return }
-        toolbarDragActive = false; toolbarTapBlockedUntil = CACurrentMediaTime() + 0.25
-        if toolbarRebuildPending { toolbarRebuildPending = false; toolbarSignature = ""; render() }
+        toolbarEdgeTimer?.invalidate(); toolbarEdgeTimer = nil
+        if let tool = draggedTool { toolbarButtons[tool]?.alpha = 1 }
+        dragIcon?.removeFromSuperview(); dragIcon = nil; draggedTool = nil
+        toolbarDragActive = false; toolbarTapBlockedUntil = CACurrentMediaTime() + 0.18
+        toolbarSignature = ""; render()
+    }
+    @objc private func toolbarHold(_ gesture: UILongPressGestureRecognizer) {
+        guard let identifier = gesture.view?.accessibilityIdentifier,
+              let tool = ToolbarTool(rawValue: String(identifier.dropFirst("toolbar.".count))) else { return }
+        dragPoint = gesture.location(in: self)
+        switch gesture.state {
+        case .began:
+            if !toolbarEditing { showToolbarEditor() } else { editorPulse() }
+            guard beginToolbarDrag(tool) else { return }
+            draggedTool = tool
+            let image = toolbarPreviewView(tool); image.center = dragPoint; image.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
+            addSubview(image); dragIcon = image; toolbarButtons[tool]?.alpha = 0.25
+            toolbarButtons[tool]?.setEditingMotion(false)
+            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.toolbarDragTick() }
+            }
+            toolbarEdgeTimer = timer; RunLoop.main.add(timer, forMode: .common)
+        case .changed: toolbarDragTick()
+        case .ended, .cancelled, .failed:
+            toolbarEdgeTimer?.invalidate(); toolbarEdgeTimer = nil
+            if let image = dragIcon, let button = toolbarButtons[tool] {
+                let target = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: self)
+                UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: {
+                    image.center = target; image.transform = .identity; image.alpha = 0
+                }, completion: { [weak self] _ in self?.finishToolbarDrag() })
+            } else { finishToolbarDrag() }
+        default: break
+        }
+    }
+    private func toolbarDragTick() {
+        guard let tool = draggedTool else { return }
+        dragIcon?.center = dragPoint
+        let point = toolbarScroll.convert(dragPoint, from: self)
+        let viewportX = point.x - toolbarScroll.contentOffset.x
+        let velocity: CGFloat = viewportX < 24 ? -3.5 : viewportX > toolbarScroll.bounds.width - 24 ? 3.5 : 0
+        let x = min(max(0, toolbarScroll.contentOffset.x + velocity), max(0, toolbarScroll.contentSize.width - toolbarScroll.bounds.width))
+        toolbarOffset = x; toolbarScroll.contentOffset.x = x
+        let targetPoint = toolbarShortcuts.convert(dragPoint, from: self)
+        guard abs(targetPoint.y - toolbarShortcuts.bounds.midY) < 42,
+              let target = toolbarButtons.filter({ $0.key != tool }).min(by: { abs($0.value.frame.midX - targetPoint.x) < abs($1.value.frame.midX - targetPoint.x) }),
+              abs(target.value.frame.midX - targetPoint.x) < 13 else { return }
+        performToolbarDrop(tool, at: dragPoint)
+        rememberToolbarOffset()
     }
     private func toolbarButton(_ tool: ToolbarTool) -> UIButton? {
         toolbarShortcuts.arrangedSubviews.compactMap { $0 as? UIButton }
@@ -581,12 +678,32 @@ import SwiftUI
         deleteHint.backgroundColor = direction < 0 ? .systemTeal : direction > 0 ? .systemRed : .darkGray
         deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
     }
-    func closePanel() {
-        panel?.removeFromSuperview(); panel = nil; panelKind = nil; toolboxVisible = false; toolbarEditing = false
-        nativeAppearance = nil
-        keyGlassGroup.isHidden = false; render()
+    func closePanel(animated: Bool = true) {
+        let outgoing = panel
+        panel = nil; panelKind = nil; activeTool = nil; toolboxVisible = false; toolbarEditing = false
+        editorTiles = [:]; nativeAppearance = nil
+        keyGlassGroup.isHidden = false; appearanceSignature = ""; keyPresentation = nil; render()
+        guard let outgoing else { return }
+        outgoing.isUserInteractionEnabled = false
+        if animated, window != nil, !UIAccessibility.isReduceMotionEnabled {
+            UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: {
+                outgoing.alpha = 0; outgoing.transform = CGAffineTransform(translationX: 0, y: 8)
+            }, completion: { [weak self] _ in if self?.panel !== outgoing { outgoing.removeFromSuperview() } })
+        } else { outgoing.removeFromSuperview() }
+    }
+    private func finishPanelTransition() {
+        render(); setNeedsLayout(); layoutIfNeeded()
+        guard let panel else { return }
+        panel.isUserInteractionEnabled = true; panel.layer.removeAllAnimations()
+        panel.transform = .identity; panel.alpha = 1
+        guard window != nil, !UIAccessibility.isReduceMotionEnabled else { return }
+        panel.alpha = 0; panel.transform = CGAffineTransform(translationX: 0, y: 8)
+        UIView.animate(withDuration: 0.19, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]) {
+            panel.alpha = 1; panel.transform = .identity
+        }
     }
     private func activateTool(_ tool: ToolbarTool) {
+        if activeTool == tool, panel != nil { closePanel(); return }
         if tool == .oneHand {
             closePanel()
             model.settings.hand = model.settings.hand == .right ? .left : .right
@@ -600,8 +717,8 @@ import SwiftUI
             }
             if toolboxVisible { showToolbox() }
         } else if let item = appearanceItem(for: tool) {
-            if panelKind != .appearance { showPanel(.appearance) }
-            nativeAppearance?.show(item)
+            showPanel(.appearance, detail: item)
+            activeTool = tool; updateToolbarState()
         } else { showPanel(tool) }
     }
     private func appearanceItem(for tool: ToolbarTool) -> AppearanceItem? {
@@ -644,16 +761,21 @@ import SwiftUI
         clipboardPaste.setContentHuggingPriority(.defaultLow, for: .horizontal)
         clipboardPaste.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         clipboardPaste.addAction(UIAction { [weak self] _ in self?.pasteRecentClip() }, for: .touchUpInside)
+        clipboardPaste.widthAnchor.constraint(equalToConstant: 26).isActive = true
         clipboardSuggestion.addArrangedSubview(clipboardPaste)
+        clipboardText.onPaste = { [weak self] in self?.pasteRecentClip() }
+        clipboardText.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        clipboardText.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        clipboardSuggestion.addArrangedSubview(clipboardText)
         let expand = UIButton(type: .system)
         expand.setImage(ToolArtwork.image(symbol: "chevron.down", size: 24), for: .normal)
-        expand.tintColor = .label; expand.accessibilityLabel = "打开剪贴板历史"
+        expand.tintColor = .label; expand.accessibilityLabel = "展开复制内容滑动选词"
         expand.accessibilityIdentifier = "clipboard.recent.history"
         expand.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        expand.addAction(UIAction { [weak self] _ in self?.showPanel(.clipboard) }, for: .touchUpInside)
+        expand.addAction(UIAction { [weak self] _ in self?.showRecentSelection() }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(expand)
         let close = UIButton(type: .system)
-        close.setImage(ToolArtwork.image(symbol: "xmark", size: 22), for: .normal)
+        close.setImage(ToolArtwork.image(symbol: "xmark", size: 17), for: .normal)
         close.tintColor = .label; close.accessibilityLabel = "关闭本次剪贴提示"
         close.accessibilityIdentifier = "clipboard.recent.close"
         close.widthAnchor.constraint(equalToConstant: 36).isActive = true
@@ -667,9 +789,17 @@ import SwiftUI
         recentClip = store.clips.first.flatMap {
             $0.id != dismissedClip && (fresh || Date().timeIntervalSince($0.createdAt) < 900) ? $0 : nil
         }
-        clipboardPaste.configuration?.title = recentClip?.text.replacingOccurrences(of: "\n", with: " ")
+        clipboardPaste.configuration?.title = nil
+        clipboardText.show(recentClip?.text ?? "")
         clipboardPaste.accessibilityLabel = recentClip.map { "粘贴：" + $0.text }
         renderCandidates()
+    }
+    private func showRecentSelection() {
+        guard let clip = recentClip, clip.attachment == nil else { showPanel(.clipboard); return }
+        let text = clip.text
+        dismissedClip = clip.id; recentClip = nil
+        showPanel(.clipboard)
+        (panel as? ClipboardPanel)?.selectText(text)
     }
     private func dismissRecentClip() {
         if let id = recentClip?.id { dismissedClip = id }
@@ -698,14 +828,14 @@ import SwiftUI
         return stack
     }
     private func showToolbox() {
-        closePanel(); toolboxVisible = true
+        closePanel(animated: false); toolboxVisible = true
         let stack = panelStack(title: "键盘工具")
         let items: [(String, String, () -> Void)] = ToolbarTool.allCases.map { tool in
             (tool == .compatibility ? compatibilityInputTitle : tool.title, tool.symbol, { [weak self] in
                 self?.activateTool(tool)
             })
         } + [("定制工具栏", "rectangle.3.group.fill", { [weak self] in self?.showToolbarEditor() })]
-        buildGrid(items, in: stack, identifiers: [compatibilityInputTitle: "keyboard.compatibleInput"]); render()
+        buildGrid(items, in: stack, identifiers: [compatibilityInputTitle: "keyboard.compatibleInput"]); finishPanelTransition()
     }
     private var compatibilityInputTitle: String {
         model.settings.localPinyinComposition == true ? "兼容输入 · 开" : "兼容输入 · 关"
@@ -716,13 +846,27 @@ import SwiftUI
         showToolbox()
     }
     func showToolbarEditor() {
-        closePanel(); toolbarEditing = true; toolboxVisible = true
+        if toolbarEditing, panel != nil { updateToolbarState(); return }
+        closePanel(animated: false); toolbarEditing = true; toolboxVisible = true; editorPulse()
         let stack = panelStack(title: "定制工具栏")
-        let items: [(String, String, () -> Void)] = ToolbarTool.allCases.filter { $0 != .language }.map { tool in
-            let selected = model.settings.toolbar.contains(tool)
-            return ((selected ? "− " : "+ ") + tool.title, tool.symbol, { [weak self] in self?.setToolPinned(tool, pinned: !selected) })
+        let tools = ToolbarTool.allCases.filter { $0 != .language }
+        for start in stride(from: 0, to: tools.count, by: 3) {
+            let row = UIStackView(); row.axis = .horizontal; row.spacing = 8; row.distribution = .fillEqually
+            for index in start..<min(start + 3, tools.count) {
+                let tool = tools[index]
+                let tile = ToolTileButton(title: tool.title, symbol: tool.symbol) { [weak self] in
+                    guard let self else { return }
+                    self.setToolPinned(tool, pinned: !self.model.settings.toolbar.contains(tool))
+                }
+                tile.accessibilityIdentifier = "toolbar.editor." + tool.rawValue
+                tile.heightAnchor.constraint(equalToConstant: 60).isActive = true
+                tile.configureManagement(title: tool.title, pinned: model.settings.toolbar.contains(tool))
+                editorTiles[tool] = tile; row.addArrangedSubview(tile)
+            }
+            while row.arrangedSubviews.count < 3 { row.addArrangedSubview(UIView()) }
+            stack.addArrangedSubview(row)
         }
-        buildGrid(items, in: stack); render()
+        finishPanelTransition()
     }
     private func buildGrid(_ items: [(String, String, () -> Void)], in stack: UIStackView, identifiers: [String: String] = [:]) {
         for start in stride(from: 0, to: items.count, by: 3) {
@@ -737,20 +881,23 @@ import SwiftUI
             stack.addArrangedSubview(row)
         }
     }
-    private func showPanel(_ kind: ToolbarTool) {
-        if panelKind == kind { closePanel(); return }
-        closePanel(); panelKind = kind
+    private func showPanel(_ kind: ToolbarTool, detail: AppearanceItem? = nil) {
+        if kind == .appearance, panelKind == .appearance, let nativeAppearance {
+            nativeAppearance.show(detail); activeTool = kind; finishPanelTransition(); return
+        }
+        closePanel(animated: false); panelKind = kind; activeTool = kind
         if kind == .clipboard || kind == .phrases {
             model.startClipboardCapture()
             let content = ClipboardPanel(model: model, showPhrases: kind == .phrases)
             content.onClose = { [weak self] in self?.closePanel() }
-            addSubview(content); panel = content; keyGlassGroup.isHidden = true; render(); return
+            addSubview(content); panel = content; keyGlassGroup.isHidden = true; finishPanelTransition(); return
         }
         if kind == .appearance {
-            let content = KeyboardAppearancePanelView(current: { [weak model] in model?.settings ?? KeyboardSettings() },
+            let content = appearancePanelCache ?? KeyboardAppearancePanelView(current: { [weak model] in model?.settings ?? KeyboardSettings() },
                 save: { [weak model] in model?.settings = $0 })
-            nativeAppearance = content; panel = content
-            addSubview(content); keyGlassGroup.isHidden = true; render(); setNeedsLayout(); return
+            appearancePanelCache = content; nativeAppearance = content; panel = content
+            content.show(detail)
+            addSubview(content); keyGlassGroup.isHidden = true; finishPanelTransition(); return
         }
         let stack = panelStack(title: kind.title)
         switch kind {
@@ -782,10 +929,10 @@ import SwiftUI
         case .compatibility: toggleLocalPinyinComposition()
         case .keyGlass, .keyColor, .textColor, .textSize, .vibration: activateTool(kind)
         }
-        render(); setNeedsLayout()
+        finishPanelTransition()
     }
     private func actionButton(_ title: String, symbol: String? = nil, action: @escaping () -> Void) -> UIButton {
-        let button = UIButton(type: .system); button.setTitle(title, for: .normal)
+        let button = FeedbackButton(type: .system); button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
         if let symbol { button.setImage(ToolArtwork.image(symbol: symbol, size: 24), for: .normal) }
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true

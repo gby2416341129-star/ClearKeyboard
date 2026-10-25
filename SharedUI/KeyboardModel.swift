@@ -653,6 +653,18 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard settings.language == .chinese else { return text }
         return [",": "，", ".": "。", "?": "？", "!": "！", ":": "：", ";": "；", "(": "（", ")": "）" ][text] ?? text
     }
+    func beginClipboardSelection() -> ClipboardTextSession? {
+        beginDocumentEdit(); defer { endDocumentEdit() }
+        if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
+        guard let document, document.selectedText.isEmpty else { return nil }
+        return ClipboardTextSession(document: document)
+    }
+    @discardableResult func updateClipboardSelection(_ session: ClipboardTextSession, text: String) -> Bool {
+        beginDocumentEdit(); defer { endDocumentEdit() }
+        let updated = session.apply(text)
+        if updated { refreshCandidates() }
+        return updated
+    }
     func insertLiteral(_ text: String) {
         beginDocumentEdit(); defer { endDocumentEdit() }
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }

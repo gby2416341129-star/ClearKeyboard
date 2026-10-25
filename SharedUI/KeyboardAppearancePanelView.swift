@@ -9,7 +9,7 @@ import UIKit
     private let scroll = KeyboardPanelScrollView()
     private let stack = UIStackView()
     private let preview = KeyboardAppearancePreview()
-    private var selected: AppearanceItem?
+    private(set) var selected: AppearanceItem?
     private var strength: ValueSliderView?
     private var sizes: UISegmentedControl?
     private var colorSliders: [UISlider] = []
@@ -43,7 +43,7 @@ import UIKit
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in
             var result = values; result.font = .systemFont(ofSize: 15, weight: .medium); return result
         }
-        let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+        let button = FeedbackButton(configuration: config, primaryAction: UIAction { _ in action() })
         button.accessibilityIdentifier = identifier; button.contentHorizontalAlignment = .leading
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 46).isActive = true
         let glass = LiquidGlassView(radius: 16); glass.translatesAutoresizingMaskIntoConstraints = false
@@ -52,6 +52,7 @@ import UIKit
         return button
     }
     func show(_ item: AppearanceItem?) {
+        if selected == item, !stack.arrangedSubviews.isEmpty { return }
         selected = item; strength = nil; sizes = nil; colorSliders = []; swatches = []; reset = nil
         stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
         scroll.setContentOffset(.zero, animated: false)
@@ -107,6 +108,7 @@ import UIKit
         }
         let reset = button("恢复默认", symbol: "arrow.counterclockwise", identifier: "keyboard.appearance.reset") { [weak self] in
             guard let self else { return }
+            self.reset?.imageView?.layer.add(Self.resetAnimation(), forKey: "reset.confirmation")
             self.edit {
                 switch item {
                 case .keyGlass: $0.keyGlassStrength = nil
@@ -118,8 +120,16 @@ import UIKit
         }
         self.reset = reset; stack.addArrangedSubview(reset); apply(current())
     }
+    private static func resetAnimation() -> CAAnimation {
+        let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+        turn.fromValue = 0; turn.toValue = -Double.pi * 2; turn.duration = 0.32
+        turn.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        return turn
+    }
     private func edit(_ change: (inout KeyboardSettings) -> Void) {
-        var settings = current(); change(&settings); save(settings); apply(settings)
+        var settings = current(); change(&settings)
+        guard settings != current() else { return }
+        save(settings); apply(settings)
     }
     private func setColor(_ hex: String) {
         guard let path = selected?.colorPath else { return }

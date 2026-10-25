@@ -24,7 +24,7 @@ public enum KeyAlternatives {
         return families.first { $0.contains(key) } ?? []
     }
     public static func choices(for key: KeyboardKey, language: InputLanguage) -> [String] {
-        if language == .chinese, case .text(let text) = key.action,
+        if case .text(let text) = key.action,
            text.utf8.count == 1, let byte = text.utf8.first,
            (65...90).contains(byte) || (97...122).contains(byte) {
             return [text.uppercased(), text.lowercased()]
