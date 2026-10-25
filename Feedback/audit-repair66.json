@@ -11,7 +11,7 @@
     },
     {
       "id": "clipboard-ownership",
-      "scope": "实时选词撤选的宿主写入确认、原文保护与批量更新",
+      "scope": "实时选词撤选的宿主写入确认、异步回执与省略标记文字、原文保护及批量更新",
       "status": "implemented_pending_verification",
       "verification": []
     },

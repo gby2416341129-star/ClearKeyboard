@@ -975,6 +975,35 @@ import SwiftUI
         XCTAssertFalse(session.apply("甲乙丙")); XCTAssertFalse(session.apply(""))
         XCTAssertTrue(field.text.hasPrefix("原文🙂")); XCTAssertEqual(proxy.deleteWrites, 0)
     }
+    func testClipboardKeepsItsMarkedBoundaryAcrossDelayedHostAcknowledgements() async throws {
+        let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
+        let original = proxy.committed
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        proxy.onMutation = { [weak controller] in controller?.textDidChange(nil) }
+        let session = ClipboardTextSession(document: controller)
+        for value in ["甲", "甲乙", "乙", "", "丙"] {
+            XCTAssertTrue(session.apply(value))
+            XCTAssertEqual(proxy.committed + proxy.marked, original + value)
+            // This transport omits its live mark from context. A reading pause
+            // must not turn our own marked boundary into an external edit.
+            try await Task.sleep(nanoseconds: 1_100_000_000)
+        }
+        session.finish()
+        XCTAssertEqual(proxy.committed, original + "丙"); XCTAssertTrue(proxy.marked.isEmpty)
+        XCTAssertEqual(proxy.deleteWrites, 0)
+    }
+    func testClipboardRevokesAStalledPriorValueWithoutDeletingOriginalText() async throws {
+        let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
+        proxy.includesMarkedContext = true; proxy.markedLimit = 1
+        let original = proxy.committed
+        controller.proxy = proxy; controller.loadViewIfNeeded()
+        proxy.onMutation = { [weak controller] in controller?.textDidChange(nil) }
+        let session = ClipboardTextSession(document: controller)
+        XCTAssertTrue(session.apply("甲")); XCTAssertTrue(session.apply("甲乙"))
+        try await Task.sleep(nanoseconds: 1_400_000_000)
+        XCTAssertFalse(session.apply(""), "An old requested value cannot remain an indefinite acknowledgement of a truncated update")
+        XCTAssertEqual(proxy.committed + proxy.marked, original + "甲"); XCTAssertEqual(proxy.deleteWrites, 0)
+    }
     func testLongClearAndUndoRestoreTheOriginalSelectionInRealUIKit() async throws {
         let field = UITextView(); field.autocorrectionType = .no; field.spellCheckingType = .no
         let text = "前文👨‍👩‍👧‍👦e\u{301}" + String(repeating: "a", count: 4_200) + "尾文😀"; field.text = text
@@ -1862,8 +1891,10 @@ import SwiftUI
     var unmarkWrites = 0, deleteWrites = 0
     var onEmptyMarked: (() -> Void)?
     var hidesContext = false
+    var includesMarkedContext = false
+    var markedLimit: Int?
     var onMutation: (() -> Void)?
-    var documentContextBeforeInput: String? { hidesContext ? nil : committed }
+    var documentContextBeforeInput: String? { hidesContext ? nil : committed + (includesMarkedContext ? marked : "") }
     var documentContextAfterInput: String? { hidesContext ? nil : "" }
     var selectedText: String? { nil }
     var documentInputMode: UITextInputMode? { nil }
@@ -1873,7 +1904,7 @@ import SwiftUI
         committed += marked + text; marked = ""; onMutation?()
     }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
-        events.append("mark:" + text); marked = text
+        events.append("mark:" + text); marked = markedLimit.map { String(text.prefix($0)) } ?? text
         if text.isEmpty { onEmptyMarked?() }
         onMutation?()
     }

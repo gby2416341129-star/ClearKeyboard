@@ -231,12 +231,15 @@ public struct HostTextState {
         }
         snapshot = actual; acknowledged = actual; endMarkedSession(); pending = []; return .externalEdit
     }
-    public func accepts(_ expected: HostTextSnapshot, actual: HostTextSnapshot, now: Double = ProcessInfo.processInfo.systemUptime) -> Bool {
+    public func accepts(_ expected: HostTextSnapshot, actual: HostTextSnapshot, now: Double = ProcessInfo.processInfo.systemUptime,
+                        boundedAcknowledgements: Bool = false) -> Bool {
         guard actual.available, actual.selected.isEmpty, expected.document == actual.document,
               Self.equivalent(snapshot, expected) else { return false }
         if Self.equivalent(expected, actual) { return true }
         if isMarkedBoundary(actual) { return true }
-        if isMarkedAcknowledgement(actual) { return true }
+        // A clipboard replacement may wait for a prior request, but must not
+        // treat a permanently truncated prior value as an indefinite receipt.
+        if isMarkedAcknowledgement(actual), !boundedAcknowledgements || hasPendingEdits(now: now) { return true }
         let recent = pending.filter { now - $0.1 <= 1 }
         return !recent.isEmpty && (Self.equivalent(acknowledged, actual) || recent.contains { Self.equivalent($0.0, actual) })
     }
