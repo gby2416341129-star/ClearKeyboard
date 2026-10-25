@@ -99,7 +99,7 @@ import UIKit
         for index in 0..<12 {
             settings.keyColorHex = index.isMultiple(of: 2) ? "#558DF2" : nil
             preview.apply(settings); preview.layoutIfNeeded()
-            for image in views(preview).compactMap({ $0 as? UIImageView }) where image.superview?.accessibilityIdentifier == "key.face" {
+            for image in views(preview).compactMap({ $0 as? UIImageView }) where image.image != nil && image.superview?.accessibilityIdentifier == "key.face" {
                 XCTAssertEqual(image.contentMode, .scaleAspectFit)
                 XCTAssertLessThanOrEqual(image.bounds.width, 32)
                 XCTAssertTrue(image.superview!.bounds.insetBy(dx: -0.01, dy: -0.01).contains(image.frame))

@@ -5,7 +5,11 @@ import SwiftUI
 /// backdrop, noncontiguous material mask, or frozen intensity animator.
 final class LiquidGlassView: UIView {
     private let lens = UIVisualEffectView(effect: nil)
-    var effect: UIVisualEffect? { lens.effect }
+    private var installedEffect: UIVisualEffect?
+    var effect: UIVisualEffect? { installedEffect }
+    private func installEffect(_ value: UIVisualEffect?) {
+        installedEffect = value; lens.effect = value
+    }
     private let radius: CGFloat
     private let tintFilm = UIView()
     private let keycap: Bool
@@ -42,13 +46,13 @@ final class LiquidGlassView: UIView {
             CATransaction.begin(); CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
             if reduced {
-                if effectMode != "reduced" { lens.effect = nil; effectMode = "reduced" }; lens.alpha = 1; backgroundColor = fallback; tintFilm.backgroundColor = .clear
+                if effectMode != "reduced" { installEffect(nil); effectMode = "reduced" }; lens.alpha = 1; backgroundColor = fallback; tintFilm.backgroundColor = .clear
             } else if #available(iOS 26.0, *) {
                 let mode = (clear || keycap) ? "native.clear" : "native.regular"
                 if effectMode != mode {
                     let glass = UIGlassEffect(style: (clear || keycap) ? .clear : .regular)
                     glass.isInteractive = !keycap && !clear; glass.tintColor = nil
-                    lens.effect = glass; effectMode = mode
+                    installEffect(glass); effectMode = mode
                 }
                 backgroundColor = .clear
                 // Physical keys repeat across the entire keyboard. Attenuate the
@@ -61,7 +65,7 @@ final class LiquidGlassView: UIView {
                 // transmission removes the face film; never add a dark veil.
                 tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
             } else {
-                if effectMode != "blur" { lens.effect = UIBlurEffect(style: .systemUltraThinMaterial); effectMode = "blur" }; lens.alpha = 1; backgroundColor = .clear
+                if effectMode != "blur" { installEffect(UIBlurEffect(style: .systemUltraThinMaterial)); effectMode = "blur" }; lens.alpha = 1; backgroundColor = .clear
                 tintFilm.backgroundColor = clear ? .clear : (tint ?? .white).withAlphaComponent(CGFloat(opacity))
             }
         }

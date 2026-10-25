@@ -92,6 +92,7 @@ import SwiftUI
         toolbarScroll.showsHorizontalScrollIndicator = false; toolbarScroll.showsVerticalScrollIndicator = false
         toolbarScroll.delaysContentTouches = false; toolbarScroll.canCancelContentTouches = true
         toolbarScroll.delegate = self; toolbarScroll.alwaysBounceHorizontal = true
+        toolbarScroll.pendingOffset = toolbarOffset
         toolbarScroll.backgroundColor = UIColor(white: 0.5, alpha: 0.01)
         toolbarScroll.contentInsetAdjustmentBehavior = .never
         toolbarScroll.addInteraction(UIDropInteraction(delegate: self))
@@ -215,12 +216,10 @@ import SwiftUI
         renderCandidates()
         panel?.frame = layout.panel
         let contentWidth = CGFloat(toolbarButtons.count * 34 + max(0, toolbarButtons.count - 1) * 10 + 11)
+        toolbarScroll.expectedContentWidth = contentWidth
         toolbarWidth?.constant = min(contentWidth, max(0, layout.header.width - 44))
         toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
-        if !toolbarScroll.isDragging, !toolbarScroll.isDecelerating {
-            let x = min(max(0, toolbarOffset), max(0, toolbarScroll.contentSize.width - toolbarScroll.bounds.width))
-            if abs(toolbarScroll.contentOffset.x - x) > 0.5 { toolbarScroll.contentOffset.x = x }
-        }
+        toolbarScroll.setNeedsLayout(); toolbarScroll.layoutIfNeeded()
     }
     func render() {
         guard initialized else { return }
@@ -472,6 +471,7 @@ import SwiftUI
                 toolbarShortcuts.removeArrangedSubview(button); toolbarShortcuts.insertArrangedSubview(button, at: index)
             }
         }
+        toolbarScroll.pendingOffset = toolbarOffset
         updateToolbarState(); setNeedsLayout()
         if animate {
             UIView.animate(withDuration: 0.20, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]) { self.toolbarShortcuts.layoutIfNeeded() }
@@ -509,7 +509,9 @@ import SwiftUI
         if !decelerate { rememberToolbarOffset() }
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { rememberToolbarOffset() }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { toolbarScroll.pendingOffset = nil }
     private func rememberToolbarOffset() {
+        toolbarScroll.pendingOffset = nil
         toolbarOffset = max(0, toolbarScroll.contentOffset.x)
         UserDefaults.standard.set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
     }

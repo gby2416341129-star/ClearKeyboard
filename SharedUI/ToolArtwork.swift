@@ -176,6 +176,18 @@ struct ToolIcon: UIViewRepresentable {
 }
 
 @MainActor final class ToolbarScrollView: UIScrollView {
+    var pendingOffset: CGFloat?
+    var expectedContentWidth: CGFloat = 0
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if abs(contentSize.width - expectedContentWidth) > 0.5 {
+            contentSize = CGSize(width: expectedContentWidth, height: bounds.height)
+        }
+        if let saved = pendingOffset, bounds.width > 0, expectedContentWidth > 0 {
+            pendingOffset = nil
+            setContentOffset(CGPoint(x: min(max(0, saved), max(0, expectedContentWidth - bounds.width)), y: 0), animated: false)
+        }
+    }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
 }
 
