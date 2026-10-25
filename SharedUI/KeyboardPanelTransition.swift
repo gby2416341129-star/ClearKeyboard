@@ -49,8 +49,10 @@ import UIKit
 
     func cancel() {
         revision += 1
-        animator?.stopAnimation(true); animator = nil
-        outgoingAnimator?.stopAnimation(true); outgoingAnimator = nil
+        if animator?.state == .active { animator?.stopAnimation(true) }
+        animator = nil
+        if outgoingAnimator?.state == .active { outgoingAnimator?.stopAnimation(true) }
+        outgoingAnimator = nil
         destination?.alpha = 1; destination = nil
         cover?.removeFromSuperview(); cover = nil
     }
