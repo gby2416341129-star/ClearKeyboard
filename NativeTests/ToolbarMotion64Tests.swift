@@ -193,7 +193,11 @@ import Security
         let saved = try await Task.detached { try writer.write(data, account: AppearanceSyncClient.settingsAccount).get() }.value
         XCTAssertNotNil(saved)
         let record = try await Task.detached { try reader.read(account: AppearanceSyncClient.settingsAccount).get() }.value
-        XCTAssertEqual(try AppearanceSyncClient.decode(XCTUnwrap(record).data).get(), value)
+        let restored = try AppearanceSyncClient.decode(XCTUnwrap(record).data).get()
+        XCTAssertEqual(restored.snapshot, value.snapshot)
+        XCTAssertEqual(restored.revision, value.revision)
+        XCTAssertEqual(restored.updatedAt, value.updatedAt)
+        XCTAssertFalse(try XCTUnwrap(restored.fieldDates).isEmpty, "Journal reads retain the field timestamps used to merge independent edits")
     }
     func testBothProcessesFindTheCommonGroupWhenTheirPrimaryGroupsDiffer() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

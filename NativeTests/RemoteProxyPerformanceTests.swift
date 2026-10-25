@@ -1663,6 +1663,13 @@ import SwiftUI
         let model = KeyboardModel(document: document, settings: settings)
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" && model.candidatesAreCurrent }
+        // Engine readiness precedes the independent background prefetch. Warm
+        // this spelling through the real input path before measuring its reuse.
+        model.handle(.text("d"))
+        try await waitFor { model.candidatesAreCurrent && model.candidates.first?.text == "的" }
+        model.handle(.delete)
+        try await waitFor { model.composition.isEmpty && model.candidatesAreCurrent }
+        XCTAssertEqual(document.before, "")
         var fullRenders = 0, inputRenders = 0
         model.onChange = { fullRenders += 1 }
         model.onInputChange = { inputRenders += 1 }
