@@ -42,7 +42,7 @@
       "title": "工具栏",
       "code": "A2",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\toolbar-A2.png",
-      "sha256": "87ac016b07e466bec55875300156974e1eacdaeef425d83da935ef2f3f5b1fa2",
+      "sha256": "eb4896c6d3932abaffd56a8fcfea8bbb01b36b845be99bc30df13b2cd9f4887b",
       "resource": "SharedUI/Resources/ToolIcons/icon-toolbar.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -60,7 +60,7 @@
       "title": "按键通透",
       "code": "A3",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\keyglass-A3.png",
-      "sha256": "8ba923a3742b7d0e5a8df1b3370f55419a40c3dc5c9f73b92fcae588544df105",
+      "sha256": "379a2423a00f3cea119c0a2e7c5ddb537ad32377b40f53c8e30bb3973bc9f909",
       "resource": "SharedUI/Resources/ToolIcons/icon-keyglass.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -69,7 +69,7 @@
       "title": "按键颜色",
       "code": "A3",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\keycolor-A3.png",
-      "sha256": "19e4a0e58b57283a483bfbff448433eaea6566601d7c5ba28b0d6ace0dfdb2d4",
+      "sha256": "b9fed0e709eb9485131475bdaae0096d07fc8d28b835418fd4479aae8d6feddb",
       "resource": "SharedUI/Resources/ToolIcons/icon-keycolor.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -78,7 +78,7 @@
       "title": "文字颜色",
       "code": "A2",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\textcolor-A2.png",
-      "sha256": "8bc3b95e2d769f31c4c5707c59da680cca38d152718c4cc2b9a98602e48c0a2a",
+      "sha256": "282cdd5890f1fd28d4f234a9c17423bb9f4eebfe97297fb80155d2931e231eb9",
       "resource": "SharedUI/Resources/ToolIcons/icon-textcolor.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -87,7 +87,7 @@
       "title": "文字大小",
       "code": "A4",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\textsize-A4.png",
-      "sha256": "4b90ba8ff53ac71c51e0d44cf2eb25b32ee036a7b75804f0480be864c6c11063",
+      "sha256": "c4d5d9c4ecd4809a0cd4d96304b6815d9e2d30c5b6c6a633c31f33855be37632",
       "resource": "SharedUI/Resources/ToolIcons/icon-textsize.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -105,7 +105,7 @@
       "title": "隐私与关于",
       "code": "A4",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\privacy-A4.png",
-      "sha256": "fb56f43f540621e84684b18adcffb258f69d48a3750ef3caeecdf0996a46f2ee",
+      "sha256": "a24806b9fc5fccdcf4149472750f55e4bbe19f326f374d9ed597c33e579ab705",
       "resource": "SharedUI/Resources/ToolIcons/icon-privacy.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -114,7 +114,7 @@
       "title": "模糊拼音",
       "code": "A4",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\phonetic-A4.png",
-      "sha256": "114c409d74791978b3662b82f652b33c04754e3c0ded7c3e1ba4282eaf499d3b",
+      "sha256": "f238eb852d20e29ecdbee3ec331b5308de2767ae94497cd1ea64e92890bbdde5",
       "resource": "SharedUI/Resources/ToolIcons/icon-phonetic.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -132,7 +132,7 @@
       "title": "首页",
       "code": "A1",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\home-A1.png",
-      "sha256": "be184f6c64da28fddeda4435390e3eb79db6f1ebace0b8340b6be630dbb51644",
+      "sha256": "1e5a00dcf7a468c0b0b52d5e28fadd3c9a09a88f82ed1995419d700c0174f397",
       "resource": "SharedUI/Resources/ToolIcons/icon-home.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -159,7 +159,7 @@
       "title": "启用键盘",
       "code": "A2",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\setup-A2.png",
-      "sha256": "59d2fcf647ec1434d78a20b5d4a5ee150d2e410a25f0c54c19b5d2a44fd006c5",
+      "sha256": "7c16bedac2aba9f56245e87fd59b37f8219e056eb97a5d1fde39275b5808c612",
       "resource": "SharedUI/Resources/ToolIcons/icon-setup.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -168,7 +168,7 @@
       "title": "复制",
       "code": "A5",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\copy-A5.png",
-      "sha256": "fe3a77dcb0c3b3ac0208283916581dfcfea9a59f980e0e6c7b4edb4b9d560e5d",
+      "sha256": "57e8f286b587007a7aedb8f3a2378d43850142a0902af6703221ab8fd583159a",
       "resource": "SharedUI/Resources/ToolIcons/icon-copy.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -177,7 +177,7 @@
       "title": "常用语",
       "code": "A4",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\phrases-A4.png",
-      "sha256": "e34a6ab2635826a7a08484eb5c8518a841c5e1444d3af738bfd7ee0ec90cb0ea",
+      "sha256": "774db67934edc590f588524142f65b70d9abbd097a0bc1a186df40f4e54e38a6",
       "resource": "SharedUI/Resources/ToolIcons/icon-phrases.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -186,7 +186,7 @@
       "title": "滑动选词",
       "code": "A6",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\selection-A6.png",
-      "sha256": "5882e7f3835229467f578d4587ce26245e4390c469e41c47888338f6d734e812",
+      "sha256": "dc7ef27e5883b7f8027cce281ae67d66dbfb11588403bf553b03100ec71203bb",
       "resource": "SharedUI/Resources/ToolIcons/icon-selection.png",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
@@ -313,7 +313,7 @@
       "title": "单手模式",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\onehand-redesign-v4\\assets\\B3.png",
       "resource": "SharedUI/Resources/ToolIcons/icon-onehand.png",
-      "sha256": "31174f1915315a5faea3daff6e6a02eb9ca8f6106e63691c4240bcbb50d9d3c0",
+      "sha256": "7ca7fcc1d417f2a415886310767ad76473d7498d14798341c96e2fbb2a0e977f",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
     {
@@ -322,7 +322,7 @@
       "title": "按键高度",
       "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-redesign-matched-v3\\assets\\height-A2.png",
       "resource": "SharedUI/Resources/ToolIcons/icon-height.png",
-      "sha256": "5852caa28cd3b344045860ce74ceb0ac03960788ca7c860956fcb8e4b0c6c0a0",
+      "sha256": "aaa3f04d40a9a63ae4c38d81a5683290255d43e8e17f3d72394ee4e4ba3f1fe9",
       "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
     },
     {
