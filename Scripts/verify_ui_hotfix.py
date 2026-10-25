@@ -27,6 +27,7 @@ ALLOWED={
     'Config/App.entitlements','Config/Keyboard.entitlements','Config/App-Info.plist','Config/Keyboard-Info.plist',
     'Scripts/test-current-round-ui.sh','Core/Clipboard.swift','Core/ClipboardSelection.swift',
     'SharedUI/ClipboardTextSession.swift','SharedUI/ClipboardTokenLayout.swift','SharedUI/ClipboardInlinePreview.swift','NativeTests/FeedbackRepair63Tests.swift',
+    'SharedUI/KeyboardPanelTransition.swift','NativeTests/ToolbarMotion64Tests.swift',
     'NativeTests/ToolbarRuntimeTests.swift','UITests/KeyboardShellUITests.swift',
     'Scripts/setup_keyboard_shell_sim.py','Scripts/test-keyboard-shell.sh',
 }

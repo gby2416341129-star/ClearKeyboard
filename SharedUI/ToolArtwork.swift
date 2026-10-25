@@ -149,12 +149,19 @@ import SwiftUI
 
 @MainActor final class ToolIconView: UIView {
     private let ink = UIImageView()
+    private let compatibilityCheck = CAShapeLayer()
+    private var compatibilityEnabled = false
     private var symbol = ""
     init(symbol: String) {
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear
         isUserInteractionEnabled = false; isAccessibilityElement = false
         ink.contentMode = .scaleAspectFit; addSubview(ink); setSymbol(symbol)
+        compatibilityCheck.fillColor = UIColor.clear.cgColor
+        compatibilityCheck.strokeColor = UIColor.systemGreen.cgColor
+        compatibilityCheck.lineWidth = 2.3
+        compatibilityCheck.lineCap = .round; compatibilityCheck.lineJoin = .round
+        compatibilityCheck.opacity = 0; ink.layer.addSublayer(compatibilityCheck)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func setSymbol(_ value: String) {
@@ -166,6 +173,33 @@ import SwiftUI
         let wide = symbol == "keyboard.fill" || symbol == "key.height"
         let side = min(34, bounds.width + (wide ? 4 : 0))
         ink.frame = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: side * 0.35, y: side * 0.36))
+        path.addLine(to: CGPoint(x: side * 0.46, y: side * 0.47))
+        path.addLine(to: CGPoint(x: side * 0.67, y: side * 0.25))
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        compatibilityCheck.frame = ink.bounds; compatibilityCheck.path = path.cgPath
+        CATransaction.commit()
+    }
+    func setCompatibilityEnabled(_ enabled: Bool) {
+        guard symbol == "desktopcomputer", compatibilityEnabled != enabled else { return }
+        compatibilityEnabled = enabled
+        accessibilityValue = enabled ? "已开启" : "已关闭"
+        let oldOpacity = compatibilityCheck.presentation()?.opacity ?? compatibilityCheck.opacity
+        compatibilityCheck.removeAllAnimations()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        compatibilityCheck.opacity = enabled ? 1 : 0
+        CATransaction.commit()
+        guard window != nil, !UIAccessibility.isReduceMotionEnabled else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = oldOpacity; fade.toValue = enabled ? 1 : 0; fade.duration = 0.18
+        compatibilityCheck.add(fade, forKey: "compatibility.fade")
+        if enabled {
+            let draw = CABasicAnimation(keyPath: "strokeEnd")
+            draw.fromValue = 0; draw.toValue = 1; draw.duration = 0.24
+            draw.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            compatibilityCheck.add(draw, forKey: "compatibility.check")
+        }
     }
 }
 
@@ -192,16 +226,33 @@ struct ToolIcon: UIViewRepresentable {
 }
 
 @MainActor class FeedbackButton: UIButton {
+    private var feedbackAnimator: UIViewPropertyAnimator?
+    private var feedbackContent: UIView {
+        subviews.first(where: { $0 is ToolIconView }) ?? imageView ?? self
+    }
     override var isHighlighted: Bool {
         didSet {
             guard oldValue != isHighlighted else { return }
-            UIView.animate(withDuration: isHighlighted ? 0.09 : 0.19, delay: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]) {
-                self.transform = self.isHighlighted && !UIAccessibility.isReduceMotionEnabled
-                    ? CGAffineTransform(scaleX: 0.90, y: 0.90) : .identity
-                self.alpha = self.isHighlighted ? 0.72 : 1
-            }
+            animateFeedback(pressed: isHighlighted)
         }
+    }
+    private func animateFeedback(pressed: Bool) {
+        let content = feedbackContent
+        if let feedbackAnimator, feedbackAnimator.state == .active {
+            feedbackAnimator.stopAnimation(false); feedbackAnimator.finishAnimation(at: .current)
+        }
+        let motion = UIViewPropertyAnimator(duration: pressed ? 0.09 : 0.28, dampingRatio: 0.86) {
+            content.transform = pressed && !UIAccessibility.isReduceMotionEnabled
+                ? CGAffineTransform(scaleX: 0.90, y: 0.90) : .identity
+            content.alpha = pressed ? 0.82 : 1
+        }
+        feedbackAnimator = motion; motion.startAnimation()
+    }
+    func playActivationFeedback() {
+        if feedbackAnimator?.isRunning != true && !UIAccessibility.isReduceMotionEnabled {
+            feedbackContent.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+        }
+        animateFeedback(pressed: false)
     }
     func setEditingMotion(_ enabled: Bool) {
         let target = subviews.first(where: { $0 is ToolIconView })?.layer ?? imageView?.layer ?? layer
@@ -251,6 +302,7 @@ struct ToolIcon: UIViewRepresentable {
         }
         accessibilityLabel = (pinned ? "移除" : "添加") + title
     }
+    func updateCaption(_ title: String) { caption.text = title; accessibilityLabel = title }
     override var isHighlighted: Bool {
         didSet { lens.alpha = isHighlighted ? 0.72 : 1 }
     }

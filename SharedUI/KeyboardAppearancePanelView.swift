@@ -10,6 +10,7 @@ import UIKit
     private let stack = UIStackView()
     private let preview = KeyboardAppearancePreview()
     private(set) var selected: AppearanceItem?
+    var onNavigate: ((AppearanceItem?) -> Void)?
     private var strength: ValueSliderView?
     private var sizes: UISegmentedControl?
     private var colorSliders: [UISlider] = []
@@ -58,11 +59,11 @@ import UIKit
         scroll.setContentOffset(.zero, animated: false)
         guard let item else {
             for item in AppearanceItem.allCases {
-                stack.addArrangedSubview(button(item.title + "  ›", symbol: item.symbol, identifier: "keyboard.appearance." + item.rawValue) { [weak self] in self?.show(item) })
+                stack.addArrangedSubview(button(item.title + "  ›", symbol: item.symbol, identifier: "keyboard.appearance." + item.rawValue) { [weak self] in self?.navigate(item) })
             }
             return
         }
-        stack.addArrangedSubview(button(item.title, symbol: "chevron.left", identifier: "keyboard.appearance.back") { [weak self] in self?.show(nil) })
+        stack.addArrangedSubview(button(item.title, symbol: "chevron.left", identifier: "keyboard.appearance.back") { [weak self] in self?.navigate(nil) })
         stack.addArrangedSubview(preview)
         switch item {
         case .keyGlass:
@@ -134,6 +135,9 @@ import UIKit
     private func setColor(_ hex: String) {
         guard let path = selected?.colorPath else { return }
         edit { $0[keyPath: path] = hex }
+    }
+    private func navigate(_ item: AppearanceItem?) {
+        if let onNavigate { onNavigate(item) } else { show(item) }
     }
     private func color() -> RGBColor {
         let value = selected?.colorPath.flatMap { current()[keyPath: $0] }

@@ -14,8 +14,9 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -derivedDataPath .build/KeyMaterial -resultBundlePath .build/KeyMaterialResults.xcresult \
   -parallel-testing-enabled NO -test-timeouts-enabled YES \
   -maximum-test-execution-time-allowance 120 \
-  -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair63Tests \
-  -only-testing:ClearKeyboardRuntimeTests/CurrentRoundRepairTests/testLongPressLiteralsAwaitThePendingChineseCandidateWithoutLosingTheirOrder \
+  -only-testing:ClearKeyboardRuntimeTests/ToolbarMotion64Tests \
+  -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair63Tests/testPanelToggleSwitchAndRepeatedColorOpeningUseOnePreview \
+  -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair63Tests/testPreviewShiftAndDeleteStayBoundedAfterRepeatedColorReset \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
 NATIVE_STATUS=$?
 set -e
@@ -27,6 +28,6 @@ import json
 from pathlib import Path
 s=json.loads(Path('.build/KeyMaterialReview/test-summary.json').read_text())
 print(json.dumps(s,ensure_ascii=False),flush=True)
-assert s['failedTests']==0 and s['passedTests']==11,s
-print('KEY_MATERIAL_CHECKS '+json.dumps(dict(passed=s['passedTests'],failed=s['failedTests'],scope='current-round layout, literal variants, complete settings transport, native controls, direct toolbar drag, popup bounds, clipboard activation retry, glass/appearance pixels and system paste')))
+assert s['failedTests']==0 and s['passedTests']==6,s
+print('KEY_MATERIAL_CHECKS '+json.dumps(dict(passed=s['passedTests'],failed=s['failedTests'],scope='toolbar haptic dispatch, rapid panel interruption, compatibility in-place indicator, phone layouts in both themes, preview bounds')))
 PY

@@ -47,6 +47,8 @@ import SwiftUI
     private var railMode: HandMode?
     private let deleteHint = UILabel()
     private var panel: UIView?
+    private let panelTransition = KeyboardPanelTransition()
+    private let toolbarVibration: KeyboardVibration
     private var observerTokens: [NSObjectProtocol] = []
     private var panelKind: ToolbarTool?
     private var toolboxVisible = false
@@ -79,8 +81,9 @@ import SwiftUI
     private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
     var desiredHeight: CGFloat { metrics.contentHeight }
 
-    init(model: KeyboardModel, systemBacked: Bool = false) {
+    init(model: KeyboardModel, systemBacked: Bool = false, toolbarVibration: KeyboardVibration? = nil) {
         self.model = model; self.systemBacked = systemBacked
+        self.toolbarVibration = toolbarVibration ?? .shared
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked
         layer.cornerCurve = .continuous; layer.cornerRadius = systemBacked ? 0 : 28
@@ -425,7 +428,9 @@ import SwiftUI
         }
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
         button.heightAnchor.constraint(equalToConstant: 34).isActive = true
-        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        button.addAction(UIAction { [weak self, weak button] _ in
+            self?.toolbarPulse(); (button as? FeedbackButton)?.playActivationFeedback(); action()
+        }, for: .touchUpInside)
         return button
     }
     private func rebuildToolbar() {
@@ -502,6 +507,14 @@ import SwiftUI
             button.setEditingMotion(toolbarEditing && draggedTool != tool)
             button.accessibilityLabel = toolbarEditing ? "移除" + tool.title + "，长按拖动排序" : tool.title
             button.accessibilityTraits = activeTool == tool ? [.button, .selected] : .button
+            if tool == .compatibility {
+                let enabled = model.settings.localPinyinComposition == true
+                button.subviews.compactMap { $0 as? ToolIconView }.first?.setCompatibilityEnabled(enabled)
+                if !toolbarEditing {
+                    button.accessibilityLabel = enabled ? "兼容输入，已开启" : "兼容输入，已关闭"
+                    button.accessibilityTraits = enabled ? [.button, .selected] : .button
+                }
+            }
         }
         for (tool, tile) in editorTiles { tile.configureManagement(title: tool.title, pinned: model.settings.toolbar.contains(tool)) }
     }
@@ -518,6 +531,10 @@ import SwiftUI
     private func editorPulse() {
         KeyboardVibration.shared.attach(to: self)
         KeyboardVibration.shared.pulse(intensity: 0.42)
+    }
+    private func toolbarPulse() {
+        toolbarVibration.attach(to: self)
+        toolbarVibration.pulse(intensity: model.settings.resolvedVibrationIntensity)
     }
     func setToolPinned(_ tool: ToolbarTool, pinned: Bool) {
         guard tool != .language else { return }
@@ -680,29 +697,23 @@ import SwiftUI
         deleteHint.backgroundColor = direction < 0 ? .systemTeal : direction > 0 ? .systemRed : .darkGray
         deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
     }
-    func closePanel(animated: Bool = true) {
-        let outgoing = panel
+    private func preparePanelTransition(animated: Bool = true) {
+        let region = keyGlassGroup.frame.union(panel?.frame ?? keyGlassGroup.frame).intersection(bounds)
+        panelTransition.begin(in: self, region: region, animated: animated)
+        panel?.removeFromSuperview()
         panel = nil; panelKind = nil; activeTool = nil; toolboxVisible = false; toolbarEditing = false
         editorTiles = [:]; nativeAppearance = nil
-        keyGlassGroup.isHidden = false; appearanceSignature = ""; keyPresentation = nil; render()
-        guard let outgoing else { return }
-        outgoing.isUserInteractionEnabled = false
-        if animated, window != nil, !UIAccessibility.isReduceMotionEnabled {
-            UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: {
-                outgoing.alpha = 0; outgoing.transform = CGAffineTransform(translationX: 0, y: 8)
-            }, completion: { [weak self] _ in if self?.panel !== outgoing { outgoing.removeFromSuperview() } })
-        } else { outgoing.removeFromSuperview() }
+    }
+    func closePanel(animated: Bool = true) {
+        guard panel != nil else { if !animated { panelTransition.cancel() }; return }
+        preparePanelTransition(animated: animated)
+        appearanceSignature = ""; keyPresentation = nil
+        finishPanelTransition()
     }
     private func finishPanelTransition() {
+        keyGlassGroup.isHidden = panel != nil
         render(); setNeedsLayout(); layoutIfNeeded()
-        guard let panel else { return }
-        panel.isUserInteractionEnabled = true; panel.layer.removeAllAnimations()
-        panel.transform = .identity; panel.alpha = 1
-        guard window != nil, !UIAccessibility.isReduceMotionEnabled else { return }
-        panel.alpha = 0; panel.transform = CGAffineTransform(translationX: 0, y: 8)
-        UIView.animate(withDuration: 0.19, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut]) {
-            panel.alpha = 1; panel.transform = .identity
-        }
+        panelTransition.finish(to: panel ?? keyGlassGroup, in: self)
     }
     private func activateTool(_ tool: ToolbarTool) {
         if activeTool == tool, panel != nil { closePanel(); return }
@@ -713,10 +724,6 @@ import SwiftUI
         else if tool == .compatibility { toggleLocalPinyinComposition() }
         else if tool == .vibration {
             model.settings.vibrationEnabled = !model.settings.usesVibration
-            if model.settings.usesVibration {
-                KeyboardVibration.shared.attach(to: self)
-                KeyboardVibration.shared.pulse(intensity: model.settings.resolvedVibrationIntensity)
-            }
             if toolboxVisible { showToolbox() }
         } else if let item = appearanceItem(for: tool) {
             showPanel(.appearance, detail: item)
@@ -732,7 +739,7 @@ import SwiftUI
         default: return nil
         }
     }
-    func stopInteractions() { keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel() }
+    func stopInteractions() { keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel(animated: false); panelTransition.cancel() }
     private func announce(_ text: String) {
         guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)
@@ -830,7 +837,7 @@ import SwiftUI
         return stack
     }
     private func showToolbox() {
-        closePanel(animated: false); toolboxVisible = true
+        preparePanelTransition(); toolboxVisible = true
         let stack = panelStack(title: "键盘工具")
         let items: [(String, String, () -> Void)] = ToolbarTool.allCases.map { tool in
             (tool == .compatibility ? compatibilityInputTitle : tool.title, tool.symbol, { [weak self] in
@@ -845,11 +852,17 @@ import SwiftUI
     func toggleLocalPinyinComposition() {
         guard model.composition.isEmpty else { return }
         model.settings.localPinyinComposition = model.settings.localPinyinComposition == true ? nil : true
-        showToolbox()
+        updateToolbarState()
+        allPanelViews(panel).compactMap { $0 as? ToolTileButton }.first {
+            $0.accessibilityIdentifier == "keyboard.compatibleInput"
+        }?.updateCaption(compatibilityInputTitle)
+    }
+    private func allPanelViews(_ view: UIView?) -> [UIView] {
+        guard let view else { return [] }; return [view] + view.subviews.flatMap { allPanelViews($0) }
     }
     func showToolbarEditor() {
         if toolbarEditing, panel != nil { updateToolbarState(); return }
-        closePanel(animated: false); toolbarEditing = true; toolboxVisible = true; editorPulse()
+        preparePanelTransition(); toolbarEditing = true; toolboxVisible = true; editorPulse()
         let stack = panelStack(title: "定制工具栏")
         let tools = ToolbarTool.allCases.filter { $0 != .language }
         for start in stride(from: 0, to: tools.count, by: 3) {
@@ -885,9 +898,11 @@ import SwiftUI
     }
     private func showPanel(_ kind: ToolbarTool, detail: AppearanceItem? = nil) {
         if kind == .appearance, panelKind == .appearance, let nativeAppearance {
+            let region = keyGlassGroup.frame.union(nativeAppearance.frame).intersection(bounds)
+            panelTransition.begin(in: self, region: region)
             nativeAppearance.show(detail); activeTool = kind; finishPanelTransition(); return
         }
-        closePanel(animated: false); panelKind = kind; activeTool = kind
+        preparePanelTransition(); panelKind = kind; activeTool = kind
         if kind == .clipboard || kind == .phrases {
             model.startClipboardCapture()
             let content = ClipboardPanel(model: model, showPhrases: kind == .phrases)
@@ -898,6 +913,9 @@ import SwiftUI
             let content = appearancePanelCache ?? KeyboardAppearancePanelView(current: { [weak model] in model?.settings ?? KeyboardSettings() },
                 save: { [weak model] in model?.settings = $0 })
             appearancePanelCache = content; nativeAppearance = content; panel = content
+            content.onNavigate = { [weak self] item in
+                self?.toolbarPulse(); self?.showPanel(.appearance, detail: item)
+            }
             content.show(detail)
             addSubview(content); keyGlassGroup.isHidden = true; finishPanelTransition(); return
         }
