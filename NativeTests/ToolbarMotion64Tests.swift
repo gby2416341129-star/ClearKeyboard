@@ -75,7 +75,7 @@ import Security
             try button(name, in: surface).sendActions(for: .touchUpInside)
         }
         XCTAssertEqual(pulses.count, 7)
-        XCTAssertTrue(pulses.allSatisfy { abs($0 - 0.63) < 0.001 })
+        XCTAssertTrue(pulses.allSatisfy { abs($0 - KeyboardVibration.profile(intensity: 0.63, mode: .crisp).intensity) < 0.001 })
         XCTAssertNotEqual(model.settings.localPinyinComposition, true)
         XCTAssertTrue(views(surface).compactMap { $0 as? KeyboardAppearancePanelView }.isEmpty)
     }
@@ -145,8 +145,8 @@ import Security
         for height in [CGFloat(36), 44, 52] {
             preview.frame = CGRect(x: 0, y: 0, width: 160, height: height)
             preview.show(String(repeating: "陈哲：编程数学16次课 ", count: 30)); preview.layoutIfNeeded()
-            let line = preview.layoutManager.usedRect(for: preview.textContainer)
-            XCTAssertEqual(line.midY + preview.textContainerInset.top, height / 2, accuracy: 0.5)
+            let line = preview.renderedLineRect
+            XCTAssertEqual(line.midY, height / 2, accuracy: 0.5)
             XCTAssertEqual(preview.contentSize.height, height, accuracy: 0.5)
             XCTAssertGreaterThan(preview.contentSize.width, preview.bounds.width)
             preview.setContentOffset(CGPoint(x: 50, y: 0), animated: false)
@@ -168,7 +168,7 @@ import Security
         value.language = .english; value.keyHeight = 56; value.hand = .left; value.oneHandWidth = 0.72
         value.keyColorHex = "#558DF2"; value.candidateColorHex = "#D799BC"; value.candidateTextSize = .large
         value.keyGlassStrength = 0.21; value.accent = .rose; value.customAccentHex = "#E3AC72"
-        value.vibrationEnabled = true; value.vibrationIntensity = 0.9; value.toolbar = ToolbarTool.allCases
+        value.vibrationEnabled = true; value.vibrationIntensity = 0.9; value.vibrationMode = .soft; value.toolbar = ToolbarTool.allCases
         value.localPinyinComposition = true; value.fuzzyPairs = ["n/l"]; value.predictions = false
         value.learnChoices = false; value.autoCapitalization = false
         value.automaticClipboard = false; value.clipboardLifetimeHours = 0
@@ -177,8 +177,8 @@ import Security
         try await waitFor { expected.isApplied(to: model.settings) }
         XCTAssertEqual(AppearanceSnapshot(settings: model.settings, includeInputPreferences: true), expected)
         XCTAssertEqual(AppearanceSnapshot(settings: SettingsStore(defaults: keyboardDefaults).load(), includeInputPreferences: true), expected)
-        model.settings.vibrationIntensity = 0.12; model.settings.keyColorHex = "#7573F5"
-        try await waitFor { preferences.settings.vibrationIntensity == 0.12 && preferences.settings.keyColorHex == "#7573F5" }
+        model.settings.vibrationIntensity = 0.12; model.settings.vibrationMode = .crisp; model.settings.keyColorHex = "#7573F5"
+        try await waitFor { preferences.settings.vibrationIntensity == 0.12 && preferences.settings.vibrationMode == .crisp && preferences.settings.keyColorHex == "#7573F5" }
         XCTAssertEqual(SettingsStore(defaults: appDefaults).load().vibrationIntensity, 0.12)
         model.reloadSettings(); keyboardLink.refresh()
         XCTAssertEqual(model.settings.vibrationIntensity, 0.12)
@@ -217,34 +217,35 @@ import Security
         defer { UserDefaults.standard.set(old, forKey: "clear.toolbar.offset.v1") }
         let (document, _, surface) = fixture(); defer { withExtendedLifetime(document) {} }
         let scroll = try XCTUnwrap(views(surface).compactMap { $0 as? ToolbarScrollView }.first)
-        XCTAssertEqual((scroll.bounds.width - 1).truncatingRemainder(dividingBy: 44), 0, accuracy: 0.5)
+        XCTAssertGreaterThan(scroll.bounds.width, 200)
         scroll.setContentOffset(CGPoint(x: 65, y: 0), animated: false)
         surface.scrollViewDidEndDragging(scroll, willDecelerate: false)
-        XCTAssertEqual(scroll.contentOffset.x, 44, accuracy: 0.5)
-        for name in ToolbarTool.allCases where name != .language {
-            let frame = try button(name.rawValue, in: surface).convert(CGRect(x: 0, y: 0, width: 34, height: 34), to: scroll)
-            if scroll.bounds.intersection(frame).width > 0.5 {
-                XCTAssertTrue(scroll.bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame))
-            }
-        }
+        XCTAssertEqual(scroll.contentOffset.x, 65, accuracy: 0.5)
+        XCTAssertNotNil(scroll.layer.mask)
         XCTAssertTrue(surface.beginToolbarDrag(.clipboard))
         scroll.setContentOffset(CGPoint(x: 91, y: 0), animated: false)
         surface.finishToolbarDrag()
-        XCTAssertEqual(scroll.contentOffset.x, 88, accuracy: 0.5)
+        XCTAssertEqual(scroll.contentOffset.x, 91, accuracy: 0.5)
         let (secondDocument, _, restored) = fixture(); defer { withExtendedLifetime(secondDocument) {} }
         let second = try XCTUnwrap(views(restored).compactMap { $0 as? ToolbarScrollView }.first)
-        XCTAssertEqual(second.contentOffset.x, 88, accuracy: 0.5)
+        XCTAssertEqual(second.contentOffset.x, 91, accuracy: 0.5)
     }
     func testVibrationStrengthUsesDistinctActuatorStylesAndZeroIsSilent() {
         var pulses: [CGFloat] = [], styles: [Int] = []
         let vibration = KeyboardVibration(emit: { pulses.append($0) })
         vibration.pulse(intensity: 0)
-        for value in [0.1, 0.4, 0.65, 1.0] {
-            vibration.pulse(intensity: value)
-            if let style = vibration.requestedStyle { styles.append(style.rawValue) }
+        for mode in VibrationMode.allCases {
+            for value in [0.1, 0.4, 0.65, 1.0] {
+                vibration.pulse(intensity: value, mode: mode)
+                if let style = vibration.requestedStyle { styles.append(style.rawValue) }
+            }
         }
-        XCTAssertEqual(pulses, [0.1, 0.4, 0.65, 1.0])
-        XCTAssertEqual(Set(styles).count, 4)
+        XCTAssertEqual(pulses.count, 8)
+        XCTAssertEqual(Set(styles).count, 2)
+        XCTAssertEqual(Array(styles.prefix(4)), Array(repeating: UIImpactFeedbackGenerator.FeedbackStyle.rigid.rawValue, count: 4))
+        XCTAssertEqual(Array(styles.suffix(4)), Array(repeating: UIImpactFeedbackGenerator.FeedbackStyle.soft.rawValue, count: 4))
+        XCTAssertTrue(zip(pulses.prefix(3), pulses.dropFirst().prefix(3)).allSatisfy { $0 < $1 })
+        XCTAssertTrue(zip(pulses.suffix(4).prefix(3), pulses.suffix(3)).allSatisfy { $0 < $1 })
     }
     func testClipboardAndWordSelectionHaveOnlyTheToolbarReturnButton() throws {
         let (document, _, surface) = fixture(); defer { withExtendedLifetime(document) {} }
@@ -253,7 +254,8 @@ import Security
         XCTAssertEqual(views(surface).filter { $0 is UIButton && $0.accessibilityLabel == "返回键盘" }.count, 1)
         panel.selectText("甲乙丙丁")
         XCTAssertEqual(views(surface).filter { $0 is UIButton && $0.accessibilityLabel == "返回键盘" }.count, 1)
-        XCTAssertNotNil(views(panel).first { $0.accessibilityIdentifier == "clipboard.insertSelection" })
+        XCTAssertNil(views(panel).first { $0.accessibilityIdentifier == "clipboard.insertSelection" })
+        XCTAssertNotNil(views(surface).first { $0.accessibilityIdentifier == "clipboard.insertSelection" && !$0.isHidden })
         try button("tools", in: surface).sendActions(for: .touchUpInside)
         XCTAssertNil(panel.superview)
     }

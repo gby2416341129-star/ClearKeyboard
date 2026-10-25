@@ -40,7 +40,14 @@ struct CustomizationView: View {
                     .accessibilityIdentifier("custom.vibration")
                 if preferences.settings.usesVibration {
                     Divider()
-                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: { preferences.settings.vibrationIntensity = $0; KeyboardVibration.shared.pulse(intensity: $0) }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
+                    Picker("触感", selection: Binding(get: { preferences.settings.resolvedVibrationMode }, set: {
+                        preferences.settings.vibrationMode = $0; previewVibration()
+                    })) {
+                        ForEach(VibrationMode.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented).accessibilityIdentifier("custom.vibrationMode")
+                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: {
+                        preferences.settings.vibrationIntensity = $0; previewVibration()
+                    }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
                 }
             }
             AppCard {
@@ -50,6 +57,11 @@ struct CustomizationView: View {
         }.accessibilityIdentifier("custom.page").tint(AppPalette.accent)
             .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView().tint(AppPalette.accent) }
             .onAppear { preferences.reload() }
+            .background(VibrationPreviewAnchor().allowsHitTesting(false))
+    }
+    private func previewVibration() {
+        KeyboardVibration.shared.pulse(intensity: preferences.settings.resolvedVibrationIntensity,
+                                       mode: preferences.settings.resolvedVibrationMode)
     }
     private func color(at path: WritableKeyPath<KeyboardSettings, String?>) -> UIColor {
         if let hex = preferences.settings[keyPath: path], let rgb = RGBColor(hex: hex) {
@@ -64,6 +76,17 @@ struct CustomizationView: View {
         default: return item.colorPath.flatMap { preferences.settings[keyPath: $0] } ?? "默认"
         }
     }
+}
+
+private struct VibrationPreviewAnchor: UIViewRepresentable {
+    final class Anchor: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { KeyboardVibration.shared.attach(to: self) }
+        }
+    }
+    func makeUIView(context: Context) -> Anchor { Anchor() }
+    func updateUIView(_ view: Anchor, context: Context) {}
 }
 
 struct AppAppearanceDetail: View {

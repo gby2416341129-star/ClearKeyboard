@@ -1,10 +1,23 @@
 import UIKit
 import SwiftUI
+import CoreImage
 
 /// Final user-selected multicolor artwork. Both targets load the same resources;
 /// no template tint, gray overlay, or appearance-dependent color replacement.
 @MainActor enum ToolArtwork {
     private static var cache: [String: UIImage] = [:]
+    private static var edgeCache: [String: UIImage] = [:]
+    private static let edgeContext = CIContext(options: [.cacheIntermediates: false])
+    static func softEdgeImage(symbol: String) -> UIImage? {
+        if let cached = edgeCache[symbol] { return cached }
+        let source = image(symbol: symbol, size: 32)
+        guard let cg = source.cgImage else { return nil }
+        let input = CIImage(cgImage: cg)
+        guard let filter = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: input, kCIInputRadiusKey: 1.7 * source.scale]),
+              let output = filter.outputImage, let blurred = edgeContext.createCGImage(output, from: input.extent) else { return nil }
+        let result = UIImage(cgImage: blurred, scale: source.scale, orientation: .up).withRenderingMode(.alwaysOriginal)
+        edgeCache[symbol] = result; return result
+    }
     private static let opticalBounds: [String: CGRect] = [
         "add": CGRect(x: 8, y: 8, width: 176, height: 176),
         "appearance": CGRect(x: 17, y: 20, width: 162, height: 156),
@@ -149,6 +162,7 @@ import SwiftUI
 
 @MainActor final class ToolIconView: UIView {
     private let ink = UIImageView()
+    private let edgeInk = UIImageView()
     private let compatibilityCheck = CAShapeLayer()
     private var compatibilityEnabled = false
     private var symbol = ""
@@ -156,7 +170,8 @@ import SwiftUI
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear
         isUserInteractionEnabled = false; isAccessibilityElement = false
-        ink.contentMode = .scaleAspectFit; addSubview(ink); setSymbol(symbol)
+        ink.contentMode = .scaleAspectFit; edgeInk.contentMode = .scaleAspectFit
+        edgeInk.layer.opacity = 0; addSubview(edgeInk); addSubview(ink); setSymbol(symbol)
         compatibilityCheck.fillColor = UIColor.clear.cgColor
         compatibilityCheck.strokeColor = UIColor.systemGreen.cgColor
         compatibilityCheck.lineWidth = 2.3
@@ -167,18 +182,26 @@ import SwiftUI
     func setSymbol(_ value: String) {
         guard symbol != value else { return }; symbol = value
         ink.image = ToolArtwork.image(symbol: value, size: 32)
+        edgeInk.image = ToolArtwork.softEdgeImage(symbol: value)
     }
     override func layoutSubviews() {
         super.layoutSubviews()
         let wide = symbol == "keyboard.fill" || symbol == "key.height"
         let side = min(34, bounds.width + (wide ? 4 : 0))
         ink.frame = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+        edgeInk.frame = ink.frame
         let path = UIBezierPath()
         path.move(to: CGPoint(x: side * 0.35, y: side * 0.36))
         path.addLine(to: CGPoint(x: side * 0.46, y: side * 0.47))
         path.addLine(to: CGPoint(x: side * 0.67, y: side * 0.25))
         CATransaction.begin(); CATransaction.setDisableActions(true)
         compatibilityCheck.frame = ink.bounds; compatibilityCheck.path = path.cgPath
+        CATransaction.commit()
+    }
+    func softenEdge(_ amount: CGFloat) {
+        let blend = Float(min(1, max(0, amount)))
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        ink.layer.opacity = 1 - blend; edgeInk.layer.opacity = blend
         CATransaction.commit()
     }
     func setCompatibilityEnabled(_ enabled: Bool) {
@@ -211,20 +234,44 @@ struct ToolIcon: UIViewRepresentable {
 
 @MainActor final class ToolbarScrollView: UIScrollView {
     static let itemPitch: CGFloat = 44
-    var pendingOffset: CGFloat?
-    var expectedContentWidth: CGFloat = 0
+    var pendingOffset: CGFloat? { didSet { if pendingOffset != nil { setNeedsLayout() } } }
+    var expectedContentWidth: CGFloat = 0 { didSet { if expectedContentWidth != oldValue { setNeedsLayout() } } }
+    var edgeIcons: [ToolIconView] = []
+    private let edgeMask = CAGradientLayer()
     override func layoutSubviews() {
         super.layoutSubviews()
-        if abs(contentSize.width - expectedContentWidth) > 0.5 {
+        if abs(contentSize.width - expectedContentWidth) > 0.5 || contentSize.height != bounds.height {
             contentSize = CGSize(width: expectedContentWidth, height: bounds.height)
         }
-        if let saved = pendingOffset, bounds.width > 0, expectedContentWidth > 0 {
+        if let saved = pendingOffset, bounds.width > 0, expectedContentWidth > 0, !isTracking, !isDecelerating {
             pendingOffset = nil
-            setContentOffset(CGPoint(x: alignedOffset(saved), y: 0), animated: false)
+            setContentOffset(CGPoint(x: clampedOffset(saved), y: 0), animated: false)
         }
+        updateEdges()
     }
-    func alignedOffset(_ proposed: CGFloat) -> CGFloat {
-        min(max(0, (proposed / Self.itemPitch).rounded() * Self.itemPitch), max(0, expectedContentWidth - bounds.width))
+    func clampedOffset(_ proposed: CGFloat) -> CGFloat {
+        min(max(0, proposed), max(0, expectedContentWidth - bounds.width))
+    }
+    private func updateEdges() {
+        let overflow = max(0, expectedContentWidth - bounds.width)
+        let left = contentOffset.x > 0.5, right = contentOffset.x < overflow - 0.5
+        let fade = min(26, bounds.width / 3)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if overflow > 0.5, bounds.width > 0 {
+            if layer.mask !== edgeMask { layer.mask = edgeMask }
+            edgeMask.frame = bounds
+            edgeMask.startPoint = CGPoint(x: 0, y: 0.5); edgeMask.endPoint = CGPoint(x: 1, y: 0.5)
+            edgeMask.colors = [UIColor.black.withAlphaComponent(left ? 0 : 1).cgColor, UIColor.black.cgColor,
+                               UIColor.black.cgColor, UIColor.black.withAlphaComponent(right ? 0 : 1).cgColor]
+            edgeMask.locations = [0, NSNumber(value: Double(fade / bounds.width)),
+                                  NSNumber(value: Double(1 - fade / bounds.width)), 1]
+        } else { layer.mask = nil }
+        CATransaction.commit()
+        for icon in edgeIcons {
+            let rect = icon.convert(icon.bounds, to: self)
+            let distance = min(left ? rect.midX - bounds.minX : fade, right ? bounds.maxX - rect.midX : fade)
+            icon.softenEdge(overflow > 0.5 ? 1 - min(fade, max(0, distance)) / max(1, fade) : 0)
+        }
     }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
 }
@@ -245,16 +292,16 @@ struct ToolIcon: UIViewRepresentable {
         if let feedbackAnimator, feedbackAnimator.state == .active {
             feedbackAnimator.stopAnimation(false); feedbackAnimator.finishAnimation(at: .current)
         }
-        let motion = UIViewPropertyAnimator(duration: pressed ? 0.09 : 0.28, dampingRatio: 0.86) {
+        let motion = UIViewPropertyAnimator(duration: pressed ? 0.07 : 0.16, curve: .easeOut) {
             content.transform = pressed && !UIAccessibility.isReduceMotionEnabled
-                ? CGAffineTransform(scaleX: 0.90, y: 0.90) : .identity
-            content.alpha = pressed ? 0.82 : 1
+                ? CGAffineTransform(scaleX: 0.95, y: 0.95) : .identity
+            content.alpha = pressed ? 0.88 : 1
         }
         feedbackAnimator = motion; motion.startAnimation()
     }
     func playActivationFeedback() {
         if feedbackAnimator?.isRunning != true && !UIAccessibility.isReduceMotionEnabled {
-            feedbackContent.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+            feedbackContent.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
         }
         animateFeedback(pressed: false)
     }

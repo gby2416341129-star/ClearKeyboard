@@ -105,18 +105,29 @@ struct LiquidCard: ViewModifier {
         guard emit == nil, view.window != nil, presentationView !== view else { return }
         presentationView = view
         generators.removeAll()
-        for style in [UIImpactFeedbackGenerator.FeedbackStyle.soft, .light, .medium, .heavy] {
+        for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft] {
             let generator: UIImpactFeedbackGenerator
             if #available(iOS 17.5, *) { generator = UIImpactFeedbackGenerator(style: style, view: view) }
             else { generator = UIImpactFeedbackGenerator(style: style) }
             generators[style] = generator; generator.prepare()
         }
     }
-    func prepare() { if emit == nil { generators.values.forEach { $0.prepare() } } }
-    func pulse(intensity: Double) {
+    func prepare(mode: VibrationMode = .crisp) {
+        if emit == nil { generators[mode == .crisp ? .rigid : .soft]?.prepare() }
+    }
+    // Keep the attack characteristic independent of strength. Switching among
+    // soft/light/heavy while moving the slider changed the whole sensation.
+    // Each touch submits one transient, with no delayed tail or release pulse.
+    static func profile(intensity: Double, mode: VibrationMode) -> (style: UIImpactFeedbackGenerator.FeedbackStyle, intensity: CGFloat) {
+        guard intensity.isFinite, intensity > 0 else { return (mode == .crisp ? .rigid : .soft, 0) }
+        let strength = min(1, intensity)
+        return mode == .crisp ? (.rigid, CGFloat(0.22 + 0.78 * strength))
+            : (.soft, CGFloat(0.14 + 0.58 * strength))
+    }
+    func pulse(intensity: Double, mode: VibrationMode = .crisp) {
         guard intensity.isFinite, intensity > 0 else { return }
-        let value = CGFloat(min(1, max(0, intensity)))
-        let style: UIImpactFeedbackGenerator.FeedbackStyle = value < 0.25 ? .soft : value < 0.5 ? .light : value < 0.8 ? .medium : .heavy
+        let profile = Self.profile(intensity: intensity, mode: mode)
+        let value = profile.intensity, style = profile.style
 #if DEBUG
         requestedStyle = style
 #endif

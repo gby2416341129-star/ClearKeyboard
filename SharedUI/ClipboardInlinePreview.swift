@@ -1,50 +1,108 @@
 import UIKit
+import CoreText
 
-/// TextKit lays out a single horizontally scrollable line without rasterizing
-/// an article into an enormous label bitmap. Taps paste; pans only browse.
-@MainActor final class ClipboardInlinePreview: UITextView {
+/// The canvas stays the size of the viewport. Text is shaped once; scrolling
+/// draws only intersecting glyph runs, including the far end of long articles.
+/// A UITextView's internal tiled layout must not compete with our contentSize.
+@MainActor final class ClipboardInlinePreview: UIScrollView {
     var onPaste: (() -> Void)?
-    init() {
-        let storage = NSTextStorage(), layout = NSLayoutManager()
-        let container = NSTextContainer(size: CGSize(width: 10_000_000, height: 36))
-        storage.addLayoutManager(layout); layout.addTextContainer(container)
-        super.init(frame: .zero, textContainer: container)
-        container.widthTracksTextView = false; container.heightTracksTextView = false
-        container.lineFragmentPadding = 0; container.maximumNumberOfLines = 1
-        isEditable = false; isSelectable = false; isUserInteractionEnabled = true
-        backgroundColor = .clear; font = .systemFont(ofSize: 15, weight: .medium); textColor = .label
-        textContainerInset = .zero
+    private let canvas = ClipboardLineCanvas()
+    private(set) var text = ""
+    var renderedLineRect: CGRect { canvas.lineRect }
+    var visibleStringRange: NSRange { canvas.visibleStringRange }
+    var lastDrawnGlyphCount: Int { canvas.lastDrawnGlyphCount }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear; canvas.isUserInteractionEnabled = false
+        addSubview(canvas)
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         alwaysBounceHorizontal = true; alwaysBounceVertical = false
-        contentInsetAdjustmentBehavior = .never; delaysContentTouches = false
-        accessibilityIdentifier = "clipboard.recent.text"
+        isDirectionalLockEnabled = true; contentInsetAdjustmentBehavior = .never
+        delaysContentTouches = false
+        accessibilityIdentifier = "clipboard.recent.text"; isAccessibilityElement = true
+        accessibilityTraits = .button
         let tap = UITapGestureRecognizer(target: self, action: #selector(pasteText))
         tap.require(toFail: panGestureRecognizer); addGestureRecognizer(tap)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: ClipboardInlinePreview, _: UITraitCollection) in
+            view.canvas.shape(view.text); view.setNeedsLayout()
+        }
     }
+    convenience init() { self.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override var canBecomeFirstResponder: Bool { false }
     override func layoutSubviews() {
         super.layoutSubviews()
-        alignLine()
-    }
-    private func alignLine() {
-        guard bounds.height > 0 else { return }
-        layoutManager.ensureLayout(for: textContainer)
-        let line = layoutManager.usedRect(for: textContainer)
-        let scale = window?.screen.scale ?? traitCollection.displayScale
-        let top = (max(0, (bounds.height - line.height) / 2 - line.minY) * max(1, scale)).rounded() / max(1, scale)
-        let inset = UIEdgeInsets(top: top, left: 0, bottom: max(0, bounds.height - top - line.maxY), right: 0)
-        if textContainerInset != inset { textContainerInset = inset }
-        let size = CGSize(width: max(bounds.width, line.maxX + 8), height: bounds.height)
+        let size = CGSize(width: max(bounds.width, canvas.lineWidth + 8), height: bounds.height)
         if contentSize != size { contentSize = size }
-        if contentOffset.y != 0 { setContentOffset(CGPoint(x: contentOffset.x, y: 0), animated: false) }
+        canvas.frame = bounds
+        canvas.viewportOrigin = contentOffset.x
     }
     func show(_ value: String) {
-        let line = value.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: " ")
+        let line = value.components(separatedBy: .newlines).joined(separator: " ").replacingOccurrences(of: "\t", with: " ")
         guard text != line else { return }
-        text = line; accessibilityLabel = value
-        alignLine()
-        setContentOffset(.zero, animated: false)
+        text = line; accessibilityLabel = value; canvas.shape(line)
+        contentSize = CGSize(width: max(bounds.width, canvas.lineWidth + 8), height: bounds.height)
+        setContentOffset(.zero, animated: false); setNeedsLayout()
     }
     @objc private func pasteText() { onPaste?() }
+}
+
+@MainActor private final class ClipboardLineCanvas: UIView {
+    private struct Chunk {
+        let run: CTRun; let range: CFRange; let minX: CGFloat; let maxX: CGFloat
+    }
+    private var line: CTLine?
+    private var chunks: [Chunk] = []
+    private var ascent: CGFloat = 0, descent: CGFloat = 0
+    private(set) var lineWidth: CGFloat = 0
+    private(set) var lastDrawnGlyphCount = 0
+    var viewportOrigin: CGFloat = 0 { didSet { if viewportOrigin != oldValue { setNeedsDisplay() } } }
+    var lineRect: CGRect { CGRect(x: -viewportOrigin, y: (bounds.height - ascent - descent) / 2, width: lineWidth, height: ascent + descent) }
+    var visibleStringRange: NSRange {
+        guard let line else { return NSRange(location: 0, length: 0) }
+        let a = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, viewportOrigin), y: 0))
+        let b = CTLineGetStringIndexForPosition(line, CGPoint(x: min(lineWidth, viewportOrigin + bounds.width), y: 0))
+        guard a != kCFNotFound, b != kCFNotFound else { return NSRange(location: 0, length: 0) }
+        return NSRange(location: min(a,b), length: abs(b-a))
+    }
+    override init(frame: CGRect) {
+        super.init(frame: frame); backgroundColor = .clear; isOpaque = false; contentMode = .redraw
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    func shape(_ value: String) {
+        let font = UIFont.systemFont(ofSize: 15, weight: .medium)
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil),
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): UIColor.label.resolvedColor(with: traitCollection).cgColor]
+        let shaped = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes))
+        line = shaped; chunks = []
+        lineWidth = CGFloat(CTLineGetTypographicBounds(shaped, &ascent, &descent, nil))
+        for run in CTLineGetGlyphRuns(shaped) as! [CTRun] {
+            let count = CTRunGetGlyphCount(run)
+            for start in stride(from: 0, to: count, by: 64) {
+                let length = min(64, count - start), range = CFRange(location: start, length: min(64, count - start))
+                var positions = [CGPoint](repeating: .zero, count: length)
+                var advances = [CGSize](repeating: .zero, count: length)
+                CTRunGetPositions(run, range, &positions); CTRunGetAdvances(run, range, &advances)
+                let left = positions.map(\.x).min() ?? 0
+                let right = zip(positions, advances).map { $0.0.x + $0.1.width }.max() ?? left
+                chunks.append(Chunk(run: run, range: range, minX: left - 30, maxX: right + 30))
+            }
+        }
+        setNeedsDisplay()
+    }
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        context.saveGState(); defer { context.restoreGState() }
+        context.textMatrix = .identity
+        context.translateBy(x: -viewportOrigin, y: (bounds.height + ascent - descent) / 2)
+        context.scaleBy(x: 1, y: -1); context.textPosition = .zero
+        lastDrawnGlyphCount = 0
+        let right = viewportOrigin + bounds.width
+        for chunk in chunks where chunk.maxX >= viewportOrigin && chunk.minX <= right {
+            context.saveGState()
+            context.textPosition = .zero
+            CTRunDraw(chunk.run, context, chunk.range)
+            context.restoreGState(); lastDrawnGlyphCount += chunk.range.length
+        }
+    }
 }

@@ -13,6 +13,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     let keyHeight: Double?
     let vibrationEnabled: Bool?
     let vibrationIntensity: Double?
+    let vibrationMode: VibrationMode?
     let hand: HandMode?
     let oneHandWidth: Double?
     let toolbar: [ToolbarTool]?
@@ -33,6 +34,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         candidateColorHex = value.candidateColorHex; candidateTextSize = value.candidateTextSize
         keyHeight = value.keyHeight
         vibrationEnabled = value.usesVibration; vibrationIntensity = value.resolvedVibrationIntensity
+        vibrationMode = value.resolvedVibrationMode
         hand = value.hand; oneHandWidth = value.oneHandFraction; toolbar = value.toolbar
         localPinyinComposition = value.localPinyinComposition == true
         automaticClipboard = value.capturesClipboard; clipboardLifetimeHours = value.clipboardLifetimeHours
@@ -51,6 +53,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         if let keyHeight { value.keyHeight = keyHeight }
         if let vibrationEnabled { value.vibrationEnabled = vibrationEnabled }
         if let vibrationIntensity { value.vibrationIntensity = vibrationIntensity }
+        if let vibrationMode { value.vibrationMode = vibrationMode }
         if let hand { value.hand = hand }
         if let oneHandWidth { value.oneHandWidth = oneHandWidth }
         if let toolbar { value.toolbar = toolbar }

@@ -104,7 +104,7 @@ private final class AppearancePersistenceProbe {
         XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(data).get(), value)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
-        XCTAssertEqual(Set(snapshot.keys), Set(["accent", "keyGlassStrength", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight", "vibrationEnabled", "vibrationIntensity", "hand", "oneHandWidth", "toolbar", "localPinyinComposition", "automaticClipboard", "clipboardLifetimeHours"]))
+        XCTAssertEqual(Set(snapshot.keys), Set(["accent", "keyGlassStrength", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight", "vibrationEnabled", "vibrationIntensity", "vibrationMode", "hand", "oneHandWidth", "toolbar", "localPinyinComposition", "automaticClipboard", "clipboardLifetimeHours"]))
         XCTAssertNil(snapshot["language"]); XCTAssertNil(snapshot["learnChoices"]); XCTAssertNotNil(snapshot["clipboardLifetimeHours"])
         XCTAssertLessThan(data.count, 2_048)
     }

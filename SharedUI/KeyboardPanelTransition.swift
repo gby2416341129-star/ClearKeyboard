@@ -1,12 +1,13 @@
 import UIKit
 
-/// Keep the last displayed body visible while its destination is laid out.
-/// UIKit's render-server snapshot also captures an interrupted crossfade, so
-/// a second tap starts at the image on screen instead of restarting a page.
+/// A short fade-through keeps the toolbar and panel bounds stationary. The
+/// previous page clears early, rather than showing two readable pages ghosted
+/// over one another for a quarter second. New taps interrupt from the display.
 @MainActor final class KeyboardPanelTransition {
     private var cover: UIView?
     private weak var destination: UIView?
     private var animator: UIViewPropertyAnimator?
+    private var outgoingAnimator: UIViewPropertyAnimator?
     private var revision = 0
     var isAnimating: Bool { animator?.isRunning == true }
 
@@ -31,22 +32,25 @@ import UIKit
         host.bringSubviewToFront(cover)
         content.alpha = 0
         let token = revision
-        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.2, y: 0),
-                                             controlPoint2: CGPoint(x: 0, y: 1))
-        let motion = UIViewPropertyAnimator(duration: 0.24, timingParameters: timing)
+        let timing = UICubicTimingParameters(controlPoint1: CGPoint(x: 0.16, y: 0),
+                                             controlPoint2: CGPoint(x: 0.32, y: 1))
+        let motion = UIViewPropertyAnimator(duration: 0.13, timingParameters: timing)
+        let outgoing = UIViewPropertyAnimator(duration: 0.07, curve: .easeOut) { cover.alpha = 0 }
+        outgoingAnimator = outgoing
         animator = motion
-        motion.addAnimations { content.alpha = 1; cover.alpha = 0 }
+        motion.addAnimations { content.alpha = 1 }
         motion.addCompletion { [weak self, weak content] _ in
             guard let self, self.revision == token else { return }
             content?.alpha = 1; cover.removeFromSuperview()
-            self.cover = nil; self.animator = nil; self.destination = nil
+            self.cover = nil; self.animator = nil; self.outgoingAnimator = nil; self.destination = nil
         }
-        motion.startAnimation()
+        outgoing.startAnimation(); motion.startAnimation(afterDelay: 0.02)
     }
 
     func cancel() {
         revision += 1
         animator?.stopAnimation(true); animator = nil
+        outgoingAnimator?.stopAnimation(true); outgoingAnimator = nil
         destination?.alpha = 1; destination = nil
         cover?.removeFromSuperview(); cover = nil
     }

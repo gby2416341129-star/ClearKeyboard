@@ -133,6 +133,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
     var onInputChange: (() -> Void)?
+    var onContentKey: (() -> Void)?
     private(set) var hasMoreCandidates = false
     private var loadingMoreCandidates = false
     private var browsedContext: CandidateContext?
@@ -553,6 +554,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
         page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
     }
     func handle(_ action: KeyAction) {
+        switch action {
+        case .text, .literal, .space, .enter: onContentKey?()
+        default: break
+        }
         // Remote editor calls may service another UIKit key callback before
         // returning. Finish the current edit before applying that later key;
         // otherwise its spelling can be cleared or consumed by the old choice.

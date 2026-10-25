@@ -2,6 +2,11 @@ import Foundation
 
 public enum InputLanguage: String, Codable, CaseIterable { case chinese, english }
 public enum KeyboardPage: String, Codable { case letters, numbers, symbols }
+public enum VibrationMode: String, Codable, CaseIterable, Identifiable {
+    case crisp, soft
+    public var id: String { rawValue }
+    public var title: String { self == .crisp ? "清脆" : "柔和" }
+}
 public enum HandMode: String, Codable, CaseIterable, Identifiable {
     case full, left, right
     public var id: String { rawValue }
@@ -57,6 +62,8 @@ public struct KeyboardSettings: Codable, Equatable {
     public var selectionLearningVersion: Int? = 1
     public var vibrationEnabled: Bool? = nil
     public var vibrationIntensity: Double? = nil
+    public var vibrationMode: VibrationMode? = nil
+    public var resolvedVibrationMode: VibrationMode { vibrationMode ?? .crisp }
     public var usesVibration: Bool { vibrationEnabled ?? false }
     public var resolvedVibrationIntensity: Double { vibrationIntensity ?? 0.45 }
     public var autoCapitalization = true

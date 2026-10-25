@@ -26,15 +26,21 @@ import ImageIO
     private var dragStart: Int?
     private var dragAdds = true
     var onClose: (() -> Void)?
-    init(model: KeyboardModel, showPhrases: Bool = false) {
+    var onSelectionStateChanged: (() -> Void)?
+    var isChoosing: Bool { selectionSource != nil }
+    var canFinishSelection: Bool { !selectedTokens.isEmpty }
+    private let completionInToolbar: Bool
+    init(model: KeyboardModel, showPhrases: Bool = false, completionInToolbar: Bool = false) {
         self.model = model
+        self.completionInToolbar = completionInToolbar
         pasteControl = ClipboardPasteButton(capture: model.clipboardCapture)
         url = SharedStorage.clipboardURL(allowShared: true)
         phrasesURL = url.deletingLastPathComponent().appendingPathComponent("common-phrases.json")
         store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL)
         super.init(frame: .zero)
         accessibilityIdentifier = "clipboard.panel"
-        [tabs, more, send, table, words, empty, pasteControl].forEach(addSubview)
+        [tabs, more, table, words, empty, pasteControl].forEach(addSubview)
+        if !completionInToolbar { addSubview(send) }
         pasteControl.isUserInteractionEnabled = model.document?.fullAccess == true
         tabs.accessibilityIdentifier = "clipboard.tabs"
         tabs.selectedSegmentIndex = showPhrases ? 1 : 0
@@ -44,7 +50,7 @@ import ImageIO
         send.setTitle("完成", for: .normal); send.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         send.accessibilityIdentifier = "clipboard.insertSelection"
         send.addAction(UIAction { [weak self] _ in
-            self?.selectionSession = nil; self?.onClose?()
+            self?.finishSelection()
         }, for: .touchUpInside)
         more.backgroundColor = .tertiarySystemFill; more.layer.cornerRadius = 17
         table.prepareForKeyboardPanel(); table.separatorStyle = .none
@@ -73,7 +79,8 @@ import ImageIO
         more.frame = CGRect(x: bounds.width - 34, y: 5, width: 34, height: 34)
         tabs.frame = CGRect(x: max(40, (bounds.width - 164) / 2), y: 7, width: min(164, max(0, bounds.width - 80)), height: 31)
         send.frame = CGRect(x: bounds.width - 56, y: 5, width: 56, height: 34)
-        let content = CGRect(x: 0, y: 51, width: bounds.width, height: max(0, bounds.height - 51))
+        let top: CGFloat = isChoosing && completionInToolbar ? 4 : 51
+        let content = CGRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
         let recoveryFooter = manualReadFailed && !items.isEmpty && tabs.selectedSegmentIndex == 0 && selectionSource == nil
         table.frame = CGRect(x: content.minX, y: content.minY, width: content.width, height: max(0, content.height - (recoveryFooter ? 82 : 0)))
         words.frame = content
@@ -88,13 +95,13 @@ import ImageIO
     private func reload() {
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3_600)
         let choosing = selectionSource != nil
-        tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing
+        tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing || completionInToolbar
         send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
         empty.isHidden = choosing || (!items.isEmpty && !manualReadFailed)
         empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : manualReadFailed ? "本次未读到内容，可点下方粘贴收录" : "暂无复制内容，可粘贴收录"
         pasteControl.isHidden = choosing || tabs.selectedSegmentIndex == 1 || (!items.isEmpty && !manualReadFailed) || model.document?.fullAccess != true
         more.menu = overflowMenu()
-        table.reloadData(); words.reloadData(); setNeedsLayout()
+        table.reloadData(); words.reloadData(); setNeedsLayout(); onSelectionStateChanged?()
     }
     private func overflowMenu() -> UIMenu {
         let lifetime = UIMenu(title: "保留时间", children: [("1 天", 24.0), ("7 天", 168.0), ("30 天", 720.0), ("永久", 0.0)].map { title, hours in
@@ -175,6 +182,9 @@ import ImageIO
         selectionSession = model.beginClipboardSelection(); reload()
         words.setContentOffset(.zero, animated: false)
     }
+    func finishSelection() {
+        selectionSession = nil; onClose?()
+    }
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { tokens.count }
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "token", for: indexPath) as! ClipboardTokenCell
@@ -203,7 +213,7 @@ import ImageIO
         for case let cell as ClipboardTokenCell in words.visibleCells {
             if let index = words.indexPath(for: cell)?.item { configure(cell, at: index) }
         }
-        send.isEnabled = !selectedTokens.isEmpty; return true
+        send.isEnabled = !selectedTokens.isEmpty; onSelectionStateChanged?(); return true
     }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         var next = selectedTokens

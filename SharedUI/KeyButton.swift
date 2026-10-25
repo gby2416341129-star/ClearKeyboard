@@ -35,6 +35,7 @@ final class KeyButton: UIButton {
     var accent = UIColor.systemTeal
     private var vibrationEnabled = false
     private var vibrationIntensity: Double = 0.45
+    private var vibrationMode: VibrationMode = .crisp
     private let vibration: KeyboardVibration
     private var interactionActive = false
     private var shiftSymbol = ""
@@ -156,12 +157,13 @@ final class KeyButton: UIButton {
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; vibrationEnabled = settings.usesVibration; vibrationIntensity = settings.resolvedVibrationIntensity
+        vibrationMode = settings.resolvedVibrationMode
         choices = KeyAlternatives.choices(for: key, language: settings.language)
         choiceGesture?.isEnabled = choices.count > 1
         accessibilityCustomActions = choices.map { value in
             UIAccessibilityCustomAction(name: "输入 " + value) { [weak self] _ in self?.onAction?(.literal(value)); return true }
         }
-        if vibrationEnabled { vibration.prepare() }
+        if vibrationEnabled { vibration.prepare(mode: vibrationMode) }
         appearanceSettings = settings; applyAppearance(settings)
         pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
         updateShift(active: active, capsLocked: capsLocked)
@@ -202,7 +204,7 @@ final class KeyButton: UIButton {
         if vibrationEnabled {
             var host: UIView = self
             while let parent = host.superview, !(host is KeyboardSurface) { host = parent }
-            vibration.attach(to: host); vibration.pulse(intensity: vibrationIntensity)
+            vibration.attach(to: host); vibration.pulse(intensity: vibrationIntensity, mode: vibrationMode)
         }
         guard key.action == .delete else { return }
         let start = DispatchWorkItem { [weak self] in

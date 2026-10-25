@@ -13,6 +13,7 @@ import SwiftUI
     private var toolbarWidth: NSLayoutConstraint?
     private var toolbarButtons: [ToolbarTool: FeedbackButton] = [:]
     private var toolbarBrand: UIButton?
+    private let selectionDone = FeedbackButton(type: .system)
     private var toolbarNavigationState = ""
     private var editorTiles: [ToolbarTool: ToolTileButton] = [:]
     private var activeTool: ToolbarTool?
@@ -35,7 +36,7 @@ import SwiftUI
     private let clipboardGlass = LiquidGlassView(radius: 18, clear: true)
     private let clipboardPaste = UIButton(type: .system)
     private var recentClip: Clip?
-    private var dismissedClip: UUID?
+    private let clipboardSuggestionState: ClipboardSuggestionState
     private var nativeAppearance: KeyboardAppearancePanelView?
     private var keysContainer: UIView { keyGlassGroup }
     private var movingCursor = false
@@ -81,8 +82,9 @@ import SwiftUI
     private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
     var desiredHeight: CGFloat { metrics.contentHeight }
 
-    init(model: KeyboardModel, systemBacked: Bool = false, toolbarVibration: KeyboardVibration? = nil) {
+    init(model: KeyboardModel, systemBacked: Bool = false, toolbarVibration: KeyboardVibration? = nil, suggestionState: ClipboardSuggestionState? = nil) {
         self.model = model; self.systemBacked = systemBacked
+        clipboardSuggestionState = suggestionState ?? ClipboardSuggestionState(defaults: SharedStorage.defaults(allowShared: model.document?.fullAccess == true))
         self.toolbarVibration = toolbarVibration ?? .shared
         super.init(frame: .zero)
         isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked
@@ -96,7 +98,7 @@ import SwiftUI
         toolbarScroll.delaysContentTouches = false; toolbarScroll.canCancelContentTouches = true
         toolbarScroll.delegate = self; toolbarScroll.alwaysBounceHorizontal = true
         toolbarScroll.pendingOffset = toolbarOffset
-        toolbarScroll.backgroundColor = UIColor(white: 0.5, alpha: 0.01)
+        toolbarScroll.backgroundColor = .clear
         toolbarScroll.contentInsetAdjustmentBehavior = .never
         toolbarScroll.addInteraction(UIDropInteraction(delegate: self))
         toolbarShortcuts.axis = .horizontal; toolbarShortcuts.alignment = .center; toolbarShortcuts.spacing = 10
@@ -113,6 +115,16 @@ import SwiftUI
         ])
         toolbarWidth = toolbarScroll.widthAnchor.constraint(equalToConstant: 0)
         toolbarWidth?.priority = .defaultHigh; toolbarWidth?.isActive = true
+        selectionDone.setTitle("完成", for: .normal)
+        selectionDone.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        selectionDone.accessibilityIdentifier = "clipboard.insertSelection"
+        selectionDone.isHidden = true
+        let completionWidth = selectionDone.widthAnchor.constraint(equalToConstant: 44)
+        completionWidth.priority = .init(999); completionWidth.isActive = true
+        selectionDone.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        selectionDone.addAction(UIAction { [weak self] _ in
+            self?.toolbarPulse(); (self?.panel as? ClipboardPanel)?.finishSelection()
+        }, for: .touchUpInside)
         addSubview(candidateScroll)
         localPreedit.font = .systemFont(ofSize: 12); localPreedit.textColor = .secondaryLabel
         localPreedit.numberOfLines = 1; localPreedit.lineBreakMode = .byTruncatingMiddle
@@ -152,6 +164,7 @@ import SwiftUI
             guard let self else { return }
             self.compositionChanged(); self.renderInput()
         }
+        model.onContentKey = { [weak self] in self?.consumeClipboardForTyping() }
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.appearanceSignature = ""; self?.render() }
@@ -182,7 +195,7 @@ import SwiftUI
               requestedCharacterMode != model.characterSelectionMode else { return }
         if (requestedLiteralRevision != model.literalInputRevision || (requestedSpelling != raw && !raw.isEmpty)),
            let clip = recentClip {
-            dismissedClip = clip.id; recentClip = nil
+            clipboardSuggestionState.consume(clip, revision: UIPasteboard.general.changeCount); recentClip = nil
         }
         requestedSpelling = raw
         requestedLiteralRevision = model.literalInputRevision
@@ -216,16 +229,15 @@ import SwiftUI
             sideRail.frame = layout.sideRail
         }
         layoutCandidateHeader()
-        renderCandidates()
         panel?.frame = layout.panel
         let contentWidth = CGFloat(toolbarButtons.count * 34 + max(0, toolbarButtons.count - 1) * 10 + 11)
         toolbarScroll.expectedContentWidth = contentWidth
-        // Brand (34pt) and the stack's two 10pt gaps also occupy the row.
-        let available = max(0, layout.header.width - 54)
-        let visibleSlots = max(1, floor((available - 1) / ToolbarScrollView.itemPitch))
-        toolbarWidth?.constant = min(contentWidth, min(available, visibleSlots * ToolbarScrollView.itemPitch + 1))
+        // The completion action shares the existing header. The words start
+        // directly below it; no second empty header is reserved by the panel.
+        let available = max(0, layout.header.width - (selectionDone.isHidden ? 54 : 108))
+        let width = min(contentWidth, available)
+        if toolbarWidth?.constant != width { toolbarWidth?.constant = width }
         toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
-        toolbarScroll.setNeedsLayout(); toolbarScroll.layoutIfNeeded()
     }
     func render() {
         guard initialized else { return }
@@ -257,6 +269,7 @@ import SwiftUI
                     }
                     button.onPrepare = { [weak self, weak button] action in
                         guard let self, let button else { return }
+                        switch action { case .text, .literal: self.consumeClipboardForTyping(); default: break }
                         if case .text = action { self.beginContact(button, action: action) }
                         else if action == .space || action == .enter { self.beginContact(button, action: action) }
                         self.model.prepare(action)
@@ -286,10 +299,11 @@ import SwiftUI
         if toolSignature != toolbarSignature { toolbarSignature = toolSignature; rebuildToolbar() }
         updateToolbarState()
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
-        let style = "\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(traitCollection.userInterfaceStyle.rawValue)"
+        let style = "\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
             appearanceSignature = style; tintColor = settings.accentInkColor
+            (panel as? KeyboardHapticPanel)?.apply(settings)
         }
         let presentation = KeyPresentation(uppercase: uppercase, chinese: settings.language == .chinese,
             shifted: model.shifted, capsLocked: model.capsLocked,
@@ -445,7 +459,7 @@ import SwiftUI
             brand.accessibilityIdentifier = "toolbar.tools"; toolbarBrand = brand
             toolbar.addArrangedSubview(brand)
             let spacer = UIView(); spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            toolbar.addArrangedSubview(spacer); toolbar.addArrangedSubview(toolbarScroll)
+            toolbar.addArrangedSubview(spacer); toolbar.addArrangedSubview(toolbarScroll); toolbar.addArrangedSubview(selectionDone)
         }
         let tools = model.settings.toolbar.filter { $0 != .language }
         let animate = window != nil && !UIAccessibility.isReduceMotionEnabled
@@ -479,6 +493,7 @@ import SwiftUI
                 toolbarShortcuts.removeArrangedSubview(button); toolbarShortcuts.insertArrangedSubview(button, at: index)
             }
         }
+        toolbarScroll.edgeIcons = tools.compactMap { toolbarButtons[$0]?.subviews.compactMap { $0 as? ToolIconView }.first }
         toolbarScroll.pendingOffset = toolbarOffset
         updateToolbarState(); setNeedsLayout()
         if animate {
@@ -486,6 +501,9 @@ import SwiftUI
         }
     }
     private func updateToolbarState() {
+        let selectionPanel = panel as? ClipboardPanel
+        selectionDone.isHidden = selectionPanel?.isChoosing != true
+        selectionDone.isEnabled = selectionPanel?.canFinishSelection == true
         let state = "\(toolbarEditing)-\(panel != nil)"
         if state != toolbarNavigationState, let brand = toolbarBrand {
             toolbarNavigationState = state
@@ -522,29 +540,28 @@ import SwiftUI
         for (tool, tile) in editorTiles { tile.configureManagement(title: tool.title, pinned: model.settings.toolbar.contains(tool)) }
     }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { rememberToolbarOffset() }
+        if scrollView === toolbarScroll, !decelerate { rememberToolbarOffset() }
     }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { rememberToolbarOffset() }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === toolbarScroll { rememberToolbarOffset() } }
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === toolbarScroll else { return }
-        targetContentOffset.pointee.x = toolbarScroll.alignedOffset(targetContentOffset.pointee.x)
+        targetContentOffset.pointee.x = toolbarScroll.clampedOffset(targetContentOffset.pointee.x)
     }
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { toolbarScroll.pendingOffset = nil }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if scrollView === toolbarScroll { toolbarScroll.pendingOffset = nil }
+    }
     private func rememberToolbarOffset() {
         toolbarScroll.pendingOffset = nil
-        toolbarOffset = toolbarScroll.alignedOffset(toolbarScroll.contentOffset.x)
-        if abs(toolbarOffset - toolbarScroll.contentOffset.x) > 0.5 {
-            toolbarScroll.setContentOffset(CGPoint(x: toolbarOffset, y: 0), animated: window != nil && !UIAccessibility.isReduceMotionEnabled)
-        }
+        toolbarOffset = toolbarScroll.clampedOffset(toolbarScroll.contentOffset.x)
         UserDefaults.standard.set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
     }
     private func editorPulse() {
         KeyboardVibration.shared.attach(to: self)
-        KeyboardVibration.shared.pulse(intensity: 0.42)
+        KeyboardVibration.shared.pulse(intensity: model.settings.resolvedVibrationIntensity, mode: model.settings.resolvedVibrationMode)
     }
     private func toolbarPulse() {
         toolbarVibration.attach(to: self)
-        toolbarVibration.pulse(intensity: model.settings.resolvedVibrationIntensity)
+        toolbarVibration.pulse(intensity: model.settings.resolvedVibrationIntensity, mode: model.settings.resolvedVibrationMode)
     }
     func setToolPinned(_ tool: ToolbarTool, pinned: Bool) {
         guard tool != .language else { return }
@@ -734,10 +751,7 @@ import SwiftUI
             model.settings.hand = model.settings.hand == .right ? .left : .right
         } else if tool == .language { closePanel(); model.toggleLanguage() }
         else if tool == .compatibility { toggleLocalPinyinComposition() }
-        else if tool == .vibration {
-            model.settings.vibrationEnabled = !model.settings.usesVibration
-            if toolboxVisible { showToolbox() }
-        } else if let item = appearanceItem(for: tool) {
+        else if let item = appearanceItem(for: tool) {
             showPanel(.appearance, detail: item)
             activeTool = tool; updateToolbarState()
         } else { showPanel(tool) }
@@ -806,9 +820,9 @@ import SwiftUI
     private func reloadClipboardSuggestion(fresh: Bool = true) {
         let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true))
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3600)
-        if fresh { dismissedClip = nil }
         recentClip = store.clips.first.flatMap {
-            $0.id != dismissedClip && (fresh || Date().timeIntervalSince($0.createdAt) < 900) ? $0 : nil
+            !clipboardSuggestionState.isConsumed($0, revision: UIPasteboard.general.changeCount) &&
+                (fresh || Date().timeIntervalSince($0.createdAt) < 900) ? $0 : nil
         }
         clipboardPaste.configuration?.title = nil
         clipboardText.show(recentClip?.text ?? "")
@@ -818,13 +832,18 @@ import SwiftUI
     private func showRecentSelection() {
         guard let clip = recentClip, clip.attachment == nil else { showPanel(.clipboard); return }
         let text = clip.text
-        dismissedClip = clip.id; recentClip = nil
+        clipboardSuggestionState.consume(clip, revision: UIPasteboard.general.changeCount); recentClip = nil
         showPanel(.clipboard)
         (panel as? ClipboardPanel)?.selectText(text)
     }
     private func dismissRecentClip() {
-        if let id = recentClip?.id { dismissedClip = id }
+        guard let clip = recentClip else { return }
+        clipboardSuggestionState.consume(clip, revision: UIPasteboard.general.changeCount)
         recentClip = nil; renderCandidates()
+    }
+    private func consumeClipboardForTyping() {
+        clipboardSuggestionState.consumeInputRevision(UIPasteboard.general.changeCount)
+        dismissRecentClip()
     }
     private func pasteRecentClip() {
         guard let clip = recentClip else { return }
@@ -917,9 +936,14 @@ import SwiftUI
         preparePanelTransition(); panelKind = kind; activeTool = kind
         if kind == .clipboard || kind == .phrases {
             model.startClipboardCapture()
-            let content = ClipboardPanel(model: model, showPhrases: kind == .phrases)
+            let content = ClipboardPanel(model: model, showPhrases: kind == .phrases, completionInToolbar: true)
             content.onClose = { [weak self] in self?.closePanel() }
+            content.onSelectionStateChanged = { [weak self] in self?.updateToolbarState(); self?.setNeedsLayout() }
             addSubview(content); panel = content; keyGlassGroup.isHidden = true; finishPanelTransition(); return
+        }
+        if kind == .vibration {
+            let content = KeyboardHapticPanel(current: { [weak model] in model?.settings ?? KeyboardSettings() }, save: { [weak model] in model?.settings = $0 })
+            panel = content; addSubview(content); finishPanelTransition(); return
         }
         if kind == .appearance {
             let content = appearancePanelCache ?? KeyboardAppearancePanelView(current: { [weak model] in model?.settings ?? KeyboardSettings() },

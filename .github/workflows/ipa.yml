@@ -25,7 +25,7 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       CLEAR_UI_HOTFIX: '1'
       CLEAR_VISUAL_FAST: '1'
-      # Build 64: focused toolbar feedback, interrupted transitions and compatibility state.
+      # Build 65: clipboard browsing and lifecycle, continuous toolbar, compact selection, tuned haptic modes.
       CLEAR_USER_DEVICE_REVIEW: '1'
       CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
       CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '26'
@@ -348,8 +348,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.61')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 64')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.62')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 65')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist
