@@ -226,9 +226,13 @@ import Security
                 XCTAssertTrue(scroll.bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame))
             }
         }
+        XCTAssertTrue(surface.beginToolbarDrag(.clipboard))
+        scroll.setContentOffset(CGPoint(x: 91, y: 0), animated: false)
+        surface.finishToolbarDrag()
+        XCTAssertEqual(scroll.contentOffset.x, 88, accuracy: 0.5)
         let (secondDocument, _, restored) = fixture(); defer { withExtendedLifetime(secondDocument) {} }
         let second = try XCTUnwrap(views(restored).compactMap { $0 as? ToolbarScrollView }.first)
-        XCTAssertEqual(second.contentOffset.x, 44, accuracy: 0.5)
+        XCTAssertEqual(second.contentOffset.x, 88, accuracy: 0.5)
     }
     func testVibrationStrengthUsesDistinctActuatorStylesAndZeroIsSilent() {
         var pulses: [CGFloat] = [], styles: [Int] = []
@@ -240,5 +244,16 @@ import Security
         }
         XCTAssertEqual(pulses, [0.1, 0.4, 0.65, 1.0])
         XCTAssertEqual(Set(styles).count, 4)
+    }
+    func testClipboardAndWordSelectionHaveOnlyTheToolbarReturnButton() throws {
+        let (document, _, surface) = fixture(); defer { withExtendedLifetime(document) {} }
+        try button("clipboard", in: surface).sendActions(for: .touchUpInside)
+        let panel = try XCTUnwrap(views(surface).compactMap { $0 as? ClipboardPanel }.first)
+        XCTAssertEqual(views(surface).filter { $0 is UIButton && $0.accessibilityLabel == "返回键盘" }.count, 1)
+        panel.selectText("甲乙丙丁")
+        XCTAssertEqual(views(surface).filter { $0 is UIButton && $0.accessibilityLabel == "返回键盘" }.count, 1)
+        XCTAssertNotNil(views(panel).first { $0.accessibilityIdentifier == "clipboard.insertSelection" })
+        try button("tools", in: surface).sendActions(for: .touchUpInside)
+        XCTAssertNil(panel.superview)
     }
 }

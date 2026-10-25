@@ -11,7 +11,6 @@ import ImageIO
     private var phrases: ClipboardStore
     private var items: [Clip] { tabs.selectedSegmentIndex == 1 ? phrases.clips : store.clips }
     private let tabs = UISegmentedControl(items: ["剪贴板", "常用语"])
-    private let back = UIButton(type: .system)
     private let more = UIButton(type: .system)
     private let send = UIButton(type: .system)
     private let empty = UILabel()
@@ -35,17 +34,11 @@ import ImageIO
         store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL)
         super.init(frame: .zero)
         accessibilityIdentifier = "clipboard.panel"
-        [tabs, back, more, send, table, words, empty, pasteControl].forEach(addSubview)
+        [tabs, more, send, table, words, empty, pasteControl].forEach(addSubview)
         pasteControl.isUserInteractionEnabled = model.document?.fullAccess == true
         tabs.accessibilityIdentifier = "clipboard.tabs"
         tabs.selectedSegmentIndex = showPhrases ? 1 : 0
         tabs.addAction(UIAction { [weak self] _ in self?.reload() }, for: .valueChanged)
-        back.setImage(ToolArtwork.image(symbol: "chevron.up", size: 24), for: .normal); back.accessibilityLabel = "返回键盘"
-        back.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            if self.selectionSource != nil { self.selectionSource = nil; self.selectedTokens = []; self.selectionSession = nil; self.reload() }
-            else { self.onClose?() }
-        }, for: .touchUpInside)
         more.setImage(ToolArtwork.image(symbol: "ellipsis", size: 24), for: .normal); more.accessibilityLabel = "剪贴板选项"
         more.showsMenuAsPrimaryAction = true
         send.setTitle("完成", for: .normal); send.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
@@ -53,9 +46,7 @@ import ImageIO
         send.addAction(UIAction { [weak self] _ in
             self?.selectionSession = nil; self?.onClose?()
         }, for: .touchUpInside)
-        for button in [back, more] {
-            button.backgroundColor = .tertiarySystemFill; button.layer.cornerRadius = 17
-        }
+        more.backgroundColor = .tertiarySystemFill; more.layer.cornerRadius = 17
         table.prepareForKeyboardPanel(); table.separatorStyle = .none
         table.dataSource = self; table.delegate = self; table.estimatedRowHeight = 66; table.rowHeight = UITableView.automaticDimension
         table.register(ClipboardCardCell.self, forCellReuseIdentifier: "clip")
@@ -79,7 +70,6 @@ import ImageIO
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        back.frame = CGRect(x: 0, y: 5, width: 34, height: 34)
         more.frame = CGRect(x: bounds.width - 34, y: 5, width: 34, height: 34)
         tabs.frame = CGRect(x: max(40, (bounds.width - 164) / 2), y: 7, width: min(164, max(0, bounds.width - 80)), height: 31)
         send.frame = CGRect(x: bounds.width - 56, y: 5, width: 56, height: 34)

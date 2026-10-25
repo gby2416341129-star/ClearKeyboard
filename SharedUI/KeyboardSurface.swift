@@ -570,11 +570,13 @@ import SwiftUI
         toolbarDragActive = true; toolbarTapBlockedUntil = .infinity; return true
     }
     func finishToolbarDrag() {
+        let wasDragging = toolbarDragActive || draggedTool != nil
         toolbarEdgeTimer?.invalidate(); toolbarEdgeTimer = nil
         if let tool = draggedTool { toolbarButtons[tool]?.alpha = 1 }
         dragIcon?.removeFromSuperview(); dragIcon = nil; draggedTool = nil
         toolbarDragActive = false; toolbarTapBlockedUntil = CACurrentMediaTime() + 0.18
         toolbarSignature = ""; render()
+        if wasDragging { rememberToolbarOffset() }
     }
     @objc private func toolbarHold(_ gesture: UILongPressGestureRecognizer) {
         guard let identifier = gesture.view?.accessibilityIdentifier,
