@@ -976,8 +976,9 @@ import SwiftUI
         XCTAssertTrue(field.text.hasPrefix("原文🙂")); XCTAssertEqual(proxy.deleteWrites, 0)
     }
     func testLongClearAndUndoRestoreTheOriginalSelectionInRealUIKit() async throws {
-        let field = UITextView(); let text = String(repeating: "中文😀", count: 1700); field.text = text
-        let range = NSRange(location: 12, length: 12); field.selectedRange = range
+        let field = UITextView(); field.autocorrectionType = .no; field.spellCheckingType = .no
+        let text = "前文👨‍👩‍👧‍👦e\u{301}" + String(repeating: "a", count: 4_200) + "尾文😀"; field.text = text
+        let range = NSRange(location: 40, length: 12); field.selectedRange = range
         let proxy = UIKitFieldDocumentProxy(field), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
         let value: DeletedInput? = await withCheckedContinuation { continuation in
@@ -988,7 +989,8 @@ import SwiftUI
         XCTAssertEqual(field.text, text); XCTAssertEqual(field.selectedRange, range)
     }
     func testBoundedContextClearRecoversWholeDocumentAndSelection() async throws {
-        let field = UITextView(); let text = String(repeating: "甲乙😀\n段落", count: 70); field.text = text
+        let field = UITextView(); field.autocorrectionType = .no; field.spellCheckingType = .no
+        let text = String(repeating: "甲乙😀\n段落", count: 70); field.text = text
         let selection = NSRange(location: 14, length: 7); field.selectedRange = selection
         let proxy = UIKitFieldDocumentProxy(field); proxy.contextLimit = 30
         let controller = ProxyKeyboardController(); controller.proxy = proxy; controller.loadViewIfNeeded()
@@ -999,6 +1001,10 @@ import SwiftUI
         XCTAssertEqual(try XCTUnwrap(value).text, text)
         XCTAssertTrue(controller.restoreInput(try XCTUnwrap(value)))
         XCTAssertEqual(field.text, text); XCTAssertEqual(field.selectedRange, selection)
+        controller.insert("替换")
+        let ns = text as NSString
+        XCTAssertEqual(field.text, ns.substring(to: selection.location) + "替换" + ns.substring(from: NSMaxRange(selection)))
+        XCTAssertNil(field.markedTextRange)
     }
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<200 { if condition() { return }; try await Task.sleep(nanoseconds: 10_000_000) }
@@ -1267,6 +1273,7 @@ import SwiftUI
         XCTAssertEqual(selection, "候选1", "A late result must not change the visible tap target")
         let nextContext = KeyboardModel.CandidateContext(raw: "shij", before: "shij", after: "", document: "field", language: .chinese)
         ribbon.update([Candidate(text: "时间", consumed: 4)], context: nextContext, arithmetic: false, accent: .systemTeal)
+        try await waitFor { ribbon.accessibilityElements?.count == 1 }
         ribbon.layoutIfNeeded()
         let updated = descendants(ribbon).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
         XCTAssertEqual(updated.count, 1)

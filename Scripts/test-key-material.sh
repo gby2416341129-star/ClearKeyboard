@@ -56,11 +56,11 @@ mkdir -p .build/KeyMaterialReview
 xcrun xcresulttool get test-results summary --path .build/KeyMaterialResults.xcresult > .build/KeyMaterialReview/test-summary.json
 xcrun xcresulttool get test-results tests --path .build/KeyMaterialResults.xcresult > .build/KeyMaterialReview/test-tree.json
 cat .build/KeyMaterialReview/test-summary.json
+xcrun xcresulttool export attachments --path .build/KeyMaterialResults.xcresult --output-path .build/KeyMaterialReview/attachments
 if [ "$NATIVE_STATUS" -ne 0 ]; then
   cat .build/KeyMaterialReview/test-tree.json
   exit "$NATIVE_STATUS"
 fi
-xcrun xcresulttool export attachments --path .build/KeyMaterialResults.xcresult --output-path .build/KeyMaterialReview/attachments
 python3 - <<'PY'
 import json
 from pathlib import Path

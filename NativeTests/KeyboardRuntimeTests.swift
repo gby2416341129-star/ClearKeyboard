@@ -489,15 +489,20 @@ import SwiftUI
             }
             let background = luminance(base[0], base[1], base[2])
             let glyphArea = faceRect.insetBy(dx: 8 * scaleX, dy: 8 * scaleY).intersection(CGRect(x: 0,y: 0,width: bitmap.width,height: bitmap.height))
-            var visibleInkPixels = 0
+            var visibleInkPixels = 0, maximumContrast = 1.0
             for y in max(0, Int(ceil(glyphArea.minY)))..<min(bitmap.height, Int(floor(glyphArea.maxY))) {
                 for x in max(0, Int(ceil(glyphArea.minX)))..<min(bitmap.width, Int(floor(glyphArea.maxX))) {
                     let offset = (y * bitmap.width + x) * 4
                     let ink = luminance(Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2]))
                     let ratio = (max(ink, background) + 0.05) / (min(ink, background) + 0.05)
+                    if pixels[offset + 3] > 240 { maximumContrast = max(maximumContrast, ratio) }
                     let requiredContrast = key.key.action == .shift || key.key.action == .delete ? 3.0 : 4.5
                     if pixels[offset + 3] > 240 && ratio >= requiredContrast { visibleInkPixels += 1 }
                 }
+            }
+            if visibleInkPixels < 4 {
+                let attachment = XCTAttachment(image: image); attachment.name = "Contrast-" + phase; attachment.lifetime = .keepAlways; add(attachment)
+                print("GLYPH_CONTRAST phase=\(phase) maximum=\(maximumContrast)")
             }
             XCTAssertGreaterThanOrEqual(visibleInkPixels, 4, "\(phase): rendered letters and symbols must remain distinct from their actual face")
         }

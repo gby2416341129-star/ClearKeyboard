@@ -133,7 +133,7 @@ final class KeyButton: UIButton {
         shiftStateWash?.isHidden = !active && !capsLocked
         let symbol = capsLocked ? "capslock.fill" : active ? "shift.fill" : "shift"
         guard shiftSymbol != symbol else { return }
-        shiftSymbol = symbol; icon.image = ToolArtwork.shift(active: active, capsLocked: capsLocked, ink: appearanceSettings?.keyInkColor(utility: true) ?? .label)
+        shiftSymbol = symbol; icon.image = ToolArtwork.shift(active: active, capsLocked: capsLocked, ink: (appearanceSettings?.keyInkColor(utility: true) ?? .label).resolvedColor(with: traitCollection))
         accessibilityValue = capsLocked ? "大写锁定" : active ? "大写" : "小写"
     }
     override func layoutSubviews() {
@@ -182,7 +182,7 @@ final class KeyButton: UIButton {
         let ink = settings.keyInkColor(utility: utility)
         caption.textColor = ink
         icon.tintColor = ink
-        if key.action == .shift { icon.image = ToolArtwork.shift(active: shiftSymbol != "shift" && !shiftSymbol.isEmpty, capsLocked: shiftSymbol == "capslock.fill", ink: ink) }
+        if key.action == .shift { icon.image = ToolArtwork.shift(active: shiftSymbol != "shift" && !shiftSymbol.isEmpty, capsLocked: shiftSymbol == "capslock.fill", ink: ink.resolvedColor(with: traitCollection)) }
     }
     func updateTitle(_ title: String) {
         if caption.text != title { caption.text = title; accessibilityLabel = title }
