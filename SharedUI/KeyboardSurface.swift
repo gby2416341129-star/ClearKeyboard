@@ -383,13 +383,14 @@ import SwiftUI
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
+        if #available(iOS 26.0, *), navigationIcon { config = .glass() }
         if let image { config.image = image }
         else if let symbol, navigationIcon {
             config.image = ToolArtwork.image(symbol: symbol, size: 24)
         }
         config.baseForegroundColor = .secondaryLabel
-        config.background.backgroundColor = .clear
-        config.background.cornerRadius = 0
+        if #unavailable(iOS 26.0) { config.background.backgroundColor = navigationIcon ? .secondarySystemFill : .clear }
+        config.background.cornerRadius = navigationIcon ? 17 : 0
         config.contentInsets = .zero
         button.configuration = config; button.accessibilityLabel = label
         if let symbol, !navigationIcon, image == nil {
@@ -680,7 +681,7 @@ import SwiftUI
             (tool == .language ? "中 / EN" : tool.title, tool.symbol, { [weak self] in
                 self?.activateTool(tool)
             })
-        } + [("工具栏", "rectangle.3.group.fill", { [weak self] in self?.showToolbarEditor() }),
+        } + [("定制工具栏", "rectangle.3.group.fill", { [weak self] in self?.showToolbarEditor() }),
              (compatibilityInputTitle, "desktopcomputer", { [weak self] in self?.toggleLocalPinyinComposition() })]
         buildGrid(items, in: stack, identifiers: [compatibilityInputTitle: "keyboard.compatibleInput"]); render()
     }
@@ -702,15 +703,14 @@ import SwiftUI
         buildGrid(items, in: stack); render()
     }
     private func buildGrid(_ items: [(String, String, () -> Void)], in stack: UIStackView, identifiers: [String: String] = [:]) {
-        let columns = 4
-        for start in stride(from: 0, to: items.count, by: columns) {
-            let row = UIStackView(); row.axis = .horizontal; row.spacing = 6; row.distribution = .fillEqually
-            for offset in 0..<columns {
+        for start in stride(from: 0, to: items.count, by: 3) {
+            let row = UIStackView(); row.axis = .horizontal; row.spacing = 8; row.distribution = .fillEqually
+            for offset in 0..<3 {
                 guard start + offset < items.count else { row.addArrangedSubview(UIView()); continue }
                 let (title, symbol, action) = items[start + offset]
                 let button = ToolTileButton(title: title, symbol: symbol, action: action)
                 button.accessibilityIdentifier = identifiers[title]
-                button.heightAnchor.constraint(equalToConstant: 78).isActive = true; row.addArrangedSubview(button)
+                button.heightAnchor.constraint(equalToConstant: 60).isActive = true; row.addArrangedSubview(button)
             }
             stack.addArrangedSubview(row)
         }
@@ -814,4 +814,3 @@ import SwiftUI
         announce("贴纸已复制，请在消息框粘贴")
     }
 }
-

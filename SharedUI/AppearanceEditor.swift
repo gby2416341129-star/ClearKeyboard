@@ -6,7 +6,7 @@ enum AppearanceItem: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .keyGlass: return "按键通透"
+        case .keyGlass: return "按键玻璃"
         case .keyColor: return "按键颜色"
         case .candidateColor: return "候选文字颜色"
         case .candidateSize: return "候选文字大小"
@@ -128,7 +128,7 @@ struct AppearanceDetailContent: View {
     }
     var body: some View {
         ScrollView {
-            VStack(spacing: compact ? 12 : 18) {
+            VStack(spacing: compact ? 14 : 24) {
                 KeyboardPreview(settings: value).frame(maxWidth: .infinity)
                     .frame(height: compact ? 166 : nil)
                     .accessibilityLabel("键盘效果预览")
@@ -194,8 +194,8 @@ struct AppearanceDetailContent: View {
                             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
                     }.buttonStyle(.plain).accessibilityIdentifier("appearance.reset." + item.rawValue)
                         .accessibilityAddTraits(usesDefault ? .isSelected : [])
-                }.padding(compact ? 14 : 18).modifier(LiquidCard(radius: 20))
-            }.padding(compact ? 12 : 20).padding(.bottom, 28)
+                }.padding(compact ? 14 : 20).modifier(LiquidCard(radius: 24))
+            }.padding(compact ? 12 : 20).padding(.bottom, 18)
         }.scrollDismissesKeyboard(.interactively)
     }
 }
@@ -219,16 +219,16 @@ struct KeyboardAppearancePanel: View {
                         ForEach(AppearanceItem.allCases) { item in
                             Button { selected = item } label: {
                                 HStack(spacing: 12) {
-                                    ToolIcon(symbol: item.symbol).frame(width: 25,height: 25)
+                                    ToolIcon(symbol: item.symbol).frame(width: 28,height: 28)
                                     Text(item.title); Spacer(); Image(systemName: "chevron.right").font(.caption)
-                                }.font(.system(size: 14, weight: .medium)).foregroundStyle(.primary).padding(14)
+                                }.font(.subheadline).foregroundStyle(.primary).padding(13)
                                     .modifier(LiquidCard(radius: 18, interactive: true))
                             }.buttonStyle(.plain)
                         }
                     }.padding(10)
                 }
             }
-        }.tint(Color(red: 0.32, green: 0.48, blue: 0.96))
+        }.tint(Color(red: 0.40, green: 0.39, blue: 0.92))
     }
 }
 

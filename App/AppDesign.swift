@@ -2,60 +2,52 @@ import SwiftUI
 import UIKit
 
 enum AppPalette {
-    static let accent = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.48, green: 0.66, blue: 1, alpha: 1)
-        : UIColor(red: 0.22, green: 0.36, blue: 0.88, alpha: 1) })
-    static let canvas = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.043, green: 0.051, blue: 0.071, alpha: 1)
-        : UIColor(red: 0.965, green: 0.973, blue: 0.988, alpha: 1) })
-    static let card = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.075, green: 0.090, blue: 0.125, alpha: 1) : .white })
-    static let line = Color.primary.opacity(0.065)
+    static let accent = Color(red: 0.43, green: 0.40, blue: 0.91)
+    static let canvas = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.062, green: 0.063, blue: 0.082, alpha: 1) : UIColor(red: 0.960, green: 0.961, blue: 0.978, alpha: 1) })
+    static let card = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.112, green: 0.114, blue: 0.145, alpha: 1) : .white })
+    static let line = Color.primary.opacity(0.06)
     static let secondaryInk = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0.60, green: 0.65, blue: 0.75, alpha: 1)
-        : UIColor(red: 0.43, green: 0.47, blue: 0.55, alpha: 1) })
+        ? UIColor(red: 0.76,green: 0.78,blue: 0.84,alpha: 1)
+        : UIColor(red: 0.35,green: 0.37,blue: 0.43,alpha: 1) })
 }
 
 struct AppPage<Content: View>: View {
     let title: String
-    var subtitle: String = ""
-    var root = false
     @ViewBuilder var content: Content
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if root {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(title).font(.system(size: 30, weight: .bold)).tracking(-0.7)
-                        if !subtitle.isEmpty { Text(subtitle).font(.system(size: 13)).foregroundStyle(AppPalette.secondaryInk) }
-                    }.padding(.top, 10).padding(.bottom, 12)
+            VStack(alignment: .leading, spacing: 20) { content }
+                .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 28)
+        }.background {
+            AppPalette.canvas.ignoresSafeArea()
+                .overlay(alignment: .topTrailing) {
+                    Ellipse().fill(AppPalette.accent.opacity(0.14)).frame(width: 320, height: 500)
+                        .blur(radius: 90).offset(x: 130, y: -180).allowsHitTesting(false)
                 }
-                content
-            }.padding(.horizontal, 20).padding(.top, root ? 4 : 16).padding(.bottom, 28)
-        }.background(AppPalette.canvas.ignoresSafeArea())
-            .navigationTitle(root ? "" : title).navigationBarTitleDisplayMode(.inline)
-            .toolbar(root ? .hidden : .visible, for: .navigationBar)
-            .scrollIndicators(.hidden).scrollDismissesKeyboard(.interactively)
+                .overlay(alignment: .bottomLeading) {
+                    Ellipse().fill(Color(red: 0.24,green: 0.49,blue: 0.92).opacity(0.07))
+                        .frame(width: 300,height: 480).blur(radius: 100)
+                        .offset(x: -150,y: 120).allowsHitTesting(false)
+                }
+        }
+            .navigationTitle(title).navigationBarTitleDisplayMode(.large)
+            .scrollDismissesKeyboard(.interactively)
     }
 }
 
 struct AppCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) { content }
-            .padding(.horizontal, 16).padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        VStack(alignment: .leading, spacing: 16) { content }
+            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(LiquidCard(radius: 24))
     }
 }
 
 struct AppSectionTitle: View {
     let title: String
     var caption: String = ""
-    var body: some View {
-        Text(title).font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(AppPalette.secondaryInk).padding(.leading, 3).padding(.top, 8).padding(.bottom, -7)
-    }
+    var body: some View { Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(AppPalette.secondaryInk) }
 }
 
 struct PreferenceToggle: View {
@@ -81,18 +73,20 @@ struct AppRow: View {
     let symbol: String
     var color: UIColor? = nil
     var body: some View {
-        HStack(spacing: 12) {
-            ToolIcon(symbol: symbol).frame(width: 26, height: 26)
-            Text(title).font(.system(size: 15, weight: .medium)).foregroundStyle(.primary)
-            Spacer(minLength: 8)
-            if !detail.isEmpty { Text(detail).font(.system(size: 12)).foregroundStyle(AppPalette.secondaryInk).lineLimit(1) }
+        HStack(spacing: 13) {
+            ToolIcon(symbol: symbol)
+                .frame(width: 28, height: 28)
+                .frame(width: 32, height: 34)
+            Text(title).font(.system(size: 16)).foregroundStyle(.primary)
+            Spacer(minLength: 6)
+            if !detail.isEmpty { Text(detail).font(.system(size: 13)).foregroundStyle(AppPalette.secondaryInk).lineLimit(1) }
             if let color {
-                RoundedRectangle(cornerRadius: 7).fill(Color(uiColor: color)).frame(width: 23, height: 23)
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+                RoundedRectangle(cornerRadius: 8).fill(Color(uiColor: color)).frame(width: 28, height: 28)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
                     .accessibilityLabel("当前颜色")
             }
-            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(AppPalette.secondaryInk.opacity(0.65))
-        }.frame(minHeight: 56).contentShape(Rectangle())
+            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
+        }.padding(.vertical, 4).contentShape(Rectangle())
     }
 }
 
@@ -100,10 +94,9 @@ struct PrimaryAppButton: ButtonStyle {
     var bodyColor: Color = AppPalette.accent
     var ink: Color = .white
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.system(size: 15, weight: .semibold))
-            .frame(maxWidth: .infinity).frame(minHeight: 48)
-            .foregroundStyle(ink)
-            .background(bodyColor.opacity(configuration.isPressed ? 0.80 : 1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+        configuration.label.font(.system(size: 16, weight: .semibold))
+            .frame(maxWidth: .infinity).padding(.vertical, 15)
+            .foregroundStyle(bodyColor).modifier(LiquidCard(radius: 18, interactive: true))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }

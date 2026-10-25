@@ -126,26 +126,28 @@ struct ToolIcon: UIViewRepresentable {
 }
 
 @MainActor final class ToolTileButton: UIButton {
+    private let lens = LiquidGlassView(radius: 16, keycap: true, clear: true)
     private let artwork: ToolIconView
     private let caption = UILabel()
     init(title: String, symbol: String, action: @escaping () -> Void) {
         artwork = ToolIconView(symbol: symbol)
         super.init(frame: .zero)
-        addSubview(artwork); addSubview(caption)
-        backgroundColor = .clear; layer.cornerRadius = 14; layer.cornerCurve = .continuous
-        caption.text = title; caption.textColor = .label; caption.font = .systemFont(ofSize: 12, weight: .medium)
-        caption.textAlignment = .center; caption.adjustsFontSizeToFitWidth = true; caption.minimumScaleFactor = 0.85
+        addSubview(lens); addSubview(artwork); addSubview(caption)
+        caption.text = title; caption.textColor = .label; caption.font = .systemFont(ofSize: 12,weight: .medium)
+        caption.textAlignment = .center; caption.adjustsFontSizeToFitWidth = true; caption.minimumScaleFactor = 0.9
         for view in [artwork,caption] { view.isUserInteractionEnabled = false }
         isAccessibilityElement = true; accessibilityLabel = title
         addAction(UIAction { _ in action() }, for: .touchUpInside)
+        lens.configure(tint: nil,strength: 0.25,fallback: .secondarySystemBackground)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        artwork.frame = CGRect(x: bounds.midX-18, y: 10, width: 36, height: 36)
-        caption.frame = CGRect(x: 2, y: 53, width: max(0,bounds.width-4), height: 17)
+        lens.frame = bounds
+        artwork.frame = CGRect(x: bounds.midX-14,y: 7,width: 28,height: 28)
+        caption.frame = CGRect(x: 5,y: 40,width: max(0,bounds.width-10),height: 16)
     }
     override var isHighlighted: Bool {
-        didSet { backgroundColor = isHighlighted ? UIColor.secondarySystemFill : .clear }
+        didSet { lens.alpha = isHighlighted ? 0.72 : 1 }
     }
 }

@@ -15,7 +15,7 @@ final class ValueSliderView: UIView {
     private var roundsValue = false
     override init(frame: CGRect) {
         super.init(frame: frame)
-        title.font = .systemFont(ofSize: 15, weight: .medium)
+        title.font = .systemFont(ofSize: 16, weight: .medium)
         amount.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
         amount.textColor = .secondaryLabel; amount.setContentHuggingPriority(.required, for: .horizontal)
         reset.setTitle("还原", for: .normal); reset.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
@@ -23,7 +23,7 @@ final class ValueSliderView: UIView {
         artwork.widthAnchor.constraint(equalToConstant: 24).isActive = true
         artwork.heightAnchor.constraint(equalToConstant: 24).isActive = true
         let row = UIStackView(arrangedSubviews: [artwork, title, UIView(), amount, reset]); row.spacing = 8; row.alignment = .center
-        let stack = UIStackView(arrangedSubviews: [row, slider]); stack.axis = .vertical; stack.spacing = 10
+        let stack = UIStackView(arrangedSubviews: [row, slider]); stack.axis = .vertical; stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor), stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor)])
         slider.addTarget(self, action: #selector(changed), for: .valueChanged)
@@ -70,6 +70,6 @@ struct GlassValueSlider: UIViewRepresentable {
         view.configure(title: title, value: value, range: range, defaultValue: defaultValue, identifier: identifier, percent: percent)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ValueSliderView, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 300, height: 68)
+        CGSize(width: proposal.width ?? 300, height: 76)
     }
 }
