@@ -24,13 +24,37 @@ import os
     @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool
     func unmarkText()
     func clearInput() -> DeletedInput?
+    func clearInput(completion: @escaping (DeletedInput?) -> Void)
     func restoreInput(_ value: DeletedInput) -> Bool
     func validateCandidate(before: String, after: String, identity: String) -> Bool
     func candidateInteractionChanged(_ active: Bool)
     func keyInteractionChanged(_ active: Bool)
+    func validateClipboardSelection(before: String, after: String, identity: String) -> Bool
+    func replaceClipboardSelection(_ text: String, previous: String) -> Bool
+    func finishClipboardSelection()
 }
 
 extension KeyboardDocument {
+    func clearInput(completion: @escaping (DeletedInput?) -> Void) { completion(clearInput()) }
+    func validateClipboardSelection(before: String, after: String, identity: String) -> Bool {
+        validateCandidate(before: before, after: after, identity: identity)
+    }
+    func replaceClipboardSelection(_ text: String, previous: String) -> Bool {
+        let before = contextBefore, after = contextAfter
+        guard before.hasSuffix(previous), selectedText.isEmpty else { return false }
+        let old = Array(previous), next = Array(text)
+        var prefix = 0, suffix = 0
+        while prefix < min(old.count, next.count), old[prefix] == next[prefix] { prefix += 1 }
+        while suffix < min(old.count, next.count) - prefix,
+              old[old.count - 1 - suffix] == next[next.count - 1 - suffix] { suffix += 1 }
+        if suffix > 0 { moveCursor(-suffix) }
+        for _ in prefix..<(old.count - suffix) { deleteBackward() }
+        let insertion = String(next[prefix..<(next.count - suffix)])
+        if !insertion.isEmpty { insert(insertion) }
+        if suffix > 0 { moveCursor(suffix) }
+        return contextBefore == String(before.dropLast(previous.count)) + text && contextAfter == after
+    }
+    func finishClipboardSelection() {}
     var usesLocalPinyinComposition: Bool { false }
     @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool {
         commitMarkedText(text)
@@ -88,7 +112,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             if !loadingSavedSettings {
                 store.save(settings)
-                if AppearanceSnapshot(settings: settings, includeInputPreferences: true) != AppearanceSnapshot(settings: oldValue, includeInputPreferences: true) { appearanceLink?.publish(settings) }
+                if AppearanceSnapshot(settings: settings, includeInputPreferences: true) != AppearanceSnapshot(settings: oldValue, includeInputPreferences: true) { appearanceLink?.publish(settings, previous: oldValue) }
             }
             if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
                 settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }
@@ -134,6 +158,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     var onCandidatesChange: (() -> Void)?
     var onInputChange: (() -> Void)?
     var onContentKey: (() -> Void)?
+    var onNotice: ((String) -> Void)?
     private(set) var hasMoreCandidates = false
     private var loadingMoreCandidates = false
     private var browsedContext: CandidateContext?
@@ -185,6 +210,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var learningEpoch: String?
     private var saveWork: DispatchWorkItem?
     private var manualShift = false
+    private var fieldLanguageOverride: InputLanguage?
+    private var fieldIdentity = ""
     private var cancellation = QueryCancellation()
     private let signpost = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
 
@@ -393,20 +420,30 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let defaults = defaults ?? SharedStorage.defaults(allowShared: document.fullAccess)
         store = SettingsStore(defaults: defaults)
         self.settings = settings ?? store.load()
-        learned = defaults.dictionary(forKey: "clear.learned.v1") as? [String: Int] ?? [:]
-        personal = defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
-        numbers = defaults.data(forKey: "clear.numbers.v1").flatMap { try? JSONDecoder().decode(NumericLexicon.self, from: $0) } ?? NumericLexicon()
         learningEpoch = defaults.string(forKey: "clear.learned.epoch")
+        let memory = LearningStore.load(defaults, epoch: learningEpoch)
+        learned = memory.learned; personal = memory.personal; numbers = memory.numbers
         if document.prefersEnglish { self.settings.language = .english }
+        fieldIdentity = document.documentIdentity
         self.appearanceLink = appearanceLink
-        self.appearanceLink?.currentSettings = { [weak self] in self?.settings ?? KeyboardSettings() }
+        self.appearanceLink?.currentSettings = { [weak self] in
+            guard let self else { return KeyboardSettings() }
+            var value = self.settings
+            if self.document?.prefersEnglish == true, self.fieldLanguageOverride == nil { value.language = self.store.load().language }
+            return value
+        }
         self.appearanceLink?.onReceive = { [weak self] snapshot in
             guard let self else { return }
-            let value = snapshot.applying(to: self.settings)
+            var value = snapshot.applying(to: self.settings)
+            if self.document?.prefersEnglish == true, self.fieldLanguageOverride == nil { value.language = .english }
             let inputChanged = value.language != self.settings.language || value.fuzzyPairs != self.settings.fuzzyPairs ||
                 value.predictions != self.settings.predictions || value.learnChoices != self.settings.learnChoices ||
                 value.autoCapitalization != self.settings.autoCapitalization
             self.loadingSavedSettings = true
+            if value.language != self.settings.language {
+                self.finishCompositionAsTyped(); self.page = .letters
+                self.shiftState.reset(); self.manualShift = false
+            }
             self.settings = value
             self.loadingSavedSettings = false
             // Keep the local fallback current without broadcasting the read.
@@ -431,7 +468,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     }
                     self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
                     self.resumeDeferredActions()
-                case .failure: self.cancelDeferredActions(); self.engineState = "词库不可用 · 可继续输入英文"; self.onChange?()
+                case .failure: self.finishCompositionAsTyped(); self.engineState = "词库不可用 · 可继续输入英文"; self.onChange?()
                 }
             }
             if warm, case .success(let engine) = result {
@@ -449,20 +486,29 @@ struct DeletedInput { let text: String; let selection: NSRange }
         store = SettingsStore(defaults: suppliedDefaults ?? SharedStorage.defaults(allowShared: document.fullAccess))
         phraseLearning.reset(); numericRun.reset()
         var saved = store.load()
-        if document.prefersEnglish { saved.language = .english }
+        if fieldIdentity != document.documentIdentity { fieldIdentity = document.documentIdentity; fieldLanguageOverride = nil }
+        if document.prefersEnglish, fieldLanguageOverride == nil { saved.language = .english }
+        else if let fieldLanguageOverride { saved.language = fieldLanguageOverride }
         loadingSavedSettings = true
         settings = saved
         loadingSavedSettings = false
-        learned = store.defaults.dictionary(forKey: "clear.learned.v1") as? [String: Int] ?? [:]
-        personal = store.defaults.data(forKey: "clear.choices.v2").flatMap { try? JSONDecoder().decode(PersonalLexicon.self, from: $0) } ?? PersonalLexicon()
-        numbers = store.defaults.data(forKey: "clear.numbers.v1").flatMap { try? JSONDecoder().decode(NumericLexicon.self, from: $0) } ?? NumericLexicon()
         learningEpoch = store.defaults.string(forKey: "clear.learned.epoch")
+        let memory = LearningStore.load(store.defaults, epoch: learningEpoch)
+        learned = memory.learned; personal = memory.personal; numbers = memory.numbers
         refreshCandidates()
         refreshAppearanceConnection()
     }
     func refreshAppearanceConnection() {
         appearanceLink?.updateFullAccess(document?.fullAccess == true)
         if document?.fullAccess == true { appearanceLink?.activate() } else { appearanceLink?.deactivate() }
+    }
+    func documentTraitsChanged() {
+        guard let document, fieldIdentity != document.documentIdentity else { return }
+        fieldIdentity = document.documentIdentity; fieldLanguageOverride = nil
+        loadingSavedSettings = true
+        settings.language = document.prefersEnglish ? .english : store.load().language
+        loadingSavedSettings = false
+        page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
     }
     func clearComposition() {
         beginDocumentEdit(); defer { endDocumentEdit() }
@@ -482,9 +528,29 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func finishCompositionAsTyped() {
         beginDocumentEdit(); defer { endDocumentEdit() }
+        let pending = awaitingCommit ? deferredActions : []
+        let identity = document?.documentIdentity
+        if awaitingCommit { document?.setMarkedText(composition.raw) }
         cancelDeferredActions()
         phraseLearning.reset()
         if !composition.raw.isEmpty { document?.unmarkText() }; composition.clear()
+        // Dismissal is an ordered barrier, not permission to discard accepted
+        // keys that a slow decoder has not replayed yet.
+        for action in pending where document?.documentIdentity == identity {
+            switch action {
+            case .text(let text):
+                insertText(shifted ? text.uppercased() : text)
+                if !capsLocked { shifted = false; manualShift = false }
+            case .literal(let text): insertText(text)
+            case .space: insertText(" ")
+            case .enter: insertText("\n")
+            case .delete: document?.deleteBackward()
+            case .shift: shiftState.tap(now: ProcessInfo.processInfo.systemUptime)
+            case .page(let next): page = next
+            case .language: settings.language = settings.language == .chinese ? .english : .chinese
+            case .globe: break
+            }
+        }
     }
     private func syncMarkedText() {
         document?.setMarkedText(composition.raw)
@@ -522,16 +588,19 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard isMovingCursor else { return }; document?.endTrackpad(); isMovingCursor = false; refreshCandidates()
     }
     func clearInput() {
-        beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document else { return }
+        beginDocumentEdit()
         cancelDeferredActions()
         phraseLearning.reset(); numericRun.reset()
         let spelling = composition
         document.unmarkText(); composition.clear()
-        if let deleted = document.clearInput() {
-            deletionUndo = (deleted, document.documentIdentity, document.contextBefore, document.contextAfter, spelling)
+        document.clearInput { [weak self, weak document] deleted in
+            guard let self else { return }
+            if let deleted, let document {
+                self.deletionUndo = (deleted, document.documentIdentity, document.contextBefore, document.contextAfter, spelling)
+            } else { self.onNotice?("当前输入框无法完整清空，请在输入框内操作") }
+            self.refreshCandidates(); self.endDocumentEdit()
         }
-        refreshCandidates()
     }
     @discardableResult func undoClearInput() -> Bool {
         beginDocumentEdit(); defer { endDocumentEdit() }
@@ -551,6 +620,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         finishNumericRun()
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         settings.language = settings.language == .chinese ? .english : .chinese
+        if document?.prefersEnglish == true { fieldLanguageOverride = settings.language }
         page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
     }
     func handle(_ action: KeyAction) {
@@ -617,9 +687,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 inputOnly = true; syncMarkedText()
             } else {
                 commitComposition()
-                insertText(shifted && page == .letters ? text.uppercased() : punctuation(text))
+                let decimal = page == .numbers && text == "."
+                insertText(shifted && page == .letters ? text.uppercased() : decimal ? text : punctuation(text))
                 if !capsLocked { shifted = false; manualShift = false }
-                if page != .letters && [".", ",", "?", "!", "。", "，", "？", "！"].contains(text) { page = .letters }
+                if !decimal, page != .letters && [".", ",", "?", "!", "。", "，", "？", "！"].contains(text) { page = .letters }
             }
         case .shift:
             shiftState.tap(now: ProcessInfo.processInfo.systemUptime)
@@ -664,6 +735,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func beginClipboardSelection() -> ClipboardTextSession? {
         beginDocumentEdit(); defer { endDocumentEdit() }
+        onContentKey?()
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         guard let document, document.selectedText.isEmpty else { return nil }
         return ClipboardTextSession(document: document)
@@ -671,7 +743,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
     @discardableResult func updateClipboardSelection(_ session: ClipboardTextSession, text: String) -> Bool {
         beginDocumentEdit(); defer { endDocumentEdit() }
         let updated = session.apply(text)
-        if updated { refreshCandidates() }
         return updated
     }
     func insertLiteral(_ text: String) {
@@ -1001,9 +1072,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []; discardPreparedCandidates()
             return
         }
-        store.defaults.set(learned, forKey: "clear.learned.v1")
-        if let data = try? JSONEncoder().encode(personal) { store.defaults.set(data, forKey: "clear.choices.v2") }
-        if let data = try? JSONEncoder().encode(numbers) { store.defaults.set(data, forKey: "clear.numbers.v1") }
+        LearningStore.save(LearningMemory(learned: learned, personal: personal, numbers: numbers), defaults: store.defaults, epoch: learningEpoch)
     }
     func suspend() { appearanceLink?.deactivate(); finishNumericRun(); phraseLearning.reset(); pendingDocumentKeys.removeAll(); stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
 }

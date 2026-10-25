@@ -12,6 +12,12 @@ public enum InlineArithmetic {
         let allowed = Set("0123456789.+-xX×*/÷() ")
         let suffix = String(context.suffix(128).reversed().prefix { allowed.contains($0) }.reversed()).trimmingCharacters(in: .whitespaces)
         guard !suffix.isEmpty, suffix.count < 128, suffix.contains(where: { "+-xX×*/÷".contains($0) }) else { return nil }
+        // Spaces may separate operators, never two pieces of the same number.
+        let pieces = suffix.split(whereSeparator: \.isWhitespace)
+        for (left, right) in zip(pieces, pieces.dropFirst()) {
+            if let a = left.last, let b = right.first,
+               (a.isNumber || a == "."), (b.isNumber || b == ".") { return nil }
+        }
         let normalized = suffix.replacingOccurrences(of: "X", with: "*").replacingOccurrences(of: "x", with: "*").replacingOccurrences(of: "×", with: "*").replacingOccurrences(of: "÷", with: "/").filter { !$0.isWhitespace }
         var parser = Parser(Array(normalized))
         guard let value = parser.expression(), parser.index == parser.characters.count, parser.operations > 0,

@@ -31,8 +31,8 @@ public enum KeyAlternatives {
         }
         return key.alternatives
     }
-    public static func initialIndex(for key: KeyboardKey, choices: [String], language: InputLanguage) -> Int {
+    public static func initialIndex(for key: KeyboardKey, choices: [String], language: InputLanguage, displayedLabel: String? = nil) -> Int {
         if language == .chinese, choices.count == 2, choices[0].lowercased() == choices[1] { return 0 }
-        return choices.firstIndex(of: key.label) ?? 0
+        return choices.firstIndex(of: displayedLabel ?? key.label) ?? 0
     }
 }

@@ -138,6 +138,9 @@ import UIKit
         var captures = 0; capture.onCapture = { captures += 1 }; capture.acceptText(text)
         XCTAssertEqual(ClipboardStore(url: url).clips.first?.text, text); XCTAssertEqual(captures, 1)
         let inline = ClipboardInlinePreview(); inline.frame = CGRect(x: 0, y: 0, width: 200, height: 38); inline.show(text)
+        let ready = Date().addingTimeInterval(10)
+        while !inline.isReady && Date() < ready { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertTrue(inline.isReady); inline.layoutIfNeeded()
         XCTAssertEqual(inline.text, text); XCTAssertGreaterThan(inline.contentSize.width, 200)
     }
     func testTapMultiSelectionAndCancellationUpdateOnlyOwnedEditorText() throws {

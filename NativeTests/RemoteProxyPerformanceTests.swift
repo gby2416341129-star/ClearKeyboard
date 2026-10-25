@@ -41,7 +41,7 @@ import SwiftUI
             XCTAssertTrue(model.composition.isEmpty)
         }
         model.flushLearning()
-        let restored = try JSONDecoder().decode(PersonalLexicon.self, from: XCTUnwrap(defaults.data(forKey: "clear.choices.v2")))
+        let restored = LearningStore.load(defaults, epoch: defaults.string(forKey: "clear.learned.epoch")).personal
         XCTAssertTrue(restored.candidates(for: "gby").contains { $0.text == "苟博渊" && $0.consumed == 3 })
         XCTAssertTrue(restored.candidates(for: "gouboyuan").contains { $0.text == "苟博渊" && $0.consumed == 9 })
         print("NAME_LEARNING_UIKIT names=3 segmentedSelections=9 fullSpellingAndInitials=true lostWords=0 duplicatedPinyin=0")
@@ -93,7 +93,7 @@ import SwiftUI
         model.chooseDisplayed(suffix, context: context)
         XCTAssertEqual(proxy.textView.text, anchor + "19981108", "A repeated tap on the old prefix must not append twice")
         model.handle(.enter); model.flushLearning()
-        let restored = try JSONDecoder().decode(NumericLexicon.self, from: XCTUnwrap(defaults.data(forKey: "clear.numbers.v1")))
+        let restored = LearningStore.load(defaults, epoch: defaults.string(forKey: "clear.learned.epoch")).numbers
         XCTAssertEqual(restored.candidates(for: "1998").first?.text, "1108")
         model.settings.language = .english
         for letter in "1998" { model.handle(.text(String(letter))) }

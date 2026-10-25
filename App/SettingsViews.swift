@@ -203,6 +203,7 @@ struct ClipboardSettingsView: View {
                     switch preferences.clipboardCapture.checkAccess() {
                     case .empty: accessMessage = "当前没有可检查的复制内容。请先在其他 App 复制文字、链接或图片，再回来检查。"
                     case .contentRead: accessMessage = "本次读取成功。若希望自动收录时不再询问，请在系统设置中选择「允许」。本次成功不代表已开启长期允许。"
+                    case .reading: accessMessage = "正在收录复制内容…"
                     case .unavailable: accessMessage = "本次未读取到可保存内容。若系统询问，请按你的意愿选择；也可在系统设置中检查粘贴权限。"
                     }
                 }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("clipboard.checkAccess")
@@ -217,11 +218,17 @@ struct ClipboardSettingsView: View {
             }
             Button("清空剪贴板记录", role: .destructive) { confirmClear = true }
                 .buttonStyle(PrimaryAppButton(bodyColor: .red))
-            Text("支持文字、链接、图片和 8 MB 内附件。最多保留 200 条，附件总计 32 MB。图片与附件需复制后在输入框粘贴。")
+            Text("支持文字、链接、图片和 8 MB 内附件。单篇文字最多 2 MB，文字总计 8 MB；最多保留 200 条，附件总计 32 MB。图片与附件需复制后在输入框粘贴。")
                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
         }.navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar).tint(AppPalette.accent)
             .confirmationDialog("清空复制记录？", isPresented: $confirmClear) {
                 Button("清空", role: .destructive) { preferences.clearClipboard() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: ClipboardStore.changed)) { _ in
+                if accessMessage == "正在收录复制内容…" { accessMessage = "复制内容已收录。" }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: ClipboardCapture.failure)) { event in
+                accessMessage = event.object as? String ?? "未能收录，请重试。"
             }
     }
 }
@@ -263,7 +270,7 @@ private struct ClipboardSaveControl: UIViewRepresentable {
 
 private struct LicenseView: View {
     private var license: String {
-        ["THIRD_PARTY_NOTICES", "Rime-and-dependencies", "RimeXCFramework-license", "CC-BY-4.0", "Apache-2.0", "CMUdict"].compactMap { name in
+        ["THIRD_PARTY_NOTICES", "Rime-and-dependencies", "RimeXCFramework-license", "CC-BY-4.0", "Apache-2.0", "CMUdict", "IME-25M-LICENSE", "IME-25M-NOTICE"].compactMap { name in
             Bundle.main.url(forResource: name, withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
         }.joined(separator: "\n\n")
     }

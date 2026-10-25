@@ -109,7 +109,7 @@ import UIKit
         }
         let reset = button("恢复默认", symbol: "arrow.counterclockwise", identifier: "keyboard.appearance.reset") { [weak self] in
             guard let self else { return }
-            self.reset?.imageView?.layer.add(Self.resetAnimation(), forKey: "reset.confirmation")
+            if !UIAccessibility.isReduceMotionEnabled { self.reset?.imageView?.layer.add(Self.resetAnimation(), forKey: "reset.confirmation") }
             self.edit {
                 switch item {
                 case .keyGlass: $0.keyGlassStrength = nil

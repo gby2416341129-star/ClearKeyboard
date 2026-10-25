@@ -425,8 +425,10 @@ import os
         return width
     }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false,
-                   normalColor: UIColor? = nil, reduceMotion: Bool = UIAccessibility.isReduceMotionEnabled,
-                   voiceOver: Bool = UIAccessibility.isVoiceOverRunning, firstAppearance: Bool = false) {
+                   normalColor: UIColor? = nil, reduceMotion: Bool? = nil,
+                   voiceOver: Bool? = nil, firstAppearance: Bool = false) {
+        let reduceMotion = reduceMotion ?? UIAccessibility.isReduceMotionEnabled
+        let voiceOver = voiceOver ?? UIAccessibility.isVoiceOverRunning
         let oldText = label.text
         let changedFont = label.font != font
         if label.font != font { label.font = font }

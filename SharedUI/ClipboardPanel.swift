@@ -1,5 +1,6 @@
 import UIKit
 import ImageIO
+import CoreText
 
 /// Content occupies all available space. Permissions and collection controls live
 /// in the overflow menu rather than displacing copied items with instructions.
@@ -25,6 +26,12 @@ import ImageIO
     private var dragBaseline = Set<Int>()
     private var dragStart: Int?
     private var dragAdds = true
+    private let tokenQueue = DispatchQueue(label: "clear.clipboard.tokens", qos: .userInitiated)
+    private let historyQueue = DispatchQueue(label: "clear.clipboard.history", qos: .utility)
+    private var tokenRevision = 0
+    private var selectionLink: CADisplayLink?
+    private var selectionPoint: CGPoint?
+    private var dragLastIndex: Int?
     var onClose: (() -> Void)?
     var onSelectionStateChanged: (() -> Void)?
     var isChoosing: Bool { selectionSource != nil }
@@ -93,7 +100,6 @@ import ImageIO
         store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL); reload()
     }
     private func reload() {
-        store.prune(lifetime: model.settings.clipboardLifetimeHours * 3_600)
         let choosing = selectionSource != nil
         tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing || completionInToolbar
         send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
@@ -120,7 +126,8 @@ import ImageIO
             }, lifetime,
             UIAction(title: tabs.selectedSegmentIndex == 1 ? "清空常用语" : "清空剪贴板", image: ToolArtwork.image(symbol: "trash", size: 24), attributes: .destructive) { [weak self] _ in
                 guard let self else { return }
-                if self.tabs.selectedSegmentIndex == 1 { self.phrases.clear() } else { self.store.clear() }; self.reload()
+                self.model.clipboardCapture.ignoreCurrentRevision()
+                self.mutateHistory { $0.clear() }
             }
         ])
     }
@@ -139,7 +146,8 @@ import ImageIO
     }
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let clip = items[indexPath.row], activeStore = tabs.selectedSegmentIndex == 1 ? phrases : store
-        if let attachment = clip.attachment, let data = activeStore.attachmentData(for: clip) {
+        if let attachment = clip.attachment {
+            guard let data = activeStore.attachmentData(for: clip) else { model.onNotice?("附件暂时无法读取，请重新复制"); return }
             UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
             UIAccessibility.post(notification: .announcement, argument: "已复制，请在输入框粘贴")
         } else { model.insertLiteral(clip.text) }
@@ -148,15 +156,15 @@ import ImageIO
     private func menu(for clip: Clip) -> UIMenu {
         var actions: [UIAction] = [UIAction(title: "复制", image: ToolArtwork.image(symbol: "doc.on.doc", size: 24)) { [weak self] _ in
             guard let self else { return }
-            if let attachment = clip.attachment,
-               let data = (self.tabs.selectedSegmentIndex == 1 ? self.phrases : self.store).attachmentData(for: clip) {
+            if let attachment = clip.attachment {
+                guard let data = (self.tabs.selectedSegmentIndex == 1 ? self.phrases : self.store).attachmentData(for: clip) else { self.model.onNotice?("附件暂时无法读取，请重新复制"); return }
                 UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
             } else { UIPasteboard.general.string = clip.text }
             UIAccessibility.post(notification: .announcement, argument: "已复制")
         }]
         if clip.attachment == nil {
             if tabs.selectedSegmentIndex == 0 {
-                actions.append(UIAction(title: "加入常用语", image: ToolArtwork.image(symbol: "plus.bubble", size: 24)) { [weak self] _ in self?.phrases.add(clip.text); self?.reload() })
+                actions.append(UIAction(title: "加入常用语", image: ToolArtwork.image(symbol: "plus.bubble", size: 24)) { [weak self] _ in self?.mutateHistory(phrases: true) { $0.add(clip.text) } })
             }
             actions.append(UIAction(title: "滑动选词", image: ToolArtwork.image(symbol: "selection.pin.in.out", size: 24)) { [weak self] _ in self?.selectText(clip.text) })
         }
@@ -169,21 +177,53 @@ import ImageIO
         if clip.attachment == nil {
             let choose = UIContextualAction(style: .normal, title: "选词") { [weak self] _, _, done in self?.selectText(clip.text); done(true) }; choose.backgroundColor = .systemTeal; actions.append(choose)
             if tabs.selectedSegmentIndex == 0 {
-                let add = UIContextualAction(style: .normal, title: "+ 常用语") { [weak self] _, _, done in self?.phrases.add(clip.text); done(true) }; add.backgroundColor = .systemBlue; actions.append(add)
+                let add = UIContextualAction(style: .normal, title: "+ 常用语") { [weak self] _, _, done in self?.mutateHistory(phrases: true) { $0.add(clip.text) }; done(true) }; add.backgroundColor = .systemBlue; actions.append(add)
             }
         }
         let config = UISwipeActionsConfiguration(actions: actions); config.performsFirstActionWithFullSwipe = false; return config
     }
     private func remove(_ clip: Clip) {
-        if tabs.selectedSegmentIndex == 1 { phrases.delete(clip.id) } else { store.delete(clip.id) }; reload()
+        mutateHistory { $0.delete(clip.id) }
+    }
+    private func mutateHistory(phrases: Bool? = nil, edit: @escaping (ClipboardStore) -> Bool) {
+        let target = (phrases ?? (tabs.selectedSegmentIndex == 1)) ? phrasesURL : url
+        historyQueue.async { [weak self] in
+            let store = ClipboardStore(url: target), saved = edit(store)
+            DispatchQueue.main.async {
+                self?.reloadFromDisk()
+                if !saved { self?.model.onNotice?("未能保存修改，请重试") }
+            }
+        }
     }
     func selectText(_ text: String) {
-        selectionSource = text; tokens = ClipboardSelection.tokens(text); selectedTokens = []
-        selectionSession = model.beginClipboardSelection(); reload()
-        words.setContentOffset(.zero, animated: false)
+        endSelection(); tokenRevision += 1; let revision = tokenRevision
+        selectionSource = text; tokens = []; selectedTokens = []
+        selectionSession = model.beginClipboardSelection()
+        let apply: ([ClipboardSelection.Token], [CGFloat]) -> Void = { [weak self] tokens, widths in
+            guard let self, self.tokenRevision == revision else { return }
+            self.tokens = tokens
+            (self.words.collectionViewLayout as? ClipboardTokenLayout)?.tokenWidths = widths
+            self.reload(); self.words.setContentOffset(.zero, animated: false)
+        }
+        if text.utf8.count <= 8192 { apply(ClipboardSelection.tokens(text), []); return }
+        reload()
+        tokenQueue.async {
+            let tokens = ClipboardSelection.tokens(text)
+            let font = CTFontCreateUIFontForLanguage(.system, 18, nil)!
+            let widths = tokens.map { token -> CGFloat in
+                let attributes = [NSAttributedString.Key(kCTFontAttributeName as String): font]
+                let line = CTLineCreateWithAttributedString(NSAttributedString(string: token.text, attributes: attributes))
+                return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + 12
+            }
+            DispatchQueue.main.async { apply(tokens, widths) }
+        }
     }
     func finishSelection() {
-        selectionSession = nil; onClose?()
+        endSelection(); onClose?()
+    }
+    func endSelection() {
+        selectionLink?.invalidate(); selectionLink = nil; selectionPoint = nil; tokenRevision += 1
+        if let session = selectionSession { session.finish(); selectionSession = nil; model.refreshCandidates() }
     }
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { tokens.count }
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -231,16 +271,36 @@ import ImageIO
     }
     @objc private func selectWords(_ gesture: UIPanGestureRecognizer) {
         let point = gesture.location(in: words)
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            if gesture.state == .ended { updateDrag(at: point) }
+            selectionLink?.invalidate(); selectionLink = nil; selectionPoint = nil; dragStart = nil; return
+        }
+        selectionPoint = CGPoint(x: point.x, y: point.y - words.contentOffset.y)
         guard let index = index(at: point) else { return }
         if gesture.state == .began {
-            dragStart = index; dragBaseline = selectedTokens; dragAdds = !selectedTokens.contains(index)
+            dragStart = index; dragLastIndex = nil; dragBaseline = selectedTokens; dragAdds = !selectedTokens.contains(index)
+            let link = CADisplayLink(target: self, selector: #selector(selectionTick))
+            link.add(to: .main, forMode: .common); selectionLink = link
         }
-        if let start = dragStart, gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
+        if gesture.state == .began { updateDrag(at: point) }
+    }
+    private func updateDrag(at point: CGPoint) {
+        guard let index = index(at: point), index != dragLastIndex else { return }
+        dragLastIndex = index
+        if let start = dragStart {
             let range = Set(min(start, index)...max(start, index))
             _ = setSelection(dragAdds ? dragBaseline.union(range) : dragBaseline.subtracting(range))
         }
-        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed { dragStart = nil }
     }
+    @objc private func selectionTick() {
+        guard let point = selectionPoint else { return }
+        let speed: CGFloat = point.y < 30 ? -5 : point.y > words.bounds.height - 30 ? 5 : 0
+        let maximum = max(0, words.contentSize.height - words.bounds.height)
+        words.contentOffset.y = min(maximum, max(0, words.contentOffset.y + speed))
+        updateDrag(at: CGPoint(x: min(max(4, point.x), words.bounds.width - 4),
+                               y: min(max(4, point.y), words.bounds.height - 4) + words.contentOffset.y))
+    }
+    override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { endSelection() } }
 }
 
 @MainActor private final class ClipboardCardCell: UITableViewCell {
@@ -282,11 +342,15 @@ import ImageIO
     func configure(_ clip: Clip, menu: UIMenu) {
         label.text = clip.text; more.menu = menu; preview.image = nil; preview.isHidden = clip.attachment == nil
         chips.arrangedSubviews.forEach { chips.removeArrangedSubview($0); $0.removeFromSuperview() }
-        let snippets = ClipboardSelection.tokens(clip.text).map(\.text).filter { $0.count >= 2 && $0.first?.isASCII == true && $0.first?.isLetter == true || $0.count >= 2 && $0.first?.isNumber == true }
+        let prefix = String(clip.text.prefix(4096)), length = (prefix as NSString).length
+        let complete = prefix.utf8.count == clip.text.utf8.count
+        let snippets = ClipboardSelection.tokens(prefix).filter { complete || NSMaxRange($0.range) < length }.map(\.text).filter { $0.count >= 2 && $0.first?.isASCII == true && $0.first?.isLetter == true || $0.count >= 2 && $0.first?.isNumber == true }
         var seen = Set<String>()
         for snippet in snippets.filter({ seen.insert($0).inserted }).prefix(2) where clip.attachment == nil && snippet != clip.text {
-            let chip = UIButton(type: .system); chip.setTitle(snippet, for: .normal); chip.titleLabel?.font = .systemFont(ofSize: 12)
-            chip.contentEdgeInsets = UIEdgeInsets(top: 4, left: 9, bottom: 4, right: 9); chip.backgroundColor = .tertiarySystemFill; chip.layer.cornerRadius = 7
+            var configuration = UIButton.Configuration.plain(); configuration.title = snippet
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9)
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in var result = attributes; result.font = .systemFont(ofSize: 12); return result }
+            let chip = UIButton(configuration: configuration); chip.backgroundColor = .tertiarySystemFill; chip.layer.cornerRadius = 7
             chip.addAction(UIAction { [weak self] _ in self?.onToken?(snippet) }, for: .touchUpInside); chips.addArrangedSubview(chip)
         }
         chips.isHidden = chips.arrangedSubviews.isEmpty

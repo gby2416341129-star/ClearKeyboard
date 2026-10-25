@@ -42,6 +42,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostNotificationRevision = 0
     private var deferredMarkedFlush = false
     private var trackpad: ProxyTrackpad?
+    private var clipboardSelectionActive = false
+    private var clipboardSelectionIdentity: String?
     private var lastLayoutLog = ""
     private var layoutLogCount = 0
     private let hostLog = OSLog(subsystem: "ClearKeyboard", category: "HostWrite")
@@ -306,6 +308,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if case .externalEdit = outcome {
             discardMarkedDelivery()
             surface?.closePanel(); model?.cursorChanged(unmarkDraft: false)
+            model?.documentTraitsChanged()
         }
         if case .compositionContextChanged = outcome { model?.refreshCandidates() }
         // A differing snapshot may be an old acknowledgement, but it can also
@@ -414,6 +417,43 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             textDocumentProxy.insertText(text)
         }
     }
+    func validateClipboardSelection(before: String, after: String, identity: String) -> Bool {
+        guard hostWriteDepth == 0 else { return false }
+        let read = readHostSnapshot()
+        let expected = HostTextSnapshot(before: before, after: after, document: identity)
+        return read.connected && HostTextState(expected).accepts(expected, actual: read.snapshot)
+    }
+    func replaceClipboardSelection(_ text: String, previous: String) -> Bool {
+        guard previous.isEmpty || clipboardSelectionActive,
+              !clipboardSelectionActive || markedDraft == previous else { return false }
+        let identity = documentIdentity
+        beginHostWrite(); defer { endHostWrite() }
+        cancelQueuedMarkedWrites()
+        // Let the host replace its own provisional range in one operation.
+        // No cursor guessing or deleteBackward loop can reach pre-existing text.
+        markedTransport = .host; markedDraft = text; clipboardSelectionActive = true
+        clipboardSelectionIdentity = identity
+        hostState.setMarked(text); sentMarkedDraft = !text.isEmpty
+        textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
+        let read = readHostSnapshot(), expected = hostState.snapshot
+        guard read.connected, read.snapshot.document == identity,
+              HostTextState(expected).accepts(expected, actual: read.snapshot) else {
+            if read.connected, read.snapshot.document == identity { textDocumentProxy.unmarkText() }
+            clipboardSelectionActive = false; discardMarkedDelivery()
+            if read.connected { hostState = HostTextState(read.snapshot) }
+            needsHostRefresh = true
+            model?.onNotice?("当前输入框未接受完整选词，请重新选择或直接粘贴")
+            return false
+        }
+        return true
+    }
+    func finishClipboardSelection() {
+        guard clipboardSelectionActive else { return }
+        clipboardSelectionActive = false
+        guard connectedDocumentIdentifier()?.uuidString == clipboardSelectionIdentity else { discardMarkedDelivery(); return }
+        beginHostWrite(); defer { endHostWrite() }
+        textDocumentProxy.unmarkText(); hostState.unmark(); discardMarkedDelivery()
+    }
     func commitMarkedText(_ text: String) {
         commitMarkedText(text, remaining: "")
     }
@@ -497,6 +537,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         deferredMarkedFlush = false
     }
     private func discardMarkedDelivery() {
+        clipboardSelectionActive = false; clipboardSelectionIdentity = nil
         cancelQueuedMarkedWrites()
         markedDraft = ""; markedTransport = .none; sentMarkedDraft = false
     }
@@ -578,7 +619,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     func endTrackpad() { trackpad = nil; refreshHostState() }
     func nextKeyboard() { advanceToNextInputMode() }
     func clearInput() -> DeletedInput? {
-        guard hostState.snapshot.document != "disconnected" else { return nil }
+        let read = readHostSnapshot()
+        guard read.connected, read.snapshot.available,
+              HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: read.snapshot) else { return nil }
         let before = contextBefore, selected = selectedText, after = contextAfter
         let text = before + selected + after
         guard !text.isEmpty, text.count <= 4_096 else { return nil }
@@ -588,11 +631,51 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         for _ in before + after { deleteBackward() }
         return snapshot
     }
+    func clearInput(completion: @escaping (DeletedInput?) -> Void) {
+        let read = readHostSnapshot(), identity = documentIdentity
+        guard read.connected, read.snapshot.available,
+              HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: read.snapshot) else { completion(nil); return }
+        let before = contextBefore, selected = selectedText, after = contextAfter
+        let text = before + selected + after
+        guard !text.isEmpty, text.utf8.count <= ClipboardStore.textLimit else { completion(nil); return }
+        let value = DeletedInput(text: text, selection: NSRange(location: before.utf16.count, length: selected.utf16.count))
+        if !selected.isEmpty { insert("") }
+        if !after.isEmpty { moveCursor(after.count) }
+        func step(_ remaining: Int) {
+            guard connectedDocumentIdentifier()?.uuidString == identity else { completion(nil); return }
+            let actual = readHostSnapshot()
+            guard actual.connected, HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: actual.snapshot) else { completion(nil); return }
+            let count = min(32, remaining)
+            for _ in 0..<count {
+                guard connectedDocumentIdentifier()?.uuidString == identity else { completion(nil); return }
+                deleteBackward()
+            }
+            if remaining > count { DispatchQueue.main.async { step(remaining - count) } }
+            else {
+                let final = readHostSnapshot()
+                guard final.connected, final.snapshot.document == identity,
+                      final.snapshot.before.isEmpty, final.snapshot.after.isEmpty, final.snapshot.selected.isEmpty else { completion(nil); return }
+                completion(value)
+            }
+        }
+        step(before.count + after.count)
+    }
     func restoreInput(_ value: DeletedInput) -> Bool {
-        guard hostState.snapshot.document != "disconnected" else { return false }
-        insert(value.text)
-        let prefix = (value.text as NSString).substring(to: min(value.selection.location, value.text.utf16.count))
-        moveCursor(prefix.count - value.text.count)
-        return true
+        let read = readHostSnapshot()
+        guard read.connected, read.snapshot.available, read.snapshot.before.isEmpty,
+              read.snapshot.after.isEmpty, read.snapshot.selected.isEmpty,
+              read.snapshot.document == documentIdentity else { return false }
+        let length = value.text.utf16.count
+        guard value.selection.location <= length, NSMaxRange(value.selection) <= length else { return false }
+        beginHostWrite(); defer { endHostWrite() }
+        textDocumentProxy.setMarkedText(value.text, selectedRange: value.selection)
+        textDocumentProxy.unmarkText()
+        let actual = readHostSnapshot()
+        guard actual.connected, actual.snapshot.document == read.snapshot.document else { return false }
+        hostState = HostTextState(actual.snapshot); discardMarkedDelivery()
+        let ns = value.text as NSString
+        return actual.snapshot.before.hasSuffix(ns.substring(to: value.selection.location)) &&
+            actual.snapshot.selected == ns.substring(with: value.selection) &&
+            actual.snapshot.after.hasPrefix(ns.substring(from: NSMaxRange(value.selection)))
     }
 }

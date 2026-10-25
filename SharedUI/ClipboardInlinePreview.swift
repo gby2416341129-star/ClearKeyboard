@@ -6,6 +6,7 @@ import CoreText
 /// A UITextView's internal tiled layout must not compete with our contentSize.
 @MainActor final class ClipboardInlinePreview: UIScrollView {
     var onPaste: (() -> Void)?
+    var isReady: Bool { canvas.isReady }
     private let canvas = ClipboardLineCanvas()
     private(set) var text = ""
     var renderedLineRect: CGRect { canvas.lineRect }
@@ -15,6 +16,7 @@ import CoreText
         super.init(frame: frame)
         backgroundColor = .clear; canvas.isUserInteractionEnabled = false
         addSubview(canvas)
+        canvas.onShape = { [weak self] in self?.setNeedsLayout(); self?.layoutIfNeeded() }
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         alwaysBounceHorizontal = true; alwaysBounceVertical = false
         isDirectionalLockEnabled = true; contentInsetAdjustmentBehavior = .never
@@ -47,9 +49,17 @@ import CoreText
 }
 
 @MainActor private final class ClipboardLineCanvas: UIView {
+    nonisolated private static let shapeQueue = DispatchQueue(label: "clear.clipboard.line", qos: .userInitiated)
+    private var revision = 0
+    private(set) var isReady = true
+    var onShape: (() -> Void)?
     private struct Chunk {
         let run: CTRun; let range: CFRange; let minX: CGFloat; let maxX: CGFloat
     }
+    private struct Shape {
+        let line: CTLine; let chunks: [Chunk]; let width: CGFloat; let ascent: CGFloat; let descent: CGFloat
+    }
+    private var maxEnds: [CGFloat] = []
     private var line: CTLine?
     private var chunks: [Chunk] = []
     private var ascent: CGFloat = 0, descent: CGFloat = 0
@@ -69,20 +79,41 @@ import CoreText
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func shape(_ value: String) {
-        let font = UIFont.systemFont(ofSize: 15, weight: .medium)
+        revision += 1; let request = revision
+        let color = UIColor.label.resolvedColor(with: traitCollection).cgColor
+        isReady = false
+        let apply: (Shape) -> Void = { [weak self] result in
+            guard let self, self.revision == request else { return }
+            self.line = result.line; self.chunks = result.chunks
+            self.lineWidth = result.width; self.ascent = result.ascent; self.descent = result.descent
+            var end: CGFloat = -.greatestFiniteMagnitude
+            self.maxEnds = result.chunks.map { end = max(end, $0.maxX); return end }
+            self.isReady = true; self.setNeedsDisplay(); self.onShape?()
+        }
+        if value.utf8.count <= 8192 { apply(Self.prepare(value, color: color)) }
+        else {
+            Self.shapeQueue.async {
+                let result = Self.prepare(value, color: color)
+                DispatchQueue.main.async { apply(result) }
+            }
+        }
+    }
+    nonisolated private static func prepare(_ value: String, color: CGColor) -> Shape {
+        let pointSize: CGFloat = 15
         // The private UIFont name is not a public Core Text family name; using
         // it by name can silently fall back to Times for Latin text.
-        let system = CTFontCreateUIFontForLanguage(.system, font.pointSize, nil)!
+        let system = CTFontCreateUIFontForLanguage(.system, pointSize, nil)!
         let descriptor = CTFontDescriptorCreateWithAttributes([
-            kCTFontTraitsAttribute: [kCTFontWeightTrait: UIFont.Weight.medium.rawValue]
+            kCTFontTraitsAttribute: [kCTFontWeightTrait: 0.23]
         ] as CFDictionary)
-        let face = CTFontCreateCopyWithAttributes(system, font.pointSize, nil, descriptor)
+        let face = CTFontCreateCopyWithAttributes(system, pointSize, nil, descriptor)
         let attributes: [NSAttributedString.Key: Any] = [
             NSAttributedString.Key(kCTFontAttributeName as String): face,
-            NSAttributedString.Key(kCTForegroundColorAttributeName as String): UIColor.label.resolvedColor(with: traitCollection).cgColor]
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color]
         let shaped = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes) as CFAttributedString)
-        line = shaped; chunks = []
-        lineWidth = CGFloat(CTLineGetTypographicBounds(shaped, &ascent, &descent, nil))
+        var chunks: [Chunk] = []
+        var ascent: CGFloat = 0, descent: CGFloat = 0
+        let lineWidth = CGFloat(CTLineGetTypographicBounds(shaped, &ascent, &descent, nil))
         for run in CTLineGetGlyphRuns(shaped) as! [CTRun] {
             let count = CTRunGetGlyphCount(run)
             for start in stride(from: 0, to: count, by: 64) {
@@ -95,7 +126,8 @@ import CoreText
                 chunks.append(Chunk(run: run, range: range, minX: left - 30, maxX: right + 30))
             }
         }
-        setNeedsDisplay()
+        chunks.sort { $0.minX < $1.minX }
+        return Shape(line: shaped, chunks: chunks, width: lineWidth, ascent: ascent, descent: descent)
     }
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext() else { return }
@@ -105,7 +137,14 @@ import CoreText
         context.scaleBy(x: 1, y: -1); context.textPosition = .zero
         lastDrawnGlyphCount = 0
         let right = viewportOrigin + bounds.width
-        for chunk in chunks where chunk.maxX >= viewportOrigin && chunk.minX <= right {
+        var low = 0, high = chunks.count
+        while low < high {
+            let mid = (low + high) / 2
+            if maxEnds[mid] < viewportOrigin { low = mid + 1 } else { high = mid }
+        }
+        for chunk in chunks.dropFirst(low) {
+            if chunk.minX > right { break }
+            guard chunk.maxX >= viewportOrigin else { continue }
             context.saveGState()
             context.textPosition = .zero
             CTRunDraw(chunk.run, context, chunk.range)

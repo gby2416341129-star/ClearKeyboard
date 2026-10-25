@@ -37,6 +37,7 @@ final class KeyboardAppearancePreview: UIView {
         }
         isUserInteractionEnabled = false; isAccessibilityElement = true
         accessibilityLabel = "键盘效果预览"; accessibilityIdentifier = "appearance.preview"
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: KeyboardAppearancePreview, _: UITraitCollection) in view.apply(view.settings) }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func fittingSize(forWidth width: CGFloat) -> CGSize {
@@ -69,10 +70,6 @@ final class KeyboardAppearancePreview: UIView {
                          font: font, normalColor: value.candidateTintColor)
         accessibilityValue = Self.accessibilityDescription(of: value)
         invalidateIntrinsicContentSize(); setNeedsLayout()
-    }
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true { apply(settings) }
     }
     override func layoutSubviews() {
         super.layoutSubviews()

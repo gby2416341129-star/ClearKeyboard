@@ -285,7 +285,7 @@ public final class InputEngine {
             if correction, !fuzzy.isEmpty {
                 for variant in FuzzyPinyin.variants(input, enabled: fuzzy, limit: limit <= 6 ? 3 : 12).dropFirst() {
                     if cancelled() { return [] }
-                    output += matureDecoder.candidates(variant, limit: limit, context: context, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: raw.count, score: $0.score - 10) }
+                    output += matureDecoder.candidates(variant, limit: limit, context: context, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count, score: $0.score - 10) }
                 }
             }
             if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }

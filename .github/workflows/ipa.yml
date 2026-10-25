@@ -25,8 +25,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       CLEAR_UI_HOTFIX: '1'
       CLEAR_VISUAL_FAST: '1'
-      # Build 65: clipboard browsing and lifecycle, continuous toolbar, compact selection, tuned haptic modes.
-      CLEAR_USER_DEVICE_REVIEW: '1'
+      # Build 66: merged audit repairs; full core/native suites plus installed extension checks.
+      CLEAR_USER_DEVICE_REVIEW: '0'
       CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
       CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '26'
     timeout-minutes: 60
@@ -38,7 +38,7 @@ jobs:
       - name: Verify keyboard interaction and appearance repair scope
         if: env.CLEAR_UI_HOTFIX == '1'
         run: |
-          git fetch --no-tags --depth=1 origin fed2ef08404cd5b0f252a798922e884d4868655b
+          git fetch --no-tags --depth=1 origin dd02f59ca6c2159318b72f6048a58bac7ed0c0e6
           python3 Scripts/verify_ui_hotfix.py
       - name: Reproduce the expiring composition ledger and check the repair
         if: env.CLEAR_UI_HOTFIX != '1'
@@ -223,7 +223,7 @@ jobs:
           .build/test-blind-spelling Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
           swiftc -O -parse-as-library Core/HostTextState.swift Scripts/test_candidate_context.swift -o .build/test-candidate-context
           .build/test-candidate-context
-          swiftc -O -parse-as-library Core/Clipboard.swift Scripts/test_clipboard_observation.swift -o .build/test-clipboard-observation
+          swiftc -O -parse-as-library Core/SharedFileLock.swift Core/Clipboard.swift Scripts/test_clipboard_observation.swift -o .build/test-clipboard-observation
           .build/test-clipboard-observation
           c++ -O3 -UNDEBUG -std=c++17 -framework Accelerate Scripts/test_native_bridge.cpp -o .build/test-bridge
           .build/test-bridge Core/Resources/Rime/clear-sentence.clm Core/Resources/Rime/clear-phonetic.tsv
@@ -303,7 +303,9 @@ jobs:
           path: .build/KeyboardVisualReview
           if-no-files-found: error
           retention-days: 7
-      - name: Verify focused interaction regressions
+      - name: Verify all core regressions
+        run: swift test --configuration release --jobs 3
+      - name: Verify all native interaction regressions
         run: bash Scripts/test-key-material.sh
       - name: Return focused key material review
         if: always()
@@ -346,11 +348,8 @@ jobs:
           from pathlib import Path
           config = Path('Config/Project.xcconfig')
           source = config.read_text()
-          assert 'MARKETING_VERSION = 0.1.17' in source
-          assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.62')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 65')
-          config.write_text(source)
+          assert 'MARKETING_VERSION = 0.1.63' in source
+          assert 'CURRENT_PROJECT_VERSION = 66' in source
           PY
           bash Scripts/build-ipa.sh dist
       - name: Return unsigned IPA

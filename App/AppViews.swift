@@ -35,9 +35,10 @@ import UIKit
             let clipboardChanged = clean.capturesClipboard != storedSettings.capturesClipboard ||
                 clean.clipboardLifetimeHours != storedSettings.clipboardLifetimeHours
             let appearanceChanged = AppearanceSnapshot(settings: clean, includeInputPreferences: true) != AppearanceSnapshot(settings: storedSettings, includeInputPreferences: true)
+            let previous = storedSettings
             storedSettings = clean
             store.save(clean)
-            if appearanceChanged { appearanceLink?.publish(clean) }
+            if appearanceChanged { appearanceLink?.publish(clean, previous: previous) }
             if active && clipboardChanged { clipboardCapture.activate(settings: clean, allowed: true) }
         }
     }
@@ -77,12 +78,9 @@ import UIKit
         if active { appearanceLink?.refresh() }
     }
     func clearLearning() {
-        store.defaults.set(UUID().uuidString, forKey: "clear.learned.epoch")
-        store.defaults.removeObject(forKey: "clear.learned.v1")
-        store.defaults.removeObject(forKey: "clear.choices.v2")
-        store.defaults.removeObject(forKey: "clear.numbers.v1")
+        LearningStore.clear(store.defaults)
     }
-    func clearClipboard() { ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)).clear() }
+    func clearClipboard() { clipboardCapture.clearHistory() }
     func activate() {
         let retry = returningFromClipboardSettings
         returningFromClipboardSettings = false

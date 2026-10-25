@@ -77,6 +77,12 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
         }
         if let newest = candidates.max(by: { $0.1 < $1.1 }) {
             diagnostics.selectedChannel = newest.0.accessGroup == "app-group" ? "app-group" : "keychain"
+            if account == AppearanceSyncClient.settingsAccount {
+                let envelopes = candidates.compactMap { try? AppearanceSyncClient.decode($0.0.data).get() }
+                if let merged = AppearanceEnvelope.reconciling(envelopes), let data = try? AppearanceSyncClient.encode(merged).get() {
+                    return .success(AppearanceBackendRecord(data: data, accessGroup: newest.0.accessGroup))
+                }
+            }
             return .success(newest.0)
         }
         if let fileFailure { return .failure(fileFailure) }
@@ -93,7 +99,16 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
         for directory in available {
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                try data.write(to: directory.appendingPathComponent(account + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                let file = directory.appendingPathComponent(account + ".json")
+                try SharedFileLock.perform(at: directory.appendingPathComponent("sync.lock")) {
+                    var bytes = data
+                    if account == AppearanceSyncClient.settingsAccount,
+                       let incoming = try? AppearanceSyncClient.decode(data).get() {
+                        let existing = (try? Data(contentsOf: file)).flatMap { try? AppearanceSyncClient.decode($0).get() }
+                        if let merged = AppearanceEnvelope.reconciling([existing, incoming].compactMap { $0 }) { bytes = try AppearanceSyncClient.encode(merged).get() }
+                    }
+                    try bytes.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                }
                 fileSaved = true
                 diagnostics.fileWrite = "ok"
             } catch {
@@ -208,14 +223,18 @@ private enum AppearanceSyncNotification {
         diagnostics.active = false; diagnostics.event = "deactivated"
         client.flush(completion: completion)
     }
-    func publish(_ settings: KeyboardSettings) {
+    func publish(_ settings: KeyboardSettings, previous: KeyboardSettings? = nil) {
         let snapshot = AppearanceSnapshot(settings: settings, includeInputPreferences: includeInputPreferences)
         if localSnapshot == snapshot {
             if let pendingEnvelope { send(pendingEnvelope) }
             return
         }
+        let old = latest == nil && localSnapshot == nil ? nil : (previous.map { AppearanceSnapshot(settings: $0, includeInputPreferences: includeInputPreferences) } ?? localSnapshot)
+        var fields = old.map { snapshot.changedFields(from: $0) } ?? Array(AppearanceSnapshot.fieldNames)
+        if let pending = pendingEnvelope { fields = Array(Set(fields).union(pending.changedFields ?? Array(AppearanceSnapshot.fieldNames))) }
         generation += 1; localSnapshot = snapshot
-        let envelope = AppearanceEnvelope(snapshot: snapshot); latest = envelope; pendingEnvelope = envelope
+        let date = max(Date(), (latest?.updatedAt ?? .distantPast).addingTimeInterval(0.0001))
+        let envelope = AppearanceEnvelope(snapshot: snapshot, updatedAt: date, changedFields: fields); latest = envelope; pendingEnvelope = envelope
         diagnostics.latestRevision = envelope.revision; diagnostics.event = "local-edit"
         diagnostics.rejection = nil
         onStatus?(.saved)

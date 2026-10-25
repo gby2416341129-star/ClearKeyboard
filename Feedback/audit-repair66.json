@@ -1,0 +1,127 @@
+{
+  "build": 66,
+  "baseline": 65,
+  "authorization": "用户明确要求合并两次排查并开始修复；保留原有图标与视觉设计。",
+  "items": [
+    {
+      "id": "input-queue",
+      "scope": "等待候选和多指重叠输入的顺序、退出时排队字符丢失",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clipboard-ownership",
+      "scope": "实时选词撤选的宿主写入确认、原文保护与批量更新",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clipboard-transactions",
+      "scope": "历史跨实例跨进程覆盖、写入失败反馈、附件一致性",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clipboard-events",
+      "scope": "删除/清空重收录、固定内容新复制、历史刷新、异步版本错配",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clipboard-import",
+      "scope": "多个粘贴项目、有界附件加载与失败反馈",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clipboard-migration",
+      "scope": "已有共享目录时合并旧历史",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clipboard-performance",
+      "scope": "长文容量、主线程I/O、分词、预览、布局和选择开销",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clipboard-gestures",
+      "scope": "拖动选词边缘滚动、非连续英文数字分隔",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "settings-sync",
+      "scope": "逐项合并同步、字段语言偏好、草稿/页面切换、控件刷新",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "learning-epoch",
+      "scope": "清空学习记录和延迟保存竞争",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "clear-undo",
+      "scope": "清空范围与超限反馈、撤回选区、长操作分批",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "decimal",
+      "scope": "中文数字页独立小数点",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "longpress-case",
+      "scope": "英文长按默认大小写跟随显示",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "fuzzy-span",
+      "scope": "模糊拼音带分隔符的消耗长度",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "arithmetic-spaces",
+      "scope": "禁止将空格分开的数字拼成一个算式",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "toolbar-offset",
+      "scope": "中途退出时记住滚动位置",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "old-code",
+      "scope": "旧API/并发警告、未使用拖动路径与状态、实际路径测试",
+      "status": "pending",
+      "verification": []
+    },
+    {
+      "id": "license-page",
+      "scope": "显示模型许可与署名",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "release-checks",
+      "scope": "测试退出码、完整核心/宿主/扩展检查、版本号单一来源",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "physical-acceptance",
+      "scope": "震动质感、动画主观体验与真机帧率，不以自动化替代用户验收",
+      "status": "pending",
+      "verification": []
+    }
+  ]
+}

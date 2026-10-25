@@ -2,6 +2,9 @@ import UIKit
 import Darwin
 
 enum SharedStorage {
+    private static let migrationQueue = DispatchQueue(label: "clear.legacy.clipboard", qos: .utility)
+    private static let migrationLock = NSLock()
+    private static var migrating = Set<String>()
     struct Group { let identifier: String; let root: URL }
     /// Re-signers can rewrite the provisioning group while leaving Info.plist
     /// untouched. Use only a container iOS actually grants this process.
@@ -74,7 +77,20 @@ enum SharedStorage {
 
         var destinationInfo = stat()
         if destination.path.withCString({ Darwin.lstat($0, &destinationInfo) }) == 0 {
-            defaults.set(true, forKey: marker)
+            migrationLock.lock(); let start = migrating.insert(source.path + destination.path).inserted; migrationLock.unlock()
+            guard start else { return }
+            migrationQueue.async {
+                defer { migrationLock.lock(); migrating.remove(source.path + destination.path); migrationLock.unlock() }
+                guard FileManager.default.fileExists(atPath: source.path) else { return }
+                var complete = true
+                for name in ["clipboard.json", "common-phrases.json"] {
+                    let old = source.appendingPathComponent(name)
+                    if FileManager.default.fileExists(atPath: old.path) {
+                        complete = ClipboardStore(url: destination.appendingPathComponent(name)).mergeLegacy(from: old) && complete
+                    }
+                }
+                if complete { defaults.set(true, forKey: marker) }
+            }
             return
         }
         var sourceInfo = stat()
@@ -93,7 +109,8 @@ enum SharedStorage {
                 return (status, status == 0 ? 0 : errno)
             }
         }
-        if result.0 == 0 || result.1 == EEXIST { defaults.set(true, forKey: marker) }
+        if result.0 == 0 { defaults.set(true, forKey: marker) }
+        else if result.1 == EEXIST { adoptLegacyClipboardDirectory(from: source, to: destination, defaults: defaults, groupIdentifier: groupIdentifier) }
     }
     static func clipboardURL(allowShared: Bool) -> URL {
         if allowShared, let group = applicationGroup() {

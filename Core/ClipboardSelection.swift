@@ -1,12 +1,12 @@
 import Foundation
 
 public enum ClipboardSelection {
+    private static let expression = try! NSRegularExpression(pattern: "[A-Za-z0-9]+(?:[.+#_/-][A-Za-z0-9]+)*|\\X")
     public struct Token {
         public let text: String
         public let range: NSRange
     }
     public static func tokens(_ text: String) -> [Token] {
-        let expression = try! NSRegularExpression(pattern: "[A-Za-z0-9]+(?:[.+#_/-][A-Za-z0-9]+)*|\\X")
         let string = text as NSString
         return expression.matches(in: text, range: NSRange(location: 0, length: string.length)).filter { !string.substring(with: $0.range).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map {
             Token(text: string.substring(with: $0.range), range: $0.range)
@@ -22,7 +22,7 @@ public enum ClipboardSelection {
         }
         parts.append(text(source, tokens: tokens, from: start, through: end))
         return parts.reduce("") { result, part in
-            let separator = result.last?.isASCII == true && result.last?.isLetter == true && part.first?.isASCII == true && part.first?.isLetter == true ? " " : ""
+            let separator = result.last?.isASCII == true && result.last?.isLetterOrNumber == true && part.first?.isASCII == true && part.first?.isLetterOrNumber == true ? " " : ""
             return result + separator + part
         }
     }
@@ -34,3 +34,5 @@ public enum ClipboardSelection {
         return (source as NSString).substring(with: range)
     }
 }
+
+private extension Character { var isLetterOrNumber: Bool { isLetter || isNumber } }

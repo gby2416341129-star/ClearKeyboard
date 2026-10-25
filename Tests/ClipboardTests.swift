@@ -27,7 +27,9 @@ final class ClipboardTests: XCTestCase {
     }
     func testTextBoundAndBlankInput() {
         store.add("  \n"); XCTAssertTrue(store.clips.isEmpty)
-        store.add(String(repeating: "中", count: 2_100)); XCTAssertEqual(store.clips[0].text.count, 2_000)
+        store.add(String(repeating: "中", count: 2_100)); XCTAssertEqual(store.clips[0].text.count, 2_100)
+        XCTAssertFalse(store.add(String(repeating: "a", count: ClipboardStore.textLimit + 1)))
+        XCTAssertEqual(store.lastError, .capacity)
     }
     func testPinLimitAndClear() {
         for value in 0..<12 { store.add("\(value)"); store.togglePin(store.clips[0].id) }

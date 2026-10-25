@@ -25,7 +25,6 @@ import SwiftUI
     private var appearancePanelCache: KeyboardAppearancePanelView?
     private let clipboardText = ClipboardInlinePreview()
     private var toolbarDragActive = false
-    private var toolbarRebuildPending = false
     private var toolbarTapBlockedUntil: CFTimeInterval = 0
     private let candidateScroll = CandidateScrollView()
     private let localPreedit = UILabel()
@@ -47,12 +46,12 @@ import SwiftUI
     private var toolbarSignature = ""
     private var railMode: HandMode?
     private let deleteHint = UILabel()
+    private var noticeWork: DispatchWorkItem?
     private var panel: UIView?
     private let panelTransition = KeyboardPanelTransition()
     private let toolbarVibration: KeyboardVibration
     private var observerTokens: [NSObjectProtocol] = []
     private var panelKind: ToolbarTool?
-    private var toolboxVisible = false
     private var toolbarEditing = false
     private var initialized = false
     private var rendering = false
@@ -165,6 +164,8 @@ import SwiftUI
             self.compositionChanged(); self.renderInput()
         }
         model.onContentKey = { [weak self] in self?.consumeClipboardForTyping() }
+        model.onNotice = { [weak self] text in self?.showNotice(text) }
+        model.clipboardCapture.onFailure = { [weak self] text in self?.showNotice(text) }
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.appearanceSignature = ""; self?.render() }
@@ -270,14 +271,16 @@ import SwiftUI
                     button.onPrepare = { [weak self, weak button] action in
                         guard let self, let button else { return }
                         switch action { case .text, .literal: self.consumeClipboardForTyping(); default: break }
-                        if case .text = action { self.beginContact(button, action: action) }
-                        else if action == .space || action == .enter { self.beginContact(button, action: action) }
+                        self.beginContact(button, action: action)
                         self.model.prepare(action)
                     }
                     if key.action == .globe, let configureGlobe { configureGlobe(button) }
                     else { button.onAction = { [weak self, weak button] action in
                         guard let self else { return }
                         if let button, self.finishContact(button, released: true, replacement: action) { return }
+                        if let button, !self.keyContacts.isEmpty {
+                            self.keyContacts.append(KeyContact(key: ObjectIdentifier(button), action: action, released: true)); return
+                        }
                         self.model.handle(action)
                     } }
                     button.onAlternateBegan = { [weak model] in model?.cancelPreparation() }
@@ -287,6 +290,7 @@ import SwiftUI
                     button.onDeleteHint = { [weak self, weak button] direction in self?.showDeleteHint(direction, near: button) }
                     button.onDeleteSwipe = { [weak self] clear in
                         guard let self else { return }
+                        self.keys.forEach { $0.0.stopTracking() }
                         if clear { self.model.clearInput() }
                         else { _ = self.model.undoClearInput() }
                     }
@@ -723,14 +727,16 @@ import SwiftUI
         let key = button.convert(button.bounds, to: self)
         deleteHint.frame = CGRect(x: max(8, min(bounds.width - 154, key.maxX - 146)), y: max(2, key.minY - 38), width: 146, height: 34)
         deleteHint.text = direction > 0 ? "↑ 松手清空" : direction < 0 ? "↓ 松手撤回" : "↑ 清空  ·  ↓ 撤回"
+        deleteHint.textColor = .white
         deleteHint.backgroundColor = direction < 0 ? .systemTeal : direction > 0 ? .systemRed : .darkGray
         deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
     }
     private func preparePanelTransition(animated: Bool = true) {
+        (panel as? ClipboardPanel)?.endSelection()
         let region = keyGlassGroup.frame.union(panel?.frame ?? keyGlassGroup.frame).intersection(bounds)
         panelTransition.begin(in: self, region: region, animated: animated)
         panel?.removeFromSuperview()
-        panel = nil; panelKind = nil; activeTool = nil; toolboxVisible = false; toolbarEditing = false
+        panel = nil; panelKind = nil; activeTool = nil; toolbarEditing = false
         editorTiles = [:]; nativeAppearance = nil
     }
     func closePanel(animated: Bool = true) {
@@ -765,7 +771,17 @@ import SwiftUI
         default: return nil
         }
     }
-    func stopInteractions() { keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel(animated: false); panelTransition.cancel() }
+    func stopInteractions() { rememberToolbarOffset(); keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel(animated: false); panelTransition.cancel() }
+    private func showNotice(_ text: String) {
+        noticeWork?.cancel()
+        deleteHint.text = text; deleteHint.backgroundColor = .secondarySystemBackground
+        deleteHint.textColor = .label
+        deleteHint.frame = CGRect(x: 12, y: 47, width: max(0, bounds.width - 24), height: 40)
+        deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
+        UIAccessibility.post(notification: .announcement, argument: text)
+        let work = DispatchWorkItem { [weak self] in self?.deleteHint.isHidden = true }
+        noticeWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
     private func announce(_ text: String) {
         guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)
@@ -819,7 +835,6 @@ import SwiftUI
     }
     private func reloadClipboardSuggestion(fresh: Bool = true) {
         let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true))
-        store.prune(lifetime: model.settings.clipboardLifetimeHours * 3600)
         recentClip = store.clips.first.flatMap {
             !clipboardSuggestionState.isConsumed($0, revision: UIPasteboard.general.changeCount) &&
                 (fresh || Date().timeIntervalSince($0.createdAt) < 900) ? $0 : nil
@@ -868,7 +883,7 @@ import SwiftUI
         return stack
     }
     private func showToolbox() {
-        preparePanelTransition(); toolboxVisible = true
+        preparePanelTransition()
         let stack = panelStack(title: "键盘工具")
         let items: [(String, String, () -> Void)] = ToolbarTool.allCases.map { tool in
             (tool == .compatibility ? compatibilityInputTitle : tool.title, tool.symbol, { [weak self] in
@@ -893,7 +908,7 @@ import SwiftUI
     }
     func showToolbarEditor() {
         if toolbarEditing, panel != nil { updateToolbarState(); return }
-        preparePanelTransition(); toolbarEditing = true; toolboxVisible = true; editorPulse()
+        preparePanelTransition(); toolbarEditing = true; editorPulse()
         let stack = panelStack(title: "定制工具栏")
         let tools = ToolbarTool.allCases.filter { $0 != .language }
         for start in stride(from: 0, to: tools.count, by: 3) {

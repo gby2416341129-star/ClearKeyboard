@@ -14,19 +14,10 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -derivedDataPath .build/KeyMaterial -resultBundlePath .build/KeyMaterialResults.xcresult \
   -parallel-testing-enabled NO -test-timeouts-enabled YES \
   -maximum-test-execution-time-allowance 120 \
-  -only-testing:ClearKeyboardRuntimeTests/ToolbarMotion64Tests \
-  -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair65Tests \
-  -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair63Tests/testPanelToggleSwitchAndRepeatedColorOpeningUseOnePreview \
-  -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair63Tests/testPreviewShiftAndDeleteStayBoundedAfterRepeatedColorReset \
-  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testSnapshotAppliesEveryAppearanceFieldAndPreservesInputPreferences \
-  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testPublicKeychainRoundTripReturnsAssignedGroupAndUpdatesIsolatedItem \
-  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testMirroredBackendReportsFailureWhenNeitherChannelCanSave \
-  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testAppearanceLinkNotificationRefreshDoesNotLoopReceiptWrites \
-  -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests/testIndependentAppAppearanceWritesChangeActualSystemBackedKeyboardPixels \
-  -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests/testAppearanceReceiptPreservesLiveChineseCompositionAndDoesNotEchoWrites \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
 NATIVE_STATUS=$?
 set -e
+if [ "$NATIVE_STATUS" -ne 0 ]; then exit "$NATIVE_STATUS"; fi
 mkdir -p .build/KeyMaterialReview
 xcrun xcresulttool get test-results summary --path .build/KeyMaterialResults.xcresult > .build/KeyMaterialReview/test-summary.json
 xcrun xcresulttool export attachments --path .build/KeyMaterialResults.xcresult --output-path .build/KeyMaterialReview/attachments
@@ -35,6 +26,6 @@ import json
 from pathlib import Path
 s=json.loads(Path('.build/KeyMaterialReview/test-summary.json').read_text())
 print(json.dumps(s,ensure_ascii=False),flush=True)
-assert s['failedTests']==0 and s['passedTests']==25,s
+assert s['failedTests']==0 and s['passedTests']>=200 and s.get('skippedTests',0)==0,s
 print('KEY_MATERIAL_CHECKS '+json.dumps(dict(passed=s['passedTests'],failed=s['failedTests'],scope='long article middle and tail pixels, persistent copy suppression, inline selection completion, continuous toolbar scroll and soft edges, two haptic modes and shared settings, interruptible panel transitions')))
 PY

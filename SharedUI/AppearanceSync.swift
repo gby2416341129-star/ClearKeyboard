@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 /// Presentation and keyboard tool preferences share a revision. Typed text,
-/// clipboard payloads, learned words and language state never enter this channel.
+/// clipboard payloads and learned words never enter this channel.
 struct AppearanceSnapshot: Codable, Equatable {
     let accent: Accent
     let customAccentHex: String?
@@ -72,6 +72,17 @@ struct AppearanceSnapshot: Codable, Equatable {
     /// Older snapshots did not carry height. Compare the fields they requested
     /// after applying them, so an absent height preserves the receiver's layout.
     func isApplied(to settings: KeyboardSettings) -> Bool { applying(to: settings) == settings }
+    static let fieldNames = Set(Mirror(reflecting: AppearanceSnapshot(settings: KeyboardSettings(), includeInputPreferences: true)).children.compactMap(\.label))
+    var fieldValues: [String: Any] {
+        guard let data = try? JSONEncoder().encode(self), let values = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return values
+    }
+    func changedFields(from old: AppearanceSnapshot) -> [String] {
+        let left = fieldValues, right = old.fieldValues
+        return Self.fieldNames.filter { key in
+            !NSDictionary(dictionary: ["value": left[key] ?? NSNull()]).isEqual(to: ["value": right[key] ?? NSNull()])
+        }.sorted()
+    }
     var isValid: Bool {
         if let fuzzyPairs, !fuzzyPairs.isSubset(of: Set(FuzzyPinyin.availablePairs)) { return false }
         if let oneHandWidth, !oneHandWidth.isFinite || !(0.68...0.88).contains(oneHandWidth) { return false }
@@ -92,8 +103,35 @@ struct AppearanceEnvelope: Codable, Equatable {
     let revision: UUID
     let updatedAt: Date
     let snapshot: AppearanceSnapshot
-    init(snapshot: AppearanceSnapshot, revision: UUID = UUID(), updatedAt: Date = Date()) {
+    let changedFields: [String]?
+    let fieldDates: [String: Date]?
+    init(snapshot: AppearanceSnapshot, revision: UUID = UUID(), updatedAt: Date = Date(), changedFields: [String]? = nil, fieldDates: [String: Date]? = nil) {
         schema = 1; self.revision = revision; self.updatedAt = updatedAt; self.snapshot = snapshot
+        self.changedFields = changedFields; self.fieldDates = fieldDates
+    }
+    var hasValidFields: Bool {
+        (changedFields.map { Set($0).isSubset(of: AppearanceSnapshot.fieldNames) } ?? true) &&
+            (fieldDates?.allSatisfy { AppearanceSnapshot.fieldNames.contains($0.key) && $0.value.timeIntervalSince1970.isFinite } ?? true)
+    }
+    static func reconciling(_ envelopes: [AppearanceEnvelope]) -> AppearanceEnvelope? {
+        if envelopes.count == 1, envelopes[0].changedFields == nil { return envelopes[0] }
+        guard let latest = envelopes.max(by: {
+            $0.updatedAt == $1.updatedAt ? $0.revision.uuidString < $1.revision.uuidString : $0.updatedAt < $1.updatedAt
+        }) else { return nil }
+        var values = AppearanceSnapshot(settings: KeyboardSettings(), includeInputPreferences: true).fieldValues
+        var dates: [String: Date] = [:], revisions: [String: String] = [:]
+        for envelope in envelopes {
+            let incoming = envelope.snapshot.fieldValues
+            for key in envelope.changedFields ?? Array(AppearanceSnapshot.fieldNames) {
+                let date = envelope.fieldDates?[key] ?? envelope.updatedAt
+                if let old = dates[key], old > date || (old == date && (revisions[key] ?? "") >= envelope.revision.uuidString) { continue }
+                values[key] = incoming[key]
+                dates[key] = date; revisions[key] = envelope.revision.uuidString
+            }
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: values),
+              let snapshot = try? JSONDecoder().decode(AppearanceSnapshot.self, from: data) else { return nil }
+        return AppearanceEnvelope(snapshot: snapshot, revision: latest.revision, updatedAt: latest.updatedAt, fieldDates: dates)
     }
 }
 
@@ -194,6 +232,7 @@ extension AppearanceSyncBackend {
 /// group lets Security choose its real default; it never fabricates permissions.
 /// A successful local write is not evidence that the keyboard can read it.
 final class AppearanceKeychainBackend: AppearanceSyncBackend {
+    private var patchWrites = 0
     let service: String
     private let configuredAccessGroup: String?
     private lazy var sharedAccessGroup: String? = {
@@ -234,6 +273,7 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         // Re-signing may move the shared item to another granted group. Search
         // all groups Security permits, rather than pinning reads to the old name.
         var query = query(account); query.removeValue(forKey: kSecAttrAccessGroup as String)
+        if account == AppearanceSyncClient.settingsAccount { query.removeValue(forKey: kSecAttrAccount as String) }
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         query[kSecReturnAttributes as String] = true; query[kSecReturnData as String] = true
         var result: CFTypeRef?
@@ -242,11 +282,31 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         if status == errSecItemNotFound { return .success(nil) }
         guard status == errSecSuccess else { return .failure(.keychain(status)) }
         guard let entries = result as? [[String: Any]] else { return .failure(.invalidPayload) }
+        if account == AppearanceSyncClient.settingsAccount {
+            let records = entries.compactMap { attributes -> (AppearanceEnvelope, String?)? in
+                guard let name = attributes[kSecAttrAccount as String] as? String,
+                      name == account || name.hasPrefix(account + ".patch."),
+                      let data = attributes[kSecValueData as String] as? Data,
+                      let envelope = try? AppearanceSyncClient.decode(data).get() else { return nil }
+                return (envelope, attributes[kSecAttrAccessGroup as String] as? String)
+            }
+            guard let merged = AppearanceEnvelope.reconciling(records.map(\.0)),
+                  let data = try? AppearanceSyncClient.encode(merged).get() else {
+                let attempted = entries.contains { row in
+                    guard let name = row[kSecAttrAccount as String] as? String else { return false }
+                    return name == account || name.hasPrefix(account + ".patch.")
+                }
+                return attempted ? .failure(.invalidPayload) : .success(nil)
+            }
+            let group = records.first { $0.0.revision == merged.revision }?.1
+            diagnostics.keychainAccessGroup = group
+            return .success(AppearanceBackendRecord(data: data, accessGroup: group))
+        }
         let records: [(AppearanceBackendRecord, Date)] = entries.compactMap { attributes in
             guard let data = attributes[kSecValueData as String] as? Data,
                   data.count <= AppearanceSyncClient.maximumPayloadBytes else { return nil }
             let date: Date?
-            if account == AppearanceSyncClient.settingsAccount { date = try? AppearanceSyncClient.decode(data).get().updatedAt }
+            if account == AppearanceSyncClient.settingsAccount || account.hasPrefix(AppearanceSyncClient.settingsAccount + ".patch.") { date = try? AppearanceSyncClient.decode(data).get().updatedAt }
             else { date = try? AppearanceSyncClient.decodeReceipt(data).get().updatedAt }
             guard let date else { return nil }
             return (AppearanceBackendRecord(data: data, accessGroup: attributes[kSecAttrAccessGroup as String] as? String), date)
@@ -257,6 +317,17 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
     }
     func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
         guard data.count <= AppearanceSyncClient.maximumPayloadBytes else { return .failure(.invalidPayload) }
+        if account == AppearanceSyncClient.settingsAccount {
+            guard let envelope = try? AppearanceSyncClient.decode(data).get() else { return .failure(.invalidPayload) }
+            // Append immutable deltas. Two processes can never overwrite each
+            // other's unrelated edits, even without a shared filesystem group.
+            let result = write(data, account: account + ".patch." + envelope.revision.uuidString)
+            if case .success = result {
+                patchWrites += 1
+                if patchWrites % 16 == 0 { prunePatches() }
+            }
+            return result
+        }
         var base = query(account)
         let values: [String: Any] = [kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
@@ -286,8 +357,49 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         diagnostics.keychainAccessGroup = group
         return .success(group)
     }
+    private func prunePatches() {
+        var request = query(AppearanceSyncClient.settingsAccount)
+        request.removeValue(forKey: kSecAttrAccount as String)
+        request[kSecMatchLimit as String] = kSecMatchLimitAll
+        request[kSecReturnAttributes as String] = true; request[kSecReturnData as String] = true
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess,
+              let entries = result as? [[String: Any]] else { return }
+        let patches = entries.compactMap { attributes -> (String, AppearanceEnvelope, String?)? in
+            guard let name = attributes[kSecAttrAccount as String] as? String,
+                  name.hasPrefix(AppearanceSyncClient.settingsAccount + ".patch."),
+                  let data = attributes[kSecValueData as String] as? Data,
+                  let value = try? AppearanceSyncClient.decode(data).get() else { return nil }
+            return (name, value, attributes[kSecAttrAccessGroup as String] as? String)
+        }.sorted { $0.1.updatedAt > $1.1.updatedAt }
+        guard patches.count > 96 else { return }
+        var keep = Set(patches.prefix(64).map(\.0)), covered = Set<String>()
+        for patch in patches {
+            let fields = Set(patch.1.changedFields ?? Array(AppearanceSnapshot.fieldNames))
+            if !fields.isSubset(of: covered) { keep.insert(patch.0); covered.formUnion(fields) }
+        }
+        for patch in patches where !keep.contains(patch.0) {
+            var deletion = query(patch.0)
+            if let group = patch.2 { deletion[kSecAttrAccessGroup as String] = group }
+            SecItemDelete(deletion as CFDictionary)
+        }
+    }
     /// Used only by isolated test fixtures, never a broad keychain deletion.
     func remove(account: String) -> OSStatus {
+        if account == AppearanceSyncClient.settingsAccount {
+            var request = query(account); request.removeValue(forKey: kSecAttrAccount as String)
+            request.removeValue(forKey: kSecAttrAccessGroup as String)
+            request[kSecMatchLimit as String] = kSecMatchLimitAll; request[kSecReturnAttributes as String] = true
+            var found: CFTypeRef?
+            if SecItemCopyMatching(request as CFDictionary, &found) == errSecSuccess, let rows = found as? [[String: Any]] {
+                for row in rows {
+                    guard let name = row[kSecAttrAccount as String] as? String, name.hasPrefix(account + ".patch.") else { continue }
+                    var deletion = query(name)
+                    if let group = row[kSecAttrAccessGroup as String] as? String { deletion[kSecAttrAccessGroup as String] = group }
+                    SecItemDelete(deletion as CFDictionary)
+                }
+            }
+        }
         var query = query(account); query.removeValue(forKey: kSecAttrAccessGroup as String)
         return SecItemDelete(query as CFDictionary)
     }
@@ -331,7 +443,7 @@ final class AppearanceSyncClient {
     }
     static func encode(_ envelope: AppearanceEnvelope) -> Result<Data, AppearanceSyncError> {
         guard envelope.schema == 1 else { return .failure(.unsupportedSchema(envelope.schema)) }
-        guard envelope.snapshot.isValid, envelope.updatedAt.timeIntervalSince1970.isFinite,
+        guard envelope.snapshot.isValid, envelope.hasValidFields, envelope.updatedAt.timeIntervalSince1970.isFinite,
               let data = try? JSONEncoder().encode(envelope), data.count <= maximumPayloadBytes else { return .failure(.invalidPayload) }
         return .success(data)
     }
@@ -339,7 +451,7 @@ final class AppearanceSyncClient {
         guard data.count <= maximumPayloadBytes,
               let envelope = try? JSONDecoder().decode(AppearanceEnvelope.self, from: data) else { return .failure(.invalidPayload) }
         guard envelope.schema == 1 else { return .failure(.unsupportedSchema(envelope.schema)) }
-        guard envelope.snapshot.isValid, envelope.updatedAt.timeIntervalSince1970.isFinite else { return .failure(.invalidPayload) }
+        guard envelope.snapshot.isValid, envelope.hasValidFields, envelope.updatedAt.timeIntervalSince1970.isFinite else { return .failure(.invalidPayload) }
         return .success(envelope)
     }
     static func encodeReceipt(_ receipt: AppearanceReceipt) -> Result<Data, AppearanceSyncError> {

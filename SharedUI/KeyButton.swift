@@ -261,7 +261,7 @@ final class KeyButton: UIButton {
             guard let host = ancestor ?? superview else { return }
             choiceHost = host
             let origin = gesture.location(in: host)
-            let initial = KeyAlternatives.initialIndex(for: key, choices: choices, language: appearanceSettings?.language ?? .chinese)
+            let initial = KeyAlternatives.initialIndex(for: key, choices: choices, language: appearanceSettings?.language ?? .chinese, displayedLabel: caption.text)
             let popup = KeyChoicePopup(choices: choices, initial: initial, origin: origin,
                 anchor: convert(bounds, to: host), host: host, accent: accent)
             choicePopup = popup; host.addSubview(popup)
