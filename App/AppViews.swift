@@ -101,23 +101,35 @@ import UIKit
 
 enum AppTab: String, CaseIterable {
     case home, custom, input
-    var title: String { switch self { case .home: return "澈"; case .custom: return "定制"; case .input: return "输入" } }
-    var symbol: String { switch self { case .home: return "square.stack.3d.up"; case .custom: return "slider.horizontal.3"; case .input: return "keyboard" } }
+    var title: String { switch self { case .home: return "首页"; case .custom: return "定制"; case .input: return "输入" } }
+    var symbol: String { switch self { case .home: return "house"; case .custom: return "slider.horizontal.3"; case .input: return "keyboard" } }
 }
 
 struct RootView: View {
     @EnvironmentObject private var preferences: Preferences
-    @Environment(\.colorScheme) private var colorScheme
     @State private var tab: AppTab = .home
     var body: some View {
         TabView(selection: $tab) {
-            NavigationStack { HomeView(selectedTab: $tab) }
-                .tabItem { Label { Text("澈") } icon: { Image(uiImage: ClearBrand.image(28)).renderingMode(.original) } }.tag(AppTab.home)
-            NavigationStack { CustomizationView() }
-                .tabItem { Label { Text("定制") } icon: { Image(uiImage: ToolArtwork.image(symbol: "slider.horizontal.3",style: colorScheme == .dark ? .dark : .light)).renderingMode(.original) } }.tag(AppTab.custom)
-            NavigationStack { InputSettingsView() }
-                .tabItem { Label { Text("输入") } icon: { Image(uiImage: ToolArtwork.image(symbol: AppTab.input.symbol,style: colorScheme == .dark ? .dark : .light)).renderingMode(.original) } }.tag(AppTab.input)
-        }.tint(AppPalette.accent)
+            NavigationStack { HomeView(selectedTab: $tab) }.tag(AppTab.home)
+            NavigationStack { CustomizationView() }.tag(AppTab.custom)
+            NavigationStack { InputSettingsView() }.tag(AppTab.input)
+        }.toolbar(.hidden, for: .tabBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                HStack(spacing: 0) {
+                    ForEach(AppTab.allCases, id: \.self) { item in
+                        Button { tab = item } label: {
+                            VStack(spacing: 5) {
+                                ToolIcon(symbol: item.symbol).frame(width: 28, height: 28)
+                                Text(item.title).font(.system(size: 10, weight: tab == item ? .semibold : .medium))
+                            }.foregroundStyle(tab == item ? AppPalette.accent : AppPalette.secondaryInk)
+                                .frame(maxWidth: .infinity).frame(height: 58).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityLabel(item.title)
+                            .accessibilityAddTraits(tab == item ? .isSelected : [])
+                    }
+                }.padding(.horizontal, 24).padding(.top, 3)
+                    .background(AppPalette.canvas.ignoresSafeArea(edges: .bottom))
+                    .overlay(alignment: .top) { Rectangle().fill(AppPalette.line).frame(height: 0.5) }
+            }.tint(AppPalette.accent)
             .onAppear { preferences.activate() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in preferences.deactivate() }
@@ -129,40 +141,48 @@ struct HomeView: View {
     @Binding var selectedTab: AppTab
     @State private var showSetup = false
     var body: some View {
-        AppPage(title: "澈") {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack(spacing: 14) {
-                    Image(uiImage: ClearBrand.image(44)).renderingMode(.original).frame(width: 44, height: 44)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("澈键盘").font(.system(size: 22, weight: .semibold))
-                        Text("中文 · English").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "sparkle").font(.system(size: 23)).foregroundStyle(AppPalette.accent)
+        AppPage(title: "澈键盘", subtitle: "让每一次表达，都顺手。", root: true) {
+            HStack(spacing: 15) {
+                Image(uiImage: ClearBrand.image(60)).renderingMode(.original).frame(width: 60, height: 60)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("中文与 English").font(.system(size: 17, weight: .semibold))
+                    Text("离线输入 · 自然表达").font(.system(size: 12)).foregroundStyle(AppPalette.secondaryInk)
                 }
+                Spacer(minLength: 4)
                 Button { showSetup = true } label: {
-                    HStack { Image(systemName: "keyboard"); Text("启用键盘"); Spacer(); Image(systemName: "arrow.up.right") }.padding(.horizontal, 16)
-                }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("home.setup")
-            }.padding(22).modifier(LiquidCard(radius: 28))
-            AppCard {
-                Button { selectedTab = .custom } label: { AppRow(title: "外观与手感", detail: "按你的喜好", symbol: "slider.horizontal.3") }
-                Divider()
-                Button { selectedTab = .input } label: { AppRow(title: "输入偏好", detail: "选词与纠错", symbol: AppTab.input.symbol) }
+                    HStack(spacing: 5) { ToolIcon(symbol: "setup").frame(width: 21, height: 21); Text("启用") }
+                        .font(.system(size: 13, weight: .semibold)).padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(AppPalette.accent.opacity(0.12), in: Capsule())
+                }.buttonStyle(.plain).foregroundStyle(AppPalette.accent).accessibilityIdentifier("home.setup")
+            }.padding(.vertical, 18)
+            HStack(spacing: 12) {
+                shortcut(title: "外观与手感", detail: "调成喜欢的样子", symbol: "slider.horizontal.3", tab: .custom)
+                shortcut(title: "输入偏好", detail: "选词、语言与预测", symbol: "keyboard", tab: .input)
                     .accessibilityIdentifier("home.inputPreferences")
-            }.buttonStyle(.plain)
+            }
+            AppSectionTitle(title: "更多")
             AppCard {
                 NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "复制记录", symbol: "doc.on.clipboard") }
-                Divider()
+                Divider().padding(.leading, 38)
                 NavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "本机存储", symbol: "lock.shield") }
             }.buttonStyle(.plain)
             HStack {
-                Text("离线输入"); Spacer()
+                Text("为专注输入而设计"); Spacer()
                 Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
-            }.font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 4)
+            }.font(.system(size: 11)).foregroundStyle(AppPalette.secondaryInk).padding(.horizontal, 3).padding(.top, 6)
                 .accessibilityElement(children: .combine).accessibilityIdentifier("home.footer")
         }.accessibilityIdentifier("home.page")
-            .sheet(isPresented: $showSetup) { SetupView() }
-            .onAppear { preferences.reload() }
+            .sheet(isPresented: $showSetup) { SetupView() }.onAppear { preferences.reload() }
+    }
+    private func shortcut(title: String, detail: String, symbol: String, tab: AppTab) -> some View {
+        Button { selectedTab = tab } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack { ToolIcon(symbol: symbol).frame(width: 32, height: 32); Spacer(); ToolIcon(symbol: "arrow.up.right").frame(width: 18, height: 18) }
+                Text(title).font(.system(size: 16, weight: .semibold)).padding(.top, 19)
+                Text(detail).font(.system(size: 11)).foregroundStyle(AppPalette.secondaryInk).padding(.top, 6)
+            }.padding(17).frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(.primary)
+                .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }.buttonStyle(.plain)
     }
 }
 

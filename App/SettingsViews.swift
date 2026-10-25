@@ -5,11 +5,11 @@ struct CustomizationView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var showToolbarEditor = false
     var body: some View {
-        AppPage(title: "定制") {
+        AppPage(title: "定制", subtitle: "外观、布局与触感，按你的习惯。", root: true) {
             AppSectionTitle(title: "按键与候选")
             AppCard {
                 ForEach(Array(AppearanceItem.allCases.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 { Divider() }
+                    if index > 0 { Divider().padding(.leading, 38) }
                     NavigationLink {
                         AppAppearanceDetail(item: item)
                             .background(AppPalette.canvas).navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
@@ -21,11 +21,11 @@ struct CustomizationView: View {
                 }
             }.buttonStyle(.plain)
             AppSectionTitle(title: "布局与手感")
-            AppCard {
+            VStack(alignment: .leading, spacing: 18) {
                 GlassValueSlider(title: "按键高度", value: $preferences.settings.keyHeight, range: 44...58, defaultValue: 50, identifier: "custom.keyHeight")
                 Divider()
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("单手模式").font(.system(size: 16, weight: .medium))
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) { ToolIcon(symbol: "keyboard.fill").frame(width: 24, height: 24); Text("单手模式").font(.system(size: 15, weight: .medium)) }
                     Picker("单手模式", selection: $preferences.settings.hand) {
                         ForEach(HandMode.allCases) { Text($0.title).tag($0) }
                     }.pickerStyle(.segmented).accessibilityIdentifier("custom.hand")
@@ -33,14 +33,14 @@ struct CustomizationView: View {
                         GlassValueSlider(title: "键盘宽度", value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), range: 0.68...0.88, defaultValue: 0.78, identifier: "custom.oneHandWidth", percent: true)
                     }
                 }
-            }
+            }.padding(18).background(AppPalette.card, in: RoundedRectangle(cornerRadius: 18))
             AppSectionTitle(title: "触感")
             AppCard {
-                PreferenceToggle(title: "按键震动", isOn: Binding(get: { preferences.settings.usesVibration }, set: { preferences.settings.vibrationEnabled = $0 }))
+                PreferenceToggle(title: "按键震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesVibration }, set: { preferences.settings.vibrationEnabled = $0 }))
                     .accessibilityIdentifier("custom.vibration")
                 if preferences.settings.usesVibration {
                     Divider()
-                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: { preferences.settings.vibrationIntensity = $0; KeyboardVibration.shared.pulse(intensity: $0) }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
+                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: { preferences.settings.vibrationIntensity = $0; KeyboardVibration.shared.pulse(intensity: $0) }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true).padding(.vertical, 14)
                 }
             }
             AppCard {
@@ -91,7 +91,7 @@ private struct ToolbarEditorView: View {
                 }
                 Section("添加工具") {
                     ForEach(ToolbarTool.allCases.filter { !preferences.settings.toolbar.contains($0) }) { item in
-                        Button { preferences.settings.toolbar.append(item) } label: { Label(item.title, systemImage: "plus.circle") }
+                        Button { preferences.settings.toolbar.append(item) } label: { Label { Text(item.title) } icon: { ToolIcon(symbol: item.symbol).frame(width: 28, height: 28) } }
                     }
                 }
             }.scrollContentBackground(.hidden).background(AppPalette.canvas)
@@ -105,12 +105,12 @@ struct InputSettingsView: View {
     @EnvironmentObject private var preferences: Preferences
     @State private var confirmClear = false
     var body: some View {
-        AppPage(title: "输入") {
+        AppPage(title: "输入", subtitle: "让语言与选词，更懂你的表达。", root: true) {
             AppSectionTitle(title: "语言")
             AppCard {
                 Picker("默认语言", selection: $preferences.settings.language) {
                     Text("中文拼音").tag(InputLanguage.chinese); Text("English").tag(InputLanguage.english)
-                }.font(.system(size: 16))
+                }.font(.system(size: 15)).frame(minHeight: 54)
                 Divider()
                 PreferenceToggle(title: "英文自动大写", isOn: $preferences.settings.autoCapitalization)
             }
@@ -129,7 +129,7 @@ struct InputSettingsView: View {
                 NavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "", symbol: "lock.shield") }
             }.buttonStyle(.plain)
             Button { confirmClear = true } label: {
-                Label("重置选词记忆", systemImage: "arrow.counterclockwise").font(.subheadline)
+                Label { Text("重置选词记忆") } icon: { ToolIcon(symbol: "arrow.counterclockwise").frame(width: 24, height: 24) }.font(.subheadline)
             }.padding(.horizontal, 4).accessibilityIdentifier("input.resetLearning")
         }.accessibilityIdentifier("input.page")
             .confirmationDialog("清除已记住的选词？", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -170,7 +170,7 @@ struct ClipboardSettingsView: View {
                 Picker("内容保留", selection: $preferences.settings.clipboardLifetimeHours) {
                     Text("15 分钟").tag(0.25); Text("1 小时").tag(1.0); Text("1 天").tag(24.0)
                     Text("7 天").tag(168.0); Text("30 天").tag(720.0); Text("永久").tag(0.0)
-                }.font(.system(size: 16))
+                }.font(.system(size: 15)).frame(minHeight: 54)
             }
             Text("App 或澈键盘打开时自动收录。常用语不会随保留时间过期。")
                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 4)
@@ -184,7 +184,7 @@ struct ClipboardSettingsView: View {
                     }
                 }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("clipboard.checkAccess")
                 if !accessMessage.isEmpty { Text(accessMessage).font(.caption).foregroundStyle(.secondary) }
-                Button("打开系统设置") { preferences.openClipboardSettings() }.font(.system(size: 16))
+                Button("打开系统设置") { preferences.openClipboardSettings() }.font(.system(size: 15)).frame(minHeight: 54)
                 Divider()
                 ClipboardSaveControl(capture: preferences.clipboardCapture).frame(height: 38)
                 DisclosureGroup("系统粘贴权限说明") {
@@ -208,15 +208,15 @@ struct InputAboutView: View {
         AppPage(title: "隐私与关于") {
             AppSectionTitle(title: "留在本机")
             AppCard {
-                Label("无需账号，也无需联网输入", systemImage: "lock.shield").font(.system(size: 16, weight: .medium))
+                Label("无需账号，也无需联网输入", systemImage: "lock.shield").font(.system(size: 15, weight: .semibold)).padding(.vertical, 12)
                 Text("选词记忆保存你主动确认的词和对应拼音，可在输入设置中关闭或清除。剪贴板可单独关闭和清空。")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.system(size: 13)).foregroundStyle(AppPalette.secondaryInk).lineSpacing(4).padding(.vertical, 8)
             }
             AppSectionTitle(title: "离线引擎")
             AppCard {
-                Text("Rime · 万象拼音").font(.system(size: 16, weight: .medium))
+                Text("Rime · 万象拼音").font(.system(size: 15, weight: .semibold)).padding(.vertical, 12)
                 Text("中文词库与上下文语言模型支持整句、简拼和拼写纠错；中文模式中也可输入 English。")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.system(size: 13)).foregroundStyle(AppPalette.secondaryInk).lineSpacing(4).padding(.vertical, 8)
                 Divider()
                 NavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
             }
@@ -226,8 +226,8 @@ struct InputAboutView: View {
                 Divider()
                 Label("删除键上滑清空，下滑撤回", systemImage: "delete.left")
                 Text("有拼音时，回车原样输入拼音，空格选择候选；没有拼音时，回车跟随当前 App 的发送、搜索或换行设置。")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            }.font(.system(size: 16))
+                    .font(.system(size: 13)).foregroundStyle(AppPalette.secondaryInk).lineSpacing(4).padding(.vertical, 8)
+            }.font(.system(size: 15)).frame(minHeight: 54)
         }.navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar).tint(AppPalette.accent)
     }
 }

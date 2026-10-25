@@ -6,6 +6,7 @@ import SwiftUI
 final class ValueSliderView: UIView {
     let slider = UISlider()
     private let title = UILabel(), amount = UILabel()
+    private let artwork = UIImageView()
     private let reset = UIButton(type: .system)
     var onCommit: ((Double) -> Void)?
     var formatter: (Double) -> String = { String(Int($0.rounded())) }
@@ -14,12 +15,15 @@ final class ValueSliderView: UIView {
     private var roundsValue = false
     override init(frame: CGRect) {
         super.init(frame: frame)
-        title.font = .systemFont(ofSize: 16, weight: .medium)
+        title.font = .systemFont(ofSize: 15, weight: .medium)
         amount.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
         amount.textColor = .secondaryLabel; amount.setContentHuggingPriority(.required, for: .horizontal)
         reset.setTitle("还原", for: .normal); reset.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
-        let row = UIStackView(arrangedSubviews: [title, UIView(), amount, reset]); row.spacing = 12
-        let stack = UIStackView(arrangedSubviews: [row, slider]); stack.axis = .vertical; stack.spacing = 14
+        artwork.contentMode = .scaleAspectFit
+        artwork.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        artwork.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        let row = UIStackView(arrangedSubviews: [artwork, title, UIView(), amount, reset]); row.spacing = 8; row.alignment = .center
+        let stack = UIStackView(arrangedSubviews: [row, slider]); stack.axis = .vertical; stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor), stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor)])
         slider.addTarget(self, action: #selector(changed), for: .valueChanged)
@@ -30,7 +34,9 @@ final class ValueSliderView: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func configure(title text: String, value: Double, range: ClosedRange<Double>, defaultValue: Double, identifier: String, percent: Bool) {
-        title.text = text; slider.accessibilityLabel = text; slider.accessibilityIdentifier = identifier
+        title.text = text
+        artwork.image = ToolArtwork.image(symbol: text.contains("高度") ? "key.height" : text.contains("震动") ? "haptic" : text.contains("宽度") ? "keyboard.fill" : "key.glass", size: 24)
+        slider.accessibilityLabel = text; slider.accessibilityIdentifier = identifier
         reset.accessibilityLabel = "还原" + text
         if identifier == "custom.keyHeight" { reset.accessibilityIdentifier = "custom.resetHeight" }
         self.defaultValue = defaultValue
@@ -64,6 +70,6 @@ struct GlassValueSlider: UIViewRepresentable {
         view.configure(title: title, value: value, range: range, defaultValue: defaultValue, identifier: identifier, percent: percent)
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ValueSliderView, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 300, height: 76)
+        CGSize(width: proposal.width ?? 300, height: 68)
     }
 }

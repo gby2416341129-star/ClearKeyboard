@@ -40,8 +40,8 @@ final class LiquidGlassView: UIView {
             lens.effect = nil; lens.alpha = 1
             backgroundColor = .clear
             let dark = traitCollection.userInterfaceStyle == .dark
-            let base = tint ?? (dark ? UIColor(white: keycap && !clear ? 0.26 : 0.16,alpha: 1) : .white)
-            let faceOpacity: CGFloat = reduced ? 1 : (tint == nil ? CGFloat(0.98-strength*0.12) : CGFloat(opacity))
+            let base = tint ?? (dark ? UIColor(red: keycap && !clear ? 0.22 : 0.12, green: keycap && !clear ? 0.24 : 0.14, blue: keycap && !clear ? 0.28 : 0.18, alpha: 1) : .white)
+            let faceOpacity: CGFloat = reduced ? 1 : (tint == nil ? CGFloat(0.96-strength*0.36) : CGFloat(opacity))
             tintFilm.backgroundColor = base.withAlphaComponent(faceOpacity)
             layer.borderWidth = keycap ? 0 : 0.5
             layer.borderColor = UIColor.separator.withAlphaComponent(0.18).cgColor
@@ -52,16 +52,14 @@ final class LiquidGlassView: UIView {
 
 struct LiquidCard: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
-    var radius: CGFloat = 24
+    var radius: CGFloat = 20
     var interactive = false
     func body(content: Content) -> some View {
         content.background {
-            RoundedRectangle(cornerRadius: min(radius,14))
-                .fill(colorScheme == .dark ? Color(red: 0.14,green: 0.15,blue: 0.17) : .white)
-                .overlay(RoundedRectangle(cornerRadius: min(radius,14)).strokeBorder(Color.primary.opacity(0.055),lineWidth: 0.5))
+            RoundedRectangle(cornerRadius: min(radius, 20), style: .continuous)
+                .fill(colorScheme == .dark ? Color(red: 0.075, green: 0.090, blue: 0.125) : .white)
         }
     }
-
 }
 
 /// One prepared actuator per keyboard process. Direct, ordered main-thread

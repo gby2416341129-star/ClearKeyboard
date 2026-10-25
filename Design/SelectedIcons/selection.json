@@ -1,0 +1,311 @@
+{
+  "approvedCombination": "onehand-v4-B3",
+  "icons": [
+    {
+      "id": "language",
+      "title": "语言切换",
+      "code": "A1",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\language-A1.png",
+      "sha256": "75cc04df1fa76f875acf551a7defcc707cd8844429c16a4c397189231703f5ff",
+      "resource": "SharedUI/Resources/ToolIcons/icon-language.png"
+    },
+    {
+      "id": "clipboard",
+      "title": "剪贴板",
+      "code": "A5",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\clipboard-A5.png",
+      "sha256": "9722986e5f8b7999d091137afd3f82fd5ee775a03ba6b155b2aae4acdb1c237c",
+      "resource": "SharedUI/Resources/ToolIcons/icon-clipboard.png"
+    },
+    {
+      "id": "emoji",
+      "title": "表情",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\emoji-A4.png",
+      "sha256": "0de3244fa68bb737d150f70c17dae08133da6c644dcb065ac3873ceba97702a6",
+      "resource": "SharedUI/Resources/ToolIcons/icon-emoji.png"
+    },
+    {
+      "id": "appearance",
+      "title": "外观",
+      "code": "A1",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\appearance-A1.png",
+      "sha256": "2de47e51375b52dad2f2cca7e104b8bd415bbdfed9f0090b8c649ea239c9f36e",
+      "resource": "SharedUI/Resources/ToolIcons/icon-appearance.png"
+    },
+    {
+      "id": "toolbar",
+      "title": "工具栏",
+      "code": "A2",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\toolbar-A2.png",
+      "sha256": "35a62595f979f49b4a340ce9270c2fdda01d0a1b9bed92380f52043f4dcb31b2",
+      "resource": "SharedUI/Resources/ToolIcons/icon-toolbar.png"
+    },
+    {
+      "id": "compatibility",
+      "title": "兼容输入",
+      "code": "A1",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\compatibility-A1.png",
+      "sha256": "f758c8c2723ca5718eda45f1fd00f8cbd92c58fe9da907a61372bfad3741d5b2",
+      "resource": "SharedUI/Resources/ToolIcons/icon-compatibility.png"
+    },
+    {
+      "id": "keyglass",
+      "title": "按键通透",
+      "code": "A3",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\keyglass-A3.png",
+      "sha256": "5b16ed6a2b225689500a177e9f29f95ef919dc201eeefb9018d71470f11e8ebd",
+      "resource": "SharedUI/Resources/ToolIcons/icon-keyglass.png"
+    },
+    {
+      "id": "keycolor",
+      "title": "按键颜色",
+      "code": "A3",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\keycolor-A3.png",
+      "sha256": "d0d67fc895a71e6565287b9b3d6027c27ffce4b14739437ef0fd4c03ccad1874",
+      "resource": "SharedUI/Resources/ToolIcons/icon-keycolor.png"
+    },
+    {
+      "id": "textcolor",
+      "title": "文字颜色",
+      "code": "A2",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\textcolor-A2.png",
+      "sha256": "0dbe32858172aadbf25b2927cd275df3306b2e770c5811590b61f4111dd0ace0",
+      "resource": "SharedUI/Resources/ToolIcons/icon-textcolor.png"
+    },
+    {
+      "id": "textsize",
+      "title": "文字大小",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\textsize-A4.png",
+      "sha256": "eca62fb2d0cd5b98d93c1b27239350de70468d800944629540b5a20506c8094a",
+      "resource": "SharedUI/Resources/ToolIcons/icon-textsize.png"
+    },
+    {
+      "id": "settings",
+      "title": "外观与手感",
+      "code": "A1",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\settings-A1.png",
+      "sha256": "fdb4164ff572ae3b9fe67d5dfd0bf7a2adc834fc8e53ffe2d5b8f56656b9d1be",
+      "resource": "SharedUI/Resources/ToolIcons/icon-settings.png"
+    },
+    {
+      "id": "privacy",
+      "title": "隐私与关于",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\privacy-A4.png",
+      "sha256": "46bdc126be61b2f1fd1ff0888c7692dcdacfe392f7d0aa14c6efe18bbdf3c3f4",
+      "resource": "SharedUI/Resources/ToolIcons/icon-privacy.png"
+    },
+    {
+      "id": "phonetic",
+      "title": "模糊拼音",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\phonetic-A4.png",
+      "sha256": "ebf1af45dbb5bc8d45cbe9c140f14b186cc4b3326f1fba5c101f4b35ece6eaa6",
+      "resource": "SharedUI/Resources/ToolIcons/icon-phonetic.png"
+    },
+    {
+      "id": "license",
+      "title": "开源许可",
+      "code": "A3",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\license-A3.png",
+      "sha256": "da4e3774a5f8b8df8738a0dd84fb9a987574fc5cec792098063b577ca7093495",
+      "resource": "SharedUI/Resources/ToolIcons/icon-license.png"
+    },
+    {
+      "id": "home",
+      "title": "首页",
+      "code": "A1",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\home-A1.png",
+      "sha256": "58ddd57de2bbfaee14c19a6a65b0cc55db9c924b0c951cdd749ee4c2e2a060a5",
+      "resource": "SharedUI/Resources/ToolIcons/icon-home.png"
+    },
+    {
+      "id": "input",
+      "title": "输入偏好",
+      "code": "A1",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\input-A1.png",
+      "sha256": "7d3f8e4415960e844abbe7dc568f7bc83525c06c50a3266c54aaae13b8c42b0b",
+      "resource": "SharedUI/Resources/ToolIcons/icon-input.png"
+    },
+    {
+      "id": "haptic",
+      "title": "按键震动",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\haptic-A4.png",
+      "sha256": "d546fc26d53045be64cb3013f71433c8cd36e1e0d56b3aa83348d08f69593bef",
+      "resource": "SharedUI/Resources/ToolIcons/icon-haptic.png"
+    },
+    {
+      "id": "setup",
+      "title": "启用键盘",
+      "code": "A2",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\setup-A2.png",
+      "sha256": "f394f29f3523146528fdef8c6cc07e3d1892df0f66aee7ecfc39b009fa3c6fab",
+      "resource": "SharedUI/Resources/ToolIcons/icon-setup.png"
+    },
+    {
+      "id": "copy",
+      "title": "复制",
+      "code": "A5",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\copy-A5.png",
+      "sha256": "974a8d71f422dbbd276f64de4d894df62d6de0757b67573038b45f2cb6ad28d3",
+      "resource": "SharedUI/Resources/ToolIcons/icon-copy.png"
+    },
+    {
+      "id": "phrases",
+      "title": "常用语",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\phrases-A4.png",
+      "sha256": "f7956871fa7dba2c939829677f5e5983e1af843474f9a6d41330cf2bfbffd829",
+      "resource": "SharedUI/Resources/ToolIcons/icon-phrases.png"
+    },
+    {
+      "id": "selection",
+      "title": "滑动选词",
+      "code": "A6",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\selection-A6.png",
+      "sha256": "e11e7548feb059afbd2b181b97da617cc26437936ee5ea0d8baafc7df3717935",
+      "resource": "SharedUI/Resources/ToolIcons/icon-selection.png"
+    },
+    {
+      "id": "trash",
+      "title": "删除记录",
+      "code": "A3",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\trash-A3.png",
+      "sha256": "d543ee6d96ed3433b918595f2a055b5d98fb9ebd6b76accd536729285725d4e2",
+      "resource": "SharedUI/Resources/ToolIcons/icon-trash.png"
+    },
+    {
+      "id": "undo",
+      "title": "还原",
+      "code": "A1",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\undo-A1.png",
+      "sha256": "b2524f62770aff83027e0f31e16b8234193d894f9f9e1480409fd841ccb0be5a",
+      "resource": "SharedUI/Resources/ToolIcons/icon-undo.png"
+    },
+    {
+      "id": "add",
+      "title": "添加",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\add-A4.png",
+      "sha256": "09093563031faed1edbf88eb526bcd0ced8b71a50dcbb59ae4640d986b50de42",
+      "resource": "SharedUI/Resources/ToolIcons/icon-add.png"
+    },
+    {
+      "id": "check",
+      "title": "完成",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\check-A4.png",
+      "sha256": "26d5eab81a509422656ec35f72263fd24b80262dcef702c219a608215fde58f6",
+      "resource": "SharedUI/Resources/ToolIcons/icon-check.png"
+    },
+    {
+      "id": "close",
+      "title": "关闭",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\close-A4.png",
+      "sha256": "587b0882036de17b8012873e2a346ae3736f4720c1ff30c1523fd03d93a022a6",
+      "resource": "SharedUI/Resources/ToolIcons/icon-close.png"
+    },
+    {
+      "id": "back",
+      "title": "返回",
+      "code": "A6",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\back-A6.png",
+      "sha256": "3e2bf5734b56e043dc815298c0b18dc2253d85b0d7c210ea0080a2e2fbb610e3",
+      "resource": "SharedUI/Resources/ToolIcons/icon-back.png"
+    },
+    {
+      "id": "expand",
+      "title": "展开",
+      "code": "A6",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\expand-A6.png",
+      "sha256": "1437b15febbab78ce7e4e68020e4af4b4a30686bbd6c703304bc7616ac3bcd1d",
+      "resource": "SharedUI/Resources/ToolIcons/icon-expand.png"
+    },
+    {
+      "id": "more",
+      "title": "更多",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\more-A4.png",
+      "sha256": "1a36da37f117ea8612aeb31fedaffccb6ef11770d2e22e9139021be2086160cb",
+      "resource": "SharedUI/Resources/ToolIcons/icon-more.png"
+    },
+    {
+      "id": "fullsize",
+      "title": "全尺寸键盘",
+      "code": "A2",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\fullsize-A2.png",
+      "sha256": "5f57aafd721c16b9330f30c5d934c2517151980aa5a9182f0477abff74364818",
+      "resource": "SharedUI/Resources/ToolIcons/icon-fullsize.png"
+    },
+    {
+      "id": "leftright",
+      "title": "左右切换",
+      "code": "A2",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\leftright-A2.png",
+      "sha256": "8ad73940de1aca80af2e900fb9c44bae24e396ed3ae36543072d40eac0ea5dd9",
+      "resource": "SharedUI/Resources/ToolIcons/icon-leftright.png"
+    },
+    {
+      "id": "shift",
+      "title": "大写切换",
+      "code": "A5",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\shift-A5.png",
+      "sha256": "b2b53079650d5dc28af552c80530dfd2543a51dbc4eb0a0d8a2592e0bcdc88aa",
+      "resource": "SharedUI/Resources/ToolIcons/icon-shift.png"
+    },
+    {
+      "id": "backspace",
+      "title": "退格",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\backspace-A4.png",
+      "sha256": "f4e3090b87d47e1aaf42fa894091378a138cc9f9ae78c84171608a5862de5f72",
+      "resource": "SharedUI/Resources/ToolIcons/icon-backspace.png"
+    },
+    {
+      "id": "open",
+      "title": "打开与跳转",
+      "code": "A4",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\open-A4.png",
+      "sha256": "b63d4f4ed7a1411fafb46075d581ce45edefaeaffa198f9b8695b88e96903ce1",
+      "resource": "SharedUI/Resources/ToolIcons/icon-open.png"
+    },
+    {
+      "id": "onehand",
+      "code": "B3",
+      "title": "单手模式",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\onehand-redesign-v4\\assets\\B3.png",
+      "resource": "SharedUI/Resources/ToolIcons/icon-onehand.png",
+      "sha256": "020165e2ff4eba13f5c6e56839666ad88579628ae20aa09bcd9d28408af81634"
+    },
+    {
+      "id": "height",
+      "code": "A2",
+      "title": "按键高度",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-redesign-matched-v3\\assets\\height-A2.png",
+      "resource": "SharedUI/Resources/ToolIcons/icon-height.png",
+      "sha256": "f88d20e2c712176413f4cfa394fe12d7ce93a247009ce3dec9ce9574390c950b"
+    },
+    {
+      "id": "globe",
+      "code": "A1",
+      "title": "切换键盘",
+      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-redesign-matched-v3\\assets\\globe-A1.png",
+      "resource": "SharedUI/Resources/ToolIcons/icon-globe.png",
+      "sha256": "ea7898229046def9e92f828dd91a6de042bfad4dcba8cd465c31a3b835033428"
+    }
+  ],
+  "implementationDefaults": {
+    "height": "matched-v3-A2",
+    "globe": "matched-v3-A1"
+  },
+  "unusedSelectedRolesNotBundled": [
+    "cursor",
+    "paste",
+    "search"
+  ],
+  "brandUnchanged": true
+}

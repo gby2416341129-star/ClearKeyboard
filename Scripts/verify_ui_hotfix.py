@@ -28,6 +28,7 @@ changed=set(subprocess.check_output(['git','diff','--name-only',BASE,'HEAD'],tex
 ALLOWED.update("SharedUI/Resources/ToolGlass/" + p for p in [
     'tool-appearance.png','tool-clipboard.png','tool-compatibility.png','tool-emoji.png','tool-key-color.png','tool-key-glass.png','tool-language.png','tool-license.png','tool-phonetic.png','tool-privacy.png','tool-settings.png','tool-single-hand.png','tool-text-color.png','tool-text-size.png','tool-toolbar.png'
 ])
+ALLOWED.update(p for p in changed if p.startswith(("SharedUI/Resources/ToolIcons/", "Design/SelectedIcons/", "Design/SoftGlass58/")))
 assert changed and changed<=ALLOWED,sorted(changed-ALLOWED)
 subprocess.run(['git','diff','--exit-code',BASE,'HEAD','--','Core',':(exclude)Core/HostTextState.swift',':(exclude)Core/Settings.swift',
     'CRime','Data','Tests/Evaluation','Licenses'],check=True)

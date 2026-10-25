@@ -26,13 +26,13 @@ def phase(target, name, isa, files, **fields):
 
 if __name__ == "__main__":
     sources = sorted(p.relative_to(ROOT).as_posix() for directory in ["App", "Core", "SharedUI", "KeyboardExtension"] for p in (ROOT / directory).glob("*.swift"))
-    resources = ["SharedUI/Resources/BrandMark.png", "Core/Resources/Rime", "Core/Resources/associations.clx", "Core/Resources/pinyin.clx", "Core/Resources/english.clx", "Core/Resources/pinyin-corrections.clx", "Config/PrivacyInfo.xcprivacy"]
+    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Core/Resources/Rime", "Core/Resources/associations.clx", "Core/Resources/pinyin.clx", "Core/Resources/english.clx", "Core/Resources/pinyin-corrections.clx", "Config/PrivacyInfo.xcprivacy"]
     licenses = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Licenses").glob("*.txt"))
     config = ["Config/Project.xcconfig", "Config/App-Info.plist", "Config/Keyboard-Info.plist", "Config/App.entitlements", "Config/Keyboard.entitlements"]
     asset = "App/Assets.xcassets"
     app_icon = "App/ClearAppIcon.icon"
     bridge = "CRime/ClearRime.cpp"
-    refs = {path: reference(path, "folder" if path == "Core/Resources/Rime" else None) for path in sources + resources + licenses + config + [asset, app_icon, bridge]}
+    refs = {path: reference(path, "folder" if path in ("Core/Resources/Rime", "SharedUI/Resources/ToolIcons") else None) for path in sources + resources + licenses + config + [asset, app_icon, bridge]}
     rime_package = obj("package:rime", "XCRemoteSwiftPackageReference", repositoryURL=q("https://github.com/ghostflyby/librime-xcframework.git"), requirement='{ kind = exactVersion; version = "1.17.0-pack.10.0.0"; }')
     def rime_product(target):
         product = obj("package-product:rime:"+target, "XCSwiftPackageProductDependency", package=rime_package, productName=q("RimeStatic"))

@@ -128,7 +128,7 @@ struct AppearanceDetailContent: View {
     }
     var body: some View {
         ScrollView {
-            VStack(spacing: compact ? 14 : 24) {
+            VStack(spacing: compact ? 12 : 18) {
                 KeyboardPreview(settings: value).frame(maxWidth: .infinity)
                     .frame(height: compact ? 166 : nil)
                     .accessibilityLabel("键盘效果预览")
@@ -185,7 +185,7 @@ struct AppearanceDetailContent: View {
                     }
                     Button { reset() } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: "arrow.counterclockwise")
+                            ToolIcon(symbol: "arrow.counterclockwise").frame(width: 24, height: 24)
                             Text("恢复默认")
                             Spacer(minLength: 8)
                             if usesDefault { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)) }
@@ -194,8 +194,8 @@ struct AppearanceDetailContent: View {
                             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
                     }.buttonStyle(.plain).accessibilityIdentifier("appearance.reset." + item.rawValue)
                         .accessibilityAddTraits(usesDefault ? .isSelected : [])
-                }.padding(compact ? 14 : 20).modifier(LiquidCard(radius: 24))
-            }.padding(compact ? 12 : 20).padding(.bottom, 18)
+                }.padding(compact ? 14 : 18).modifier(LiquidCard(radius: 20))
+            }.padding(compact ? 12 : 20).padding(.bottom, 28)
         }.scrollDismissesKeyboard(.interactively)
     }
 }
@@ -219,16 +219,16 @@ struct KeyboardAppearancePanel: View {
                         ForEach(AppearanceItem.allCases) { item in
                             Button { selected = item } label: {
                                 HStack(spacing: 12) {
-                                    ToolIcon(symbol: item.symbol).frame(width: 28,height: 28)
+                                    ToolIcon(symbol: item.symbol).frame(width: 25,height: 25)
                                     Text(item.title); Spacer(); Image(systemName: "chevron.right").font(.caption)
-                                }.font(.subheadline).foregroundStyle(.primary).padding(13)
+                                }.font(.system(size: 14, weight: .medium)).foregroundStyle(.primary).padding(14)
                                     .modifier(LiquidCard(radius: 18, interactive: true))
                             }.buttonStyle(.plain)
                         }
                     }.padding(10)
                 }
             }
-        }.tint(Color(red: 0.40, green: 0.39, blue: 0.92))
+        }.tint(Color(red: 0.32, green: 0.48, blue: 0.96))
     }
 }
 

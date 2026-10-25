@@ -52,9 +52,9 @@ final class KeyButton: UIButton {
         caption.textAlignment = .center; caption.text = key.label
         caption.font = .systemFont(ofSize: key.label.count == 1 ? 23 : 16)
         switch key.action {
-        case .shift: icon.image = UIImage(systemName: "shift")
-        case .delete: icon.image = UIImage(systemName: "delete.left")
-        case .globe: icon.image = UIImage(systemName: "globe")
+        case .shift: icon.image = ToolArtwork.shift(active: false, capsLocked: false, ink: .label)
+        case .delete: icon.image = ToolArtwork.image(symbol: "delete.left", size: 28)
+        case .globe: icon.image = ToolArtwork.image(symbol: "globe", size: 32)
         default: break
         }
         caption.isHidden = icon.image != nil
@@ -107,7 +107,7 @@ final class KeyButton: UIButton {
         guard key.action == .shift else { return }
         let symbol = capsLocked ? "capslock.fill" : active ? "shift.fill" : "shift"
         guard shiftSymbol != symbol else { return }
-        shiftSymbol = symbol; icon.image = UIImage(systemName: symbol)
+        shiftSymbol = symbol; icon.image = ToolArtwork.shift(active: active, capsLocked: capsLocked, ink: appearanceSettings?.keyInkColor(utility: true) ?? .label)
         accessibilityValue = capsLocked ? "大写锁定" : active ? "大写" : "小写"
     }
     override func layoutSubviews() {
@@ -139,6 +139,7 @@ final class KeyButton: UIButton {
         let ink = settings.keyInkColor(utility: utility)
         caption.textColor = ink
         icon.tintColor = ink
+        if key.action == .shift { icon.image = ToolArtwork.shift(active: shiftSymbol != "shift" && !shiftSymbol.isEmpty, capsLocked: shiftSymbol == "capslock.fill", ink: ink) }
     }
     func updateTitle(_ title: String) {
         if caption.text != title { caption.text = title; accessibilityLabel = title }

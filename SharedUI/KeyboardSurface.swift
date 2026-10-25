@@ -383,14 +383,13 @@ import SwiftUI
         let button = UIButton(type: .system)
         var config = UIButton.Configuration.plain()
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
-        if #available(iOS 26.0, *), navigationIcon { config = .glass() }
         if let image { config.image = image }
         else if let symbol, navigationIcon {
-            config.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
+            config.image = ToolArtwork.image(symbol: symbol, size: 24)
         }
         config.baseForegroundColor = .secondaryLabel
-        if #unavailable(iOS 26.0) { config.background.backgroundColor = navigationIcon ? .secondarySystemFill : .clear }
-        config.background.cornerRadius = navigationIcon ? 17 : 0
+        config.background.backgroundColor = .clear
+        config.background.cornerRadius = 0
         config.contentInsets = .zero
         button.configuration = config; button.accessibilityLabel = label
         if let symbol, !navigationIcon, image == nil {
@@ -556,7 +555,7 @@ import SwiftUI
             ("全尺寸", "arrow.up.left.and.arrow.down.right", "onehand.full", { [weak self] in self?.model.settings.hand = .full })
         ]
         for (title, symbol, identifier, action) in actions {
-            var config = UIButton.Configuration.plain(); config.title = title; config.image = UIImage(systemName: symbol)
+            var config = UIButton.Configuration.plain(); config.title = title; config.image = ToolArtwork.image(symbol: symbol, size: 26)
             config.imagePlacement = .top; config.imagePadding = 6; config.baseForegroundColor = .secondaryLabel
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
             config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 10); return result }
@@ -623,14 +622,14 @@ import SwiftUI
         clipboardPaste.addAction(UIAction { [weak self] _ in self?.pasteRecentClip() }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(clipboardPaste)
         let expand = UIButton(type: .system)
-        expand.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)), for: .normal)
+        expand.setImage(ToolArtwork.image(symbol: "chevron.down", size: 24), for: .normal)
         expand.tintColor = .label; expand.accessibilityLabel = "打开剪贴板历史"
         expand.accessibilityIdentifier = "clipboard.recent.history"
         expand.widthAnchor.constraint(equalToConstant: 36).isActive = true
         expand.addAction(UIAction { [weak self] _ in self?.showPanel(.clipboard) }, for: .touchUpInside)
         clipboardSuggestion.addArrangedSubview(expand)
         let close = UIButton(type: .system)
-        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .medium)), for: .normal)
+        close.setImage(ToolArtwork.image(symbol: "xmark", size: 22), for: .normal)
         close.tintColor = .label; close.accessibilityLabel = "关闭本次剪贴提示"
         close.accessibilityIdentifier = "clipboard.recent.close"
         close.widthAnchor.constraint(equalToConstant: 36).isActive = true
@@ -681,7 +680,7 @@ import SwiftUI
             (tool == .language ? "中 / EN" : tool.title, tool.symbol, { [weak self] in
                 self?.activateTool(tool)
             })
-        } + [("定制工具栏", "rectangle.3.group.fill", { [weak self] in self?.showToolbarEditor() }),
+        } + [("工具栏", "rectangle.3.group.fill", { [weak self] in self?.showToolbarEditor() }),
              (compatibilityInputTitle, "desktopcomputer", { [weak self] in self?.toggleLocalPinyinComposition() })]
         buildGrid(items, in: stack, identifiers: [compatibilityInputTitle: "keyboard.compatibleInput"]); render()
     }
@@ -703,14 +702,15 @@ import SwiftUI
         buildGrid(items, in: stack); render()
     }
     private func buildGrid(_ items: [(String, String, () -> Void)], in stack: UIStackView, identifiers: [String: String] = [:]) {
-        for start in stride(from: 0, to: items.count, by: 3) {
-            let row = UIStackView(); row.axis = .horizontal; row.spacing = 8; row.distribution = .fillEqually
-            for offset in 0..<3 {
+        let columns = 4
+        for start in stride(from: 0, to: items.count, by: columns) {
+            let row = UIStackView(); row.axis = .horizontal; row.spacing = 6; row.distribution = .fillEqually
+            for offset in 0..<columns {
                 guard start + offset < items.count else { row.addArrangedSubview(UIView()); continue }
                 let (title, symbol, action) = items[start + offset]
                 let button = ToolTileButton(title: title, symbol: symbol, action: action)
                 button.accessibilityIdentifier = identifiers[title]
-                button.heightAnchor.constraint(equalToConstant: 60).isActive = true; row.addArrangedSubview(button)
+                button.heightAnchor.constraint(equalToConstant: 78).isActive = true; row.addArrangedSubview(button)
             }
             stack.addArrangedSubview(row)
         }
@@ -771,7 +771,7 @@ import SwiftUI
     private func actionButton(_ title: String, symbol: String? = nil, action: @escaping () -> Void) -> UIButton {
         let button = UIButton(type: .system); button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
-        if let symbol { button.setImage(UIImage(systemName: symbol), for: .normal) }
+        if let symbol { button.setImage(ToolArtwork.image(symbol: symbol, size: 24), for: .normal) }
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 34).isActive = true
         button.addAction(UIAction { _ in action() }, for: .touchUpInside); return button
     }

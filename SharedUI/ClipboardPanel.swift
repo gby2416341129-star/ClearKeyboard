@@ -32,13 +32,13 @@ import ImageIO
         tabs.accessibilityIdentifier = "clipboard.tabs"
         tabs.selectedSegmentIndex = 0
         tabs.addAction(UIAction { [weak self] _ in self?.reload() }, for: .valueChanged)
-        back.setImage(UIImage(systemName: "chevron.up"), for: .normal); back.accessibilityLabel = "返回键盘"
+        back.setImage(ToolArtwork.image(symbol: "chevron.up", size: 24), for: .normal); back.accessibilityLabel = "返回键盘"
         back.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             if self.selectionSource != nil { self.selectionSource = nil; self.selection = nil; self.reload() }
             else { self.onClose?() }
         }, for: .touchUpInside)
-        more.setImage(UIImage(systemName: "ellipsis"), for: .normal); more.accessibilityLabel = "剪贴板选项"
+        more.setImage(ToolArtwork.image(symbol: "ellipsis", size: 24), for: .normal); more.accessibilityLabel = "剪贴板选项"
         more.showsMenuAsPrimaryAction = true
         send.setTitle("输入", for: .normal); send.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
         send.accessibilityIdentifier = "clipboard.insertSelection"
@@ -91,13 +91,13 @@ import ImageIO
             }
         })
         return UIMenu(children: [
-            UIAction(title: "自动收录", image: UIImage(systemName: "doc.on.clipboard"), state: model.settings.capturesClipboard ? .on : .off) { [weak self] _ in
+            UIAction(title: "自动收录", image: ToolArtwork.image(symbol: "doc.on.clipboard", size: 24), state: model.settings.capturesClipboard ? .on : .off) { [weak self] _ in
                 guard let self else { return }; self.model.settings.automaticClipboard = !self.model.settings.capturesClipboard; self.reload()
             },
-            UIAction(title: "收录当前复制内容", image: UIImage(systemName: "plus"), attributes: model.document?.fullAccess == true ? [] : .disabled) { [weak self] _ in
+            UIAction(title: "收录当前复制内容", image: ToolArtwork.image(symbol: "plus", size: 24), attributes: model.document?.fullAccess == true ? [] : .disabled) { [weak self] _ in
                 self?.model.clipboardCapture.captureIfChanged(); self?.reloadFromDisk()
             }, lifetime,
-            UIAction(title: tabs.selectedSegmentIndex == 1 ? "清空常用语" : "清空剪贴板", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in
+            UIAction(title: tabs.selectedSegmentIndex == 1 ? "清空常用语" : "清空剪贴板", image: ToolArtwork.image(symbol: "trash", size: 24), attributes: .destructive) { [weak self] _ in
                 guard let self else { return }
                 if self.tabs.selectedSegmentIndex == 1 { self.phrases.clear() } else { self.store.clear() }; self.reload()
             }
@@ -125,7 +125,7 @@ import ImageIO
         onClose?()
     }
     private func menu(for clip: Clip) -> UIMenu {
-        var actions: [UIAction] = [UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+        var actions: [UIAction] = [UIAction(title: "复制", image: ToolArtwork.image(symbol: "doc.on.doc", size: 24)) { [weak self] _ in
             guard let self else { return }
             if let attachment = clip.attachment,
                let data = (self.tabs.selectedSegmentIndex == 1 ? self.phrases : self.store).attachmentData(for: clip) {
@@ -135,11 +135,11 @@ import ImageIO
         }]
         if clip.attachment == nil {
             if tabs.selectedSegmentIndex == 0 {
-                actions.append(UIAction(title: "加入常用语", image: UIImage(systemName: "plus.bubble")) { [weak self] _ in self?.phrases.add(clip.text); self?.reload() })
+                actions.append(UIAction(title: "加入常用语", image: ToolArtwork.image(symbol: "plus.bubble", size: 24)) { [weak self] _ in self?.phrases.add(clip.text); self?.reload() })
             }
-            actions.append(UIAction(title: "滑动选词", image: UIImage(systemName: "selection.pin.in.out")) { [weak self] _ in self?.selectText(clip.text) })
+            actions.append(UIAction(title: "滑动选词", image: ToolArtwork.image(symbol: "selection.pin.in.out", size: 24)) { [weak self] _ in self?.selectText(clip.text) })
         }
-        actions.append(UIAction(title: "删除", image: UIImage(systemName: "trash"), attributes: .destructive) { [weak self] _ in self?.remove(clip) })
+        actions.append(UIAction(title: "删除", image: ToolArtwork.image(symbol: "trash", size: 24), attributes: .destructive) { [weak self] _ in self?.remove(clip) })
         return UIMenu(children: actions)
     }
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
@@ -208,7 +208,7 @@ import ImageIO
         let previewWidth = preview.widthAnchor.constraint(equalToConstant: 42); previewWidth.priority = .defaultHigh; previewWidth.isActive = true
         preview.heightAnchor.constraint(equalToConstant: 42).isActive = true
         label.font = .systemFont(ofSize: 16); label.numberOfLines = 3
-        more.setImage(UIImage(systemName: "ellipsis"), for: .normal); more.transform = CGAffineTransform(rotationAngle: .pi / 2)
+        more.setImage(ToolArtwork.image(symbol: "ellipsis", size: 24), for: .normal); more.transform = CGAffineTransform(rotationAngle: .pi / 2)
         more.widthAnchor.constraint(equalToConstant: 26).isActive = true; more.heightAnchor.constraint(equalToConstant: 28).isActive = true
         more.showsMenuAsPrimaryAction = true; more.accessibilityLabel = "项目选项"
         row.addArrangedSubview(preview); row.addArrangedSubview(label); row.addArrangedSubview(more)
