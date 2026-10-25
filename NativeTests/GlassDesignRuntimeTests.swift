@@ -65,7 +65,7 @@ import SwiftUI
         preferences.settings.automaticClipboard = false
         func views(_ root: UIView) -> [UIView] { [root] + root.subviews.flatMap(views) }
         func capture(_ name: String) async throws {
-            try await Task.sleep(nanoseconds: 160_000_000); window.layoutIfNeeded()
+            try await Task.sleep(nanoseconds: 300_000_000); window.layoutIfNeeded()
             let format = UIGraphicsImageRendererFormat(); format.scale = window.screen.scale
             let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
@@ -86,7 +86,11 @@ import SwiftUI
                 ("fuzzy", AnyView(FuzzySettingsView()))
             ]
             for (name, page) in pages {
-                window.rootViewController = UIHostingController(rootView: NavigationStack { page }.environmentObject(preferences))
+                if name == "root-native-tabs" {
+                    window.rootViewController = UIHostingController(rootView: page.environmentObject(preferences))
+                } else {
+                    window.rootViewController = UIHostingController(rootView: NavigationStack { page }.environmentObject(preferences))
+                }
                 window.makeKeyAndVisible()
                 try await capture(name + "-" + theme)
                 XCTAssertFalse(views(window).contains { $0.accessibilityIdentifier == "custom.footer" })
