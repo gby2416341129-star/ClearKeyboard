@@ -52,7 +52,7 @@ final class LiquidGlassView: UIView {
                 // native lens itself so its rim and white reflection stay quiet.
                 // Other glass surfaces and all foreground artwork keep their strength.
                 lens.alpha = physicalKey ? CGFloat(0.40 - 0.22 * strength)
-                    : (keycap ? CGFloat(0.78 - 0.34 * strength) : (clear ? 0.66 : 0.78))
+                    : (keycap ? CGFloat(0.62 - 0.22 * strength) : (clear ? 0.50 : 0.62))
                 lens.cornerConfiguration = .corners(radius: .fixed(radius))
                 // The native lens owns its edge and reflections. Higher
                 // transmission removes the face film; never add a dark veil.
@@ -74,7 +74,7 @@ struct LiquidCard: ViewModifier {
             content.background {
                 RoundedRectangle(cornerRadius: radius).fill(Color.clear)
                     .glassEffect(.clear.interactive(interactive), in: RoundedRectangle(cornerRadius: radius))
-                    .opacity(colorScheme == .dark ? 0.32 : 0.58)
+                    .opacity(colorScheme == .dark ? 0.28 : 0.52)
             }
         } else {
             content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))

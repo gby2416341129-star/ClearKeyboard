@@ -77,6 +77,7 @@ import SwiftUI
             window.overrideUserInterfaceStyle = style
             let theme = style == .dark ? "dark" : "light"
             let pages: [(String, AnyView)] = [
+                ("root-native-tabs", AnyView(RootView())),
                 ("home", AnyView(HomeView(selectedTab: .constant(.home)))),
                 ("custom", AnyView(CustomizationView())),
                 ("input", AnyView(InputSettingsView())),

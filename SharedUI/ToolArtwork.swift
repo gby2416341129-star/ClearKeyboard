@@ -84,10 +84,14 @@ import SwiftUI
         } else {
             original = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: size * 0.8, weight: .regular))
         }
-        let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false
-        let value = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: format).image { _ in
-            original?.draw(in: CGRect(x: 0, y: 0, width: size, height: size))
-        }.withRenderingMode(.alwaysOriginal)
+        // Keep the high-resolution texture. Baking a 32pt image here and then
+        // fitting it into 24/28pt views caused an avoidable second downsample.
+        let value: UIImage
+        if let bitmap = original?.cgImage {
+            value = UIImage(cgImage: bitmap, scale: CGFloat(bitmap.width) / max(1, size), orientation: .up).withRenderingMode(.alwaysOriginal)
+        } else {
+            value = (original ?? UIImage()).withRenderingMode(.alwaysOriginal)
+        }
         cache[key] = value; return value
     }
     static func shift(active: Bool, capsLocked: Bool, ink: UIColor) -> UIImage {
