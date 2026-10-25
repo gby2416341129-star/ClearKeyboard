@@ -106,6 +106,10 @@ import UIKit
             model.clipboardCapture.acceptText(value); XCTAssertFalse(next.isHidden)
             model.handle(action); XCTAssertTrue(next.isHidden)
             model.clipboardCapture.acceptText(value); XCTAssertTrue(next.isHidden)
+            // Start the next independent copy with an empty composition. An
+            // active pinyin draft intentionally hides every clipboard hint.
+            model.handle(.delete)
+            XCTAssertTrue(model.composition.isEmpty)
         }
         XCTAssertTrue(ClipboardStore(url: SharedStorage.clipboardURL(allowShared: true)).clips.contains { $0.text == text })
     }
