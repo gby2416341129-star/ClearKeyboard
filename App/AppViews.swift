@@ -52,8 +52,13 @@ import UIKit
             guard let self else { return }
             let value = snapshot.applying(to: self.storedSettings)
             if value != self.storedSettings {
+                let clipboardChanged = value.capturesClipboard != self.storedSettings.capturesClipboard ||
+                    value.clipboardLifetimeHours != self.storedSettings.clipboardLifetimeHours
                 self.storedSettings = value
                 self.store.save(snapshot.applying(to: self.store.load()))
+                if self.active && clipboardChanged {
+                    self.clipboardCapture.activate(settings: value, allowed: true)
+                }
             }
         }
         self.appearanceLink?.onStatus = { [weak self] status in

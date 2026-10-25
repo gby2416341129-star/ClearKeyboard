@@ -20,7 +20,7 @@ ALLOWED={
     'NativeTests/UnifiedRepairTests.swift','NativeTests/CustomizationRuntimeTests.swift',
     'UITests/AppUITests.swift','NativeTests/AppearanceSyncRuntimeTests.swift','NativeTests/AppearanceReceiverRuntimeTests.swift',
     'NativeTests/KeyboardRuntimeTests.swift','NativeTests/RemoteProxyPerformanceTests.swift','NativeTests/CandidateAnimationRuntimeTests.swift',
-    'SharedUI/ClipboardCapture.swift','NativeTests/ClipboardCaptureRepairTests.swift',
+    'SharedUI/ClipboardCapture.swift','SharedUI/ClipboardPasteButton.swift','NativeTests/ClipboardCaptureRepairTests.swift',
     'Core/HostTextState.swift','Tests/HostTextStateTests.swift','Core/Settings.swift','Tests/StateTests.swift',
     'Core/KeyboardLayout.swift','Core/KeyAlternatives.swift','SharedUI/CenteredKeyLabel.swift',
     'SharedUI/KeyChoicePopup.swift','SharedUI/KeyboardAppearancePanelView.swift','NativeTests/CurrentRoundRepairTests.swift',

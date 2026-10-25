@@ -510,6 +510,8 @@ import UIKit
         awaitEvidence("Actual key touch must submit a view-bound UIKit haptic") { ($0["submittedHapticPulses"] as? Int ?? 0) >= 3 }
         screen("round62-literal-case-number-symbol-input")
         control(safari, "key.ABC").tap()
+        let recentClose = control(safari, "clipboard.recent.close")
+        if recentClose.exists && recentClose.isHittable { recentClose.tap() }
         let source = control(safari, "toolbar.clipboard"), destination = control(safari, "toolbar.appearance")
         source.press(forDuration: 0.8, thenDragTo: destination)
         awaitEvidence("Direct toolbar hold/reorder without editor") {
@@ -536,7 +538,9 @@ import UIKit
         safari.activate()
         XCTAssertTrue(key(safari, "j").waitForExistence(timeout: 8))
         awaitEvidence("Foreground copy must persist in the real extension history") { ($0["clipboardItems"] as? Int ?? 0) > 0 }
-        control(safari, "toolbar.clipboard").tap()
+        let recentHistory = control(safari, "clipboard.recent.history")
+        if recentHistory.exists && recentHistory.isHittable { recentHistory.tap() }
+        else { control(safari, "toolbar.clipboard").tap() }
         XCTAssertTrue(control(safari, "clipboard.panel").waitForExistence(timeout: 4))
         screen("round62-copied-content-in-real-extension-history")
         let copied = root(in: safari).descendants(matching: .any).matching(NSPredicate(format: "label == %@", "#E3AC72")).firstMatch

@@ -56,6 +56,41 @@ import CoreText
         XCTAssertEqual(document.contextBefore, "Jj柒⑦(。")
         XCTAssertTrue(model.composition.isEmpty)
     }
+    func testLongPressLiteralsAwaitThePendingChineseCandidateWithoutLosingTheirOrder() async throws {
+        let suite = "clear.round.literal-pending." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let document = Document(), releaseLookup = DispatchSemaphore(value: 0)
+        var settings = KeyboardSettings()
+        settings.automaticClipboard = false; settings.learnChoices = false; settings.predictions = false
+        let model = KeyboardModel(document: document, settings: settings, defaults: defaults, wordLookup: { engine, raw, preferred in
+            // Keep the final word result unavailable while release events enter
+            // the production candidate barrier. The sentence worker and its
+            // main-queue delivery still follow the ordinary asynchronous path.
+            if raw == "nihao" { _ = releaseLookup.wait(timeout: .now() + 5) }
+            return engine.immediateCandidates(raw, preferred: preferred)
+        })
+        defer { releaseLookup.signal(); model.suspend(); defaults.removePersistentDomain(forName: suite) }
+        for _ in 0..<400 {
+            if model.engineState == "离线就绪" { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(model.engineState, "离线就绪")
+        // Do not yield between the last pinyin contact and the held-key release:
+        // a completed background query has not yet delivered its current row.
+        for letter in "nihao" { model.handle(.text(String(letter))) }
+        XCTAssertFalse(model.candidatesAreCurrent)
+        let values = ["J", "j", "柒", "⑦", "(", "。"]
+        for value in values { model.handle(.literal(value)) }
+        XCTAssertEqual(model.composition.raw, "nihao", "A literal choice must wait rather than flush unconverted pinyin")
+        XCTAssertEqual(document.contextBefore, "", "No suffix may overtake the pending Chinese conversion")
+        releaseLookup.signal()
+        for _ in 0..<400 {
+            if model.composition.isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(model.composition.isEmpty)
+        XCTAssertEqual(document.contextBefore, "你好" + values.joined(), "Convert the draft once, then insert every literal choice in order")
+    }
     func testEveryCustomizationFieldSurvivesSharedSnapshotAndLegacyDecode() throws {
         var expected = KeyboardSettings()
         expected.keyGlassStrength = 0.93; expected.keyColorHex = "#558DF2"; expected.candidateColorHex = "#E3AC72"

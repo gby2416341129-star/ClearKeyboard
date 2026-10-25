@@ -791,7 +791,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private func needsLatestCandidate(for action: KeyAction) -> Bool {
         guard settings.language == .chinese, !composition.isEmpty else { return false }
         switch action {
-        case .space: return requestedContext != nil
+        // A long-press choice commits the Chinese draft before its literal
+        // suffix, so it must await the same current candidate as punctuation.
+        case .space, .literal: return requestedContext != nil
         case .text(let text):
             if page == .letters, !shifted, text.first?.isLetter == true || text == "'" { return false }
             return requestedContext != nil

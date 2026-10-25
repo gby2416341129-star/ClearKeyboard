@@ -31,21 +31,44 @@ import UniformTypeIdentifiers
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func paste(itemProviders: [NSItemProvider]) {
         guard let item = itemProviders.first else { return }
-        if item.canLoadObject(ofClass: UIImage.self) {
-            item.loadObject(ofClass: UIImage.self) { [weak self] value, _ in
-                guard let image = value as? UIImage, let data = image.pngData() else { return }
-                Task { @MainActor [weak self] in self?.capture.acceptAttachment(data, typeIdentifier: UTType.png.identifier, name: "图片") }
+        let imageType = [UTType.png.identifier, UTType.jpeg.identifier, "public.heic", "public.heif", UTType.gif.identifier]
+            .first { item.registeredTypeIdentifiers.contains($0) }
+            ?? item.registeredTypeIdentifiers.first { UTType($0)?.conforms(to: .image) == true }
+        if let imageType {
+            // Keep the provider's encoded image: expanding a small JPEG/HEIC
+            // to PNG can exceed the existing attachment limit unnecessarily.
+            item.loadDataRepresentation(forTypeIdentifier: imageType) { [weak self] data, _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let data, !data.isEmpty {
+                        self.capture.acceptAttachment(data, typeIdentifier: imageType, name: "图片")
+                    } else { self.loadImageFallback(from: item) }
+                }
             }
+        } else if item.canLoadObject(ofClass: UIImage.self) {
+            loadImageFallback(from: item)
         } else if item.canLoadObject(ofClass: NSString.self) {
             item.loadObject(ofClass: NSString.self) { [weak self] value, _ in
                 guard let value = value as? String else { return }
                 Task { @MainActor [weak self] in self?.capture.acceptText(value) }
+            }
+        } else if item.canLoadObject(ofClass: NSURL.self) {
+            item.loadObject(ofClass: NSURL.self) { [weak self] value, _ in
+                guard let url = value as? URL else { return }
+                Task { @MainActor [weak self] in self?.capture.acceptText(url.absoluteString) }
             }
         } else if let type = item.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .data) == true }) {
             item.loadDataRepresentation(forTypeIdentifier: type) { [weak self] data, _ in
                 guard let data else { return }
                 Task { @MainActor [weak self] in self?.capture.acceptAttachment(data, typeIdentifier: type, name: UTType(type)?.localizedDescription ?? "附件") }
             }
+        }
+    }
+    private func loadImageFallback(from item: NSItemProvider) {
+        guard item.canLoadObject(ofClass: UIImage.self) else { return }
+        item.loadObject(ofClass: UIImage.self) { [weak self] value, _ in
+            guard let image = value as? UIImage, let data = image.pngData() else { return }
+            Task { @MainActor [weak self] in self?.capture.acceptAttachment(data, typeIdentifier: UTType.png.identifier, name: "图片") }
         }
     }
 }

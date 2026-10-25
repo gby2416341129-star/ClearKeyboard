@@ -60,4 +60,43 @@ import UIKit
         capture.acceptText("system paste must reach disk too")
         XCTAssertEqual(callbacks, 0)
     }
+    func testSystemPasteStoresURLOnlyProviderAsText() async throws {
+        let suite = "clear.clipboard.url-provider." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = directory.appendingPathComponent("clipboard.json")
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: directory) }
+        let capture = ClipboardCapture(defaults: defaults, makeStore: { ClipboardStore(url: url) },
+            changeCount: { 0 }, hasStrings: { false }, readText: { XCTFail("System paste must use the supplied provider"); return nil })
+        let control = ClipboardPasteButton(capture: capture)
+        let receiver = try XCTUnwrap(control.subviews.first { $0.pasteConfiguration != nil })
+        let link = try XCTUnwrap(URL(string: "https://example.com/copied?value=123"))
+        receiver.paste(itemProviders: [NSItemProvider(object: link as NSURL)])
+        try await waitFor { ClipboardStore(url: url).clips.first?.text == link.absoluteString }
+        XCTAssertNil(ClipboardStore(url: url).clips.first?.attachment)
+    }
+    func testSystemPastePreservesEncodedJPEGWithoutPNGExpansion() async throws {
+        let suite = "clear.clipboard.image-provider." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = directory.appendingPathComponent("clipboard.json")
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: directory) }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
+            UIColor.systemBlue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }
+        let data = try XCTUnwrap(image.jpegData(compressionQuality: 0.7))
+        let capture = ClipboardCapture(defaults: defaults, makeStore: { ClipboardStore(url: url) },
+            changeCount: { 0 }, hasStrings: { false }, readText: { XCTFail("System paste must use the supplied provider"); return nil })
+        let control = ClipboardPasteButton(capture: capture)
+        let receiver = try XCTUnwrap(control.subviews.first { $0.pasteConfiguration != nil })
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(forTypeIdentifier: "public.jpeg", visibility: .all) { completion in
+            completion(data, nil); return nil
+        }
+        receiver.paste(itemProviders: [provider])
+        try await waitFor { ClipboardStore(url: url).clips.first?.attachment != nil }
+        let store = ClipboardStore(url: url), clip = try XCTUnwrap(store.clips.first)
+        XCTAssertEqual(clip.attachment?.typeIdentifier, "public.jpeg")
+        XCTAssertEqual(store.attachmentData(for: clip), data, "Preserve the original encoded payload and its size")
+    }
 }

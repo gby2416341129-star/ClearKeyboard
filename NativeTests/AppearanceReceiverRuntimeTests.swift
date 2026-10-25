@@ -74,7 +74,7 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
     let model: ClearKeyboard.KeyboardModel
     let surface: ClearKeyboard.KeyboardSurface
     let window: UIWindow
-    init(english: Bool = false, fullAccess: Bool = true) throws {
+    init(english: Bool = false, fullAccess: Bool = true, clipboardCapture: ClearKeyboard.ClipboardCapture? = nil) throws {
         let appSuite = "clear.receiver.app." + UUID().uuidString
         let keyboardSuite = "clear.receiver.keyboard." + UUID().uuidString
         let appDefaults = try XCTUnwrap(UserDefaults(suiteName: appSuite))
@@ -93,7 +93,7 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
             version: "fixture-version", build: "fixture-build", extensionPoint: "com.apple.keyboard-service")
         let appLink = ClearKeyboard.AppearanceSettingsLink(role: .app, client: appClient, expectedReceiver: identity)
         let keyboardLink = ClearKeyboard.AppearanceSettingsLink(role: .keyboard, client: keyboardClient, receiverIdentity: identity)
-        let preferences = ClearKeyboard.Preferences(store: ClearKeyboard.SettingsStore(defaults: appDefaults), appearanceLink: appLink)
+        let preferences = ClearKeyboard.Preferences(store: ClearKeyboard.SettingsStore(defaults: appDefaults), clipboardCapture: clipboardCapture, appearanceLink: appLink)
         let document = ReceiverAppearanceDocument(english: english, fullAccess: fullAccess)
         let model = ClearKeyboard.KeyboardModel(document: document, defaults: keyboardDefaults, appearanceLink: keyboardLink)
         let surface = ClearKeyboard.KeyboardSurface(model: model, systemBacked: true)
@@ -313,6 +313,39 @@ private final class ReceiverAppearanceBackend: ClearKeyboard.AppearanceSyncBacke
         fixture.preferences.reload()
         try await waitFor({ fixture.preferences.settings.keyColorHex == "#558DF2" }, message: "An active App reload left the old defaults appearance visible")
         XCTAssertEqual(fixture.backend.counts.settings, writes, "A stale defaults observation must not become a new appearance revision")
+    }
+    func testKeyboardClipboardPreferencesUpdateTheActiveAppCaptureSession() async throws {
+        let suite = "clear.receiver.clipboard." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = directory.appendingPathComponent("clipboard.json")
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: directory) }
+        var revision = 1, reads = 0, payload = "first copy"
+        let capture = ClearKeyboard.ClipboardCapture(defaults: defaults,
+            makeStore: { ClearKeyboard.ClipboardStore(url: url) }, changeCount: { revision }, hasStrings: { true },
+            readText: { reads += 1; return payload }, revisionCheckInterval: 60)
+        let fixture = try ReceiverAppearanceFixture(clipboardCapture: capture)
+        defer { fixture.cleanUp() }
+        try await prepare(fixture)
+        XCTAssertEqual(reads, 0)
+        func receive(_ edit: (inout ClearKeyboard.KeyboardSettings) -> Void) async throws {
+            let writes = fixture.backend.counts.settings
+            var value = fixture.model.settings; edit(&value); fixture.model.settings = value
+            await withCheckedContinuation { continuation in fixture.keyboardClient.flush { continuation.resume() } }
+            fixture.appLink.refresh()
+            try await waitFor({ ClearKeyboard.AppearanceSnapshot(settings: fixture.preferences.settings) == ClearKeyboard.AppearanceSnapshot(settings: value) },
+                              message: "Keyboard clipboard preferences did not reach the active App")
+            XCTAssertEqual(fixture.backend.counts.settings, writes + 1, "Receiving a clipboard change must not echo another settings write")
+        }
+        try await receive { $0.automaticClipboard = true }
+        XCTAssertEqual(reads, 1); XCTAssertEqual(ClearKeyboard.ClipboardStore(url: url).clips.first?.text, payload)
+        try await receive { $0.automaticClipboard = false }
+        revision = 2; payload = "copied while automatic collection is disabled"
+        capture.captureIfChanged(); XCTAssertEqual(reads, 1, "Remote disable must stop the active App reader")
+        ClearKeyboard.ClipboardStore(url: url).add("expired copy", now: Date().addingTimeInterval(-3600))
+        try await receive { $0.automaticClipboard = true; $0.clipboardLifetimeHours = 0.25 }
+        XCTAssertEqual(reads, 2, "Remote enable must immediately inspect the current revision")
+        XCTAssertEqual(ClearKeyboard.ClipboardStore(url: url).clips.map(\.text), [payload, "first copy"], "The received lifetime must also prune the existing App history")
     }
     func testLateFullAccessActivationReceivesAppearanceWithoutReloadingLiveCandidates() async throws {
         let fixture = try ReceiverAppearanceFixture(fullAccess: false); defer { fixture.cleanUp() }
