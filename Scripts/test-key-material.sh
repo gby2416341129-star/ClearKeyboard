@@ -16,6 +16,8 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests/testIndependentAppAppearanceWritesChangeActualSystemBackedKeyboardPixels \
   -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests/testIndependentAppMaterialSwitchesChangeActualKeyboardPixels \
   -only-testing:ClearKeyboardRuntimeTests/GlassDesignRuntimeTests/testUnifiedGlassScreensAtPhoneSizeInLightAndDark \
+  -only-testing:ClearKeyboardRuntimeTests/CurrentRoundRepairTests \
+  -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testBottomRowSpaceIsCenteredAndLanguageStillSwitchesWithOneTap \
   -only-testing:ClearKeyboardRuntimeTests/ClipboardCaptureRepairTests \
   -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testSystemPasteControlSavesProvidedTextWithoutReadingClipboard \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
@@ -26,6 +28,6 @@ python3 - <<'PY'
 import json
 from pathlib import Path
 s=json.loads(Path('.build/KeyMaterialReview/test-summary.json').read_text())
-assert s['failedTests']==0 and s['passedTests']==7,s
-print('KEY_MATERIAL_CHECKS '+json.dumps(dict(passed=s['passedTests'],failed=s['failedTests'],scope='material pixels, appearance receiver, full phone layouts, missed clipboard notifications, explicit retry, verified persistence, system paste')))
+assert s['failedTests']==0 and s['passedTests']==15,s
+print('KEY_MATERIAL_CHECKS '+json.dumps(dict(passed=s['passedTests'],failed=s['failedTests'],scope='current-round layout, literal variants, complete settings transport, native controls, direct toolbar drag, popup bounds, clipboard activation retry, glass/appearance pixels and system paste')))
 PY

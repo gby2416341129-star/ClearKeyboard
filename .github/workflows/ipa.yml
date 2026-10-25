@@ -319,6 +319,24 @@ jobs:
           path: .build/KeyMaterialResults.xcresult
           if-no-files-found: ignore
           retention-days: 7
+      - name: Verify App controls and actual installed keyboard settings/clipboard/gestures
+        run: bash Scripts/test-current-round-ui.sh
+      - name: Return current round actual extension evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-current-round-ui
+          path: .build/CurrentRoundUI
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Preserve current round UI failure diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-current-round-ui-diagnostic
+          path: .build/CurrentRoundUIResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Compile repaired app and keyboard for iPhone, then package IPA
         run: |
           python3 - <<'PY'
@@ -327,8 +345,8 @@ jobs:
           source = config.read_text()
           assert 'MARKETING_VERSION = 0.1.17' in source
           assert 'CURRENT_PROJECT_VERSION = 20' in source
-          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.58')
-          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 61')
+          source = source.replace('MARKETING_VERSION = 0.1.17', 'MARKETING_VERSION = 0.1.59')
+          source = source.replace('CURRENT_PROJECT_VERSION = 20', 'CURRENT_PROJECT_VERSION = 62')
           config.write_text(source)
           PY
           bash Scripts/build-ipa.sh dist

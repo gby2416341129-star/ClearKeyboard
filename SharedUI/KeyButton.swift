@@ -5,6 +5,7 @@ final class KeyButton: UIButton {
     private let plate = UIView()
     private let lens = LiquidGlassView(radius: 8, keycap: true)
     private let pressWash = UIView()
+    private var shiftStateWash: UIView?
     private let caption = CenteredKeyLabel()
     private let icon = UIImageView()
     private var repeatTimer: Timer?
@@ -17,6 +18,12 @@ final class KeyButton: UIButton {
     private var pendingCursor: CGPoint?
     private var cursorDisplayLink: CADisplayLink?
     private var deletionDirection = 0
+    private var choiceGesture: UILongPressGestureRecognizer?
+    private var choicePopup: KeyChoicePopup?
+    private weak var choiceHost: UIView?
+    private var choices: [String] = []
+    private let punctuationHint = CenteredKeyLabel()
+    var onAlternateBegan: (() -> Void)?
     var onAction: ((KeyAction) -> Void)?
     var onPrepare: ((KeyAction) -> Void)?
     var onInteractionChanged: ((Bool) -> Void)?
@@ -52,7 +59,12 @@ final class KeyButton: UIButton {
         caption.textAlignment = .center; caption.text = key.label
         caption.font = .systemFont(ofSize: key.label.count == 1 ? 23 : 16)
         switch key.action {
-        case .shift: icon.image = ToolArtwork.shift(active: false, capsLocked: false, ink: .label)
+        case .shift:
+            let state = UIView(); state.isUserInteractionEnabled = false
+            state.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.16)
+            state.layer.cornerRadius = 8; state.layer.cornerCurve = .continuous; state.isHidden = true
+            plate.insertSubview(state, belowSubview: pressWash); shiftStateWash = state
+            icon.image = ToolArtwork.shift(active: false, capsLocked: false, ink: .label)
         case .delete: icon.image = ToolArtwork.image(symbol: "delete.left", size: 28)
         case .globe: icon.image = ToolArtwork.image(symbol: "globe", size: 32)
         default: break
@@ -72,6 +84,18 @@ final class KeyButton: UIButton {
         case .globe: accessibilityLabel = "下一个键盘，按住选择键盘"
         case .language: accessibilityLabel = "切换中文和英文"
         default: break
+        }
+        if case .text = key.action {
+            let hold = UILongPressGestureRecognizer(target: self, action: #selector(alternativeGesture(_:)))
+            hold.minimumPressDuration = 0.35; hold.allowableMovement = 14
+            hold.cancelsTouchesInView = false
+            addGestureRecognizer(hold); choiceGesture = hold
+        }
+        if key.alternatives.count == 2, ["，", ","].contains(key.label) {
+            punctuationHint.text = key.alternatives[1]; punctuationHint.textColor = .secondaryLabel
+            punctuationHint.font = .systemFont(ofSize: 11); punctuationHint.isUserInteractionEnabled = false
+            plate.addSubview(punctuationHint)
+            accessibilityHint = "长按后向右滑动输入句号"
         }
         addTarget(self, action: #selector(down), for: .touchDown)
         addTarget(self, action: #selector(up), for: .touchUpInside)
@@ -105,6 +129,7 @@ final class KeyButton: UIButton {
     }
     func updateShift(active: Bool, capsLocked: Bool) {
         guard key.action == .shift else { return }
+        shiftStateWash?.isHidden = !active && !capsLocked
         let symbol = capsLocked ? "capslock.fill" : active ? "shift.fill" : "shift"
         guard shiftSymbol != symbol else { return }
         shiftSymbol = symbol; icon.image = ToolArtwork.shift(active: active, capsLocked: capsLocked, ink: appearanceSettings?.keyInkColor(utility: true) ?? .label)
@@ -117,9 +142,19 @@ final class KeyButton: UIButton {
         if abs(caption.font.pointSize - fontSize) > 0.1 { caption.font = .systemFont(ofSize: fontSize) }
         lens.bounds = plate.bounds; lens.center = CGPoint(x: plate.bounds.midX, y: plate.bounds.midY)
         caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
+        shiftStateWash?.frame = plate.bounds
+        if punctuationHint.superview != nil {
+            punctuationHint.frame = CGRect(x: 0, y: 2, width: plate.bounds.width, height: 14)
+            caption.frame = plate.bounds.offsetBy(dx: 0, dy: 3)
+        }
     }
     func apply(_ settings: KeyboardSettings, title: String? = nil, active: Bool = false, capsLocked: Bool = false) {
         accent = settings.accentColor; vibrationEnabled = settings.usesVibration; vibrationIntensity = settings.resolvedVibrationIntensity
+        choices = KeyAlternatives.choices(for: key, language: settings.language)
+        choiceGesture?.isEnabled = choices.count > 1
+        accessibilityCustomActions = choices.map { value in
+            UIAccessibilityCustomAction(name: "输入 " + value) { [weak self] _ in self?.onAction?(.literal(value)); return true }
+        }
         if vibrationEnabled { vibration.prepare() }
         appearanceSettings = settings; applyAppearance(settings)
         pressWash.backgroundColor = active ? UIColor.label.withAlphaComponent(0.10) : .clear
@@ -158,7 +193,11 @@ final class KeyButton: UIButton {
         lens.layer.removeAnimation(forKey: "keySpring")
         lens.transform = CGAffineTransform(scaleX: 0.975, y: 0.975)
         onPrepare?(key.action)
-        if vibrationEnabled { vibration.pulse(intensity: vibrationIntensity) }
+        if vibrationEnabled {
+            var host: UIView = self
+            while let parent = host.superview, !(host is KeyboardSurface) { host = parent }
+            vibration.attach(to: host); vibration.pulse(intensity: vibrationIntensity)
+        }
         guard key.action == .delete else { return }
         let start = DispatchWorkItem { [weak self] in
             guard let self, self.isHighlighted else { return }
@@ -177,6 +216,9 @@ final class KeyButton: UIButton {
         cancelPress()
     }
     @objc func cancelPress() {
+        // Dragging away from the original key belongs to the choice picker.
+        // Do not prematurely cancel its ordered input contact on touchDragExit.
+        guard choicePopup == nil else { return }
         repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
         let scale = lens.layer.presentation()?.value(forKeyPath: "transform.scale") as? CGFloat ?? lens.transform.a
         lens.transform = .identity; lens.layer.removeAnimation(forKey: "keySpring")
@@ -200,6 +242,33 @@ final class KeyButton: UIButton {
             pressWash.layer.add(release, forKey: "keyRelease")
         }
         if interactionActive { interactionActive = false; onInteractionChanged?(false) }
+    }
+    @objc private func alternativeGesture(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            guard choices.count > 1 else { return }
+            suppressTap = true; onAlternateBegan?()
+            var ancestor = superview
+            while let value = ancestor, !(value is KeyboardSurface) { ancestor = value.superview }
+            guard let host = ancestor ?? superview else { return }
+            choiceHost = host
+            let origin = gesture.location(in: host)
+            let initial = KeyAlternatives.initialIndex(for: key, choices: choices, language: appearanceSettings?.language ?? .chinese)
+            let popup = KeyChoicePopup(choices: choices, initial: initial, origin: origin,
+                anchor: convert(bounds, to: host), host: host, accent: accent)
+            choicePopup = popup; host.addSubview(popup)
+        case .changed:
+            if let host = choiceHost { choicePopup?.update(at: gesture.location(in: host)) }
+        case .ended:
+            if let host = choiceHost { choicePopup?.update(at: gesture.location(in: host)) }
+            let value = choicePopup?.selectedValue
+            choicePopup?.removeFromSuperview(); choicePopup = nil; choiceHost = nil
+            if let value { onAction?(.literal(value)) }
+            cancelPress()
+        case .cancelled, .failed:
+            choicePopup?.removeFromSuperview(); choicePopup = nil; choiceHost = nil; cancelPress()
+        default: break
+        }
     }
     @objc private func cursorGesture(_ gesture: UILongPressGestureRecognizer) {
         let point = gesture.location(in: window)
@@ -239,6 +308,7 @@ final class KeyButton: UIButton {
         }
     }
     func stopTracking() {
+        choicePopup?.removeFromSuperview(); choicePopup = nil; choiceHost = nil
         suppressTap = true
         cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = nil
         onDeleteHint?(nil)

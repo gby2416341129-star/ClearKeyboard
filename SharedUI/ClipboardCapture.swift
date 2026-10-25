@@ -1,4 +1,5 @@
 import UIKit
+import CoreFoundation
 import UniformTypeIdentifiers
 
 /// Observe copy notifications, with a foreground metadata check for remote-host
@@ -9,6 +10,7 @@ import UniformTypeIdentifiers
     private var observer: NSObjectProtocol?
     private var revisionTimer: Timer?
     private var active = false
+    private var historyIDs: [UUID] = []
     private var settings = KeyboardSettings()
     private let observation: ClipboardObservation
     private let makeStore: () -> ClipboardStore
@@ -20,6 +22,13 @@ import UniformTypeIdentifiers
     private let notificationName: Notification.Name
     private let revisionCheckInterval: TimeInterval
     var onCapture: (() -> Void)?
+    static let historyChanged = "com.clearkeyboard.clipboard.history.changed.v1"
+    private func captured() {
+        historyIDs = makeStore().clips.map(\.id)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(rawValue: Self.historyChanged as CFString), nil, nil, true)
+        onCapture?()
+    }
 
     init(defaults: UserDefaults? = nil, makeStore: (() -> ClipboardStore)? = nil,
          changeCount: (() -> Int)? = nil, hasStrings: (() -> Bool)? = nil, hasContent: (() -> Bool)? = nil,
@@ -40,12 +49,23 @@ import UniformTypeIdentifiers
         else { self.readAttachment = { Self.systemAttachment() } }
         self.notificationName = notificationName
         self.revisionCheckInterval = revisionCheckInterval.isFinite && revisionCheckInterval > 0 ? revisionCheckInterval : 0.75
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, pointer, _, _, _ in
+            guard let pointer else { return }
+            let capture = Unmanaged<ClipboardCapture>.fromOpaque(pointer).takeUnretainedValue()
+            Task { @MainActor [weak capture] in
+                guard let capture, capture.active else { return }
+                let ids = capture.makeStore().clips.map(\.id)
+                guard ids != capture.historyIDs else { return }
+                capture.historyIDs = ids; capture.onCapture?()
+            }
+        }, Self.historyChanged as CFString, nil, .deliverImmediately)
     }
     func activate(settings: KeyboardSettings, allowed: Bool, retryPermission: Bool = false) {
         self.settings = settings
         guard allowed, settings.capturesClipboard else { stop(); return }
+        let newSession = !active
         active = true
-        if retryPermission { observation.retry() }
+        if retryPermission || newSession { observation.retry() }
         makeStore().prune(lifetime: settings.clipboardLifetimeHours * 3600)
         if observer == nil {
             observer = NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] _ in
@@ -65,14 +85,15 @@ import UniformTypeIdentifiers
         guard active else { return }
         let count = changeCount()
         guard observation.shouldRead(changeCount: count, hasContent: hasContent()) else { return }
-        // Remember denied/unavailable payloads too, so one copy cannot repeatedly prompt.
+        // Suppress repeated attempts in this visible session. A failed read
+        // must not permanently suppress the same revision after reopening.
         observation.didAttempt(changeCount: count)
-        if saveCurrentContent() { onCapture?() }
+        if saveCurrentContent() { captured() }
     }
     @discardableResult func captureManually() -> Bool {
         let saved = saveCurrentContent()
         observation.didAttempt(changeCount: changeCount())
-        if saved { onCapture?() }; return saved
+        if saved { captured() }; return saved
     }
     func checkAccess() -> AccessCheck {
         // This checks one explicit read, not the system's persistent Ask/Allow/
@@ -84,13 +105,13 @@ import UniformTypeIdentifiers
     func acceptText(_ text: String) {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600); store.add(text)
         guard makeStore().clips.contains(where: { $0.attachment == nil && $0.text == String(text.prefix(2_000)) }) else { return }
-        observation.didAttempt(changeCount: changeCount()); onCapture?()
+        observation.didAttempt(changeCount: changeCount()); captured()
     }
     func acceptAttachment(_ data: Data, typeIdentifier: String, name: String) {
         let store = makeStore(); store.prune(lifetime: settings.clipboardLifetimeHours * 3600)
         if store.addAttachment(data, typeIdentifier: typeIdentifier, name: name),
            let saved = store.clips.first, makeStore().clips.contains(where: { $0.id == saved.id }) {
-            observation.didAttempt(changeCount: changeCount()); onCapture?()
+            observation.didAttempt(changeCount: changeCount()); captured()
         }
     }
     private func saveCurrentContent() -> Bool {
@@ -127,5 +148,8 @@ import UniformTypeIdentifiers
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
     }
-    deinit { revisionTimer?.invalidate(); if let observer { NotificationCenter.default.removeObserver(observer) } }
+    deinit {
+        revisionTimer?.invalidate(); if let observer { NotificationCenter.default.removeObserver(observer) }
+        CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque())
+    }
 }

@@ -2,6 +2,29 @@ import UIKit
 import Darwin
 
 enum SharedStorage {
+    struct Group { let identifier: String; let root: URL }
+    /// Re-signers can rewrite the provisioning group while leaving Info.plist
+    /// untouched. Use only a container iOS actually grants this process.
+    static func applicationGroup() -> Group? {
+        let configured = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String
+        let candidates = [configured].compactMap { $0 } + provisionedGroups
+        for identifier in candidates {
+            if let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
+                return Group(identifier: identifier, root: root)
+            }
+        }
+        return nil
+    }
+    private static let provisionedGroups: [String] = {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url), data.count < 2_000_000,
+              let start = data.range(of: Data("<plist".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(from: data.subdata(in: start.lowerBound..<end.upperBound), options: [], format: nil) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any] else { return [] }
+        return entitlements["com.apple.security.application-groups"] as? [String] ?? []
+    }()
+
     /// Move each process's legacy local data only once for this shared group.
     /// A marker in the source domain also prevents a later shared reset from
     /// bringing back old names or numbers that the user deliberately cleared.
@@ -29,10 +52,9 @@ enum SharedStorage {
     }
 
     static func defaults(allowShared: Bool) -> UserDefaults {
-        guard allowShared, let group = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String,
-              FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) != nil,
-              let defaults = UserDefaults(suiteName: group) else { return .standard }
-        migrateLegacyDefaults(from: .standard, to: defaults, groupIdentifier: group)
+        guard allowShared, let group = applicationGroup(),
+              let defaults = UserDefaults(suiteName: group.identifier) else { return .standard }
+        migrateLegacyDefaults(from: .standard, to: defaults, groupIdentifier: group.identifier)
         return defaults
     }
     /// Adopt the complete legacy folder so attachment paths, dates and pins
@@ -71,12 +93,12 @@ enum SharedStorage {
         if result.0 == 0 || result.1 == EEXIST { defaults.set(true, forKey: marker) }
     }
     static func clipboardURL(allowShared: Bool) -> URL {
-        if allowShared, let group = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String,
-           let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) {
+        if allowShared, let group = applicationGroup() {
+            let root = group.root
             let localRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Clear", isDirectory: true)
             let sharedRoot = root.appendingPathComponent("Private", isDirectory: true)
-            adoptLegacyClipboardDirectory(from: localRoot, to: sharedRoot, defaults: .standard, groupIdentifier: group)
+            adoptLegacyClipboardDirectory(from: localRoot, to: sharedRoot, defaults: .standard, groupIdentifier: group.identifier)
             return sharedRoot.appendingPathComponent("clipboard.json")
         }
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

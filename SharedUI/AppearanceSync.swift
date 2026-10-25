@@ -13,6 +13,12 @@ struct AppearanceSnapshot: Codable, Equatable {
     let keyHeight: Double?
     let vibrationEnabled: Bool?
     let vibrationIntensity: Double?
+    let hand: HandMode?
+    let oneHandWidth: Double?
+    let toolbar: [ToolbarTool]?
+    let localPinyinComposition: Bool?
+    let automaticClipboard: Bool?
+    let clipboardLifetimeHours: Double?
 
     init(settings: KeyboardSettings) {
         var value = settings; value.sanitize()
@@ -22,6 +28,9 @@ struct AppearanceSnapshot: Codable, Equatable {
         candidateColorHex = value.candidateColorHex; candidateTextSize = value.candidateTextSize
         keyHeight = value.keyHeight
         vibrationEnabled = value.usesVibration; vibrationIntensity = value.resolvedVibrationIntensity
+        hand = value.hand; oneHandWidth = value.oneHandFraction; toolbar = value.toolbar
+        localPinyinComposition = value.localPinyinComposition == true
+        automaticClipboard = value.capturesClipboard; clipboardLifetimeHours = value.clipboardLifetimeHours
     }
     func applying(to settings: KeyboardSettings) -> KeyboardSettings {
         var value = settings
@@ -32,6 +41,12 @@ struct AppearanceSnapshot: Codable, Equatable {
         if let keyHeight { value.keyHeight = keyHeight }
         if let vibrationEnabled { value.vibrationEnabled = vibrationEnabled }
         if let vibrationIntensity { value.vibrationIntensity = vibrationIntensity }
+        if let hand { value.hand = hand }
+        if let oneHandWidth { value.oneHandWidth = oneHandWidth }
+        if let toolbar { value.toolbar = toolbar }
+        if let localPinyinComposition { value.localPinyinComposition = localPinyinComposition }
+        if let automaticClipboard { value.automaticClipboard = automaticClipboard }
+        if let clipboardLifetimeHours { value.clipboardLifetimeHours = clipboardLifetimeHours }
         // The snapshot is normalized on creation and validated on decode.
         // Do not run unrelated language/learning migrations while applying it.
         return value
@@ -40,6 +55,9 @@ struct AppearanceSnapshot: Codable, Equatable {
     /// after applying them, so an absent height preserves the receiver's layout.
     func isApplied(to settings: KeyboardSettings) -> Bool { applying(to: settings) == settings }
     var isValid: Bool {
+        if let oneHandWidth, !oneHandWidth.isFinite || !(0.68...0.88).contains(oneHandWidth) { return false }
+        if let toolbar, toolbar.count > ToolbarTool.allCases.count || Set(toolbar).count != toolbar.count { return false }
+        if let clipboardLifetimeHours, !clipboardLifetimeHours.isFinite || !(clipboardLifetimeHours == 0 || (0.25...8760).contains(clipboardLifetimeHours)) { return false }
         let strengths = [keyGlassStrength, vibrationIntensity].compactMap { $0 }
         guard strengths.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return false }
         if let keyHeight, !keyHeight.isFinite || !(44...58).contains(keyHeight) { return false }
@@ -158,13 +176,19 @@ extension AppearanceSyncBackend {
 /// A successful local write is not evidence that the keyboard can read it.
 final class AppearanceKeychainBackend: AppearanceSyncBackend {
     let service: String
+    private let sharedAccessGroup: String?
     private(set) var diagnostics = AppearanceBackendDiagnostics()
-    init(service: String = "com.clearkeyboard.appearance.sync.v1") { self.service = service }
+    init(service: String = "com.clearkeyboard.appearance.sync.v1", accessGroup: String? = Bundle.main.object(forInfoDictionaryKey: "ClearSharedKeychainGroup") as? String) {
+        self.service = service
+        sharedAccessGroup = accessGroup.flatMap { !$0.isEmpty && !$0.contains("$(") ? $0 : nil }
+    }
     private func query(_ account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
+        var result: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
          kSecAttrAccount as String: account,
          kSecAttrSynchronizable as String: false]
+        if let sharedAccessGroup { result[kSecAttrAccessGroup as String] = sharedAccessGroup }
+        return result
     }
     func read(account: String) -> Result<AppearanceBackendRecord?, AppearanceSyncError> {
         var query = query(account)

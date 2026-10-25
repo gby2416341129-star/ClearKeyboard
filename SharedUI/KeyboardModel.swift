@@ -588,6 +588,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         var prepared: PreparedCandidates?
         var inputOnly = false
         switch action {
+        case .literal(let text):
+            commitComposition(); insertText(text)
+            if !capsLocked { shifted = false; manualShift = false }
         case .text(let text):
             let possibleOperator = composition.isEmpty && text.count == 1 && "xX+-*/×÷().".contains(text) &&
                 !(shifted && page == .letters && text.first?.isLetter == true)

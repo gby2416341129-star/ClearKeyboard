@@ -1,6 +1,5 @@
 import UIKit
 import SwiftUI
-import CoreHaptics
 
 /// Each instance owns exactly one control's bounds. There is no keyboard-wide
 /// backdrop, noncontiguous material mask, or frozen intensity animator.
@@ -86,65 +85,31 @@ struct LiquidCard: ViewModifier {
 /// calls only: no delayed tasks, extra release pulses, or per-key generators.
 @MainActor final class KeyboardVibration {
     static let shared = KeyboardVibration()
-    private let generator = UIImpactFeedbackGenerator(style: .soft)
+#if DEBUG
+    private(set) var submittedPulses = 0
+#endif
+    private var generator: UIImpactFeedbackGenerator?
+    private weak var presentationView: UIView?
     private let emit: ((CGFloat) -> Void)?
-    private var engine: CHHapticEngine?
-    private var player: CHHapticPatternPlayer?
-    private var starting = false
-    private var ready = false
-    private var generation = 0
     init(emit: ((CGFloat) -> Void)? = nil) { self.emit = emit }
-    func prepare() {
-        guard emit == nil else { return }
-        generator.prepare()
-        guard !starting, !ready, CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
-        do {
-            if engine == nil {
-                let value = try CHHapticEngine()
-                value.playsHapticsOnly = true; value.isAutoShutdownEnabled = true
-                value.stoppedHandler = { [weak self] _ in
-                    Task { @MainActor in self?.ready = false }
-                }
-                value.resetHandler = { [weak self] in
-                    Task { @MainActor in self?.ready = false; self?.player = nil; self?.prepare() }
-                }
-                engine = value
-            }
-            if player == nil, let engine {
-                // One short rounded impact: no delayed second hit to overlap
-                // the next letter. Intensity stays continuously adjustable.
-                let event = CHHapticEvent(eventType: .hapticTransient, parameters: [
-                    CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.35)
-                ], relativeTime: 0)
-                player = try engine.makePlayer(with: CHHapticPattern(events: [event], parameters: []))
-            }
-            starting = true; let revision = generation
-            engine?.start { [weak self] error in
-                Task { @MainActor in
-                    guard let self, self.generation == revision else { return }
-                    self.starting = false; self.ready = error == nil
-                    // Never replay a key pressed during engine startup.
-                }
-            }
-        } catch { starting = false; ready = false }
+    func attach(to view: UIView) {
+        guard emit == nil, view.window != nil, presentationView !== view else { return }
+        presentationView = view
+        if #available(iOS 17.5, *) { generator = UIImpactFeedbackGenerator(style: .light, view: view) }
+        else { generator = UIImpactFeedbackGenerator(style: .light) }
+        generator?.prepare()
     }
+    func prepare() { if emit == nil { generator?.prepare() } }
     func pulse(intensity: Double) {
         guard intensity.isFinite, intensity > 0 else { return }
         let value = CGFloat(min(1, max(0, intensity)))
         if let emit { emit(value); return }
-        if ready, let player {
-            do {
-                try player.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: Float(value), relativeTime: 0)], atTime: CHHapticTimeImmediate)
-                try player.start(atTime: CHHapticTimeImmediate)
-                return
-            } catch { ready = false }
-        }
-        generator.impactOccurred(intensity: value)
-        prepare()
+        guard presentationView?.window != nil else { return }
+        generator?.impactOccurred(intensity: value)
+#if DEBUG
+        if generator != nil { submittedPulses += 1 }
+#endif
+        generator?.prepare()
     }
-    func stop() {
-        generation += 1; ready = false; starting = false
-        engine?.stop(completionHandler: nil)
-    }
+    func stop() { generator = nil; presentationView = nil }
 }

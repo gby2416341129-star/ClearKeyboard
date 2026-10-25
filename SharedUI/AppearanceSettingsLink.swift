@@ -130,6 +130,7 @@ private enum AppearanceSyncNotification {
     private let receiverIdentity: AppearanceReceiverIdentity?
     private let expectedReceiver: AppearanceReceiverIdentity?
     private var active = false
+    private var refreshTimer: Timer?
     private var generation = 0
     private var latest: AppearanceEnvelope?
     private var pendingEnvelope: AppearanceEnvelope?
@@ -166,13 +167,14 @@ private enum AppearanceSyncNotification {
     static func production(role: Role) -> AppearanceSettingsLink {
         let group = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String
         let backend = AppearanceMirroredBackend(groupRootProvider: {
-            group.flatMap { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) }
+            SharedStorage.applicationGroup()?.root
         }, configuredGroup: group)
         return AppearanceSettingsLink(role: role, client: AppearanceSyncClient(backend: backend),
             receiverIdentity: role == .keyboard ? .keyboardBundle(.main) : nil,
             expectedReceiver: role == .app ? .embeddedKeyboard(in: .main) : nil)
     }
     deinit {
+        refreshTimer?.invalidate()
         CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque())
     }
     func updateFullAccess(_ value: Bool) {
@@ -182,12 +184,19 @@ private enum AppearanceSyncNotification {
     func activate() {
         guard !active else { refresh(); return }
         active = true; receiptAttempt = nil
+        // Notifications are hints. Reconcile while visible as well, so a write
+        // completed during suspension does not require killing the keyboard.
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        refreshTimer = timer; RunLoop.main.add(timer, forMode: .default)
         diagnostics.active = true; diagnostics.event = "activated"
         refresh()
     }
     var hasPendingWrite: Bool { pendingEnvelope != nil || !writingRevisions.isEmpty }
     func deactivate(completion: (() -> Void)? = nil) {
-        active = false; diagnostics.active = false; diagnostics.event = "deactivated"
+        active = false; refreshTimer?.invalidate(); refreshTimer = nil
+        diagnostics.active = false; diagnostics.event = "deactivated"
         client.flush(completion: completion)
     }
     func publish(_ settings: KeyboardSettings) {

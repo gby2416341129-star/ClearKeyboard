@@ -94,14 +94,16 @@ import SwiftUI
         }
         cache[key] = value; return value
     }
-    static func shift(active: Bool, capsLocked: Bool, ink: UIColor) -> UIImage {
+    static func shift(active _: Bool, capsLocked: Bool, ink _: UIColor) -> UIImage {
         let source = image(symbol: "shift", size: 28)
+        // Keep the same blue facets as Delete. The key face indicates a single
+        // capital; Caps Lock adds its own bar without cropping or tinting ink.
+        guard capsLocked else { return source }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
         return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28), format: format).image { renderer in
-            renderer.cgContext.saveGState()
-            if !capsLocked { renderer.cgContext.clip(to: CGRect(x: 0, y: 0, width: 28, height: 22)) }
-            (active ? source : source.withTintColor(ink, renderingMode: .alwaysOriginal)).draw(at: .zero)
-            renderer.cgContext.restoreGState()
+            source.draw(in: CGRect(x: 1.4, y: 0, width: 25.2, height: 25.2))
+            UIColor(red: 105.0/255, green: 204.0/255, blue: 247.0/255, alpha: 1).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 8.75, y: 24, width: 10.5, height: 1.8), cornerRadius: 0.9).fill()
         }.withRenderingMode(.alwaysOriginal)
     }
 }

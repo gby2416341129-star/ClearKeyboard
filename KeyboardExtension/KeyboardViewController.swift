@@ -9,6 +9,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     // Test evidence from the actual extension process, without exposing typed
     // content or replacing the root's accessible key hierarchy with a leaf.
     private let runtimeProbe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+    private var runtimeTimer: Timer?
 #endif
     private var heightConstraint: NSLayoutConstraint?
     private var widthConstraint: NSLayoutConstraint?
@@ -98,6 +99,13 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if let surface { updateHeight(surface.desiredHeight) }
         model?.refreshAppearanceConnection()
         model?.startClipboardCapture()
+#if DEBUG
+        runtimeTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateRuntimeEvidence() }
+        }
+        runtimeTimer = timer; RunLoop.main.add(timer, forMode: .default)
+#endif
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -125,7 +133,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             [Double(value.minX), Double(value.minY), Double(value.width), Double(value.height)]
         }
         let inset = view.safeAreaInsets
-        let evidence: [String: Any] = [
+        var evidence: [String: Any] = [
             "bundleExtension": Bundle.main.bundleURL.pathExtension,
             "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
             "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
@@ -136,6 +144,14 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             "windowBounds": rect(view.window?.bounds ?? .zero),
             "safeAreaInsets": [Double(inset.top), Double(inset.left), Double(inset.bottom), Double(inset.right)]
         ]
+        if let model {
+            if let data = try? JSONEncoder().encode(AppearanceSnapshot(settings: model.settings)),
+               let settings = try? JSONSerialization.jsonObject(with: data) { evidence["settings"] = settings }
+            evidence["fullAccess"] = hasFullAccess
+            evidence["sharedContainerAvailable"] = SharedStorage.applicationGroup() != nil
+            evidence["clipboardItems"] = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: hasFullAccess)).clips.count
+            evidence["submittedHapticPulses"] = KeyboardVibration.shared.submittedPulses
+        }
         if let data = try? JSONSerialization.data(withJSONObject: evidence, options: [.sortedKeys]),
            let value = String(data: data, encoding: .utf8) {
             runtimeProbe.accessibilityValue = value
@@ -165,6 +181,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     override func viewWillDisappear(_ animated: Bool) {
         hostActive = false
+#if DEBUG
+        runtimeTimer?.invalidate(); runtimeTimer = nil
+#endif
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
         super.viewWillDisappear(animated); surface?.stopInteractions()
         // Dismissing the keyboard is not an explicit request to send a local

@@ -22,7 +22,7 @@ final class CenteredKeyLabel: UILabel {
             cachedText = text; cachedFont = drawingFont; cachedColor = inkColor
             let value = NSAttributedString(string: text, attributes: [.font: drawingFont, .foregroundColor: inkColor])
             cachedLine = CTLineCreateWithAttributedString(value)
-            cachedInk = CTLineGetImageBounds(cachedLine!, nil)
+            cachedInk = CTLineGetBoundsWithOptions(cachedLine!, [.useGlyphPathBounds, .excludeTypographicLeading])
         }
         guard let line = cachedLine else { return }
         let ink = cachedInk

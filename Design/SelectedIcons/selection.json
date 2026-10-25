@@ -283,11 +283,13 @@
     {
       "id": "shift",
       "title": "大写切换",
-      "code": "A5",
-      "file": "F:\\Chatgpt\\2026-10-20\\ji-x\\outputs\\icon-catalogue-ab\\assets\\shift-A5.png",
-      "sha256": "bdaa07705630c10aafffc512fc97068c49f2d6fccd36107481afc4a4fd411a95",
+      "code": "user-backspace-family-20261025",
+      "file": "F:\\Chatgpt\\2026-10-17\\wo\\outputs\\ClearKeyboard\\SharedUI\\Resources\\ToolIcons\\icon-shift.png",
+      "sha256": "a563f26e524566dd78adb553ef13297cbcc3bcd1b7ddc440e73d7b31f312ca15",
       "resource": "SharedUI/Resources/ToolIcons/icon-shift.png",
-      "refinement": "768px vector decode; single runtime scaling; optical size and material detail pass"
+      "refinement": "User requested the blue/cyan faceted Delete material; standalone centered arrow, no embedded lock bar.",
+      "previousCode": "A5",
+      "designSource": "Design/SelectedIcons/shift.svg"
     },
     {
       "id": "backspace",

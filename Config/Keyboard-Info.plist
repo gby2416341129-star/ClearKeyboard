@@ -9,6 +9,7 @@
 <key>CFBundlePackageType</key><string>XPC!</string>
 <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+<key>ClearSharedKeychainGroup</key><string>$(AppIdentifierPrefix)com.example.clearkeyboard.shared</string>
 <key>ClearAppGroup</key><string>$(CLEAR_APP_GROUP)</string>
 <key>CADisableMinimumFrameDurationOnPhone</key><true/>
 <key>NSExtension</key><dict>

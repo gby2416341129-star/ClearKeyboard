@@ -1,14 +1,16 @@
 import Foundation
 
 public enum KeyAction: Equatable {
-    case text(String), shift, delete, page(KeyboardPage), globe, language, space, enter
+    case text(String), literal(String), shift, delete, page(KeyboardPage), globe, language, space, enter
 }
 public struct KeyboardKey: Equatable {
     public let label: String
     public let action: KeyAction
     public let units: Double
-    public init(_ label: String, _ action: KeyAction? = nil, units: Double = 1) {
+    public let alternatives: [String]
+    public init(_ label: String, _ action: KeyAction? = nil, units: Double = 1, alternatives: [String]? = nil) {
         self.label = label; self.action = action ?? .text(label); self.units = units
+        self.alternatives = alternatives ?? KeyAlternatives.values(for: label)
     }
 }
 public struct KeyboardRow: Equatable {
@@ -46,12 +48,17 @@ public enum KeyboardLayout {
                     KeyboardRow(symbols(["_", "\\", "|", "~", "<", ">", "€", "£", "¥", language == .chinese ? "”" : "•"])),
                     punctuationRow(KeyboardKey("123", .page(.numbers), units: 1.5))]
         }
-        let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: globe ? 1 : 1.2)
-        // Equal side totals keep both the space face and its touch target on the midline.
-        // The optional in-app globe stays on the leading side; iOS owns it in the extension.
-        let side = globe ? 2.8 : 2.4
-        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 0.85)] : []) +
-            [KeyboardKey("中", .language, units: globe ? 0.95 : 1.2), KeyboardKey("空格", .space, units: 10 - side * 2), KeyboardKey("换行", .enter, units: side)]
+        // Leading punctuation and trailing language switch balance the space key.
+        // The extension uses iOS's separate globe; the in-app keyboard retains its globe.
+        let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: globe ? 1.35 : 2)
+        let comma = language == .chinese ? "，" : ","
+        let period = language == .chinese ? "。" : "."
+        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 0.75)] : []) + [
+            KeyboardKey(comma, units: 0.9, alternatives: [comma, period]),
+            KeyboardKey("空格", .space, units: globe ? 4 : 4.2),
+            KeyboardKey("中", .language, units: 0.9),
+            KeyboardKey("换行", .enter, units: globe ? 2.1 : 2)
+        ]
         return rows + [KeyboardRow(bottom)]
     }
 }

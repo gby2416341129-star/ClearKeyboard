@@ -1,8 +1,8 @@
 import UIKit
 import SwiftUI
 
-/// UIKit owns the draft while a finger is down; persistence and SwiftUI receive
-/// one final value. Accessibility adjustments commit immediately.
+/// UIKit retains thumb tracking while SwiftUI and the real keyboard receive
+/// continuous values. The settings transport coalesces durable writes.
 final class ValueSliderView: UIView {
     let slider = UISlider()
     private let title = UILabel(), amount = UILabel()
@@ -46,13 +46,15 @@ final class ValueSliderView: UIView {
         guard !slider.isTracking else { return }
         slider.value = Float(value); lastCommitted = slider.value; updateAmount()
     }
-    @objc private func changed() { updateAmount(); if !slider.isTracking { commit() } }
+    @objc private func changed() { updateAmount(); commit() }
     @objc private func ended() { updateAmount(); commit() }
     private func updateAmount() { amount.text = formatter(Double(slider.value)) }
     private func commit() {
         if roundsValue { slider.value = slider.value.rounded(); updateAmount() }
         guard lastCommitted != slider.value else { return }
-        lastCommitted = slider.value; onCommit?(Double(slider.value))
+        lastCommitted = slider.value
+        if slider.accessibilityIdentifier == "custom.vibrationIntensity" { KeyboardVibration.shared.attach(to: self) }
+        onCommit?(Double(slider.value))
     }
     override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { commit() } }
 }

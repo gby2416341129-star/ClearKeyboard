@@ -23,7 +23,7 @@ import ImageIO
     private var tokens: [ClipboardSelection.Token] = []
     private var selection: (Int, Int)?
     var onClose: (() -> Void)?
-    init(model: KeyboardModel) {
+    init(model: KeyboardModel, showPhrases: Bool = false) {
         self.model = model
         pasteControl = ClipboardPasteButton(capture: model.clipboardCapture)
         url = SharedStorage.clipboardURL(allowShared: true)
@@ -34,7 +34,7 @@ import ImageIO
         [tabs, back, more, send, table, words, empty, pasteControl].forEach(addSubview)
         pasteControl.isUserInteractionEnabled = model.document?.fullAccess == true
         tabs.accessibilityIdentifier = "clipboard.tabs"
-        tabs.selectedSegmentIndex = 0
+        tabs.selectedSegmentIndex = showPhrases ? 1 : 0
         tabs.addAction(UIAction { [weak self] _ in self?.reload() }, for: .valueChanged)
         back.setImage(ToolArtwork.image(symbol: "chevron.up", size: 24), for: .normal); back.accessibilityLabel = "返回键盘"
         back.addAction(UIAction { [weak self] _ in

@@ -407,4 +407,114 @@ import UIKit
         try sequence(in: app, field: field, host: "app-actual-hex-field", permitsASCIIRestriction: true)
         XCTAssertTrue(discrepancies.isEmpty, "Connected host shell is inconsistent across transitions:\n" + discrepancies.joined(separator: "\n"))
     }
+    func testCurrentRoundProductionSettingsClipboardAndLongPressInInstalledExtension() throws {
+        continueAfterFailure = false; started = Date()
+        let app = clear; app.launch()
+        defer { screen("round62-final"); attachTree(XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"), "round62-final") }
+        XCTAssertTrue(app.tabBars.buttons["定制"].waitForExistence(timeout: 8)); app.tabBars.buttons["定制"].tap()
+        func open(_ item: String) {
+            let row = elements(app, identifier: "custom.edit." + item).firstMatch
+            reveal(row, in: app); XCTAssertTrue(row.isHittable); row.tap()
+        }
+        func back() { app.navigationBars.buttons.firstMatch.tap() }
+        open("keyGlass")
+        app.sliders["appearance.strength.keyGlass"].adjust(toNormalizedSliderPosition: 0.9); back()
+        open("keyColor"); let blue = app.buttons["#558DF2"]; reveal(blue, in: app); blue.tap(); back()
+        open("candidateColor"); let orange = app.buttons["#E3AC72"]; reveal(orange, in: app); orange.tap(); back()
+        open("candidateSize"); app.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap(); back()
+        let height = app.sliders["custom.keyHeight"]; reveal(height, in: app); height.adjust(toNormalizedSliderPosition: 0.85)
+        let vibration = elements(app, identifier: "custom.vibration").firstMatch
+        reveal(vibration, in: app)
+        let toggle = vibration.switches.firstMatch.exists ? vibration.switches.firstMatch : app.switches.firstMatch
+        XCTAssertTrue(toggle.isHittable); if toggle.value as? String == "0" { toggle.tap() }
+        try enableKeyboardInSystemSettings()
+        // Match this user's already-enabled setting on the disposable simulator.
+        // Only the real Settings switch can establish extension full access.
+        let settingsApp = XCUIApplication(bundleIdentifier: "com.apple.Preferences"); settingsApp.activate()
+        try tapSettingsText("澈", in: settingsApp)
+        let access = settingsApp.switches.firstMatch
+        XCTAssertTrue(access.waitForExistence(timeout: 5))
+        if access.value as? String == "0" {
+            access.tap()
+            let allow = settingsApp.alerts.buttons["Allow"]
+            if allow.waitForExistence(timeout: 3) { allow.tap() }
+        }
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"); safari.activate()
+        for title in ["Continue", "Continue", "Start Browsing", "Not Now"] {
+            if safari.buttons[title].exists && safari.buttons[title].isHittable { safari.buttons[title].tap() }
+        }
+        let predicate = NSPredicate(format: "label == %@", "Safari search size check")
+        let search = safari.webViews.searchFields.matching(predicate).firstMatch
+        let field = search.waitForExistence(timeout: 4) ? search : safari.webViews.textFields.matching(predicate).firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap()
+        try choose("澈", in: safari)
+        XCTAssertTrue(key(safari, "j").waitForExistence(timeout: 8))
+        func evidence() -> [String: Any] {
+            let raw = control(safari, "clear.keyboard.runtime").value as? String ?? "{}"
+            return (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Any] ?? [:]
+        }
+        func awaitEvidence(_ reason: String, _ condition: @escaping ([String: Any]) -> Bool) {
+            let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _,_ in condition(evidence()) }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 8), .completed, reason)
+        }
+        awaitEvidence("Actual appex must consume all App controls through production storage") { value in
+            guard let settings = value["settings"] as? [String: Any] else { return false }
+            return value["fullAccess"] as? Bool == true && value["sharedContainerAvailable"] as? Bool == true &&
+                settings["keyColorHex"] as? String == "#558DF2" && settings["candidateColorHex"] as? String == "#E3AC72" &&
+                settings["candidateTextSize"] as? String == "extraLarge" && settings["vibrationEnabled"] as? Bool == true &&
+                (settings["keyGlassStrength"] as? Double ?? 0) > 0.85 && (settings["keyHeight"] as? Double ?? 0) >= 55
+        }
+        screen("round62-app-settings-received-by-actual-appex")
+        let language = control(safari, "key.language")
+        if language.label.hasPrefix("英文") { language.tap() }
+        let j = key(safari, "j"), point = j.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        point.press(forDuration: 0.5, thenDragTo: point.withOffset(CGVector(dx: 48, dy: 0)))
+        XCTAssertTrue((field.value as? String ?? "").hasSuffix("j"), "Case popup must insert exactly lowercase j without pinyin")
+        control(safari, "key.123").tap()
+        let seven = key(safari, "7").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        seven.press(forDuration: 0.5, thenDragTo: seven.withOffset(CGVector(dx: -48, dy: 0)))
+        XCTAssertTrue((field.value as? String ?? "").hasSuffix("j⑦"))
+        let bracket = key(safari, "（").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        bracket.press(forDuration: 0.5, thenDragTo: bracket.withOffset(CGVector(dx: 48, dy: 0)))
+        XCTAssertTrue((field.value as? String ?? "").hasSuffix("j⑦("), "Literal symbol must bypass Chinese punctuation remapping")
+        awaitEvidence("Actual key touch must submit a view-bound UIKit haptic") { ($0["submittedHapticPulses"] as? Int ?? 0) >= 3 }
+        screen("round62-literal-case-number-symbol-input")
+        control(safari, "key.ABC").tap()
+        let source = control(safari, "toolbar.clipboard"), destination = control(safari, "toolbar.appearance")
+        source.press(forDuration: 0.8, thenDragTo: destination)
+        awaitEvidence("Direct toolbar hold/reorder without editor") {
+            (($0["settings"] as? [String: Any])?["toolbar"] as? [String]) == ["language", "emoji", "appearance", "clipboard"]
+        }
+        control(safari, "toolbar.appearance").tap()
+        let colorRow = control(safari, "keyboard.appearance.keyColor")
+        XCTAssertTrue(colorRow.waitForExistence(timeout: 3)); colorRow.tap()
+        let localOrange = control(safari, "keyboard.swatch.#E3AC72")
+        for _ in 0..<4 { if localOrange.isHittable { break }; control(safari, "keyboard.appearance.panel").swipeUp() }
+        XCTAssertTrue(localOrange.isHittable); localOrange.tap()
+        awaitEvidence("Keyboard panel button writes actual model and persists") { (($0["settings"] as? [String: Any])?["keyColorHex"] as? String) == "#E3AC72" }
+        control(safari, "toolbar.tools").tap()
+        screen("round62-native-settings-live-on-keyboard")
+        // Copy in the App process while Safari's extension is suspended, then
+        // return to the existing focused editor without rebuilding a fake surface.
+        app.activate(); app.tabBars.buttons["定制"].tap(); open("keyColor")
+        let hex = app.textFields["appearance.hex"]; reveal(hex, in: app); hex.tap()
+        hex.press(forDuration: 1)
+        let selectAll = app.menuItems["Select All"]
+        if selectAll.waitForExistence(timeout: 3) { selectAll.tap() }
+        let copy = app.menuItems["Copy"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 3)); copy.tap()
+        safari.activate()
+        XCTAssertTrue(key(safari, "j").waitForExistence(timeout: 8))
+        awaitEvidence("Foreground copy must persist in the real extension history") { ($0["clipboardItems"] as? Int ?? 0) > 0 }
+        control(safari, "toolbar.clipboard").tap()
+        XCTAssertTrue(control(safari, "clipboard.panel").waitForExistence(timeout: 4))
+        screen("round62-copied-content-in-real-extension-history")
+        let copied = root(in: safari).descendants(matching: .any).matching(NSPredicate(format: "label == %@", "#E3AC72")).firstMatch
+        XCTAssertTrue(copied.waitForExistence(timeout: 3)); copied.tap()
+        XCTAssertTrue((field.value as? String ?? "").hasSuffix("#E3AC72"), "Stored copy must insert into the real Safari editor")
+        let report = try JSONSerialization.data(withJSONObject: evidence(), options: [.prettyPrinted, .sortedKeys])
+        let result = XCTAttachment(data: report, uniformTypeIdentifier: "public.json")
+        result.name = "round62-production-extension-evidence.json"; result.lifetime = .keepAlways; add(result)
+    }
+
 }
