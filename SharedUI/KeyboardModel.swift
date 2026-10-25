@@ -402,14 +402,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
         self.appearanceLink?.onReceive = { [weak self] snapshot in
             guard let self else { return }
             let value = snapshot.applying(to: self.settings)
+            let inputChanged = value.language != self.settings.language || value.fuzzyPairs != self.settings.fuzzyPairs ||
+                value.predictions != self.settings.predictions || value.learnChoices != self.settings.learnChoices ||
+                value.autoCapitalization != self.settings.autoCapitalization
             self.loadingSavedSettings = true
             self.settings = value
             self.loadingSavedSettings = false
             // Keep the local fallback current without broadcasting the read.
             self.store.save(snapshot.applying(to: self.store.load()))
-            if snapshot.language != nil || snapshot.fuzzyPairs != nil || snapshot.predictions != nil || snapshot.learnChoices != nil {
-                self.refreshCandidates()
-            }
+            if inputChanged { self.refreshCandidates() }
         }
         if document.fullAccess { self.appearanceLink?.activate() }
         let cache = hotWords, warm = warmsWords, prefetch = warmQueue
