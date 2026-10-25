@@ -350,7 +350,7 @@ import UIKit
         XCTAssertEqual(value.textView.text, before + phrase + text)
         print("CLIPBOARD_RECENT_UIKIT textPaste=true history=true clipboardDefault=true commonPhrases=true reopenClipboard=true copyMenu=true compositionProtected=true")
     }
-    func testCompactAppearanceOwnsAndRemovesItsHostingController() throws {
+    func testCompactNativeAppearanceOwnsAndRemovesItsPanel() throws {
         let value = controller(), model = try XCTUnwrap(value.model)
         defer { model.suspend() }
         let surface = try XCTUnwrap(views(value.view).compactMap { $0 as? KeyboardSurface }.first)
@@ -358,10 +358,11 @@ import UIKit
         for _ in 0..<3 {
             let button = try XCTUnwrap(views(surface).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "toolbar.appearance" })
             button.sendActions(for: .touchUpInside)
-            let host = try XCTUnwrap(value.children.compactMap { $0 as? UIHostingController<KeyboardAppearancePanel> }.first)
-            XCTAssertTrue(host.view.superview === surface)
+            let panel = try XCTUnwrap(views(surface).compactMap { $0 as? KeyboardAppearancePanelView }.first)
+            XCTAssertTrue(panel.superview === surface)
             surface.closePanel()
-            XCTAssertTrue(value.children.isEmpty, "Closing a panel must release its child controller")
+            XCTAssertNil(panel.superview, "Closing a panel must remove its native controls")
+            XCTAssertTrue(value.children.isEmpty, "No obsolete SwiftUI hosting controller should be retained")
         }
     }
     func testCustomKeyTintAndInkStayVisibleAtZeroGlassStrength() throws {

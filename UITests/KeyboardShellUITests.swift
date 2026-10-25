@@ -411,7 +411,17 @@ import UIKit
         continueAfterFailure = false; started = Date()
         let app = clear; app.launch()
         defer { screen("round62-final"); attachTree(XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"), "round62-final") }
-        XCTAssertTrue(app.tabBars.buttons["定制"].waitForExistence(timeout: 8)); app.tabBars.buttons["定制"].tap()
+        XCTAssertTrue(app.tabBars.buttons["输入"].waitForExistence(timeout: 8)); app.tabBars.buttons["输入"].tap()
+        let clipboardSettings = elements(app, identifier: "input.clipboard").firstMatch
+        reveal(clipboardSettings, in: app); clipboardSettings.tap()
+        let automatic = elements(app, identifier: "clipboard.automatic").firstMatch
+        reveal(automatic, in: app)
+        let autoSwitch = automatic.switches.firstMatch.exists ? automatic.switches.firstMatch : app.switches.firstMatch
+        if autoSwitch.value as? String == "0" {
+            (autoSwitch.switches.firstMatch.exists ? autoSwitch.switches.firstMatch : autoSwitch).tap()
+        }
+        app.navigationBars.buttons.firstMatch.tap()
+        app.tabBars.buttons["定制"].tap()
         func open(_ item: String) {
             let row = elements(app, identifier: "custom.edit." + item).firstMatch
             reveal(row, in: app); XCTAssertTrue(row.isHittable); row.tap()
@@ -422,11 +432,15 @@ import UIKit
         open("keyColor"); let blue = app.buttons["#558DF2"]; reveal(blue, in: app); blue.tap(); back()
         open("candidateColor"); let orange = app.buttons["#E3AC72"]; reveal(orange, in: app); orange.tap(); back()
         open("candidateSize"); app.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap(); back()
+        let hand = app.segmentedControls["custom.hand"]; reveal(hand, in: app); hand.buttons["标准"].tap()
         let height = app.sliders["custom.keyHeight"]; reveal(height, in: app); height.adjust(toNormalizedSliderPosition: 0.85)
         let vibration = elements(app, identifier: "custom.vibration").firstMatch
         reveal(vibration, in: app)
         let toggle = vibration.switches.firstMatch.exists ? vibration.switches.firstMatch : app.switches.firstMatch
-        XCTAssertTrue(toggle.isHittable); if toggle.value as? String == "0" { toggle.tap() }
+        XCTAssertTrue(toggle.isHittable)
+        if toggle.value as? String == "0" {
+            (toggle.switches.firstMatch.exists ? toggle.switches.firstMatch : toggle).tap()
+        }
         try enableKeyboardInSystemSettings()
         // Match this user's already-enabled setting on the disposable simulator.
         // Only the real Settings switch can establish extension full access.
@@ -435,10 +449,16 @@ import UIKit
         let access = settingsApp.switches.firstMatch
         XCTAssertTrue(access.waitForExistence(timeout: 5))
         if access.value as? String == "0" {
-            access.tap()
+            // iOS Settings exposes a row-sized Switch containing the actual
+            // thumb. The row centre hits its label and does not toggle it.
+            (access.switches.firstMatch.exists ? access.switches.firstMatch : access).tap()
             let allow = settingsApp.alerts.buttons["Allow"]
             if allow.waitForExistence(timeout: 3) { allow.tap() }
         }
+        let accessEnabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "1"), object: access)
+        let accessResult = XCTWaiter.wait(for: [accessEnabled], timeout: 5)
+        if accessResult != .completed { attachTree(settingsApp, "round62-full-access-not-enabled") }
+        XCTAssertEqual(accessResult, .completed, "Disposable simulator must match the user's enabled full-access setting")
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari"); safari.activate()
         for title in ["Continue", "Continue", "Start Browsing", "Not Now"] {
             if safari.buttons[title].exists && safari.buttons[title].isHittable { safari.buttons[title].tap() }
@@ -455,13 +475,23 @@ import UIKit
         }
         func awaitEvidence(_ reason: String, _ condition: @escaping ([String: Any]) -> Bool) {
             let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _,_ in condition(evidence()) }, object: nil)
-            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 8), .completed, reason)
+            let result = XCTWaiter.wait(for: [expectation], timeout: 8)
+            let value = evidence()
+            if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]),
+               let text = String(data: data, encoding: .utf8) {
+                print("ROUND62_RUNTIME " + reason + " " + text)
+                let attachment = XCTAttachment(string: text); attachment.name = "round62-runtime-" + reason
+                attachment.lifetime = .keepAlways; add(attachment)
+            }
+            if result != .completed { screen("round62-failed-condition"); attachTree(safari, "round62-failed-condition") }
+            XCTAssertEqual(result, .completed, reason)
         }
         awaitEvidence("Actual appex must consume all App controls through production storage") { value in
             guard let settings = value["settings"] as? [String: Any] else { return false }
             return value["fullAccess"] as? Bool == true && value["sharedContainerAvailable"] as? Bool == true &&
                 settings["keyColorHex"] as? String == "#558DF2" && settings["candidateColorHex"] as? String == "#E3AC72" &&
                 settings["candidateTextSize"] as? String == "extraLarge" && settings["vibrationEnabled"] as? Bool == true &&
+                settings["automaticClipboard"] as? Bool == true && settings["hand"] as? String == "full" &&
                 (settings["keyGlassStrength"] as? Double ?? 0) > 0.85 && (settings["keyHeight"] as? Double ?? 0) >= 55
         }
         screen("round62-app-settings-received-by-actual-appex")

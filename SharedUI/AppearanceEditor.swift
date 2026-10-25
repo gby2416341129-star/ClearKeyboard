@@ -43,7 +43,7 @@ struct KeyboardPreview: UIViewRepresentable {
 struct AppearanceDetailContent: View {
     let item: AppearanceItem
     @Binding var settings: KeyboardSettings
-    // The owner observes Preferences/AppearanceBridge. Pass its current value
+    // The App owner observes Preferences. Pass its current value
     // as well as a write binding so a stable NavigationStack destination redraws.
     let value: KeyboardSettings
     var compact = false
@@ -198,43 +198,4 @@ struct AppearanceDetailContent: View {
             }.padding(compact ? 12 : 20).padding(.bottom, 18)
         }.scrollDismissesKeyboard(.interactively)
     }
-}
-
-struct KeyboardAppearancePanel: View {
-    @ObservedObject var bridge: AppearanceBridge
-    @State private var selected: AppearanceItem?
-    var body: some View {
-        Group {
-            if let item = selected {
-                VStack(spacing: 0) {
-                    HStack {
-                        Button { selected = nil } label: { Label("外观", systemImage: "chevron.left") }
-                        Spacer(); Text(item.title).font(.subheadline.weight(.semibold)); Spacer()
-                    }.font(.caption).padding(.horizontal, 12).padding(.vertical, 5)
-                    AppearanceDetailContent(item: item, settings: bridge.binding, value: bridge.settings, compact: true)
-                }
-            } else {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(AppearanceItem.allCases) { item in
-                            Button { selected = item } label: {
-                                HStack(spacing: 12) {
-                                    ToolIcon(symbol: item.symbol).frame(width: 28,height: 28)
-                                    Text(item.title); Spacer(); Image(systemName: "chevron.right").font(.caption)
-                                }.font(.subheadline).foregroundStyle(.primary).padding(13)
-                                    .modifier(LiquidCard(radius: 18, interactive: true))
-                            }.buttonStyle(.plain)
-                        }
-                    }.padding(10)
-                }
-            }
-        }.tint(Color(red: 0.40, green: 0.39, blue: 0.92))
-    }
-}
-
-@MainActor final class AppearanceBridge: ObservableObject {
-    @Published var settings: KeyboardSettings
-    private let save: (KeyboardSettings) -> Void
-    init(settings: KeyboardSettings, save: @escaping (KeyboardSettings) -> Void) { self.settings = settings; self.save = save }
-    var binding: Binding<KeyboardSettings> { Binding(get: { self.settings }, set: { self.settings = $0; self.save($0) }) }
 }

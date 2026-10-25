@@ -94,9 +94,9 @@ private final class AppearancePersistenceProbe {
         XCTAssertEqual(merged.language, input.language); XCTAssertEqual(merged.learnChoices, input.learnChoices)
         XCTAssertEqual(merged.selectionLearningVersion, input.selectionLearningVersion)
         XCTAssertEqual(merged.predictions, input.predictions); XCTAssertEqual(merged.vibrationEnabled, appearance.vibrationEnabled)
-        XCTAssertEqual(merged.keyHeight, appearance.keyHeight); XCTAssertEqual(merged.hand, input.hand)
-        XCTAssertEqual(merged.automaticClipboard, input.automaticClipboard)
-        XCTAssertEqual(merged.clipboardLifetimeHours, input.clipboardLifetimeHours)
+        XCTAssertEqual(merged.keyHeight, appearance.keyHeight); XCTAssertEqual(merged.hand, appearance.hand)
+        XCTAssertEqual(merged.automaticClipboard, appearance.automaticClipboard)
+        XCTAssertEqual(merged.clipboardLifetimeHours, appearance.clipboardLifetimeHours)
         XCTAssertEqual(merged.fuzzyPairs, input.fuzzyPairs)
     }
     func testAppearancePayloadDoesNotContainInputOrClipboardPreferences() throws {
@@ -104,8 +104,8 @@ private final class AppearancePersistenceProbe {
         XCTAssertEqual(try ClearKeyboard.AppearanceSyncClient.decode(data).get(), value)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let snapshot = try XCTUnwrap(object["snapshot"] as? [String: Any])
-        XCTAssertEqual(Set(snapshot.keys), Set(["accent", "keyGlassStrength", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight", "vibrationEnabled", "vibrationIntensity"]))
-        XCTAssertNil(snapshot["language"]); XCTAssertNil(snapshot["learnChoices"]); XCTAssertNil(snapshot["clipboardLifetimeHours"])
+        XCTAssertEqual(Set(snapshot.keys), Set(["accent", "keyGlassStrength", "keyColorHex", "candidateColorHex", "candidateTextSize", "keyHeight", "vibrationEnabled", "vibrationIntensity", "hand", "oneHandWidth", "toolbar", "localPinyinComposition", "automaticClipboard", "clipboardLifetimeHours"]))
+        XCTAssertNil(snapshot["language"]); XCTAssertNil(snapshot["learnChoices"]); XCTAssertNotNil(snapshot["clipboardLifetimeHours"])
         XCTAssertLessThan(data.count, 2_048)
     }
     func testMalformedUnsupportedAndOversizedAppearancePayloadsAreRejected() throws {
@@ -242,7 +242,7 @@ private final class AppearancePersistenceProbe {
         }
         await fulfillment(of: [received], timeout: 3)
         XCTAssertEqual(keyboardSettings.language, .english); XCTAssertFalse(keyboardSettings.learnChoices)
-        XCTAssertFalse(keyboardSettings.predictions); XCTAssertEqual(keyboardSettings.hand, .left)
+        XCTAssertFalse(keyboardSettings.predictions); XCTAssertEqual(keyboardSettings.hand, .full)
         XCTAssertEqual(keyboardSettings.vibrationEnabled, false, "Feedback is now an App-controlled synchronized setting")
     }
     func testRapidSliderWritesCoalesceAndReportSupersededRevisions() async {

@@ -50,10 +50,10 @@ public enum KeyboardLayout {
         }
         // Leading punctuation and trailing language switch balance the space key.
         // The extension uses iOS's separate globe; the in-app keyboard retains its globe.
-        let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: globe ? 1.35 : 2)
+        let mode = KeyboardKey(page == .letters ? "123" : "ABC", .page(page == .letters ? .numbers : .letters), units: globe ? 1.2 : 2)
         let comma = language == .chinese ? "，" : ","
         let period = language == .chinese ? "。" : "."
-        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 0.75)] : []) + [
+        let bottom = [mode] + (globe ? [KeyboardKey("◎", .globe, units: 0.9)] : []) + [
             KeyboardKey(comma, units: 0.9, alternatives: [comma, period]),
             KeyboardKey("空格", .space, units: globe ? 4 : 4.2),
             KeyboardKey("中", .language, units: 0.9),

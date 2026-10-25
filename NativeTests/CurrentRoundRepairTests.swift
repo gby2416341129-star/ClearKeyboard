@@ -153,4 +153,44 @@ import CoreText
             }
         }
     }
+    func testNativeChoicePopupsAndCompatibilityAtPhoneSizeInBothThemes() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }, window = UIWindow(windowScene: scene)
+        defer { window.isHidden = true; previous?.makeKey() }
+        let suite = "clear.round.visual." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+        let document = Document(); var settings = KeyboardSettings(); settings.automaticClipboard = false
+        let model = KeyboardModel(document: document, settings: settings, defaults: defaults); defer { model.suspend() }
+        let host = UIViewController(); window.rootViewController = host; window.makeKeyAndVisible()
+        let surface = KeyboardSurface(model: model, systemBacked: true); host.view.addSubview(surface)
+        func capture(_ name: String) async throws {
+            window.layoutIfNeeded(); surface.layoutIfNeeded()
+            try await Task.sleep(nanoseconds: 100_000_000)
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+            let value = XCTAttachment(image: image); value.name = "Round62-" + name; value.lifetime = .keepAlways; add(value)
+        }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = style
+            host.view.backgroundColor = style == .dark ? UIColor(red: 0.12, green: 0.15, blue: 0.20, alpha: 1) : UIColor(red: 0.85, green: 0.91, blue: 0.97, alpha: 1)
+            let name = style == .dark ? "dark" : "light"
+            surface.frame = CGRect(x: 0, y: window.bounds.height - surface.desiredHeight - 60, width: window.bounds.width, height: surface.desiredHeight)
+            for (page, symbol, choices, initial) in [(KeyboardPage.letters, "j", ["J", "j"], 0),
+                                                    (.numbers, "7", ["柒", "❼", "⑦", "7"], 3),
+                                                    (.numbers, "（", KeyAlternatives.values(for: "（"), 4)] {
+                model.handle(.page(page)); surface.layoutIfNeeded()
+                let key = try XCTUnwrap(views(surface).compactMap { $0 as? KeyButton }.first { $0.key.action == .text(symbol) })
+                let anchor = key.convert(key.bounds, to: surface)
+                let popup = KeyChoicePopup(choices: choices, initial: initial,
+                    origin: CGPoint(x: anchor.midX, y: anchor.midY), anchor: anchor, host: surface, accent: settings.accentColor)
+                surface.addSubview(popup); try await capture(name + "-popup-" + (symbol == "（" ? "bracket" : symbol)); popup.removeFromSuperview()
+            }
+            model.handle(.page(.letters))
+            for letter in "bbbhghh" { model.handle(.text(String(letter))) }
+            surface.layoutIfNeeded(); try await capture(name + "-compatibility-preedit")
+            let preedit = try XCTUnwrap(views(surface).first { $0.accessibilityIdentifier == "keyboard.localPreedit" })
+            XCTAssertLessThan(preedit.bounds.width, 70, "Local spelling should use its measured width rather than an empty fixed slot")
+            model.clearComposition()
+        }
+    }
+
 }

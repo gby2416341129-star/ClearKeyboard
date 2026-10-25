@@ -328,7 +328,7 @@ import SwiftUI
         let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && model.arithmetic == nil && !model.hasEnglishPrefix && recentClip != nil
         model.englishSpaceSelectionIsVisible = !clipboardVisible && !panelOpen
         clipboardSuggestion.isHidden = !clipboardVisible
-        toolbar.isHidden = clipboardVisible || panelKind == .clipboard || (!panelOpen && candidateHeight > 0)
+        toolbar.isHidden = clipboardVisible || panelKind == .clipboard || panelKind == .phrases || (!panelOpen && candidateHeight > 0)
         candidateScroll.isHidden = clipboardVisible || panelOpen || movingCursor || candidateHeight == 0
         characterButton.isHidden = panelOpen || movingCursor || model.settings.language != .chinese || model.composition.isEmpty
         characterButton.setTitle(model.characterSelectionMode ? "词" : "字", for: .normal)
@@ -592,7 +592,26 @@ import SwiftUI
             model.settings.hand = model.settings.hand == .right ? .left : .right
         } else if tool == .language { closePanel(); model.toggleLanguage() }
         else if tool == .compatibility { toggleLocalPinyinComposition() }
-        else { showPanel(tool) }
+        else if tool == .vibration {
+            model.settings.vibrationEnabled = !model.settings.usesVibration
+            if model.settings.usesVibration {
+                KeyboardVibration.shared.attach(to: self)
+                KeyboardVibration.shared.pulse(intensity: model.settings.resolvedVibrationIntensity)
+            }
+            if toolboxVisible { showToolbox() }
+        } else if let item = appearanceItem(for: tool) {
+            if panelKind != .appearance { showPanel(.appearance) }
+            nativeAppearance?.show(item)
+        } else { showPanel(tool) }
+    }
+    private func appearanceItem(for tool: ToolbarTool) -> AppearanceItem? {
+        switch tool {
+        case .keyGlass: return .keyGlass
+        case .keyColor: return .keyColor
+        case .textColor: return .candidateColor
+        case .textSize: return .candidateSize
+        default: return nil
+        }
     }
     func stopInteractions() { keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel() }
     private func announce(_ text: String) {
@@ -761,6 +780,7 @@ import SwiftUI
             stack.addArrangedSubview(height)
         case .appearance: break
         case .compatibility: toggleLocalPinyinComposition()
+        case .keyGlass, .keyColor, .textColor, .textSize, .vibration: activateTool(kind)
         }
         render(); setNeedsLayout()
     }

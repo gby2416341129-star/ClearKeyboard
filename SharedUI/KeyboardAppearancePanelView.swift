@@ -30,6 +30,7 @@ import UIKit
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -14),
             stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -20)
         ])
+        preview.heightAnchor.constraint(equalToConstant: 124).isActive = true
         show(nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
@@ -61,7 +62,6 @@ import UIKit
             return
         }
         stack.addArrangedSubview(button(item.title, symbol: "chevron.left", identifier: "keyboard.appearance.back") { [weak self] in self?.show(nil) })
-        preview.heightAnchor.constraint(equalToConstant: 124).isActive = true
         stack.addArrangedSubview(preview)
         switch item {
         case .keyGlass:
@@ -127,7 +127,9 @@ import UIKit
     }
     private func color() -> RGBColor {
         let value = selected?.colorPath.flatMap { current()[keyPath: $0] }
-        return RGBColor(hex: value ?? (traitCollection.userInterfaceStyle == .dark ? "#F2F3F8" : "#292C39"))!
+        let dark = traitCollection.userInterfaceStyle == .dark
+        let fallback = selected == .keyColor ? (dark ? "#BFC4D6" : "#FFFFFF") : (dark ? "#F4F4F8" : "#20212A")
+        return RGBColor(hex: value ?? fallback)!
     }
     func apply(_ settings: KeyboardSettings) {
         guard let selected else { return }

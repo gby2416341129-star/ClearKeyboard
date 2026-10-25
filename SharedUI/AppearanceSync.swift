@@ -1,8 +1,8 @@
 import Foundation
 import Security
 
-/// Only appearance travels through this channel. Input text, learned words,
-/// clipboard contents and language state remain in their existing stores.
+/// Presentation and keyboard tool preferences share a revision. Typed text,
+/// clipboard payloads, learned words and language state never enter this channel.
 struct AppearanceSnapshot: Codable, Equatable {
     let accent: Accent
     let customAccentHex: String?
@@ -176,11 +176,32 @@ extension AppearanceSyncBackend {
 /// A successful local write is not evidence that the keyboard can read it.
 final class AppearanceKeychainBackend: AppearanceSyncBackend {
     let service: String
-    private let sharedAccessGroup: String?
+    private let configuredAccessGroup: String?
+    private lazy var sharedAccessGroup: String? = {
+        guard let configuredAccessGroup else { return nil }
+        // An unsigned build has no AppIdentifierPrefix at Info.plist expansion.
+        // Ask Security for this installation's real prefix after re-signing;
+        // never hard-code a team or assume an entitlement has been granted.
+        let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service + ".group-probe", kSecAttrAccount as String: "local-prefix",
+            kSecReturnAttributes as String: true]
+        var result: CFTypeRef?
+        var status = SecItemCopyMatching(probe as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            var add = probe; add[kSecValueData as String] = Data([0])
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            status = SecItemAdd(add as CFDictionary, &result)
+        }
+        guard status == errSecSuccess, let attributes = result as? [String: Any],
+              let group = attributes[kSecAttrAccessGroup as String] as? String,
+              let dot = group.firstIndex(of: ".") else { return configuredAccessGroup }
+        let prefix = String(group[...dot])
+        return configuredAccessGroup.hasPrefix(prefix) ? configuredAccessGroup : prefix + configuredAccessGroup
+    }()
     private(set) var diagnostics = AppearanceBackendDiagnostics()
     init(service: String = "com.clearkeyboard.appearance.sync.v1", accessGroup: String? = Bundle.main.object(forInfoDictionaryKey: "ClearSharedKeychainGroup") as? String) {
         self.service = service
-        sharedAccessGroup = accessGroup.flatMap { !$0.isEmpty && !$0.contains("$(") ? $0 : nil }
+        configuredAccessGroup = accessGroup.flatMap { !$0.isEmpty && !$0.contains("$(") ? $0 : nil }
     }
     private func query(_ account: String) -> [String: Any] {
         var result: [String: Any] = [kSecClass as String: kSecClassGenericPassword,

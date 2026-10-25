@@ -143,6 +143,11 @@ final class KeyButton: UIButton {
         lens.bounds = plate.bounds; lens.center = CGPoint(x: plate.bounds.midX, y: plate.bounds.midY)
         caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
         shiftStateWash?.frame = plate.bounds
+        if key.action == .globe {
+            let side = max(0, min(32, min(plate.bounds.width - 2, plate.bounds.height - 2)))
+            icon.contentMode = .scaleAspectFit
+            icon.frame = CGRect(x: (plate.bounds.width - side) / 2, y: (plate.bounds.height - side) / 2, width: side, height: side)
+        }
         if punctuationHint.superview != nil {
             punctuationHint.frame = CGRect(x: 0, y: 2, width: plate.bounds.width, height: 14)
             caption.frame = plate.bounds.offsetBy(dx: 0, dy: 3)

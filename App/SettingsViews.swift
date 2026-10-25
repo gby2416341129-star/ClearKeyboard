@@ -124,7 +124,7 @@ struct InputSettingsView: View {
             }.buttonStyle(.plain)
             AppSectionTitle(title: "管理")
             AppCard {
-                NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "", symbol: "doc.on.clipboard") }
+                NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "", symbol: "doc.on.clipboard") }.accessibilityIdentifier("input.clipboard")
                 Divider()
                 NavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "", symbol: "lock.shield") }
             }.buttonStyle(.plain)
@@ -165,7 +165,7 @@ struct ClipboardSettingsView: View {
         AppPage(title: "剪贴板") {
             AppSectionTitle(title: "收录与保留")
             AppCard {
-                PreferenceToggle(title: "自动收录复制内容", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 }))
+                PreferenceToggle(title: "自动收录复制内容", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 })).accessibilityIdentifier("clipboard.automatic")
                 Divider()
                 Picker("内容保留", selection: $preferences.settings.clipboardLifetimeHours) {
                     Text("15 分钟").tag(0.25); Text("1 小时").tag(1.0); Text("1 天").tag(24.0)

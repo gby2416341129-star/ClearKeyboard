@@ -82,7 +82,7 @@ import UIKit
         XCTAssertEqual(brand.convert(brand.bounds, to: surface), brandFrame)
         XCTAssertEqual(fixture.model.settings.toolbar, all)
     }
-    func testDroppingOnEveryOtherIconSwapsBothDirectionsAndKeepsActiveTargetsAlive() throws {
+    func testDroppingOnEveryOtherIconMovesInBothDirectionsAndKeepsActiveTargetsAlive() throws {
         let fixture = try Fixture(width: 393); defer { fixture.close() }
         let surface = fixture.surface
         for from in 1..<all.count {
@@ -92,7 +92,7 @@ import UIKit
                 XCTAssertTrue(surface.beginToolbarDrag(all[from]))
                 let point = target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: surface)
                 surface.performToolbarDrop(all[from], at: point)
-                var expected = all; expected.swapAt(from, to)
+                var expected = all; let moved = expected.remove(at: from); expected.insert(moved, at: to)
                 XCTAssertEqual(fixture.model.settings.toolbar, expected)
                 XCTAssertTrue(try button(all[from], in: surface) === source, "A settings render must not destroy an active drag source")
                 XCTAssertTrue(try button(all[to], in: surface) === target, "The drop target must survive until UIKit finishes")
@@ -116,14 +116,14 @@ import UIKit
         // must include the scroll offset rather than treating the viewport as x=0.
         let point = target.convert(CGPoint(x: -2, y: target.bounds.midY), to: surface)
         surface.performToolbarDrop(.clipboard, at: point)
-        let expected: [ToolbarTool] = [.language, .appearance, .emoji, .oneHand, .clipboard]
+        let expected: [ToolbarTool] = [.language, .emoji, .oneHand, .appearance, .clipboard]
         XCTAssertEqual(fixture.model.settings.toolbar, expected)
         surface.finishToolbarDrag()
         source.sendActions(for: .touchUpInside)
         XCTAssertEqual(fixture.model.settings.toolbar, expected, "A drag-end touch-up is not an editing remove tap")
         let current = try button(.clipboard, in: surface)
         current.sendActions(for: .touchDown); current.sendActions(for: .touchUpInside)
-        XCTAssertEqual(fixture.model.settings.toolbar, [.language, .appearance, .emoji, .oneHand])
+        XCTAssertEqual(fixture.model.settings.toolbar, [.language, .emoji, .oneHand, .appearance])
     }
     func testDragAndLiftCancelPreviewsContainOnlyTransparentArtwork() throws {
         let fixture = try Fixture(width: 393); defer { fixture.close() }
@@ -176,7 +176,7 @@ import UIKit
         XCTAssertEqual(toggle.accessibilityLabel, "兼容输入 · 关")
         toggle.sendActions(for: .touchUpInside)
         XCTAssertEqual(fixture.model.settings.localPinyinComposition, true)
-        XCTAssertEqual(fixture.model.settings.toolbar, all, "Compatibility is not a fifth pinnable toolbar tool")
+        XCTAssertEqual(fixture.model.settings.toolbar, all, "Toggling compatibility does not implicitly pin a new shortcut")
         surface.closePanel(); layout(surface)
         fixture.document.usesLocalPinyinComposition = true
         let keys = views(surface).compactMap { $0 as? KeyButton }

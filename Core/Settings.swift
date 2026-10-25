@@ -23,13 +23,13 @@ public enum CandidateTextSize: String, Codable, CaseIterable, Identifiable {
     }
 }
 public enum ToolbarTool: String, Codable, CaseIterable, Identifiable {
-    case language, clipboard, emoji, oneHand, appearance, compatibility, phrases
+    case language, clipboard, emoji, oneHand, appearance, compatibility, phrases, keyGlass, keyColor, textColor, textSize, vibration
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .language: return "中 / EN"; case .clipboard: return "剪贴板"; case .emoji: return "表情"; case .oneHand: return "单手"; case .appearance: return "外观"; case .compatibility: return "兼容输入"; case .phrases: return "常用语" }
+        switch self { case .language: return "中 / EN"; case .clipboard: return "剪贴板"; case .emoji: return "表情"; case .oneHand: return "单手"; case .appearance: return "外观"; case .compatibility: return "兼容输入"; case .phrases: return "常用语"; case .keyGlass: return "按键玻璃"; case .keyColor: return "按键颜色"; case .textColor: return "文字颜色"; case .textSize: return "文字大小"; case .vibration: return "按键震动" }
     }
     public var symbol: String {
-        switch self { case .language: return "character.bubble.fill"; case .clipboard: return "doc.on.clipboard.fill"; case .emoji: return "face.smiling.fill"; case .oneHand: return "keyboard.fill"; case .appearance: return "paintpalette.fill"; case .compatibility: return "desktopcomputer"; case .phrases: return "plus.bubble" }
+        switch self { case .language: return "character.bubble.fill"; case .clipboard: return "doc.on.clipboard.fill"; case .emoji: return "face.smiling.fill"; case .oneHand: return "keyboard.fill"; case .appearance: return "paintpalette.fill"; case .compatibility: return "desktopcomputer"; case .phrases: return "plus.bubble"; case .keyGlass: return "key.glass"; case .keyColor: return "key.color"; case .textColor: return "candidate.color"; case .textSize: return "candidate.size"; case .vibration: return "haptic" }
     }
 }
 
