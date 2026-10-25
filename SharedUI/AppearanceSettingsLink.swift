@@ -105,7 +105,7 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
                     if account == AppearanceSyncClient.settingsAccount,
                        let incoming = try? AppearanceSyncClient.decode(data).get() {
                         let existing = (try? Data(contentsOf: file)).flatMap { try? AppearanceSyncClient.decode($0).get() }
-                        if let merged = AppearanceEnvelope.reconciling([existing, incoming].compactMap { $0 }) { bytes = try AppearanceSyncClient.encode(merged).get() }
+                        if let merged = AppearanceEnvelope.reconciling([existing, incoming].compactMap { $0 }), merged != incoming { bytes = try AppearanceSyncClient.encode(merged).get() }
                     }
                     try bytes.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                 }

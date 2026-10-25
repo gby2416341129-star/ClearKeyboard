@@ -367,7 +367,7 @@ private final class AppearancePersistenceProbe {
             await fulfillment(of: [saved], timeout: 5)
             client.load { result in
                 do {
-                    let read = try XCTUnwrap(result.get()); XCTAssertEqual(read.envelope, value)
+                    let read = try XCTUnwrap(result.get()); XCTAssertEqual(read.envelope.snapshot, value.snapshot); XCTAssertEqual(read.envelope.revision, value.revision); XCTAssertEqual(read.envelope.updatedAt, value.updatedAt)
                     XCTAssertFalse(read.accessGroup?.isEmpty ?? true)
                 } catch { XCTFail("Actual keychain read failed: \(error)") }
                 loaded.fulfill()

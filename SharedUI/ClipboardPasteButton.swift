@@ -41,7 +41,9 @@ import UniformTypeIdentifiers
         let types = provider.registeredTypeIdentifiers
         let image = [UTType.png.identifier, UTType.jpeg.identifier, "public.heic", "public.heif", UTType.gif.identifier]
             .first(where: types.contains) ?? types.first { UTType($0)?.conforms(to: .image) == true }
-        if let type = image ?? types.first(where: { UTType($0)?.conforms(to: .data) == true && UTType($0)?.conforms(to: .text) != true && UTType($0)?.conforms(to: .url) != true }) {
+        let hasText = provider.canLoadObject(ofClass: NSString.self), hasURL = provider.canLoadObject(ofClass: NSURL.self)
+        let binary = !hasText && !hasURL ? types.first(where: { UTType($0)?.conforms(to: .data) == true && UTType($0)?.conforms(to: .text) != true && UTType($0)?.conforms(to: .url) != true }) : nil
+        if let type = image ?? binary {
             let name = image == nil ? (UTType(type)?.localizedDescription ?? "附件") : "图片"
             provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
                 let result: Result<Data, Error> = Result {
@@ -55,7 +57,7 @@ import UniformTypeIdentifiers
                     }
                 }
             }
-        } else if provider.canLoadObject(ofClass: NSString.self) {
+        } else if hasText {
             provider.loadObject(ofClass: NSString.self) { value, _ in
                 let text = value as? String
                 Task { @MainActor in
@@ -63,7 +65,7 @@ import UniformTypeIdentifiers
                     else { capture.reportFailure(nil); next() }
                 }
             }
-        } else if provider.canLoadObject(ofClass: NSURL.self) {
+        } else if hasURL {
             provider.loadObject(ofClass: NSURL.self) { value, _ in
                 let text = (value as? URL)?.absoluteString
                 Task { @MainActor in

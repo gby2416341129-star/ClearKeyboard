@@ -460,7 +460,7 @@ import SwiftUI
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
         button.heightAnchor.constraint(equalToConstant: 34).isActive = true
         button.addAction(UIAction { [weak self, weak button] _ in
-            self?.toolbarPulse(); (button as? FeedbackButton)?.playActivationFeedback(); action()
+            self?.toolbarPulse(); button?.playActivationFeedback(); action()
         }, for: .touchUpInside)
         return button
     }
@@ -495,6 +495,10 @@ import SwiftUI
                     if self.toolbarEditing { self.setToolPinned(tool, pinned: false) } else { self.activateTool(tool) }
                 } as! FeedbackButton
                 button.accessibilityIdentifier = "toolbar." + tool.rawValue
+                button.addAction(UIAction { [weak self] _ in
+                    guard let self, !self.toolbarDragActive else { return }
+                    self.toolbarTapBlockedUntil = 0
+                }, for: .touchDown)
                 let hold = UILongPressGestureRecognizer(target: self, action: #selector(toolbarHold(_:)))
                 hold.minimumPressDuration = 0.35; button.addGestureRecognizer(hold)
                 toolbarButtons[tool] = button

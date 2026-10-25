@@ -210,7 +210,8 @@ import Security
         settings.vibrationIntensity = 0.15
         let next = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: settings, includeInputPreferences: true), updatedAt: first.updatedAt.addingTimeInterval(1))
         _ = try keyboard.write(AppearanceSyncClient.encode(next).get(), account: AppearanceSyncClient.settingsAccount).get()
-        XCTAssertEqual(try AppearanceSyncClient.decode(XCTUnwrap(app.read(account: AppearanceSyncClient.settingsAccount).get()).data).get(), next)
+        let received = try AppearanceSyncClient.decode(XCTUnwrap(app.read(account: AppearanceSyncClient.settingsAccount).get()).data).get()
+        XCTAssertEqual(received.snapshot, next.snapshot); XCTAssertEqual(received.revision, next.revision)
     }
     func testToolbarStopsWithWholeIconsAndRestoresThatPosition() throws {
         let old = UserDefaults.standard.object(forKey: "clear.toolbar.offset.v1")

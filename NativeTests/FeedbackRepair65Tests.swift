@@ -88,16 +88,25 @@ import UIKit
         XCTAssertTrue(ClipboardSuggestionState(defaults: defaults).isConsumed(Clip(text: "输入之后才读到的旧复制"), revision: 110))
         XCTAssertFalse(restarted.isConsumed(Clip(text: "之后真正的新复制"), revision: 111))
     }
-    func testCloseAndAllContentKeyTypesSuppressTheOldCopyWithoutDeletingHistory() throws {
+    func testCloseAndAllContentKeyTypesSuppressTheOldCopyWithoutDeletingHistory() async throws {
         let (document, model, surface, state) = fixture(); defer { withExtendedLifetime(document) {} }
+        func capture(_ value: String) async {
+            let complete = expectation(description: "capture persisted and displayed")
+            let previous = model.clipboardCapture.onCapture
+            var fulfilled = false
+            model.clipboardCapture.onCapture = { previous?(); if !fulfilled { fulfilled = true; complete.fulfill() } }
+            model.clipboardCapture.acceptText(value)
+            await fulfillment(of: [complete], timeout: 3)
+            model.clipboardCapture.onCapture = previous
+        }
         let text = "复制提示65-" + UUID().uuidString
         UIPasteboard.general.string = text
-        model.clipboardCapture.acceptText(text)
+        await capture(text)
         let suggestion = try XCTUnwrap(views(surface).first { $0.accessibilityIdentifier == "clipboard.recent" })
         XCTAssertFalse(suggestion.isHidden)
         try button("clipboard.recent.close", in: surface).sendActions(for: .touchUpInside)
         XCTAssertTrue(suggestion.isHidden)
-        model.clipboardCapture.acceptText(text); XCTAssertTrue(suggestion.isHidden)
+        await capture(text); XCTAssertTrue(suggestion.isHidden)
         let reopened = KeyboardSurface(model: model, suggestionState: state)
         reopened.frame = surface.frame; reopened.layoutIfNeeded()
         let next = try XCTUnwrap(views(reopened).first { $0.accessibilityIdentifier == "clipboard.recent" })
@@ -106,9 +115,9 @@ import UIKit
             model.settings.language = index == 0 ? .chinese : .english
             let value = text + "-\(index)"
             UIPasteboard.general.string = value
-            model.clipboardCapture.acceptText(value); XCTAssertFalse(next.isHidden)
+            await capture(value); XCTAssertFalse(next.isHidden)
             model.handle(action); XCTAssertTrue(next.isHidden)
-            model.clipboardCapture.acceptText(value); XCTAssertTrue(next.isHidden)
+            await capture(value); XCTAssertTrue(next.isHidden)
             // Start the next independent copy with an empty composition. An
             // active pinyin draft intentionally hides every clipboard hint.
             model.handle(.delete)

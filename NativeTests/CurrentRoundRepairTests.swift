@@ -45,7 +45,7 @@ import CoreText
     func testVariantsHaveCorrectCaseOrderAndNeverBecomePinyin() throws {
         let j = KeyboardKey("J", .text("j"))
         XCTAssertEqual(KeyAlternatives.choices(for: j, language: .chinese), ["J", "j"])
-        XCTAssertTrue(KeyAlternatives.choices(for: j, language: .english).isEmpty)
+        XCTAssertEqual(KeyAlternatives.choices(for: j, language: .english), ["J", "j"])
         XCTAssertEqual(KeyAlternatives.values(for: "7"), ["柒", "❼", "⑦", "7"])
         XCTAssertTrue(KeyAlternatives.values(for: "（").contains("《"))
         let suite = "clear.round.literal." + UUID().uuidString
@@ -183,7 +183,13 @@ import CoreText
                     anchor: CGRect(x: x - 15, y: 60, width: 30, height: 50), host: host, accent: .systemBlue)
                 XCTAssertGreaterThanOrEqual(popup.frame.minX, 0); XCTAssertLessThanOrEqual(popup.frame.maxX, width)
                 XCTAssertEqual(popup.selectedValue, "7")
-                popup.update(at: CGPoint(x: x - 48, y: 80)); XCTAssertEqual(popup.selectedValue, "⑦")
+                popup.update(at: CGPoint(x: x + (x < width / 2 ? 48 : -48), y: 80))
+                XCTAssertNotNil(popup.selectedValue); XCTAssertNotEqual(popup.selectedValue, "7")
+                let step = (popup.bounds.width - 8) / CGFloat(popup.choices.count)
+                for (index, value) in popup.choices.enumerated() {
+                    popup.update(at: CGPoint(x: popup.frame.minX + 4 + (CGFloat(index) + 0.5) * step, y: popup.frame.midY))
+                    XCTAssertEqual(popup.selectedValue, value, "Every visible popup option remains directly reachable at both screen edges")
+                }
                 popup.update(at: CGPoint(x: x, y: 180)); XCTAssertNil(popup.selectedValue)
             }
         }

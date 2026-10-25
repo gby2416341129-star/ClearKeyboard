@@ -10,7 +10,7 @@ import SwiftUI
         feedback.prepare()
         for index in 1...200 { feedback.pulse(intensity: Double(index)/200) }
         XCTAssertEqual(received.count, 200)
-        for index in 0..<200 { XCTAssertEqual(received[index], CGFloat(index+1)/200, accuracy: 0.00001) }
+        for index in 0..<200 { XCTAssertEqual(received[index], CGFloat(0.22 + 0.78 * Double(index+1)/200), accuracy: 0.00001) }
         feedback.pulse(intensity: 0); feedback.pulse(intensity: .nan)
         try await Task.sleep(nanoseconds: 80_000_000)
         XCTAssertEqual(received.count, 200, "No delayed, duplicate, zero-strength or invalid pulses")

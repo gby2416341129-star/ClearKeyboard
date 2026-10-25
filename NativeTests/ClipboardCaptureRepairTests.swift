@@ -75,6 +75,19 @@ import UIKit
         try await waitFor { ClipboardStore(url: url).clips.first?.text == link.absoluteString }
         XCTAssertNil(ClipboardStore(url: url).clips.first?.attachment)
     }
+    func testMultipleProvidersPreferReadableArticleOverItsWebArchive() async throws {
+        let name = UUID().uuidString, defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = root.appendingPathComponent("clipboard.json")
+        defer { defaults.removePersistentDomain(forName: name); try? FileManager.default.removeItem(at: root) }
+        let capture = ClipboardCapture(defaults: defaults, makeStore: { ClipboardStore(url: url) }, changeCount: { 0 }, hasStrings: { false }, readText: { nil })
+        let article = NSItemProvider(object: "完整正文" as NSString)
+        article.registerDataRepresentation(forTypeIdentifier: "com.apple.webarchive", visibility: .all) { completion in completion(Data([1,2,3]), nil); return nil }
+        ClipboardItemLoader.load([article, NSItemProvider(object: "第二项" as NSString)], revision: nil, into: capture)
+        try await waitFor { ClipboardStore(url: url).clips.count == 2 }
+        let values = ClipboardStore(url: url).clips
+        XCTAssertEqual(Set(values.map(\.text)), ["完整正文", "第二项"]); XCTAssertTrue(values.allSatisfy { $0.attachment == nil })
+    }
     func testSystemPastePreservesEncodedJPEGWithoutPNGExpansion() async throws {
         let suite = "clear.clipboard.image-provider." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

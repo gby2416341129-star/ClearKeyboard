@@ -632,7 +632,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     func clearInput() -> DeletedInput? {
         let read = readHostSnapshot()
         guard read.connected, read.snapshot.available,
-              HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: read.snapshot) else { return nil }
+              (hostState.snapshot.selected.isEmpty ? HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: read.snapshot) : hostState.snapshot == read.snapshot) else { return nil }
         let before = contextBefore, selected = selectedText, after = contextAfter
         let text = before + selected + after
         guard !text.isEmpty, text.count <= 4_096 else { return nil }
@@ -645,7 +645,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     func clearInput(completion: @escaping (DeletedInput?) -> Void) {
         let read = readHostSnapshot(), identity = documentIdentity
         guard read.connected, read.snapshot.available,
-              HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: read.snapshot) else { completion(nil); return }
+              (hostState.snapshot.selected.isEmpty ? HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: read.snapshot) : hostState.snapshot == read.snapshot) else { completion(nil); return }
         let before = contextBefore, selected = selectedText, after = contextAfter
         let text = before + selected + after
         guard !text.isEmpty, text.utf8.count <= ClipboardStore.textLimit else { completion(nil); return }

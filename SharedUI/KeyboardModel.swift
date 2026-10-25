@@ -593,7 +593,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func clearInput() {
         guard let document else { return }
+        guard documentEditDepth == 0 else { return }
         beginDocumentEdit()
+        deletionUndo = nil
         cancelDeferredActions()
         phraseLearning.reset(); numericRun.reset()
         let spelling = composition
@@ -607,6 +609,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
     }
     @discardableResult func undoClearInput() -> Bool {
+        guard documentEditDepth == 0 else { return false }
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document, let (deleted, identity, before, after, spelling) = deletionUndo,
               document.documentIdentity == identity, document.contextBefore == before,

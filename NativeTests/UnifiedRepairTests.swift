@@ -271,6 +271,7 @@ import UIKit
         }
         let text = "剪贴板测试内容 \(UUID().uuidString.prefix(6))"
         let phrase = "稍后回复你 \(UUID().uuidString.prefix(6))"
+        UIPasteboard.general.string = text
         ClipboardStore(url: url).add(text)
         ClipboardStore(url: phrasesURL).add(phrase)
         model.clipboardCapture.onCapture?()

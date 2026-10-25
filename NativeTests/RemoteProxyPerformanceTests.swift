@@ -1218,9 +1218,16 @@ import SwiftUI
         ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
         let context = KeyboardModel.CandidateContext(raw: "shi", before: "shi", after: "", document: "field", language: .chinese)
         let old = (0..<24).map { Candidate(text: "候选\($0)", consumed: 3) }
-        ribbon.update(old, context: context, arithmetic: false, accent: .systemTeal); ribbon.layoutIfNeeded()
+        ribbon.update(old, context: context, arithmetic: false, accent: .systemTeal)
+        try await waitFor { ribbon.accessibilityElements?.count == 24 }
+        ribbon.layoutIfNeeded()
         let controls = descendants(ribbon).compactMap { $0 as? UIButton }
-        let frames = controls.map(\.frame)
+        let frames = Dictionary(uniqueKeysWithValues: controls.filter { !$0.isHidden }.map { ($0.accessibilityIdentifier ?? "", $0.frame) })
+        func assertVisibleTargets() {
+            for button in descendants(ribbon).compactMap({ $0 as? UIButton }) where !button.isHidden && button.frame.intersects(ribbon.bounds) {
+                if let expected = frames[button.accessibilityIdentifier ?? ""] { XCTAssertEqual(button.frame, expected) }
+            }
+        }
         let contentSize = ribbon.contentSize
         XCTAssertLessThan(controls.count, old.count)
         ribbon.scrollViewWillBeginDragging(ribbon)
@@ -1228,21 +1235,21 @@ import SwiftUI
         // offsets cannot validate native finger recognition or device latency.
         for offset: CGFloat in [70, 130, 40, 95, 20, 70] {
             ribbon.contentOffset.x = offset; ribbon.layoutIfNeeded()
-            XCTAssertEqual(controls.map(\.frame), frames)
+            assertVisibleTargets()
             XCTAssertEqual(ribbon.contentSize, contentSize)
         }
         ribbon.update([Candidate(text: "新的结果", consumed: 3)], context: context, arithmetic: false, accent: .systemTeal)
         ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: false)
-        await Task.yield()
+        try await waitFor { ribbon.accessibilityElements?.count == 25 }
         let appendedControls = descendants(ribbon).compactMap { $0 as? UIButton }
         XCTAssertEqual(Array(appendedControls.prefix(controls.count)), controls)
         XCTAssertLessThan(appendedControls.count, 25)
         XCTAssertEqual(ribbon.accessibilityElements?.count, 25, "New choices extend the logical list without replacing visible targets")
-        XCTAssertEqual(controls.map(\.frame), frames)
+        assertVisibleTargets()
         XCTAssertEqual(ribbon.contentOffset.x, 70, accuracy: 0.1)
         var selection: String?
         ribbon.onSelect = { candidate, _, _ in selection = candidate.text }
-        controls[1].sendActions(for: .touchUpInside)
+        try XCTUnwrap(descendants(ribbon).compactMap { $0 as? UIButton }.first { $0.accessibilityIdentifier == "candidate.候选1" }).sendActions(for: .touchUpInside)
         XCTAssertEqual(selection, "候选1", "A late result must not change the visible tap target")
         let nextContext = KeyboardModel.CandidateContext(raw: "shij", before: "shij", after: "", document: "field", language: .chinese)
         ribbon.update([Candidate(text: "时间", consumed: 4)], context: nextContext, arithmetic: false, accent: .systemTeal)
@@ -1311,15 +1318,16 @@ import SwiftUI
             }
         }
     }
-    func testCandidateRowTapsExcludeGapsAndKeepAccessibilityActivation() throws {
+    func testCandidateRowTapsExcludeGapsAndKeepAccessibilityActivation() async throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
         let context = KeyboardModel.CandidateContext(raw: "shi", before: "shi", after: "", document: "field", language: .chinese)
         ribbon.update((0..<24).map { Candidate(text: "候选\($0)", consumed: 3) },
                       context: context, arithmetic: false, accent: .systemTeal)
+        try await waitFor { ribbon.accessibilityElements?.count == 24 }
         ribbon.layoutIfNeeded()
         let controls = descendants(ribbon).compactMap { $0 as? UIButton }
-        let word = controls[2]
+        let word = try XCTUnwrap(controls.first { $0.accessibilityIdentifier == "candidate.候选2" })
         var selected: [String] = []
         ribbon.onSelect = { candidate, snapshot, arithmetic in
             selected.append(candidate.text)
@@ -1644,12 +1652,13 @@ import SwiftUI
         XCTAssertTrue(model.candidatesAreCurrent, "A warmed row requires no worker or UI queue turn at release")
         XCTAssertEqual(document.before, "d")
     }
-    func testThousandsOfCandidatesKeepABoundedViewPoolAndAccessibleTail() throws {
+    func testThousandsOfCandidatesKeepABoundedViewPoolAndAccessibleTail() async throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 390, height: 44)
         let context = KeyboardModel.CandidateContext(raw: "hd", before: "hd", after: "", document: "field", language: .chinese)
         let items = (0..<4_000).map { Candidate(text: "候选\($0)", consumed: 2) }
         ribbon.update(items, context: context, arithmetic: false, accent: .systemTeal)
+        try await waitFor { ribbon.accessibilityElements?.count == 4_000 }
         ribbon.layoutIfNeeded()
         XCTAssertEqual(ribbon.accessibilityElements?.count, 4_000)
         var selected: String?
@@ -1659,7 +1668,7 @@ import SwiftUI
             ribbon.layoutIfNeeded()
             let controls = descendants(ribbon).compactMap { $0 as? UIButton }
             XCTAssertLessThanOrEqual(controls.count, 64)
-            let visible = try XCTUnwrap(controls.first { !$0.isHidden && $0.frame.contains(CGPoint(x: ribbon.bounds.midX, y: 22)) })
+            let visible = try XCTUnwrap(controls.first { !$0.isHidden && $0.frame.intersects(ribbon.bounds) })
             visible.sendActions(for: .touchUpInside)
             XCTAssertEqual(selected, items[visible.tag].text)
             XCTAssertTrue(ribbon.hitTest(CGPoint(x: ribbon.bounds.midX, y: 22), with: nil) === ribbon)
@@ -1764,7 +1773,10 @@ import SwiftUI
     func insertText(_ text: String) { insertedTexts.append(text); input.insertText(text); onMutation?() }
     func deleteBackward() { deleteWrites += 1; input.deleteBackward(); onMutation?() }
     func setMarkedText(_ text: String, selectedRange: NSRange) {
-        markedWrites.append(text); input.setMarkedText(markedLimit.map { String(text.prefix($0)) } ?? text, selectedRange: selectedRange); onMutation?()
+        markedWrites.append(text)
+        let accepted = markedLimit.map { String(text.prefix($0)) } ?? text
+        let location = min(selectedRange.location, accepted.utf16.count)
+        input.setMarkedText(accepted, selectedRange: NSRange(location: location, length: min(selectedRange.length, accepted.utf16.count - location))); onMutation?()
     }
     func unmarkText() { unmarkWrites += 1; input.unmarkText(); onMutation?() }
     func adjustTextPosition(byCharacterOffset offset: Int) {

@@ -83,6 +83,8 @@ import CoreText
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapWord(_:)))
         tap.require(toFail: drag); words.addGestureRecognizer(tap)
         reload()
+        let historyURL = url, lifetime = model.settings.clipboardLifetimeHours * 3600
+        historyQueue.async { _ = ClipboardStore(url: historyURL).prune(lifetime: lifetime) }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {

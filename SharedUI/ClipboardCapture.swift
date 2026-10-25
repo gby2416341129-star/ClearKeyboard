@@ -68,7 +68,7 @@ import UniformTypeIdentifiers
     }
     func activate(settings: KeyboardSettings, allowed: Bool, retryPermission: Bool = false) {
         self.settings = settings
-        guard allowed, settings.capturesClipboard else { stop(); onCapture?(); return }
+        guard allowed, settings.capturesClipboard else { stop(); return }
         let newSession = !active
         active = true
         if retryPermission || newSession { observation.retry() }
