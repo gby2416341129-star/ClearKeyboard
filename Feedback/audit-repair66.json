@@ -5,7 +5,7 @@
   "items": [
     {
       "id": "input-queue",
-      "scope": "等待候选和多指重叠输入的顺序、退出时排队字符丢失、系统输入模式菜单与自定义地球键重复切换",
+      "scope": "等待候选和多指重叠输入的顺序、退出时排队字符丢失",
       "status": "implemented_pending_verification",
       "verification": []
     },

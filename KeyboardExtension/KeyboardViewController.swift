@@ -72,7 +72,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         surface = KeyboardSurface(model: model, systemBacked: true)
         surface.configureGlobe = { [weak self] button in
             guard let self else { return }
-            (button as? KeyButton)?.useInputModeList(target: self, action: #selector(UIInputViewController.handleInputModeList(from:with:)))
+            button.addTarget(self, action: #selector(UIInputViewController.handleInputModeList(from:with:)), for: .allTouchEvents)
         }
         view.addSubview(surface)
         surface.translatesAutoresizingMaskIntoConstraints = false

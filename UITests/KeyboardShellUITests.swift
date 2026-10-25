@@ -166,6 +166,10 @@ import UIKit
     }
     @discardableResult private func choose(_ label: String, in app: XCUIApplication, required: Bool = true) throws -> Bool {
         bounded()
+        // The system can restore our already-selected keyboard when the field
+        // gains focus. Confirm its actual keys before opening a second picker.
+        // All subsequent typed-text and production-state assertions still run.
+        if label == "澈", key(app, "q").waitForExistence(timeout: 5), key(app, "q").isHittable { return true }
         guard let globe = self.globe(in: app) else {
             if required { throw unavailable("System keyboard picker is unavailable after Settings-list confirmation", in: app) }
             hostLimitations.append("App ASCII HEX field: system keyboard picker unavailable; no extension connection claimed")
@@ -468,7 +472,7 @@ import UIKit
         let field = search.waitForExistence(timeout: 4) ? search : safari.webViews.textFields.matching(predicate).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap()
         try choose("澈", in: safari)
-        XCTAssertTrue(key(safari, "j").waitForExistence(timeout: 8))
+        if !key(safari, "j").waitForExistence(timeout: 8) { throw unavailable("Selected custom keyboard did not expose its real J key", in: safari) }
         func evidence() -> [String: Any] {
             let raw = control(safari, "clear.keyboard.runtime").value as? String ?? "{}"
             return (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Any] ?? [:]

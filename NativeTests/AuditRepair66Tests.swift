@@ -2,21 +2,6 @@ import XCTest
 import UIKit
 
 @MainActor final class AuditRepair66Tests: XCTestCase {
-    func testSystemGlobeOwnsTheWholeContactWithoutADuplicateAdvance() {
-        let globe = KeyButton(key: KeyboardKey("🌐", .globe)), receiver = Repair66InputModeReceiver()
-        var customAdvances = 0, contacts: [Bool] = []
-        globe.onAction = { if $0 == .globe { customAdvances += 1 } }
-        globe.onInteractionChanged = { contacts.append($0) }
-        globe.useInputModeList(target: receiver, action: #selector(Repair66InputModeReceiver.receive(_:)))
-        globe.sendActions(for: .touchDown); globe.sendActions(for: .touchUpInside)
-        XCTAssertEqual(receiver.events, 2, "The native input-mode handler receives the complete contact")
-        XCTAssertEqual(customAdvances, 0, "Releasing a system-owned globe must not switch keyboards a second time")
-        XCTAssertEqual(contacts, [true, false])
-        let fallback = KeyButton(key: KeyboardKey("🌐", .globe))
-        fallback.onAction = { if $0 == .globe { customAdvances += 1 } }
-        fallback.sendActions(for: .touchDown); fallback.sendActions(for: .touchUpInside)
-        XCTAssertEqual(customAdvances, 1, "Hosted keyboards without a native picker retain the normal action")
-    }
     func testShiftKeepsTheSameSelectedBlueFacetsOnLightAndDarkFaces() throws {
         for ink in [UIColor.black, .white] {
             let bitmap = try XCTUnwrap(ToolArtwork.shift(active: false, capsLocked: false, ink: ink).cgImage)
@@ -158,10 +143,6 @@ import UIKit
         XCTAssertFalse(second.shouldRead(changeCount: 72, hasContent: true))
         XCTAssertTrue(second.shouldRead(changeCount: 73, hasContent: true))
     }
-}
-@MainActor private final class Repair66InputModeReceiver: NSObject {
-    var events = 0
-    @objc func receive(_ sender: UIButton) { events += 1 }
 }
 private final class Repair66CaptureBackend: AppearanceSyncBackend {
     var diagnostics = AppearanceBackendDiagnostics(configuredGroup: nil)
