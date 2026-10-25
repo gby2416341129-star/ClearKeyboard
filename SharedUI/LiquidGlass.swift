@@ -31,7 +31,11 @@ final class LiquidGlassView: UIView {
     }
     func configure(tint: UIColor?, strength: Double, fallback: UIColor, reduced: Bool = UIAccessibility.isReduceTransparencyEnabled, colorOpacity: Double? = nil) {
         let strength = min(1, max(0, strength))
-        let opacity = min(1, max(0, colorOpacity ?? (tint == nil ? 0.20 * (1 - strength) : 0.82 - strength * 0.16)))
+        let physicalKey = keycap && !clear
+        let defaultOpacity = physicalKey
+            ? (tint == nil ? 0.075 * (1 - strength) : 0.62 - strength * 0.26)
+            : (tint == nil ? 0.20 * (1 - strength) : 0.82 - strength * 0.16)
+        let opacity = min(1, max(0, colorOpacity ?? defaultOpacity))
         let key = "\(tint?.description ?? "auto")-\(strength)-\(opacity)-\(reduced)-\(traitCollection.userInterfaceStyle.rawValue)"
         guard signature != key else { return }; signature = key
         UIView.performWithoutAnimation {
@@ -44,9 +48,11 @@ final class LiquidGlassView: UIView {
                 glass.isInteractive = !keycap && !clear
                 glass.tintColor = nil
                 lens.effect = glass; backgroundColor = .clear
-                // Only the lens fades; captions and chosen color remain independent.
-                // Increasing transmission lowers reflections as well as face opacity.
-                lens.alpha = keycap ? CGFloat(0.78 - 0.34 * strength) : (clear ? 0.66 : 0.78)
+                // Physical keys repeat across the entire keyboard. Attenuate the
+                // native lens itself so its rim and white reflection stay quiet.
+                // Other glass surfaces and all foreground artwork keep their strength.
+                lens.alpha = physicalKey ? CGFloat(0.40 - 0.22 * strength)
+                    : (keycap ? CGFloat(0.78 - 0.34 * strength) : (clear ? 0.66 : 0.78))
                 lens.cornerConfiguration = .corners(radius: .fixed(radius))
                 // The native lens owns its edge and reflections. Higher
                 // transmission removes the face film; never add a dark veil.

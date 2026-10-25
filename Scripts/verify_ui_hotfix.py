@@ -11,7 +11,7 @@ ALLOWED={
     'App/AppViews.swift','App/SettingsViews.swift',
     'Config/Project.xcconfig','KeyboardExtension/KeyboardViewController.swift',
     'SharedUI/AppearanceEditor.swift','SharedUI/GlassBackdrop.swift','SharedUI/KeyButton.swift',
-    'Scripts/test-candidates-ui.sh',
+    'Scripts/test-candidates-ui.sh','Scripts/test-key-material.sh',
     'ClearKeyboard.xcodeproj/project.pbxproj',
     'Tests/CandidateLatencyTests.swift',
     'SharedUI/KeyboardModel.swift','SharedUI/AppearanceSync.swift','SharedUI/AppearanceSettingsLink.swift',
