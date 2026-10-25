@@ -156,9 +156,12 @@ import CoreImage
             else if let bitmap = source.cgImage,
                     let filter = CIFilter(name: "CIColorMatrix", parameters: [
                         kCIInputImageKey: CIImage(cgImage: bitmap),
-                        "inputRVector": CIVector(x: 0.68, y: 0, z: 0, w: 0),
-                        "inputGVector": CIVector(x: 0, y: 0.68, z: 0, w: 0),
-                        "inputBVector": CIVector(x: 0, y: 0, z: 0.68, w: 0),
+                        // Core Image operates in linear light. The blue stem's
+                        // source luminance is 0.258; 0.12 keeps it below 0.032,
+                        // giving >3:1 contrast on the dimmest black-ink face.
+                        "inputRVector": CIVector(x: 0.12, y: 0, z: 0, w: 0),
+                        "inputGVector": CIVector(x: 0, y: 0.12, z: 0, w: 0),
+                        "inputBVector": CIVector(x: 0, y: 0, z: 0.12, w: 0),
                         "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)]),
                     let output = filter.outputImage,
                     let rendered = edgeContext.createCGImage(output, from: CGRect(x: 0, y: 0, width: CGFloat(bitmap.width), height: CGFloat(bitmap.height))) {
