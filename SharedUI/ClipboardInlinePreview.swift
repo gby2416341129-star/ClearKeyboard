@@ -73,7 +73,7 @@ import CoreText
         let attributes: [NSAttributedString.Key: Any] = [
             NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil),
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): UIColor.label.resolvedColor(with: traitCollection).cgColor]
-        let shaped = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes))
+        let shaped = CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: attributes) as CFAttributedString)
         line = shaped; chunks = []
         lineWidth = CGFloat(CTLineGetTypographicBounds(shaped, &ascent, &descent, nil))
         for run in CTLineGetGlyphRuns(shaped) as! [CTRun] {

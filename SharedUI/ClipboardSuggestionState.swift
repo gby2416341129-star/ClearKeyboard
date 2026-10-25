@@ -7,19 +7,21 @@ import CryptoKit
     private let defaults: UserDefaults
     private let key = "clear.clipboard.consumedSuggestions.v1"
     private struct Entry: Codable { let id: UUID; let digest: String; let revision: Int }
-    private var entries: [Entry]
+    private var entries: [Entry] = []
+    private var typingRevision: Int?
+    private var typingDate: Date?
     init(defaults: UserDefaults) {
         self.defaults = defaults
         entries = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
+        typingRevision = defaults.object(forKey: key + ".typingRevision") as? Int
+        typingDate = defaults.object(forKey: key + ".typingDate") as? Date
     }
     private func digest(_ clip: Clip) -> String {
         let content = (clip.attachment?.filename ?? "text") + "\0" + clip.text
         return SHA256.hash(data: Data(content.utf8)).map { String(format: "%02x", $0) }.joined()
     }
     func isConsumed(_ clip: Clip, revision: Int) -> Bool {
-        if defaults.object(forKey: key + ".typingRevision") != nil,
-           defaults.integer(forKey: key + ".typingRevision") == revision,
-           let date = defaults.object(forKey: key + ".typingDate") as? Date,
+        if typingRevision == revision, let date = typingDate,
            Date().timeIntervalSince(date) < 86_400 { return true }
         if entries.contains(where: { $0.id == clip.id }) { return true }
         let hash = digest(clip)
@@ -28,9 +30,10 @@ import CryptoKit
     func consumeInputRevision(_ revision: Int) {
         // Also cover a delayed capture arriving just after the first key. This
         // uses pasteboard metadata and does not read its payload on key down.
-        guard defaults.object(forKey: key + ".typingRevision") == nil || defaults.integer(forKey: key + ".typingRevision") != revision else { return }
+        guard typingRevision != revision || Date().timeIntervalSince(typingDate ?? .distantPast) >= 86_400 else { return }
+        typingRevision = revision; typingDate = Date()
         defaults.set(revision, forKey: key + ".typingRevision")
-        defaults.set(Date(), forKey: key + ".typingDate")
+        defaults.set(typingDate, forKey: key + ".typingDate")
     }
     func consume(_ clip: Clip, revision: Int) {
         guard !entries.contains(where: { $0.id == clip.id }) else { return }
