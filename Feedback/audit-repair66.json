@@ -5,7 +5,7 @@
   "items": [
     {
       "id": "input-queue",
-      "scope": "等待候选和多指重叠输入的顺序、退出时排队字符丢失",
+      "scope": "等待候选和多指重叠输入的顺序、退出时排队字符丢失、系统输入模式菜单与自定义地球键重复切换",
       "status": "implemented_pending_verification",
       "verification": []
     },
@@ -114,6 +114,12 @@
     {
       "id": "release-checks",
       "scope": "测试退出码、完整核心/宿主/扩展检查、版本号单一来源",
+      "status": "implemented_pending_verification",
+      "verification": []
+    },
+    {
+      "id": "shift-artwork-consistency",
+      "scope": "大写键保留与删除键相同的亮蓝分面，只增加浅色底辨识边缘",
       "status": "implemented_pending_verification",
       "verification": []
     },

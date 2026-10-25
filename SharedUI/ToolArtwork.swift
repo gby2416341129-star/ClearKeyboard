@@ -152,30 +152,28 @@ import CoreImage
         let resolved = ink.resolvedColor(with: .current)
         let lightFace = resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) && red * 0.2126 + green * 0.7152 + blue * 0.0722 < 0.45
         if lightFace {
-            if let adjusted = cache["shift.lightface"] { source = adjusted }
-            else if let bitmap = source.cgImage,
-                    let filter = CIFilter(name: "CIColorMatrix", parameters: [
-                        kCIInputImageKey: CIImage(cgImage: bitmap),
-                        // Core Image operates in linear light. The blue stem's
-                        // source luminance is 0.258; 0.12 keeps it below 0.032,
-                        // giving >3:1 contrast on the dimmest black-ink face.
-                        "inputRVector": CIVector(x: 0.12, y: 0, z: 0, w: 0),
-                        "inputGVector": CIVector(x: 0, y: 0.12, z: 0, w: 0),
-                        "inputBVector": CIVector(x: 0, y: 0, z: 0.12, w: 0),
-                        "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)]),
-                    let output = filter.outputImage,
-                    let rendered = edgeContext.createCGImage(output, from: CGRect(x: 0, y: 0, width: CGFloat(bitmap.width), height: CGFloat(bitmap.height))) {
-                source = UIImage(cgImage: rendered, scale: source.scale, orientation: .up).withRenderingMode(.alwaysOriginal)
-                cache["shift.lightface"] = source
+            if let adjusted = cache["shift.lightface.edge"] { source = adjusted }
+            else if let bitmap = source.cgImage {
+                // Preserve the same blue facets as Delete. A quiet thin
+                // navy edge separates the original colors from a light face;
+                // darkening the whole image made the two keys look unrelated.
+                let input = CIImage(cgImage: bitmap), extent = CGRect(x: 0, y: 0, width: CGFloat(bitmap.width), height: CGFloat(bitmap.height))
+                let mask = input.applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: source.scale * 1.2])
+                let clear = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: extent)
+                let navy = CIImage(color: CIColor(cgColor: UIColor(red: 0.035, green: 0.13, blue: 0.25, alpha: 1).cgColor)).cropped(to: extent)
+                let edge = navy.applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputBackgroundImageKey: clear, kCIInputMaskImageKey: mask])
+                if let rendered = edgeContext.createCGImage(input.composited(over: edge), from: extent) {
+                    source = UIImage(cgImage: rendered, scale: source.scale, orientation: .up).withRenderingMode(.alwaysOriginal)
+                    cache["shift.lightface.edge"] = source
+                }
             }
         }
-        // Keep the same blue facets as Delete. The key face indicates a single
-        // capital; light faces deepen the blue, and Caps Lock adds a slim bar.
+        // The key face indicates a single capital; Caps Lock adds a slim bar.
         guard capsLocked else { return source }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
         return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28), format: format).image { renderer in
             source.draw(in: CGRect(x: 1.4, y: 0, width: 25.2, height: 25.2))
-            (lightFace ? UIColor(red: 0.17, green: 0.42, blue: 0.70, alpha: 1) : UIColor(red: 105.0/255, green: 204.0/255, blue: 247.0/255, alpha: 1)).setFill()
+            UIColor(red: 49.0/255, green: 139.0/255, blue: 247.0/255, alpha: 1).setFill()
             UIBezierPath(roundedRect: CGRect(x: 8.75, y: 24, width: 10.5, height: 1.8), cornerRadius: 0.9).fill()
         }.withRenderingMode(.alwaysOriginal)
     }

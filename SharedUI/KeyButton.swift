@@ -13,6 +13,7 @@ final class KeyButton: UIButton {
     private var didRepeat = false
     private var draggingCursor = false
     private var suppressTap = false
+    private var systemOwnsInputModeList = false
     private var cursorMode = false
     private var cursorOrigin = CGPoint.zero
     private var pendingCursor: CGPoint?
@@ -117,6 +118,11 @@ final class KeyButton: UIButton {
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    func useInputModeList(target: Any, action: Selector) {
+        guard key.action == .globe else { return }
+        systemOwnsInputModeList = true
+        addTarget(target, action: action, for: .allTouchEvents)
+    }
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil { stopTracking() }
@@ -216,7 +222,9 @@ final class KeyButton: UIButton {
         repeatStart = start; DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: start)
     }
     @objc private func up() {
-        let shouldFire = !didRepeat && !suppressTap && !draggingCursor
+        // The system handler owns both tap and hold for the globe. Dispatching
+        // our own .globe on the same release advances again after menu choice.
+        let shouldFire = !didRepeat && !suppressTap && !draggingCursor && !(key.action == .globe && systemOwnsInputModeList)
         // Keep the contact active through the write and its synchronous host
         // notifications. Releasing first scheduled idle reads that the very
         // same key immediately cancelled and re-created.

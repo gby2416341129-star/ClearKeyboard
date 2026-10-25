@@ -505,7 +505,10 @@ import UIKit
         seven.press(forDuration: 0.5, thenDragTo: seven.withOffset(CGVector(dx: -48, dy: 0)))
         XCTAssertTrue((field.value as? String ?? "").hasSuffix("j⑦"))
         let bracket = key(safari, "（").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        bracket.press(forDuration: 0.5, thenDragTo: bracket.withOffset(CGVector(dx: 48, dy: 0)))
+        // On this verified 420pt fixture the fitted bracket popup starts at
+        // the left edge. Lift into its visible ASCII-parenthesis cell, also
+        // exercising direct pointing instead of only sliding below the popup.
+        bracket.press(forDuration: 0.5, thenDragTo: bracket.withOffset(CGVector(dx: 96, dy: -65)))
         XCTAssertTrue((field.value as? String ?? "").hasSuffix("j⑦("), "Literal symbol must bypass Chinese punctuation remapping")
         awaitEvidence("Actual key touch must submit a view-bound UIKit haptic") { ($0["submittedHapticPulses"] as? Int ?? 0) >= 3 }
         screen("round62-literal-case-number-symbol-input")
