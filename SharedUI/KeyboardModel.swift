@@ -80,7 +80,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if settings != oldValue {
             if settings.language != oldValue.language { shiftState.reset(); manualShift = false }
             if settings.language != oldValue.language || settings.fuzzyPairs != oldValue.fuzzyPairs ||
-                settings.learnChoices != oldValue.learnChoices {
+                settings.learnChoices != oldValue.learnChoices || settings.predictions != oldValue.predictions {
                 discardPreparedCandidates(); candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []
             }
             if settings.language != oldValue.language || settings.learnChoices != oldValue.learnChoices {
@@ -88,7 +88,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             if !loadingSavedSettings {
                 store.save(settings)
-                if AppearanceSnapshot(settings: settings) != AppearanceSnapshot(settings: oldValue) { appearanceLink?.publish(settings) }
+                if AppearanceSnapshot(settings: settings, includeInputPreferences: true) != AppearanceSnapshot(settings: oldValue, includeInputPreferences: true) { appearanceLink?.publish(settings) }
             }
             if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
                 settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }
@@ -407,6 +407,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
             self.loadingSavedSettings = false
             // Keep the local fallback current without broadcasting the read.
             self.store.save(snapshot.applying(to: self.store.load()))
+            if snapshot.language != nil || snapshot.fuzzyPairs != nil || snapshot.predictions != nil || snapshot.learnChoices != nil {
+                self.refreshCandidates()
+            }
         }
         if document.fullAccess { self.appearanceLink?.activate() }
         let cache = hotWords, warm = warmsWords, prefetch = warmQueue

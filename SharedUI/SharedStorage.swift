@@ -6,14 +6,17 @@ enum SharedStorage {
     /// Re-signers can rewrite the provisioning group while leaving Info.plist
     /// untouched. Use only a container iOS actually grants this process.
     static func applicationGroup() -> Group? {
+        applicationGroups().first
+    }
+    static func applicationGroups() -> [Group] {
         let configured = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String
         let candidates = [configured].compactMap { $0 } + provisionedGroups
-        for identifier in candidates {
-            if let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
-                return Group(identifier: identifier, root: root)
-            }
+        var seen = Set<String>()
+        return candidates.compactMap { identifier in
+            guard seen.insert(identifier).inserted,
+                  let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) else { return nil }
+            return Group(identifier: identifier, root: root)
         }
-        return nil
     }
     private static let provisionedGroups: [String] = {
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),

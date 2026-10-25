@@ -95,29 +95,39 @@ struct LiquidCard: ViewModifier {
     static let shared = KeyboardVibration()
 #if DEBUG
     private(set) var submittedPulses = 0
+    private(set) var requestedStyle: UIImpactFeedbackGenerator.FeedbackStyle?
 #endif
-    private var generator: UIImpactFeedbackGenerator?
+    private var generators: [UIImpactFeedbackGenerator.FeedbackStyle: UIImpactFeedbackGenerator] = [:]
     private weak var presentationView: UIView?
     private let emit: ((CGFloat) -> Void)?
     init(emit: ((CGFloat) -> Void)? = nil) { self.emit = emit }
     func attach(to view: UIView) {
         guard emit == nil, view.window != nil, presentationView !== view else { return }
         presentationView = view
-        if #available(iOS 17.5, *) { generator = UIImpactFeedbackGenerator(style: .light, view: view) }
-        else { generator = UIImpactFeedbackGenerator(style: .light) }
-        generator?.prepare()
+        generators.removeAll()
+        for style in [UIImpactFeedbackGenerator.FeedbackStyle.soft, .light, .medium, .heavy] {
+            let generator: UIImpactFeedbackGenerator
+            if #available(iOS 17.5, *) { generator = UIImpactFeedbackGenerator(style: style, view: view) }
+            else { generator = UIImpactFeedbackGenerator(style: style) }
+            generators[style] = generator; generator.prepare()
+        }
     }
-    func prepare() { if emit == nil { generator?.prepare() } }
+    func prepare() { if emit == nil { generators.values.forEach { $0.prepare() } } }
     func pulse(intensity: Double) {
         guard intensity.isFinite, intensity > 0 else { return }
         let value = CGFloat(min(1, max(0, intensity)))
+        let style: UIImpactFeedbackGenerator.FeedbackStyle = value < 0.25 ? .soft : value < 0.5 ? .light : value < 0.8 ? .medium : .heavy
+#if DEBUG
+        requestedStyle = style
+#endif
         if let emit { emit(value); return }
         guard presentationView?.window != nil else { return }
+        let generator = generators[style]
         generator?.impactOccurred(intensity: value)
 #if DEBUG
         if generator != nil { submittedPulses += 1 }
 #endif
         generator?.prepare()
     }
-    func stop() { generator = nil; presentationView = nil }
+    func stop() { generators = [:]; presentationView = nil }
 }

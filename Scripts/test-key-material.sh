@@ -17,6 +17,12 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -only-testing:ClearKeyboardRuntimeTests/ToolbarMotion64Tests \
   -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair63Tests/testPanelToggleSwitchAndRepeatedColorOpeningUseOnePreview \
   -only-testing:ClearKeyboardRuntimeTests/FeedbackRepair63Tests/testPreviewShiftAndDeleteStayBoundedAfterRepeatedColorReset \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testSnapshotAppliesEveryAppearanceFieldAndPreservesInputPreferences \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testPublicKeychainRoundTripReturnsAssignedGroupAndUpdatesIsolatedItem \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testMirroredBackendReportsFailureWhenNeitherChannelCanSave \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceSyncRuntimeTests/testAppearanceLinkNotificationRefreshDoesNotLoopReceiptWrites \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests/testIndependentAppAppearanceWritesChangeActualSystemBackedKeyboardPixels \
+  -only-testing:ClearKeyboardRuntimeTests/AppearanceReceiverRuntimeTests/testAppearanceReceiptPreservesLiveChineseCompositionAndDoesNotEchoWrites \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test
 NATIVE_STATUS=$?
 set -e
@@ -28,6 +34,6 @@ import json
 from pathlib import Path
 s=json.loads(Path('.build/KeyMaterialReview/test-summary.json').read_text())
 print(json.dumps(s,ensure_ascii=False),flush=True)
-assert s['failedTests']==0 and s['passedTests']==7,s
+assert s['failedTests']==0 and s['passedTests']==18,s
 print('KEY_MATERIAL_CHECKS '+json.dumps(dict(passed=s['passedTests'],failed=s['failedTests'],scope='toolbar haptic dispatch, rapid panel interruption, compatibility in-place indicator, phone layouts in both themes, preview bounds')))
 PY

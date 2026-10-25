@@ -67,7 +67,7 @@ import UIKit
         surface.scrollViewDidEndDragging(scroll, willDecelerate: false)
         let (_, _, restored, _) = fixture()
         let next = try XCTUnwrap(views(restored).first { $0.accessibilityIdentifier == "toolbar.shortcuts" } as? UIScrollView)
-        XCTAssertEqual(next.contentOffset.x, 65, accuracy: 1)
+        XCTAssertEqual(next.contentOffset.x, 44, accuracy: 1)
     }
     func testPanelToggleSwitchAndRepeatedColorOpeningUseOnePreview() throws {
         let (_, _, surface, _) = fixture()

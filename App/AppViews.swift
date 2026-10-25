@@ -34,7 +34,7 @@ import UIKit
             guard clean != storedSettings else { return }
             let clipboardChanged = clean.capturesClipboard != storedSettings.capturesClipboard ||
                 clean.clipboardLifetimeHours != storedSettings.clipboardLifetimeHours
-            let appearanceChanged = AppearanceSnapshot(settings: clean) != AppearanceSnapshot(settings: storedSettings)
+            let appearanceChanged = AppearanceSnapshot(settings: clean, includeInputPreferences: true) != AppearanceSnapshot(settings: storedSettings, includeInputPreferences: true)
             storedSettings = clean
             store.save(clean)
             if appearanceChanged { appearanceLink?.publish(clean) }

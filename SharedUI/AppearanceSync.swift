@@ -19,8 +19,13 @@ struct AppearanceSnapshot: Codable, Equatable {
     let localPinyinComposition: Bool?
     let automaticClipboard: Bool?
     let clipboardLifetimeHours: Double?
+    let language: InputLanguage?
+    let fuzzyPairs: Set<String>?
+    let predictions: Bool?
+    let learnChoices: Bool?
+    let autoCapitalization: Bool?
 
-    init(settings: KeyboardSettings) {
+    init(settings: KeyboardSettings, includeInputPreferences: Bool = false) {
         var value = settings; value.sanitize()
         accent = value.accent; customAccentHex = value.customAccentHex
         keyGlassStrength = value.keyGlassStrength
@@ -31,6 +36,11 @@ struct AppearanceSnapshot: Codable, Equatable {
         hand = value.hand; oneHandWidth = value.oneHandFraction; toolbar = value.toolbar
         localPinyinComposition = value.localPinyinComposition == true
         automaticClipboard = value.capturesClipboard; clipboardLifetimeHours = value.clipboardLifetimeHours
+        language = includeInputPreferences ? value.language : nil
+        fuzzyPairs = includeInputPreferences ? value.fuzzyPairs : nil
+        predictions = includeInputPreferences ? value.predictions : nil
+        learnChoices = includeInputPreferences ? value.learnChoices : nil
+        autoCapitalization = includeInputPreferences ? value.autoCapitalization : nil
     }
     func applying(to settings: KeyboardSettings) -> KeyboardSettings {
         var value = settings
@@ -47,6 +57,11 @@ struct AppearanceSnapshot: Codable, Equatable {
         if let localPinyinComposition { value.localPinyinComposition = localPinyinComposition }
         if let automaticClipboard { value.automaticClipboard = automaticClipboard }
         if let clipboardLifetimeHours { value.clipboardLifetimeHours = clipboardLifetimeHours }
+        if let language { value.language = language }
+        if let fuzzyPairs { value.fuzzyPairs = fuzzyPairs }
+        if let predictions { value.predictions = predictions }
+        if let learnChoices { value.learnChoices = learnChoices }
+        if let autoCapitalization { value.autoCapitalization = autoCapitalization }
         // The snapshot is normalized on creation and validated on decode.
         // Do not run unrelated language/learning migrations while applying it.
         return value
@@ -55,6 +70,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     /// after applying them, so an absent height preserves the receiver's layout.
     func isApplied(to settings: KeyboardSettings) -> Bool { applying(to: settings) == settings }
     var isValid: Bool {
+        if let fuzzyPairs, !fuzzyPairs.isSubset(of: Set(FuzzyPinyin.availablePairs)) { return false }
         if let oneHandWidth, !oneHandWidth.isFinite || !(0.68...0.88).contains(oneHandWidth) { return false }
         if let toolbar, toolbar.count > ToolbarTool.allCases.count || Set(toolbar).count != toolbar.count { return false }
         if let clipboardLifetimeHours, !clipboardLifetimeHours.isFinite || !(clipboardLifetimeHours == 0 || (0.25...8760).contains(clipboardLifetimeHours)) { return false }
@@ -212,24 +228,33 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         return result
     }
     func read(account: String) -> Result<AppearanceBackendRecord?, AppearanceSyncError> {
-        var query = query(account)
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        query[kSecReturnAttributes as String] = true
-        query[kSecReturnData as String] = true
+        // Re-signing may move the shared item to another granted group. Search
+        // all groups Security permits, rather than pinning reads to the old name.
+        var query = query(account); query.removeValue(forKey: kSecAttrAccessGroup as String)
+        query[kSecMatchLimit as String] = kSecMatchLimitAll
+        query[kSecReturnAttributes as String] = true; query[kSecReturnData as String] = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         diagnostics.operation = "keychain-read"; diagnostics.keychainReadStatus = status
         if status == errSecItemNotFound { return .success(nil) }
         guard status == errSecSuccess else { return .failure(.keychain(status)) }
-        guard let attributes = result as? [String: Any], let data = attributes[kSecValueData as String] as? Data else { return .failure(.invalidPayload) }
-        guard data.count <= AppearanceSyncClient.maximumPayloadBytes else { return .failure(.invalidPayload) }
-        let group = attributes[kSecAttrAccessGroup as String] as? String
-        diagnostics.keychainAccessGroup = group
-        return .success(AppearanceBackendRecord(data: data, accessGroup: group))
+        guard let entries = result as? [[String: Any]] else { return .failure(.invalidPayload) }
+        let records: [(AppearanceBackendRecord, Date)] = entries.compactMap { attributes in
+            guard let data = attributes[kSecValueData as String] as? Data,
+                  data.count <= AppearanceSyncClient.maximumPayloadBytes else { return nil }
+            let date: Date?
+            if account == AppearanceSyncClient.settingsAccount { date = try? AppearanceSyncClient.decode(data).get().updatedAt }
+            else { date = try? AppearanceSyncClient.decodeReceipt(data).get().updatedAt }
+            guard let date else { return nil }
+            return (AppearanceBackendRecord(data: data, accessGroup: attributes[kSecAttrAccessGroup as String] as? String), date)
+        }
+        guard let newest = records.max(by: { $0.1 < $1.1 })?.0 else { return .failure(.invalidPayload) }
+        diagnostics.keychainAccessGroup = newest.accessGroup
+        return .success(newest)
     }
     func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
         guard data.count <= AppearanceSyncClient.maximumPayloadBytes else { return .failure(.invalidPayload) }
-        let base = query(account)
+        var base = query(account)
         let values: [String: Any] = [kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
         var add = base
@@ -237,6 +262,11 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         add[kSecReturnAttributes as String] = true
         var attributes: CFTypeRef?
         var status = SecItemAdd(add as CFDictionary, &attributes)
+        if status == errSecMissingEntitlement {
+            base.removeValue(forKey: kSecAttrAccessGroup as String)
+            add.removeValue(forKey: kSecAttrAccessGroup as String)
+            status = SecItemAdd(add as CFDictionary, &attributes)
+        }
         diagnostics.operation = "keychain-write"; diagnostics.keychainWriteStatus = status
         if status == errSecDuplicateItem {
             status = SecItemUpdate(base as CFDictionary, values as CFDictionary)
@@ -254,7 +284,10 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         return .success(group)
     }
     /// Used only by isolated test fixtures, never a broad keychain deletion.
-    func remove(account: String) -> OSStatus { SecItemDelete(query(account) as CFDictionary) }
+    func remove(account: String) -> OSStatus {
+        var query = query(account); query.removeValue(forKey: kSecAttrAccessGroup as String)
+        return SecItemDelete(query as CFDictionary)
+    }
 }
 
 struct AppearanceSyncRead {

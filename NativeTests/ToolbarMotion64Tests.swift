@@ -1,10 +1,14 @@
 import XCTest
 import UIKit
+import Security
 
 @MainActor final class ToolbarMotion64Tests: XCTestCase {
     private final class Document: KeyboardDocument {
+        let documentIdentity = UUID().uuidString
         let contextBefore = "", contextAfter = "", selectedText = ""
-        let enterTitle = "换行", needsGlobe = false, fullAccess = false, prefersEnglish = false
+        let enterTitle = "换行", needsGlobe = false, prefersEnglish = false
+        let fullAccess: Bool
+        init(fullAccess: Bool = false) { self.fullAccess = fullAccess }
         let capitalization = UITextAutocapitalizationType.none
         func insert(_ text: String) {}
         func deleteBackward() {}
@@ -20,6 +24,29 @@ import UIKit
         func restoreInput(_ value: DeletedInput) -> Bool { false }
     }
     private func views(_ root: UIView) -> [UIView] { [root] + root.subviews.flatMap(views) }
+    private final class MemoryBackend: AppearanceSyncBackend {
+        private let lock = NSLock()
+        private var records: [String: Data] = [:]
+        func read(account: String) -> Result<AppearanceBackendRecord?, AppearanceSyncError> {
+            lock.lock(); defer { lock.unlock() }
+            return .success(records[account].map { AppearanceBackendRecord(data: $0, accessGroup: "fixture.shared") })
+        }
+        func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
+            lock.lock(); defer { lock.unlock() }; records[account] = data
+            return .success("fixture.shared")
+        }
+    }
+    private final class UnavailableKeychain: AppearanceSyncBackend {
+        func read(account: String) -> Result<AppearanceBackendRecord?, AppearanceSyncError> { .failure(.keychain(errSecMissingEntitlement)) }
+        func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> { .failure(.keychain(errSecMissingEntitlement)) }
+    }
+    private func waitFor(_ condition: () -> Bool) async throws {
+        for _ in 0..<300 {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("Settings did not reach the other process model")
+    }
     private func button(_ name: String, in surface: UIView) throws -> UIButton {
         try XCTUnwrap(views(surface).first { $0.accessibilityIdentifier == "toolbar." + name } as? UIButton)
     }
@@ -127,5 +154,91 @@ import UIKit
             XCTAssertEqual(preview.contentOffset.x, 50, accuracy: 0.5)
             XCTAssertEqual(preview.contentOffset.y, 0, accuracy: 0.5)
         }
+    }
+    func testEveryAppPreferenceReachesTheKeyboardAndKeyboardChangesReachTheApp() async throws {
+        let backend = MemoryBackend()
+        let appLink = AppearanceSettingsLink(role: .app, client: AppearanceSyncClient(backend: backend, coalesceInterval: 0), includeInputPreferences: true)
+        let keyboardLink = AppearanceSettingsLink(role: .keyboard, client: AppearanceSyncClient(backend: backend, coalesceInterval: 0), includeInputPreferences: true)
+        let appDefaults = UserDefaults(suiteName: UUID().uuidString)!, keyboardDefaults = UserDefaults(suiteName: UUID().uuidString)!
+        let preferences = Preferences(store: SettingsStore(defaults: appDefaults), appearanceLink: appLink)
+        let document = Document(fullAccess: true)
+        let model = KeyboardModel(document: document, defaults: keyboardDefaults, wordLookup: { _, _, _ in [] }, appearanceLink: keyboardLink)
+        preferences.activate(); defer { preferences.deactivate(); keyboardLink.deactivate(); withExtendedLifetime(document) {} }
+        var value = KeyboardSettings()
+        value.language = .english; value.keyHeight = 56; value.hand = .left; value.oneHandWidth = 0.72
+        value.keyColorHex = "#558DF2"; value.candidateColorHex = "#D799BC"; value.candidateTextSize = .large
+        value.keyGlassStrength = 0.21; value.accent = .rose; value.customAccentHex = "#E3AC72"
+        value.vibrationEnabled = true; value.vibrationIntensity = 0.9; value.toolbar = ToolbarTool.allCases
+        value.localPinyinComposition = true; value.fuzzyPairs = ["n/l"]; value.predictions = false
+        value.learnChoices = false; value.autoCapitalization = false
+        value.automaticClipboard = false; value.clipboardLifetimeHours = 0
+        preferences.settings = value
+        let expected = AppearanceSnapshot(settings: value, includeInputPreferences: true)
+        try await waitFor { expected.isApplied(to: model.settings) }
+        XCTAssertEqual(AppearanceSnapshot(settings: model.settings, includeInputPreferences: true), expected)
+        XCTAssertEqual(AppearanceSnapshot(settings: SettingsStore(defaults: keyboardDefaults).load(), includeInputPreferences: true), expected)
+        model.settings.vibrationIntensity = 0.12; model.settings.keyColorHex = "#7573F5"
+        try await waitFor { preferences.settings.vibrationIntensity == 0.12 && preferences.settings.keyColorHex == "#7573F5" }
+        XCTAssertEqual(SettingsStore(defaults: appDefaults).load().vibrationIntensity, 0.12)
+        model.reloadSettings(); keyboardLink.refresh()
+        XCTAssertEqual(model.settings.vibrationIntensity, 0.12)
+    }
+    func testReSignedKeychainCanReadTheSavedItemWhenConfiguredGroupIsUnavailable() async throws {
+        let service = "clear.motion64.fixture." + UUID().uuidString
+        let writer = AppearanceKeychainBackend(service: service, accessGroup: "invalid." + UUID().uuidString)
+        let reader = AppearanceKeychainBackend(service: service, accessGroup: "another.invalid." + UUID().uuidString)
+        defer { _ = writer.remove(account: AppearanceSyncClient.settingsAccount) }
+        let value = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: KeyboardSettings(), includeInputPreferences: true))
+        let data = try AppearanceSyncClient.encode(value).get()
+        let saved = try await Task.detached { try writer.write(data, account: AppearanceSyncClient.settingsAccount).get() }.value
+        XCTAssertNotNil(saved)
+        let record = try await Task.detached { try reader.read(account: AppearanceSyncClient.settingsAccount).get() }.value
+        XCTAssertEqual(try AppearanceSyncClient.decode(XCTUnwrap(record).data).get(), value)
+    }
+    func testBothProcessesFindTheCommonGroupWhenTheirPrimaryGroupsDiffer() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let common = root.appendingPathComponent("common")
+        let app = AppearanceMirroredBackend(groupRootProvider: { root.appendingPathComponent("app") },
+            keychain: UnavailableKeychain(), additionalGroupRootsProvider: { [common] })
+        let keyboard = AppearanceMirroredBackend(groupRootProvider: { root.appendingPathComponent("keyboard") },
+            keychain: UnavailableKeychain(), additionalGroupRootsProvider: { [common] })
+        var settings = KeyboardSettings(); settings.vibrationEnabled = true; settings.vibrationIntensity = 0.8
+        let first = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: settings, includeInputPreferences: true))
+        _ = try app.write(AppearanceSyncClient.encode(first).get(), account: AppearanceSyncClient.settingsAccount).get()
+        XCTAssertEqual(try AppearanceSyncClient.decode(XCTUnwrap(keyboard.read(account: AppearanceSyncClient.settingsAccount).get()).data).get(), first)
+        settings.vibrationIntensity = 0.15
+        let next = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: settings, includeInputPreferences: true), updatedAt: first.updatedAt.addingTimeInterval(1))
+        _ = try keyboard.write(AppearanceSyncClient.encode(next).get(), account: AppearanceSyncClient.settingsAccount).get()
+        XCTAssertEqual(try AppearanceSyncClient.decode(XCTUnwrap(app.read(account: AppearanceSyncClient.settingsAccount).get()).data).get(), next)
+    }
+    func testToolbarStopsWithWholeIconsAndRestoresThatPosition() throws {
+        let old = UserDefaults.standard.object(forKey: "clear.toolbar.offset.v1")
+        defer { UserDefaults.standard.set(old, forKey: "clear.toolbar.offset.v1") }
+        let (document, _, surface) = fixture(); defer { withExtendedLifetime(document) {} }
+        let scroll = try XCTUnwrap(views(surface).compactMap { $0 as? ToolbarScrollView }.first)
+        scroll.setContentOffset(CGPoint(x: 65, y: 0), animated: false)
+        surface.scrollViewDidEndDragging(scroll, willDecelerate: false)
+        XCTAssertEqual(scroll.contentOffset.x, 44, accuracy: 0.5)
+        for name in ToolbarTool.allCases where name != .language {
+            let frame = try button(name.rawValue, in: surface).convert(CGRect(x: 0, y: 0, width: 34, height: 34), to: scroll)
+            if scroll.bounds.intersection(frame).width > 0.5 {
+                XCTAssertTrue(scroll.bounds.insetBy(dx: -0.5, dy: -0.5).contains(frame))
+            }
+        }
+        let (secondDocument, _, restored) = fixture(); defer { withExtendedLifetime(secondDocument) {} }
+        let second = try XCTUnwrap(views(restored).compactMap { $0 as? ToolbarScrollView }.first)
+        XCTAssertEqual(second.contentOffset.x, 44, accuracy: 0.5)
+    }
+    func testVibrationStrengthUsesDistinctActuatorStylesAndZeroIsSilent() {
+        var pulses: [CGFloat] = [], styles: [Int] = []
+        let vibration = KeyboardVibration(emit: { pulses.append($0) })
+        vibration.pulse(intensity: 0)
+        for value in [0.1, 0.4, 0.65, 1.0] {
+            vibration.pulse(intensity: value)
+            if let style = vibration.requestedStyle { styles.append(style.rawValue) }
+        }
+        XCTAssertEqual(pulses, [0.1, 0.4, 0.65, 1.0])
+        XCTAssertEqual(Set(styles).count, 4)
     }
 }

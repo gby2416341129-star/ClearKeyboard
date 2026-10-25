@@ -6,21 +6,24 @@ import CoreFoundation
 /// group but removes App Groups. Neither route assumes it has permission.
 final class AppearanceMirroredBackend: AppearanceSyncBackend {
     private let groupRootProvider: () -> URL?
+    private let additionalGroupRootsProvider: () -> [URL]
     private let keychain: AppearanceSyncBackend
     private(set) var diagnostics: AppearanceBackendDiagnostics
     init(groupRootProvider: @escaping () -> URL?, configuredGroup: String? = nil,
-         keychain: AppearanceSyncBackend = AppearanceKeychainBackend()) {
+         keychain: AppearanceSyncBackend = AppearanceKeychainBackend(),
+         additionalGroupRootsProvider: @escaping () -> [URL] = { [] }) {
         self.groupRootProvider = groupRootProvider
+        self.additionalGroupRootsProvider = additionalGroupRootsProvider
         self.keychain = keychain
         diagnostics = AppearanceBackendDiagnostics(configuredGroup: configuredGroup)
     }
     convenience init(groupRoot: URL?, keychain: AppearanceSyncBackend = AppearanceKeychainBackend()) {
         self.init(groupRootProvider: { groupRoot }, keychain: keychain)
     }
-    private func directory() -> URL? {
-        let root = groupRootProvider()
-        diagnostics.containerAvailable = root != nil
-        return root?.appendingPathComponent("Appearance-v1", isDirectory: true)
+    private func directories() -> [URL] {
+        let roots = [groupRootProvider()].compactMap { $0 } + additionalGroupRootsProvider()
+        diagnostics.containerAvailable = !roots.isEmpty
+        return Set(roots).map { $0.appendingPathComponent("Appearance-v1", isDirectory: true) }
     }
     private func copyKeychainDiagnostics() {
         let current = keychain.diagnostics
@@ -40,7 +43,8 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
         diagnostics.selectedChannel = nil
         var candidates: [(AppearanceBackendRecord, Date)] = []
         var fileFailure: AppearanceSyncError?
-        if let directory = directory() {
+        let available = directories()
+        for directory in available {
             let file = directory.appendingPathComponent(account + ".json")
             do {
                 let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize
@@ -64,7 +68,8 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
                     fileFailure = .file(error.code)
                 }
             }
-        } else { diagnostics.fileRead = "container-unavailable" }
+        }
+        if available.isEmpty { diagnostics.fileRead = "container-unavailable" }
         let result = keychain.read(account: account)
         copyKeychainDiagnostics()
         if case .success(let record?) = result, let date = timestamp(record.data, account: account) {
@@ -84,7 +89,8 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
         diagnostics.selectedChannel = nil
         var fileSaved = false
         var fileFailure: AppearanceSyncError?
-        if let directory = directory() {
+        let available = directories()
+        for directory in available {
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try data.write(to: directory.appendingPathComponent(account + ".json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -95,7 +101,8 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
                 diagnostics.fileWrite = "failed"; diagnostics.fileWriteError = error.code
                 fileFailure = .file(error.code)
             }
-        } else { diagnostics.fileWrite = "container-unavailable" }
+        }
+        if available.isEmpty { diagnostics.fileWrite = "container-unavailable" }
         let result = keychain.write(data, account: account)
         copyKeychainDiagnostics()
         if fileSaved { diagnostics.selectedChannel = "app-group"; return .success("app-group") }
@@ -129,6 +136,7 @@ private enum AppearanceSyncNotification {
     private let client: AppearanceSyncClient
     private let receiverIdentity: AppearanceReceiverIdentity?
     private let expectedReceiver: AppearanceReceiverIdentity?
+    private let includeInputPreferences: Bool
     private var active = false
     private var refreshTimer: Timer?
     private var generation = 0
@@ -149,9 +157,10 @@ private enum AppearanceSyncNotification {
     }
 
     init(role: Role, client: AppearanceSyncClient, receiverIdentity: AppearanceReceiverIdentity? = nil,
-         expectedReceiver: AppearanceReceiverIdentity? = nil) {
+         expectedReceiver: AppearanceReceiverIdentity? = nil, includeInputPreferences: Bool = false) {
         self.role = role; self.client = client
         self.receiverIdentity = receiverIdentity; self.expectedReceiver = expectedReceiver
+        self.includeInputPreferences = includeInputPreferences
         diagnostics = AppearanceSyncDiagnostics(role: role == .app ? "app" : "keyboard",
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "unknown",
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
@@ -168,10 +177,10 @@ private enum AppearanceSyncNotification {
         let group = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String
         let backend = AppearanceMirroredBackend(groupRootProvider: {
             SharedStorage.applicationGroup()?.root
-        }, configuredGroup: group)
+        }, configuredGroup: group, additionalGroupRootsProvider: { SharedStorage.applicationGroups().dropFirst().map(\.root) })
         return AppearanceSettingsLink(role: role, client: AppearanceSyncClient(backend: backend),
             receiverIdentity: role == .keyboard ? .keyboardBundle(.main) : nil,
-            expectedReceiver: role == .app ? .embeddedKeyboard(in: .main) : nil)
+            expectedReceiver: role == .app ? .embeddedKeyboard(in: .main) : nil, includeInputPreferences: true)
     }
     deinit {
         refreshTimer?.invalidate()
@@ -200,7 +209,7 @@ private enum AppearanceSyncNotification {
         client.flush(completion: completion)
     }
     func publish(_ settings: KeyboardSettings) {
-        let snapshot = AppearanceSnapshot(settings: settings)
+        let snapshot = AppearanceSnapshot(settings: settings, includeInputPreferences: includeInputPreferences)
         if localSnapshot == snapshot {
             if let pendingEnvelope { send(pendingEnvelope) }
             return

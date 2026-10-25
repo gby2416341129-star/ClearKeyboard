@@ -220,7 +220,9 @@ import SwiftUI
         panel?.frame = layout.panel
         let contentWidth = CGFloat(toolbarButtons.count * 34 + max(0, toolbarButtons.count - 1) * 10 + 11)
         toolbarScroll.expectedContentWidth = contentWidth
-        toolbarWidth?.constant = min(contentWidth, max(0, layout.header.width - 44))
+        let available = max(0, layout.header.width - 44)
+        let visibleSlots = max(1, floor((available - 1) / ToolbarScrollView.itemPitch))
+        toolbarWidth?.constant = min(contentWidth, min(available, visibleSlots * ToolbarScrollView.itemPitch + 1))
         toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
         toolbarScroll.setNeedsLayout(); toolbarScroll.layoutIfNeeded()
     }
@@ -522,10 +524,17 @@ import SwiftUI
         if !decelerate { rememberToolbarOffset() }
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { rememberToolbarOffset() }
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        guard scrollView === toolbarScroll else { return }
+        targetContentOffset.pointee.x = toolbarScroll.alignedOffset(targetContentOffset.pointee.x)
+    }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { toolbarScroll.pendingOffset = nil }
     private func rememberToolbarOffset() {
         toolbarScroll.pendingOffset = nil
-        toolbarOffset = max(0, toolbarScroll.contentOffset.x)
+        toolbarOffset = toolbarScroll.alignedOffset(toolbarScroll.contentOffset.x)
+        if abs(toolbarOffset - toolbarScroll.contentOffset.x) > 0.5 {
+            toolbarScroll.setContentOffset(CGPoint(x: toolbarOffset, y: 0), animated: window != nil && !UIAccessibility.isReduceMotionEnabled)
+        }
         UserDefaults.standard.set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
     }
     private func editorPulse() {
