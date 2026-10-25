@@ -442,13 +442,23 @@ import UIKit
             reveal(row, in: app); XCTAssertTrue(row.isHittable); row.tap()
         }
         func back() { app.navigationBars.buttons.firstMatch.tap() }
+        func actualSliderFraction(_ slider: XCUIElement) throws -> Double {
+            let raw = try XCTUnwrap(slider.value as? String)
+            let number = try XCTUnwrap(Double(raw.replacingOccurrences(of: "[^0-9.]", with: "", options: .regularExpression)))
+            let value = raw.contains("%") || number > 1 ? number / 100 : number
+            XCTAssertTrue((0...1).contains(value), "Read the slider's actual App value, not the imprecise drag target")
+            return value
+        }
         open("keyGlass")
-        app.sliders["appearance.strength.keyGlass"].adjust(toNormalizedSliderPosition: 0.9); back()
+        let glass = app.sliders["appearance.strength.keyGlass"]
+        glass.adjust(toNormalizedSliderPosition: 0.9)
+        let expectedGlass = try actualSliderFraction(glass); back()
         open("keyColor"); let blue = app.buttons["#558DF2"]; reveal(blue, in: app); blue.tap(); back()
         open("candidateColor"); let orange = app.buttons["#E3AC72"]; reveal(orange, in: app); orange.tap(); back()
         open("candidateSize"); app.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap(); back()
         let hand = app.segmentedControls["custom.hand"]; reveal(hand, in: app); hand.buttons["标准"].tap()
         let height = app.sliders["custom.keyHeight"]; reveal(height, in: app); height.adjust(toNormalizedSliderPosition: 0.85)
+        let expectedHeight = (44 + 14 * (try actualSliderFraction(height))).rounded()
         let vibration = elements(app, identifier: "custom.vibration").firstMatch
         reveal(vibration, in: app)
         let toggle = vibration.switches.firstMatch.exists ? vibration.switches.firstMatch : app.switches.firstMatch
@@ -456,6 +466,14 @@ import UIKit
         if toggle.value as? String == "0" {
             (toggle.switches.firstMatch.exists ? toggle.switches.firstMatch : toggle).tap()
         }
+        let mode = app.segmentedControls["custom.vibrationMode"]; reveal(mode, in: app); mode.buttons["柔和"].tap()
+        let intensity = app.sliders["custom.vibrationIntensity"]; reveal(intensity, in: app)
+        intensity.adjust(toNormalizedSliderPosition: 0.75)
+        let expectedIntensity = try actualSliderFraction(intensity)
+        let senderValues: [String: Any] = ["keyGlassStrength": expectedGlass, "keyHeight": expectedHeight, "vibrationIntensity": expectedIntensity, "vibrationMode": "soft"]
+        let sender = try JSONSerialization.data(withJSONObject: senderValues)
+        let senderAttachment = XCTAttachment(data: sender, uniformTypeIdentifier: "public.json")
+        senderAttachment.name = "round66-app-sender-values.json"; senderAttachment.lifetime = .keepAlways; add(senderAttachment)
         try enableKeyboardInSystemSettings()
         // Match this user's already-enabled setting on the disposable simulator.
         // Only the real Settings switch can establish extension full access.
@@ -507,7 +525,10 @@ import UIKit
                 settings["keyColorHex"] as? String == "#558DF2" && settings["candidateColorHex"] as? String == "#E3AC72" &&
                 settings["candidateTextSize"] as? String == "extraLarge" && settings["vibrationEnabled"] as? Bool == true &&
                 settings["automaticClipboard"] as? Bool == true && settings["hand"] as? String == "full" &&
-                (settings["keyGlassStrength"] as? Double ?? 0) > 0.85 && (settings["keyHeight"] as? Double ?? 0) >= 55
+                abs((settings["keyGlassStrength"] as? Double ?? -1) - expectedGlass) <= 0.011 &&
+                abs((settings["keyHeight"] as? Double ?? -1) - expectedHeight) < 0.1 &&
+                abs((settings["vibrationIntensity"] as? Double ?? -1) - expectedIntensity) <= 0.011 &&
+                settings["vibrationMode"] as? String == "soft"
         }
         screen("round62-app-settings-received-by-actual-appex")
         let language = control(safari, "key.language")

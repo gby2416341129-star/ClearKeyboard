@@ -38,4 +38,12 @@ xcrun xcresulttool export attachments --path .build/CurrentRoundUIResults.xcresu
 xcrun simctl spawn "$DEVICE" log show --last 10m --style compact --predicate 'process == "ClearKeyboardExtension"' > .build/CurrentRoundUI/extension.log 2>&1 || true
 xcrun simctl spawn "$DEVICE" log show --last 10m --style compact --predicate 'eventMessage CONTAINS "com.example.clearkeyboard.Keyboard" AND (process == "SpringBoard" OR process == "runningboardd")' > .build/CurrentRoundUI/extension-host.log 2>&1 || true
 cat .build/CurrentRoundUI/summary.json
+if [ "$RESULT" -eq 0 ]; then
+  python3 - <<'PY'
+import json
+from pathlib import Path
+s=json.loads(Path('.build/CurrentRoundUI/summary.json').read_text())
+assert s['result']=='Passed' and s['passedTests']==5 and s['failedTests']==0 and s.get('skippedTests',0)==0,s
+PY
+fi
 exit "$RESULT"
