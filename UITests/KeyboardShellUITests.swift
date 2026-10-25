@@ -585,9 +585,29 @@ import UIKit
         else { control(safari, "toolbar.clipboard").tap() }
         XCTAssertTrue(control(safari, "clipboard.panel").waitForExistence(timeout: 4))
         screen("round62-copied-content-in-real-extension-history")
-        let copied = root(in: safari).descendants(matching: .any).matching(NSPredicate(format: "label == %@", "#E3AC72")).firstMatch
-        XCTAssertTrue(copied.waitForExistence(timeout: 3)); copied.tap()
-        XCTAssertTrue((field.value as? String ?? "").hasSuffix("#E3AC72"), "Stored copy must insert into the real Safari editor")
+        // The recent-copy arrow now opens live word selection. Select its
+        // actual cells and verify both additions and removal in the real host.
+        let words = control(safari, "clipboard.selection.words")
+        let hash = words.cells.matching(NSPredicate(format: "label == %@", "#")).firstMatch
+        let value = words.cells.matching(NSPredicate(format: "label == %@", "E3AC72")).firstMatch
+        XCTAssertTrue(hash.waitForExistence(timeout: 3), "Stored copy must expose the # token")
+        XCTAssertTrue(value.waitForExistence(timeout: 3), "Stored copy must expose the hex token")
+        let original = field.value as? String ?? ""
+        func expectHost(_ expected: String, _ reason: String) {
+            let update = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in (field.value as? String) == expected }, object: nil)
+            let result = XCTWaiter.wait(for: [update], timeout: 5)
+            if result != .completed { screen("clipboard-live-selection-failed"); attachTree(safari, "clipboard-live-selection-failed") }
+            XCTAssertEqual(result, .completed, reason + "; actual=" + String((field.value as? String ?? "").prefix(80)))
+        }
+        hash.tap(); expectHost(original + "#", "A selected token must immediately reach Safari")
+        value.tap(); expectHost(original + "#E3AC72", "Multiple selected tokens must retain source order")
+        screen("round66-live-selection-highlight")
+        hash.tap(); expectHost(original + "E3AC72", "Cancelling one token must remove only that token")
+        hash.tap(); expectHost(original + "#E3AC72", "Reselecting a token must restore it at its source position")
+        let done = control(safari, "clipboard.insertSelection")
+        XCTAssertTrue(done.isEnabled); done.tap()
+        expectHost(original + "#E3AC72", "Finishing selection must preserve text without inserting it twice")
+        XCTAssertTrue(key(safari, "j").waitForExistence(timeout: 5), "Finishing selection must restore the letter keyboard")
         let report = try JSONSerialization.data(withJSONObject: evidence(), options: [.prettyPrinted, .sortedKeys])
         let result = XCTAttachment(data: report, uniformTypeIdentifier: "public.json")
         result.name = "round62-production-extension-evidence.json"; result.lifetime = .keepAlways; add(result)

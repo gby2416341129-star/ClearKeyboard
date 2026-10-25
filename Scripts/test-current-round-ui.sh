@@ -44,6 +44,7 @@ import json
 from pathlib import Path
 s=json.loads(Path('.build/CurrentRoundUI/summary.json').read_text())
 assert s['result']=='Passed' and s['passedTests']==5 and s['failedTests']==0 and s.get('skippedTests',0)==0,s
+print('INSTALLED_EXTENSION_CHECKS passed=5 failed=0 skipped=0 App sender values, haptic mode, literal variants, toolbar editing and live clipboard selection')
 PY
 fi
 exit "$RESULT"
