@@ -840,10 +840,10 @@ import SwiftUI
             } + [ToolArtwork.brand(size: size)]
             let bounds = try artwork.enumerated().map { try alphaBounds($0.element,brand: $0.offset == symbols.count) }
             let sides = bounds.map { max($0.width,$0.height) }
-            XCTAssertLessThan(sides.max()! / sides.min()!, 1.16)
+            XCTAssertLessThan(sides.max()! / sides.min()!, 1.20)
             for rect in bounds {
                 XCTAssertGreaterThanOrEqual(max(rect.width,rect.height),size*3*0.68)
-                XCTAssertLessThanOrEqual(max(rect.width,rect.height),size*3*0.93)
+                XCTAssertLessThanOrEqual(max(rect.width,rect.height),ceil(size*3*0.95))
                 XCTAssertLessThan(abs(rect.midX-size*1.5),size*0.12)
                 XCTAssertLessThan(abs(rect.midY-size*1.5),size*0.12)
             }

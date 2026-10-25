@@ -146,15 +146,33 @@ import CoreImage
         }
         cache[key] = value; return value
     }
-    static func shift(active _: Bool, capsLocked: Bool, ink _: UIColor) -> UIImage {
-        let source = image(symbol: "shift", size: 28)
+    static func shift(active _: Bool, capsLocked: Bool, ink: UIColor) -> UIImage {
+        var source = image(symbol: "shift", size: 28)
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        let resolved = ink.resolvedColor(with: .current)
+        let lightFace = resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) && red * 0.2126 + green * 0.7152 + blue * 0.0722 < 0.45
+        if lightFace {
+            if let adjusted = cache["shift.lightface"] { source = adjusted }
+            else if let bitmap = source.cgImage,
+                    let filter = CIFilter(name: "CIColorMatrix", parameters: [
+                        kCIInputImageKey: CIImage(cgImage: bitmap),
+                        "inputRVector": CIVector(x: 0.68, y: 0, z: 0, w: 0),
+                        "inputGVector": CIVector(x: 0, y: 0.68, z: 0, w: 0),
+                        "inputBVector": CIVector(x: 0, y: 0, z: 0.68, w: 0),
+                        "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)]),
+                    let output = filter.outputImage,
+                    let rendered = edgeContext.createCGImage(output, from: CGRect(x: 0, y: 0, width: CGFloat(bitmap.width), height: CGFloat(bitmap.height))) {
+                source = UIImage(cgImage: rendered, scale: source.scale, orientation: .up).withRenderingMode(.alwaysOriginal)
+                cache["shift.lightface"] = source
+            }
+        }
         // Keep the same blue facets as Delete. The key face indicates a single
-        // capital; Caps Lock adds its own bar without cropping or tinting ink.
+        // capital; light faces deepen the blue, and Caps Lock adds a slim bar.
         guard capsLocked else { return source }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
         return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28), format: format).image { renderer in
             source.draw(in: CGRect(x: 1.4, y: 0, width: 25.2, height: 25.2))
-            UIColor(red: 105.0/255, green: 204.0/255, blue: 247.0/255, alpha: 1).setFill()
+            (lightFace ? UIColor(red: 0.17, green: 0.42, blue: 0.70, alpha: 1) : UIColor(red: 105.0/255, green: 204.0/255, blue: 247.0/255, alpha: 1)).setFill()
             UIBezierPath(roundedRect: CGRect(x: 8.75, y: 24, width: 10.5, height: 1.8), cornerRadius: 0.9).fill()
         }.withRenderingMode(.alwaysOriginal)
     }

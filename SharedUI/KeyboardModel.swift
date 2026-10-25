@@ -111,8 +111,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 phraseLearning.reset(); numericRun.reset()
             }
             if !loadingSavedSettings {
-                store.save(settings)
-                if AppearanceSnapshot(settings: settings, includeInputPreferences: true) != AppearanceSnapshot(settings: oldValue, includeInputPreferences: true) { appearanceLink?.publish(settings, previous: oldValue) }
+                var saved = settings, previous = oldValue
+                if document?.prefersEnglish == true, fieldLanguageOverride == nil, settings.language == oldValue.language {
+                    let globalLanguage = store.load().language
+                    saved.language = globalLanguage; previous.language = globalLanguage
+                }
+                store.save(saved)
+                if AppearanceSnapshot(settings: saved, includeInputPreferences: true) != AppearanceSnapshot(settings: previous, includeInputPreferences: true) { appearanceLink?.publish(saved, previous: previous) }
             }
             if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
                 settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }

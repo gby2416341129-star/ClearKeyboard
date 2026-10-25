@@ -637,40 +637,86 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let text = before + selected + after
         guard !text.isEmpty, text.count <= 4_096 else { return nil }
         let snapshot = DeletedInput(text: text, selection: NSRange(location: before.utf16.count, length: selected.utf16.count))
-        if !selected.isEmpty { insert("") }
+        if !selected.isEmpty { deleteBackward() }
         if !after.isEmpty { moveCursor(after.count) }
         for _ in before + after { deleteBackward() }
         return snapshot
     }
     func clearInput(completion: @escaping (DeletedInput?) -> Void) {
-        let read = readHostSnapshot(), identity = documentIdentity
-        guard read.connected, read.snapshot.available,
-              (hostState.snapshot.selected.isEmpty ? HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: read.snapshot) : hostState.snapshot == read.snapshot) else { completion(nil); return }
-        let before = contextBefore, selected = selectedText, after = contextAfter
-        let text = before + selected + after
-        guard !text.isEmpty, text.utf8.count <= ClipboardStore.textLimit else { completion(nil); return }
-        let value = DeletedInput(text: text, selection: NSRange(location: before.utf16.count, length: selected.utf16.count))
-        if !selected.isEmpty { insert("") }
-        if !after.isEmpty { moveCursor(after.count) }
+        let initial = readHostSnapshot(), identity = documentIdentity
+        guard initial.connected, initial.snapshot.available, initial.snapshot.document == identity else { completion(nil); return }
+        guard !(initial.snapshot.before + initial.snapshot.selected + initial.snapshot.after).isEmpty else { completion(nil); return }
+        cancelQueuedMarkedWrites(); discardMarkedDelivery()
+        let originalSelectionLength = initial.snapshot.selected.utf16.count
+        var originalRightUnits = 0, rightBytes = 0, scannedBytes = 0, probes = 0, phase = 0
+        var chunks: [String] = [], fullText = "", remaining: Substring = "", remainingCount = 0
+        var deleted: DeletedInput?
         func abort() { refreshHostState(refreshTraits: true); completion(nil) }
-        func step(_ remaining: Int) {
-            guard connectedDocumentIdentifier()?.uuidString == identity else { abort(); return }
+        func move(_ units: Int) -> Bool {
+            guard connectedDocumentIdentifier()?.uuidString == identity else { return false }
+            beginHostWrite()
+            textDocumentProxy.adjustTextPosition(byCharacterOffset: units)
             let actual = readHostSnapshot()
-            guard actual.connected, HostTextState(hostState.snapshot).accepts(hostState.snapshot, actual: actual.snapshot) else { abort(); return }
-            let count = min(32, remaining)
-            for _ in 0..<count {
-                guard connectedDocumentIdentifier()?.uuidString == identity else { abort(); return }
-                deleteBackward()
+            if actual.connected { hostState = HostTextState(actual.snapshot) }
+            endHostWrite()
+            return actual.connected && actual.snapshot.available && actual.snapshot.document == identity
+        }
+        func step() {
+            let current = readHostSnapshot()
+            guard current.connected, current.snapshot.available, current.snapshot.document == identity else { abort(); return }
+            if phase < 3 {
+                probes += 1
+                guard probes <= 4_096 else { abort(); return }
+                if phase == 0 || phase == 2 {
+                    if !current.snapshot.after.isEmpty {
+                        let tail = current.snapshot.after
+                        if phase == 0 { originalRightUnits += tail.utf16.count; rightBytes += tail.utf8.count }
+                        guard rightBytes <= ClipboardStore.textLimit, move(tail.utf16.count) else { abort(); return }
+                    } else if !current.snapshot.selected.isEmpty {
+                        guard move(0), readHostSnapshot().snapshot.selected.isEmpty else { abort(); return }
+                    } else if phase == 0 { phase = 1 }
+                    else {
+                        phase = 3; remaining = fullText[...]; remainingCount = fullText.count
+                        hostState = HostTextState(HostTextSnapshot(before: String(remaining.suffix(4_096)), document: identity))
+                    }
+                } else if !current.snapshot.before.isEmpty {
+                    let head = current.snapshot.before
+                    scannedBytes += head.utf8.count
+                    guard scannedBytes <= ClipboardStore.textLimit else { abort(); return }
+                    chunks.append(head)
+                    guard move(-head.utf16.count) else { abort(); return }
+                } else {
+                    fullText = chunks.reversed().joined(); chunks.removeAll()
+                    let location = fullText.utf16.count - originalRightUnits - originalSelectionLength
+                    guard !fullText.isEmpty, location >= 0 else { abort(); return }
+                    deleted = DeletedInput(text: fullText, selection: NSRange(location: location, length: originalSelectionLength))
+                    phase = 2
+                }
+                DispatchQueue.main.async { step() }; return
             }
-            if remaining > count { DispatchQueue.main.async { step(remaining - count) } }
+            let expected = HostTextSnapshot(before: String(remaining.suffix(4_096)), document: identity)
+            let visible = current.snapshot.before
+            let matches = visible == expected.before || (!visible.isEmpty && !expected.before.isEmpty &&
+                (visible.hasSuffix(expected.before) || expected.before.hasSuffix(visible)))
+            guard matches, current.snapshot.after.isEmpty, current.snapshot.selected.isEmpty else { abort(); return }
+            let count = min(32, remainingCount)
+            beginHostWrite()
+            for _ in 0..<count {
+                guard connectedDocumentIdentifier()?.uuidString == identity else { endHostWrite(); abort(); return }
+                textDocumentProxy.deleteBackward()
+            }
+            remaining.removeLast(count); remainingCount -= count
+            hostState = HostTextState(HostTextSnapshot(before: String(remaining.suffix(4_096)), document: identity))
+            endHostWrite()
+            if remainingCount > 0 { DispatchQueue.main.async { step() } }
             else {
-                let final = readHostSnapshot()
-                guard final.connected, final.snapshot.document == identity,
-                      final.snapshot.before.isEmpty, final.snapshot.after.isEmpty, final.snapshot.selected.isEmpty else { completion(nil); return }
-                completion(value)
+                let actual = readHostSnapshot()
+                guard actual.connected, actual.snapshot.document == identity, actual.snapshot.available,
+                      actual.snapshot.before.isEmpty, actual.snapshot.after.isEmpty, actual.snapshot.selected.isEmpty else { abort(); return }
+                hostState = HostTextState(actual.snapshot); completion(deleted)
             }
         }
-        step(before.count + after.count)
+        step()
     }
     func restoreInput(_ value: DeletedInput) -> Bool {
         let read = readHostSnapshot()
@@ -686,8 +732,11 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         guard actual.connected, actual.snapshot.document == read.snapshot.document else { return false }
         hostState = HostTextState(actual.snapshot); discardMarkedDelivery()
         let ns = value.text as NSString
-        return actual.snapshot.before.hasSuffix(ns.substring(to: value.selection.location)) &&
+        func matches(_ visible: String, _ full: String, suffix: Bool) -> Bool {
+            visible == full || (!visible.isEmpty && (suffix ? full.hasSuffix(visible) : full.hasPrefix(visible)))
+        }
+        return matches(actual.snapshot.before, ns.substring(to: value.selection.location), suffix: true) &&
             actual.snapshot.selected == ns.substring(with: value.selection) &&
-            actual.snapshot.after.hasPrefix(ns.substring(from: NSMaxRange(value.selection)))
+            matches(actual.snapshot.after, ns.substring(from: NSMaxRange(value.selection)), suffix: false)
     }
 }

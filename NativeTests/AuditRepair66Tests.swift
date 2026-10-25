@@ -90,6 +90,21 @@ import UIKit
         let snapshot = try AppearanceSyncClient.decode(record.data).get().snapshot
         XCTAssertEqual(snapshot.keyHeight, 57); XCTAssertEqual(snapshot.keyColorHex, "#112233")
     }
+    func testChangingHapticsInsideAnEnglishFieldDoesNotChangeTheGlobalLanguage() throws {
+        let name = UUID().uuidString, defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = SettingsStore(defaults: defaults)
+        var settings = KeyboardSettings(); settings.language = .chinese; settings.automaticClipboard = false
+        store.save(settings)
+        let document = Repair66EnglishDocument()
+        let model = KeyboardModel(document: document, defaults: defaults, wordLookup: { _, _, _ in [] })
+        defer { model.suspend() }
+        model.reloadSettings(); XCTAssertEqual(model.settings.language, .english)
+        model.settings.vibrationEnabled = true; model.settings.vibrationIntensity = 0.87
+        XCTAssertEqual(store.load().language, .chinese)
+        XCTAssertEqual(store.load().resolvedVibrationIntensity, 0.87)
+        XCTAssertEqual(model.settings.language, .english)
+    }
     func testInvalidSettingsFieldIsRejected() {
         let bad = AppearanceEnvelope(snapshot: AppearanceSnapshot(settings: KeyboardSettings()), changedFields: ["unknown"])
         if case .success = AppearanceSyncClient.encode(bad) { XCTFail("Unknown field must not be persisted") }
@@ -123,4 +138,22 @@ private final class Repair66CaptureBackend: AppearanceSyncBackend {
     func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
         lock.lock(); self.data = data; lock.unlock(); return .success("fixture")
     }
+}
+
+@MainActor private final class Repair66EnglishDocument: KeyboardDocument {
+    let contextBefore = "", contextAfter = "", selectedText = "", documentIdentity = UUID().uuidString
+    let enterTitle = "换行", needsGlobe = false, fullAccess = false, prefersEnglish = true
+    let capitalization = UITextAutocapitalizationType.none
+    func insert(_ text: String) {}
+    func deleteBackward() {}
+    func moveCursor(_ offset: Int) {}
+    func beginTrackpad() {}
+    func trackCursor(translation: CGPoint) {}
+    func endTrackpad() {}
+    func nextKeyboard() {}
+    func setMarkedText(_ text: String) {}
+    func commitMarkedText(_ text: String) {}
+    func unmarkText() {}
+    func clearInput() -> DeletedInput? { nil }
+    func restoreInput(_ value: DeletedInput) -> Bool { false }
 }

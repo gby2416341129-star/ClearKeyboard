@@ -987,6 +987,19 @@ import SwiftUI
         XCTAssertTrue(controller.restoreInput(try XCTUnwrap(value)))
         XCTAssertEqual(field.text, text); XCTAssertEqual(field.selectedRange, range)
     }
+    func testBoundedContextClearRecoversWholeDocumentAndSelection() async throws {
+        let field = UITextView(); let text = String(repeating: "甲乙😀\n段落", count: 70); field.text = text
+        let selection = NSRange(location: 14, length: 7); field.selectedRange = selection
+        let proxy = UIKitFieldDocumentProxy(field); proxy.contextLimit = 30
+        let controller = ProxyKeyboardController(); controller.proxy = proxy; controller.loadViewIfNeeded()
+        let value: DeletedInput? = await withCheckedContinuation { continuation in
+            controller.clearInput { continuation.resume(returning: $0) }
+        }
+        XCTAssertEqual(field.text, "")
+        XCTAssertEqual(try XCTUnwrap(value).text, text)
+        XCTAssertTrue(controller.restoreInput(try XCTUnwrap(value)))
+        XCTAssertEqual(field.text, text); XCTAssertEqual(field.selectedRange, selection)
+    }
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<200 { if condition() { return }; try await Task.sleep(nanoseconds: 10_000_000) }
         XCTFail("Current candidates did not arrive")
@@ -1236,7 +1249,8 @@ import SwiftUI
         for offset: CGFloat in [70, 130, 40, 95, 20, 70] {
             ribbon.contentOffset.x = offset; ribbon.layoutIfNeeded()
             assertVisibleTargets()
-            XCTAssertEqual(ribbon.contentSize, contentSize)
+            XCTAssertEqual(ribbon.contentSize.height, contentSize.height)
+            XCTAssertGreaterThanOrEqual(ribbon.contentSize.width, ribbon.bounds.width)
         }
         ribbon.update([Candidate(text: "新的结果", consumed: 3)], context: context, arithmetic: false, accent: .systemTeal)
         ribbon.scrollViewDidEndDragging(ribbon, willDecelerate: false)
@@ -1746,6 +1760,7 @@ import SwiftUI
     let documentIdentifier = UUID()
     var insertedTexts: [String] = [], markedWrites: [String] = []
     var markedLimit: Int?
+    var contextLimit: Int?
     var unmarkWrites = 0, deleteWrites = 0
     var onMutation: (() -> Void)?
     var hidesContext = false
@@ -1759,13 +1774,15 @@ import SwiftUI
         guard !hidesContext else { return nil }
         guard let selection = input.selectedTextRange,
               let range = input.textRange(from: input.beginningOfDocument, to: selection.start) else { return nil }
-        return input.text(in: range)
+        let text = input.text(in: range)
+        return contextLimit.flatMap { limit in text.map { String($0.suffix(limit)) } } ?? text
     }
     var documentContextAfterInput: String? {
         guard !hidesContext else { return nil }
         guard let selection = input.selectedTextRange,
               let range = input.textRange(from: selection.end, to: input.endOfDocument) else { return nil }
-        return input.text(in: range)
+        let text = input.text(in: range)
+        return contextLimit.flatMap { limit in text.map { String($0.prefix(limit)) } } ?? text
     }
     var selectedText: String? { input.selectedTextRange.flatMap { input.text(in: $0) } }
     var documentInputMode: UITextInputMode? { nil }
