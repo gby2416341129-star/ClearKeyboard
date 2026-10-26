@@ -3,6 +3,10 @@ on:
   workflow_dispatch:
   push:
     branches: [npu/qwen35-08b-calibrated-q4]
+    paths-ignore:
+      - '.github/workflows/artifact-delivery.yml'
+      - 'README.md'
+      - 'Evidence/**'
 permissions:
   contents: read
 concurrency:

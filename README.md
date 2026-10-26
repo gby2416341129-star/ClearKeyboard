@@ -4,21 +4,21 @@
 
 ## 4-bit 方案
 
-从 Qwen 原始 BF16 权重直接校准，主体采用 LUT4；首尾层及需要提升精度的矩阵采用 LUT6，小型递归门控保留浮点。词嵌入和输出层采用逐行 INT8，词嵌入文件为 254,776,320 bytes。这里的“4-bit”指主体混合精度方案，并非每个参数都占 4 bit。
+从 Qwen 原始 BF16 权重直接校准，主体逐输出通道使用独立 LUT4 码表；首尾层及需要提升精度的矩阵采用 LUT6，小型递归门控保留浮点。词嵌入和输出层采用逐行 INT8，词嵌入文件为 254,776,320 bytes。这里的“4-bit”指主体混合精度方案，并非每个参数都占 4 bit。
 
 128 条合成校准样本和 32 条数值验证样本使用当前键盘的 ChatML 提示格式。验证集用于选择混合精度配置，不能作为独立的输入法准确率基准；此过程不属于输入法专项微调。
 
-最终模型目录为 `Models/Qwen3.5-0.8B-IME-Q4`。只有生成 `model-info.json`、四个 `chunk_*.mlpackage` 和对应验证记录后，才代表转换完成。实际大小见 `model-info.json`。本地旧目录 `qwen3_5_0_8b_decode_chunks_mlkv` 是 1.262 GB 的 8-bit 比较基线，不进入本次 App。
+最终模型目录为 `Models/Qwen3.5-0.8B-IME-Q4`。只有生成 `model-info.json`、四个 `chunk_*.mlpackage` 和对应验证记录后，才代表转换完成。已通过数值门槛和四块模型导出，实际约 818 MB；云端 iPhone arm64 编译通过。大小明细见 `model-info.json`。本地旧目录 `qwen3_5_0_8b_decode_chunks_mlkv` 是 1.262 GB 的 8-bit 比较基线，不进入本次 App。
 
 ## 云端构建
 
 `.github/workflows/iphone-ane-probe.yml` 在 Linux 完成校准及可移植模型导出，再由云端 Mac 编译 arm64 iPhone 验证 App。模型、转换记录、未签名 IPA 分别作为 Actions 产物保存。未签名 IPA 需要有效签名后才能安装；云端编译成功不能替代 iPhone 执行。
 
-当前转换任务：[GitHub Actions](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/40381368905)。最新状态以该任务及 `Evidence/preparation-status.json` 为准。
+当前转换任务：[GitHub Actions](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/40387279417)。最新状态以该任务及 `Evidence/preparation-status.json` 为准。
 
 ## 接入接口
 
-`QwenANE.logits(for: [Int32])` 返回完整 248,320 词表的原始分数。主项目提供匹配 tokenizer 和现有候选解码逻辑。连续追加复用 KV/SSM；改写、退格、上下文变化会重置重放。取消在 token/chunk 边界生效。
+`QwenANE.logits(for: [Int32])` 返回完整 248,320 词表的原始分数。主项目提供现有候选解码逻辑；本地交付包的 `Tokenizer/` 提供同一原始版本的 tokenizer（约 12.8 MB）。GitHub 源码构建可从固定的 Qwen 原始版本取得这些文件。连续追加复用 KV/SSM；改写、退格、上下文变化会重置重放。取消在 token/chunk 边界生效。
 
 采用公开 iOS 18+ Core ML API，配置为 `.cpuAndNeuralEngine`。它允许 CPU 与 ANE，不能据此宣称所有运算都在 NPU。没有重复惩罚或采样修补来掩盖输出偏差。
 
