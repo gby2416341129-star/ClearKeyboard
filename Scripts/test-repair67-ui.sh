@@ -30,6 +30,8 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
 RESULT=${PIPESTATUS[0]}
 set -e
 xcrun xcresulttool get test-results summary --path .build/CurrentRoundUIResults.xcresult > .build/CurrentRoundUI/summary.json || true
+xcrun xcresulttool get test-results tests --path .build/CurrentRoundUIResults.xcresult > .build/CurrentRoundUI/tests.json || true
+if [ "$RESULT" -ne 0 ]; then cat .build/CurrentRoundUI/tests.json; fi
 xcrun xcresulttool export attachments --path .build/CurrentRoundUIResults.xcresult --output-path .build/CurrentRoundUI/Images || true
 xcrun simctl spawn "$DEVICE" log show --last 10m --style compact --predicate 'process == "ClearKeyboardExtension"' > .build/CurrentRoundUI/extension.log 2>&1 || true
 xcrun simctl spawn "$DEVICE" log show --last 10m --style compact --predicate 'eventMessage CONTAINS "com.example.clearkeyboard.Keyboard" AND (process == "SpringBoard" OR process == "runningboardd")' > .build/CurrentRoundUI/extension-host.log 2>&1 || true

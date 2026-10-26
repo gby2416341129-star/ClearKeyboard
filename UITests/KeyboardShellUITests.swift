@@ -615,8 +615,8 @@ import UIKit
         XCTAssertTrue(done.isEnabled); done.tap()
         expectHost(original + "#E3AC72", "Finishing selection must preserve text without inserting it twice")
         XCTAssertTrue(key(safari, "j").waitForExistence(timeout: 5), "Finishing selection must restore the letter keyboard")
-        let erase = safari.buttons.matching(NSPredicate(format: "label == %@", "删除")).firstMatch
-        XCTAssertTrue(erase.waitForExistence(timeout: 3))
+        let erase = control(safari, "key.⌫")
+        XCTAssertTrue(erase.waitForExistence(timeout: 3), "The actual extension delete key must be available before clear/undo gestures")
         let eraseCenter = erase.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         eraseCenter.press(forDuration: 0.05, thenDragTo: eraseCenter.withOffset(CGVector(dx: 0, dy: -42)))
         expectHost("", "Delete swipe up must clear the field")
