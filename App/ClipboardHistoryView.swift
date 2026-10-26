@@ -18,37 +18,83 @@ import UniformTypeIdentifiers
     }
 }
 
+private struct ClipboardDay: Identifiable {
+    let id: Date
+    let clips: [Clip]
+}
+
 struct ClipboardHistoryView: View {
     @StateObject private var model = ClipboardHistoryModel()
-    @State private var selected: Clip?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             AppSectionTitle(title: "复制记录", caption: "")
             if model.clips.isEmpty {
                 Text("暂无复制记录").font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 4)
             } else {
-                LazyVStack(spacing: 10) {
-                    ForEach(model.clips) { clip in
-                        Button { selected = clip } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text(clip.attachment == nil ? "文字" : "图片与附件").font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                    if clip.pinned { Image(systemName: "pin.fill").font(.caption) }
-                                    Text(clip.createdAt, style: .date).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Text(clip.text.isEmpty ? "查看附件" : clip.text).font(.system(size: 15))
-                                    .foregroundStyle(.primary).lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
-                            }.padding(16).modifier(LiquidCard(radius: 18))
-                        }.buttonStyle(AppRowButtonStyle()).accessibilityIdentifier("clipboard.history." + clip.id.uuidString)
+                AppCard {
+                    AppNavigationLink { ClipboardHistoryTimeline(model: model) } label: {
+                        AppRow(title: "全部复制记录", detail: "\(model.clips.count) 条 · 按日期", symbol: "doc.on.clipboard")
                     }
-                }
+                }.buttonStyle(.plain)
             }
         }.onAppear { model.reload() }
             .onReceive(NotificationCenter.default.publisher(for: ClipboardStore.changed)) { _ in model.reload() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in model.reload() }
-            .sheet(item: $selected) { ClipboardHistoryDetail(clip: $0) }
             .accessibilityIdentifier("clipboard.history")
+    }
+}
+
+private struct ClipboardHistoryTimeline: View {
+    @ObservedObject var model: ClipboardHistoryModel
+    @State private var selected: Clip?
+    private static let date: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy年M月d日"; return f }()
+    private static let time: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
+    private var days: [ClipboardDay] {
+        let grouped = Dictionary(grouping: model.clips) { Calendar.current.startOfDay(for: $0.createdAt) }
+        return grouped.keys.sorted(by: >).map { ClipboardDay(id: $0, clips: grouped[$0, default: []].sorted { $0.createdAt > $1.createdAt }) }
+    }
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12, pinnedViews: [.sectionHeaders]) {
+                    ForEach(days) { day in
+                        Section {
+                            ForEach(day.clips) { clip in
+                                Button { selected = clip } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack {
+                                            Text(clip.attachment == nil ? "文字" : "图片与附件")
+                                            Spacer()
+                                            if clip.pinned { Image(systemName: "pin.fill") }
+                                            Text(Self.time.string(from: clip.createdAt)).monospacedDigit()
+                                        }.font(.caption).foregroundStyle(.secondary)
+                                        Text(clip.text.isEmpty ? "查看附件" : String(clip.text.prefix(180)))
+                                            .font(.system(size: 15)).foregroundStyle(.primary).lineLimit(4)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }.padding(16).modifier(LiquidCard(radius: 18))
+                                }.buttonStyle(AppRowButtonStyle()).accessibilityIdentifier("clipboard.history." + clip.id.uuidString)
+                            }
+                        } header: {
+                            Text(Self.date.string(from: day.id)).font(.system(size: 16, weight: .semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 12)
+                                .background(AppPalette.canvas)
+                        }.id(day.id)
+                    }
+                }.padding(.horizontal, 20).padding(.bottom, 110)
+            }.background(AppPalette.canvas)
+                .navigationTitle("复制记录").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            ForEach(days) { day in
+                                Button(Self.date.string(from: day.id)) {
+                                    withAnimation(.easeInOut(duration: 0.24)) { proxy.scrollTo(day.id, anchor: .top) }
+                                }
+                            }
+                        } label: { Image(systemName: "calendar") }.accessibilityLabel("按日期定位复制记录")
+                    }
+                }
+        }.sheet(item: $selected) { ClipboardHistoryDetail(clip: $0) }.onAppear { model.reload() }
     }
 }
 

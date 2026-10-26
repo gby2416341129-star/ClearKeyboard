@@ -186,13 +186,14 @@ import CoreImage
         let image = animation == .blur ? inkSnapshot(blurred: true) : nil
         inkAnimator?.stopAnimation(true)
         inkBlur.image = image
-        inkBlur.frame = bounds; inkBlur.alpha = animation == .blur ? 0.80 : 0
-        strip.alpha = animation == .blur ? 0.20 : 0.35
+        inkBlur.frame = bounds; inkBlur.alpha = animation == .blur ? 0.28 : 0
+        strip.alpha = 1
+        buttons.forEach { $0.setInkOpacity(animation == .blur ? 0.72 : 0.86) }
         let animator = UIViewPropertyAnimator(duration: 0.18, curve: .easeOut) { [weak self] in
-            self?.inkBlur.alpha = 0; self?.strip.alpha = 1
+            self?.inkBlur.alpha = 0; self?.strip.alpha = 1; self?.buttons.forEach { $0.setInkOpacity(1) }
         }
         animator.addCompletion { [weak self] _ in
-            self?.inkBlur.image = nil; self?.inkBlur.alpha = 0; self?.strip.alpha = 1
+            self?.inkBlur.image = nil; self?.inkBlur.alpha = 0; self?.strip.alpha = 1; self?.buttons.forEach { $0.setInkOpacity(1) }
         }
         inkAnimator = animator; animator.startAnimation()
     }
@@ -548,6 +549,7 @@ import CoreImage
         measuredWidths.setObject(NSNumber(value: Double(width)), forKey: key)
         return width
     }
+    func setInkOpacity(_ value: CGFloat) { label.alpha = value }
     func drawInk(in context: CGContext, relativeTo view: UIView) {
         layoutIfNeeded()
         let rect = label.convert(label.bounds, to: view).offsetBy(dx: -view.bounds.minX, dy: -view.bounds.minY)
@@ -627,7 +629,7 @@ import CoreImage
         layer.removeAnimation(forKey: "candidateCellPosition")
         label.layer.removeAnimation(forKey: "candidateText")
         label.layer.removeAnimation(forKey: "candidateTextPosition")
-        label.layer.opacity = 1; label.layer.transform = CATransform3DIdentity
+        label.alpha = 1; label.layer.opacity = 1; label.layer.transform = CATransform3DIdentity
         transitionDeadline = 0
     }
     override func accessibilityActivate() -> Bool {

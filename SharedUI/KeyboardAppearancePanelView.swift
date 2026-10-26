@@ -17,10 +17,15 @@ import UIKit
     private var colorSliders: [UISlider] = []
     private var swatches: [(UIButton, String)] = []
     private var reset: UIButton?
+    private var workspace: UIView?
+    private var leftControls: UIStackView?
+    private var rightControls: UIStackView?
+    private var workspaceHeight: NSLayoutConstraint?
+    private var sideOptions: [(UIButton, (KeyboardSettings) -> Bool)] = []
     init(current: @escaping () -> KeyboardSettings, save: @escaping (KeyboardSettings) -> Void) {
         self.current = current; self.save = save
         super.init(frame: .zero)
-        backgroundColor = UIColor(white: 0.5, alpha: 0.01)
+        backgroundColor = .clear
         accessibilityIdentifier = "keyboard.appearance.panel"
         scroll.delaysContentTouches = false; addSubview(scroll)
         stack.axis = .vertical; stack.spacing = 10; stack.translatesAutoresizingMaskIntoConstraints = false
@@ -36,7 +41,23 @@ import UIKit
         show(nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
-    override func layoutSubviews() { super.layoutSubviews(); scroll.frame = bounds }
+    override func layoutSubviews() {
+        super.layoutSubviews(); scroll.frame = bounds
+        guard let workspace, let leftControls, let rightControls else { return }
+        let height = max(138, bounds.height - 78)
+        if workspaceHeight?.constant != height { workspaceHeight?.constant = height }
+        stack.layoutIfNeeded()
+        let width = max(0, bounds.width - 20), leftWidth = min(64, width * 0.19), rightWidth = min(112, width * 0.30)
+        let gap: CGFloat = 8
+        func place(_ view: UIStackView, x: CGFloat, width: CGFloat) {
+            let size = view.systemLayoutSizeFitting(CGSize(width: width, height: height), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+            let h = min(height, size.height)
+            view.frame = CGRect(x: x, y: max(0, (height - h) / 2), width: width, height: h)
+        }
+        place(leftControls, x: 0, width: leftWidth)
+        place(rightControls, x: width - rightWidth, width: rightWidth)
+        preview.frame = CGRect(x: leftWidth + gap, y: 0, width: max(0, width - leftWidth - rightWidth - gap * 2), height: height)
+    }
     private func button(_ title: String, symbol: String?, identifier: String, action: @escaping () -> Void) -> UIButton {
         var config = UIButton.Configuration.plain()
         config.title = title; config.baseForegroundColor = .label
@@ -55,6 +76,7 @@ import UIKit
     }
     func show(_ item: AppearanceItem?) {
         if selected == item, !stack.arrangedSubviews.isEmpty { return }
+        workspace = nil; leftControls = nil; rightControls = nil; workspaceHeight = nil; sideOptions = []
         selected = item; strength = nil; sizes = nil; animations = nil; colorSliders = []; swatches = []; reset = nil
         stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
         scroll.setContentOffset(.zero, animated: false)
@@ -94,7 +116,7 @@ import UIKit
         case .keyColor, .candidateColor:
             let row = UIStackView(); row.spacing = 8; row.distribution = .fillEqually
             for hex in ["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"] {
-                let value = UIButton(type: .system); value.backgroundColor = KeyboardSettings.color(hex: hex)
+                let value = FeedbackButton(type: .system); value.backgroundColor = KeyboardSettings.color(hex: hex)
                 value.layer.cornerRadius = 12; value.heightAnchor.constraint(equalToConstant: 34).isActive = true
                 value.accessibilityLabel = hex; value.accessibilityIdentifier = "keyboard.swatch." + hex
                 value.addAction(UIAction { [weak self] _ in self?.setColor(hex) }, for: .touchUpInside)
@@ -131,7 +153,61 @@ import UIKit
                 }
             }
         }
-        self.reset = reset; stack.addArrangedSubview(reset); apply(current())
+        self.reset = reset; stack.addArrangedSubview(reset); arrangeWorkspace(item); apply(current())
+    }
+    private func sideButton(_ title: String, selected: @escaping (KeyboardSettings) -> Bool = { _ in false }, action: @escaping () -> Void) -> UIButton {
+        var config = UIButton.Configuration.filled(); config.title = title
+        config.baseBackgroundColor = .secondarySystemFill; config.baseForegroundColor = .label
+        config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 2, bottom: 4, trailing: 2)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in
+            var next = values; next.font = .systemFont(ofSize: 12, weight: .medium); return next
+        }
+        let value = FeedbackButton(configuration: config, primaryAction: UIAction { [weak self] _ in
+            if let self { KeyboardVibration.shared.attach(to: self); KeyboardVibration.shared.pulseInterface() }; action()
+        })
+        value.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        sideOptions.append((value, selected)); return value
+    }
+    private func arrangeWorkspace(_ item: AppearanceItem) {
+        let controls = Array(stack.arrangedSubviews.dropFirst(2))
+        stack.removeArrangedSubview(preview); preview.removeFromSuperview()
+        for constraint in preview.constraints where constraint.firstAttribute == .height { constraint.isActive = false }
+        for view in controls { stack.removeArrangedSubview(view); view.removeFromSuperview() }
+        let area = UIView(); area.backgroundColor = .clear
+        let left = UIStackView(), right = UIStackView()
+        left.axis = .vertical; left.spacing = 4; right.axis = .vertical; right.spacing = 6
+        area.addSubview(left); area.addSubview(preview); area.addSubview(right)
+        workspace = area; leftControls = left; rightControls = right
+        let height = area.heightAnchor.constraint(equalToConstant: 146); height.isActive = true; workspaceHeight = height
+        stack.addArrangedSubview(area)
+        switch item {
+        case .keyColor, .candidateColor:
+            for start in stride(from: 0, to: swatches.count, by: 2) {
+                let row = UIStackView(); row.axis = .horizontal; row.spacing = 6; row.distribution = .fillEqually
+                for index in start..<min(start + 2, swatches.count) {
+                    let button = swatches[index].0
+                    (button.superview as? UIStackView)?.removeArrangedSubview(button); button.removeFromSuperview(); row.addArrangedSubview(button)
+                }
+                left.addArrangedSubview(row)
+            }
+            for view in controls.dropFirst().dropLast() { right.addArrangedSubview(view) }
+        case .keyGlass:
+            for (title, amount) in [("清透", 0.9), ("均衡", 0.55), ("质感", 0.15)] {
+                left.addArrangedSubview(sideButton(title, selected: { abs($0.resolvedKeyGlassStrength - amount) < 0.01 }) { [weak self] in self?.edit { $0.keyGlassStrength = amount } })
+            }
+            if let strength { right.addArrangedSubview(strength) }
+        case .candidateSize:
+            sizes = nil; animations = nil
+            for size in CandidateTextSize.allCases {
+                left.addArrangedSubview(sideButton(size.title, selected: { $0.resolvedCandidateTextSize == size }) { [weak self] in self?.edit { $0.candidateTextSize = size } })
+            }
+            let label = UILabel(); label.text = "候选动画"; label.font = .systemFont(ofSize: 12, weight: .medium); right.addArrangedSubview(label)
+            for animation in CandidateAnimation.allCases {
+                right.addArrangedSubview(sideButton(animation.shortTitle, selected: { $0.resolvedCandidateAnimation == animation }) { [weak self] in self?.edit { $0.candidateAnimation = animation } })
+            }
+        }
+        left.addArrangedSubview(sideButton("还原") { [weak self] in self?.reset?.sendActions(for: .touchUpInside) })
+        setNeedsLayout()
     }
     private static func resetAnimation() -> CAAnimation {
         let turn = CABasicAnimation(keyPath: "transform.rotation.z")
@@ -160,6 +236,11 @@ import UIKit
     func apply(_ settings: KeyboardSettings) {
         guard let selected else { return }
         preview.apply(settings)
+        for (button, selected) in sideOptions {
+            let active = selected(settings)
+            button.configuration?.baseBackgroundColor = active ? tintColor.withAlphaComponent(0.22) : .secondarySystemFill
+            button.accessibilityTraits = active ? [.button, .selected] : .button
+        }
         strength?.configure(title: "通透强度", value: settings.resolvedKeyGlassStrength, range: 0...1, defaultValue: 0.55,
                             identifier: "keyboard.appearance.strength", percent: true)
         sizes?.selectedSegmentIndex = CandidateTextSize.allCases.firstIndex(of: settings.resolvedCandidateTextSize) ?? 1

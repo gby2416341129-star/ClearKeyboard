@@ -749,7 +749,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func beginClipboardSelection() -> ClipboardTextSession? {
         beginDocumentEdit(); defer { endDocumentEdit() }
         if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
-        guard let document, document.selectedText.isEmpty else { return nil }
+        guard let document else { return nil }
         return ClipboardTextSession(document: document)
     }
     @discardableResult func updateClipboardSelection(_ session: ClipboardTextSession, text: String) -> Bool {

@@ -186,6 +186,7 @@ import CoreImage
     private let edgeInk = UIImageView()
     private let compatibilityCheck = CAShapeLayer()
     private var compatibilityEnabled = false
+    private var edgeAmount: Float = -1
     private var symbol = ""
     init(symbol: String) {
         super.init(frame: .zero)
@@ -226,6 +227,7 @@ import CoreImage
     }
     func softenEdge(_ amount: CGFloat) {
         let blend = Float(min(1, max(0, amount)))
+        guard abs(blend - edgeAmount) > 0.002 else { return }; edgeAmount = blend
         CATransaction.begin(); CATransaction.setDisableActions(true)
         ink.layer.opacity = 1 - blend; edgeInk.layer.opacity = blend
         CATransaction.commit()
@@ -263,6 +265,15 @@ struct ToolIcon: UIViewRepresentable {
     var pendingOffset: CGFloat? { didSet { if pendingOffset != nil { setNeedsLayout() } } }
     var expectedContentWidth: CGFloat = 0 { didSet { if expectedContentWidth != oldValue { setNeedsLayout() } } }
     var edgeIcons: [ToolIconView] = []
+    var loopPeriod: CGFloat = 0
+    var loopCenter: CGFloat = 0
+    var isLooping: Bool { loopPeriod > 0 }
+    var phaseOffset: CGFloat {
+        guard loopPeriod > 0 else { return contentOffset.x }
+        let phase = (contentOffset.x - loopCenter).truncatingRemainder(dividingBy: loopPeriod)
+        return phase < 0 ? phase + loopPeriod : phase
+    }
+    private var recentering = false
     private let edgeMask = CAGradientLayer()
     private let verticalMask = CAGradientLayer()
     override func layoutSubviews() {
@@ -274,6 +285,11 @@ struct ToolIcon: UIViewRepresentable {
             pendingOffset = nil
             setContentOffset(CGPoint(x: clampedOffset(saved), y: 0), animated: false)
         }
+        if isLooping, !recentering, bounds.width > 0, abs(contentOffset.x - loopCenter) > loopPeriod {
+            recentering = true
+            contentOffset.x = loopCenter + phaseOffset
+            recentering = false
+        }
         updateEdges()
     }
     func clampedOffset(_ proposed: CGFloat) -> CGFloat {
@@ -282,7 +298,7 @@ struct ToolIcon: UIViewRepresentable {
     func refreshEdgeAppearance() { updateEdges() }
     private func updateEdges() {
         let overflow = max(0, expectedContentWidth - bounds.width)
-        let left = contentOffset.x > 0.5, right = contentOffset.x < overflow - 0.5 || contentOffset.x < -0.5
+        let left = isLooping || contentOffset.x > 0.5, right = isLooping || contentOffset.x < overflow - 0.5 || contentOffset.x < -0.5
         let fade = min(26, bounds.width / 3)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if bounds.width > 0 {

@@ -1,4 +1,4 @@
-name: Repair 71 keyboard motion, background and haptics IPA
+name: Repair 72 recorded fixes, looping toolbar and tap effects IPA
 on:
   push:
     branches: [codex/repair67-20261026]

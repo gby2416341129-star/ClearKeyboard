@@ -445,10 +445,22 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         }
     }
     func validateClipboardSelection(before: String, after: String, identity: String) -> Bool {
-        guard hostWriteDepth == 0 else { return false }
+        guard hostWriteDepth == 0, identity == documentIdentity,
+              before == contextBefore, after == contextAfter else { return false }
         let read = readHostSnapshot()
-        let expected = HostTextSnapshot(before: before, after: after, document: identity)
-        return read.connected && hostState.accepts(expected, actual: read.snapshot)
+        if read.connected, read.snapshot.document != identity { return false }
+        // Some live editors return nil contexts while the keyboard panel owns
+        // the finger. A nil read is not an empty field or a revoked insertion.
+        // Keep our synchronous edit ledger instead of rejecting every selected
+        // word; real field/caret notifications still invalidate the session.
+        guard read.connected, read.snapshot.available else {
+            needsHostRefresh = true; scheduleHostRefresh()
+            return hostActive && identity != "disconnected"
+        }
+        let expected = HostTextSnapshot(before: before, after: after, selected: selectedText, document: identity)
+        let valid = expected == read.snapshot || hostState.accepts(expected, actual: read.snapshot)
+        if valid { candidateSelectionNeedsValidation = false }
+        return valid
     }
     func replaceClipboardSelection(_ text: String, previous: String) -> Bool {
         guard previous.isEmpty || clipboardSelectionActive,

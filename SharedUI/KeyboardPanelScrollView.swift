@@ -1,10 +1,10 @@
 import UIKit
 
 @MainActor extension UIScrollView {
-    /// Remote keyboard hosts may reject contacts on entirely clear pixels before
-    /// UIKit sees them. Paint the complete viewport, not just its controls.
+    /// The keyboard root provides continuous receiving coverage. Local scroll
+    /// view films create rectangular background seams inside that surface.
     func prepareForKeyboardPanel() {
-        backgroundColor = UIColor(white: 0.5, alpha: 0.01); isOpaque = false
+        backgroundColor = .clear; isOpaque = false
         delaysContentTouches = false; canCancelContentTouches = true
         alwaysBounceVertical = true; alwaysBounceHorizontal = false
         showsVerticalScrollIndicator = false; scrollsToTop = false

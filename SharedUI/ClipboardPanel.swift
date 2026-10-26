@@ -14,7 +14,6 @@ import ImageIO
     private let more = UIButton(type: .system)
     private let send = UIButton(type: .system)
     private let empty = UILabel()
-    private let pasteControl: ClipboardPasteButton
     private var manualReadFailed = false
     private let table = UITableView(frame: .zero, style: .plain)
     private let words = UICollectionView(frame: .zero, collectionViewLayout: ClipboardTokenLayout())
@@ -30,6 +29,8 @@ import ImageIO
     private var selectionPoint: CGPoint?
     private var selectionTimestamp: CFTimeInterval = 0
     private var pendingHostSelection: Set<Int>?
+    private var selectionRetry: DispatchWorkItem?
+    private var selectionRetries = 0
     var onClose: (() -> Void)?
     var onSelectionStateChanged: (() -> Void)?
     var isChoosing: Bool { selectionSource != nil }
@@ -38,15 +39,13 @@ import ImageIO
     init(model: KeyboardModel, showPhrases: Bool = false, completionInToolbar: Bool = false) {
         self.model = model
         self.completionInToolbar = completionInToolbar
-        pasteControl = ClipboardPasteButton(capture: model.clipboardCapture)
         url = SharedStorage.clipboardURL(allowShared: true)
         phrasesURL = url.deletingLastPathComponent().appendingPathComponent("common-phrases.json")
         store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL)
         super.init(frame: .zero)
         accessibilityIdentifier = "clipboard.panel"
-        [tabs, more, table, words, empty, pasteControl].forEach(addSubview)
+        [tabs, more, table, words, empty].forEach(addSubview)
         if !completionInToolbar { addSubview(send) }
-        pasteControl.isUserInteractionEnabled = model.document?.fullAccess == true
         tabs.accessibilityIdentifier = "clipboard.tabs"
         tabs.selectedSegmentIndex = showPhrases ? 1 : 0
         tabs.addAction(UIAction { [weak self] _ in self?.reload() }, for: .valueChanged)
@@ -84,9 +83,8 @@ import ImageIO
     override func layoutSubviews() {
         super.layoutSubviews()
         more.frame = CGRect(x: bounds.width - 34, y: 5, width: 34, height: 34)
-        let showPaste = !isChoosing && tabs.selectedSegmentIndex == 0 && model.document?.fullAccess == true
-        tabs.frame = CGRect(x: showPaste ? 8 : max(8, (bounds.width - 164) / 2), y: 7,
-                            width: min(164, max(0, bounds.width - (showPaste ? 174 : 80))), height: 31)
+        let tabWidth = min(184, max(0, bounds.width - 88))
+        tabs.frame = CGRect(x: (bounds.width - tabWidth) / 2, y: 7, width: tabWidth, height: 31)
         send.frame = CGRect(x: bounds.width - 56, y: 5, width: 56, height: 34)
         let top: CGFloat = isChoosing && completionInToolbar ? 4 : 51
         let content = CGRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
@@ -95,7 +93,6 @@ import ImageIO
         words.frame = content
         let recoveryY = recoveryFooter ? content.maxY - 82 : content.midY - 44
         empty.frame = CGRect(x: 8, y: recoveryY, width: max(0, bounds.width - 16), height: 34)
-        pasteControl.frame = CGRect(x: max(0, bounds.width - 158), y: 3, width: 114, height: 38)
     }
     func reloadFromDisk(clearRecovery: Bool = true) {
         if clearRecovery { manualReadFailed = false }
@@ -109,7 +106,6 @@ import ImageIO
         send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
         empty.isHidden = choosing || !items.isEmpty
         empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : "暂无复制内容，可粘贴收录"
-        pasteControl.isHidden = choosing || tabs.selectedSegmentIndex == 1 || model.document?.fullAccess != true
         more.menu = overflowMenu()
         table.reloadData(); words.reloadData(); setNeedsLayout(); onSelectionStateChanged?()
     }
@@ -196,7 +192,7 @@ import ImageIO
         endSelection(); onClose?()
     }
     func endSelection() {
-        flushHostSelection(); stopSelectionUpdates()
+        flushHostSelection(); selectionRetry?.cancel(); selectionRetry = nil; stopSelectionUpdates()
         selectionSession?.finish(); selectionSession = nil
         model.refreshCandidates()
     }
@@ -221,6 +217,7 @@ import ImageIO
         guard selectionSource != nil, indices != selectedTokens else { return true }
         let changed = selectedTokens.symmetricDifference(indices)
         let wasEmpty = selectedTokens.isEmpty
+        selectionRetry?.cancel(); selectionRetries = 0
         selectedTokens = indices; pendingHostSelection = indices
         for case let cell as ClipboardTokenCell in words.visibleCells {
             if let index = words.indexPath(for: cell)?.item, changed.contains(index) { configure(cell, at: index) }
@@ -233,8 +230,18 @@ import ImageIO
     @discardableResult private func flushHostSelection() -> Bool {
         guard let indices = pendingHostSelection, let source = selectionSource, let session = selectionSession else { return true }
         let text = ClipboardSelection.text(source, tokens: tokens, selected: indices)
-        guard model.updateClipboardSelection(session, text: text) else { return false }
-        pendingHostSelection = nil
+        guard model.updateClipboardSelection(session, text: text) else {
+            if selectionRetries < 3 {
+                selectionRetries += 1; selectionRetry?.cancel()
+                let retry = DispatchWorkItem { [weak self, weak session] in
+                    guard let self, self.selectionSession === session else { return }
+                    self.flushHostSelection()
+                }
+                selectionRetry = retry; DispatchQueue.main.asyncAfter(deadline: .now() + 0.03 * Double(selectionRetries), execute: retry)
+            }
+            return false
+        }
+        pendingHostSelection = nil; selectionRetry?.cancel(); selectionRetry = nil; selectionRetries = 0
         return true
     }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
