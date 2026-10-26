@@ -8,13 +8,13 @@
 
 128 条合成校准样本和 32 条数值验证样本使用当前键盘的 ChatML 提示格式。验证集用于选择混合精度配置，不能作为独立的输入法准确率基准；此过程不属于输入法专项微调。
 
-最终模型目录为 `Models/Qwen3.5-0.8B-IME-Q4`。只有生成 `model-info.json`、四个 `chunk_*.mlpackage` 和对应验证记录后，才代表转换完成。已通过数值门槛和四块模型导出，实际约 818 MB；云端 iPhone arm64 编译通过。大小明细见 `model-info.json`。本地旧目录 `qwen3_5_0_8b_decode_chunks_mlkv` 是 1.262 GB 的 8-bit 比较基线，不进入本次 App。
+最终模型目录为 `Models/Qwen3.5-0.8B-IME-Q4`。只有生成 `model-info.json`、四个 `chunk_*.mlpackage` 和对应验证记录后，才代表转换完成。已通过数值门槛和四块模型导出，模型文件实测 817,841,142 bytes（约 818 MB）；独立验证 App 的云端 iPhone arm64 编译通过。大小明细见 `model-info.json`。本地旧目录 `qwen3_5_0_8b_decode_chunks_mlkv` 是 1.262 GB 的 8-bit 比较基线，不进入本次 App。
 
 ## 云端构建
 
 `.github/workflows/iphone-ane-probe.yml` 在 Linux 完成校准及可移植模型导出，再由云端 Mac 编译 arm64 iPhone 验证 App。模型、转换记录、未签名 IPA 分别作为 Actions 产物保存。未签名 IPA 需要有效签名后才能安装；云端编译成功不能替代 iPhone 执行。
 
-当前转换任务：[GitHub Actions](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/40387279417)。最新状态以该任务及 `Evidence/preparation-status.json` 为准。
+已通过的云端构建：[GitHub Actions](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/40387279417)。最新状态以该任务及 `Evidence/preparation-status.json` 为准。
 
 ## 接入接口
 

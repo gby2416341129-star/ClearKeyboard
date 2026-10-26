@@ -8,7 +8,6 @@
   "q4ModelExport": "passed",
   "swiftAppleSDKCompilation": "passed_arm64_iphoneos",
   "precision": "per-row LUT4 body with selected LUT6; gates floating point; embedding and head INT8",
-  "modelBytesBeforeModelInfo": 817840630,
   "old8bitBaselineBytes": 1261991992,
   "numericalGuard": {
     "teacherForcedTop1Agreement": 0.8598130841121495,
@@ -17,8 +16,19 @@
     "passed": true,
     "typingAccuracy": false
   },
-  "localArtifactDownload": "pending_bounded_delivery",
+  "localArtifactDownload": "complete; original model/app archive digests and inner IPA digest verified",
   "iphoneANEExecution": "not_run",
   "keyboardExtensionValidation": "not_run",
-  "typingSpeedAndAccuracyAcceptance": "user_will_validate"
+  "typingSpeedAndAccuracyAcceptance": "user_will_validate",
+  "modelBytes": 817841142,
+  "modelArchiveBytes": 817843930,
+  "modelArchiveSHA256": "c39e5b0c0d9eb9c8f728d772ce2c5f4fd897eb4b5ba96c8f141b2cdb72eef9bf",
+  "unsignedIPABytes": 752430012,
+  "unsignedIPASHA256": "4e4f5dfb8a0723f7a0aa872e71c723f02ba46d268050e7ad292464f96c467d6c",
+  "bodyParameterCoverage": {
+    "4": 353370112,
+    "6": 143654912
+  },
+  "modelFingerprint": "bfdd3e0c1abba67575df670091e957e294a13920780a3f95335a1f98367362f8",
+  "boundedDeliveryRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/40392857287"
 }
