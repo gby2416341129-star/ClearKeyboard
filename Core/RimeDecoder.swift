@@ -41,6 +41,9 @@ final class RimeDecoder {
         session = cr_session()
         guard session != 0 else { throw LexiconError.invalidFormat }
     }
+    // Fuzzy alternatives must not replace the main session's current spelling
+    // and destroy its incremental prefix/context caches on every key.
+    func companion() throws -> RimeDecoder { try RimeDecoder() }
     deinit { cr_destroy(session) }
     func candidates(_ raw: String, limit: Int = 16, correction: Bool = true, context: String = "", cancelled: () -> Bool) -> [Candidate] {
         let backend = CoreMLSentence.shared.revision

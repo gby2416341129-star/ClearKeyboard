@@ -1,4 +1,4 @@
-name: Repair 76 App startup regression and verified cold launch IPA
+name: Repair 77 direct caret, fast feedback and bounded fuzzy typing IPA
 on:
   push:
     branches: [codex/repair67-20261026]
@@ -29,8 +29,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p .build/StartupDiagnostics
-          python3 Scripts/boot_test_simulator.py > .build/StartupDiagnostics/simulator-boot.log 2>&1 &
+          mkdir -p .build/Typing77
+          python3 Scripts/boot_test_simulator.py > .build/Typing77/simulator-boot.log 2>&1 &
           startup_boot_pid=$!
           python3 Scripts/restore_pinned_model.py
           python3 Scripts/prepare_rime.py
@@ -45,14 +45,14 @@ jobs:
         run: |
           swiftc Core/ProxyTrackpad.swift Scripts/check_trackpad_repair.swift -o "$RUNNER_TEMP/trackpad-repair"
           "$RUNNER_TEMP/trackpad-repair"
-      - name: Check App cold launch, tabs and foreground recovery
-        run: python3 Scripts/check_app_startup.py
-      - name: Preserve startup diagnostics
+      - name: Check real UIKit caret, key feedback, full fuzzy typing and startup
+        run: python3 Scripts/check_typing77.py
+      - name: Preserve focused typing diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ClearKeyboard-startup-diagnostics
-          path: .build/StartupDiagnostics
+          name: ClearKeyboard-typing77-diagnostics
+          path: .build/Typing77
           retention-days: 7
       - name: Compile the repaired App and extension for iPhone and package IPA
         run: bash Scripts/build-ipa.sh dist

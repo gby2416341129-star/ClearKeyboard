@@ -365,7 +365,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             let cancelled = { query.token.isCancelled || token.isCancelled }
             guard !cancelled() else { return }
-            let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
+            // The first semantic row never waits for fuzzy expansions. Publish
+            // it first; the bounded fuzzy pass enriches that same query later.
+            let result = engine.candidates(raw, fuzzy: correction && stage >= 2 ? settings.fuzzyPairs : [],
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
                 correction: correction, context: query.preceding, cancelled: cancelled)
             guard !cancelled() else { return }
@@ -376,6 +378,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 guard let self, self.activeCandidates === query, !cancelled() else { return }
                 self.loadingMoreCandidates = false
                 self.presentCandidates(query)
+                if stage == 1, !settings.fuzzyPairs.isEmpty, !cancelled() {
+                    self.scheduleDecoder(query, limit: limit, stage: 2, correction: correction, delay: 0)
+                }
             }
         }
         refinementWork = job
@@ -1002,6 +1007,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 // sentence and replacing it 250 ms later made the row jump and
                 // allowed Space to commit the intermediate, incorrect phrase.
                 scheduleDecoder(query, delay: 0)
+            } else if query.result?.stage == 1, !settings.fuzzyPairs.isEmpty {
+                scheduleDecoder(query, stage: 2, delay: 0)
             }
             return
         }

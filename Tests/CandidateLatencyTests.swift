@@ -1,5 +1,6 @@
 import XCTest
 import CoreGraphics
+import CoreText
 @testable import ClearCore
 
 final class FallbackCandidateLatencyTests: XCTestCase {
@@ -86,13 +87,18 @@ final class FallbackCandidateLatencyTests: XCTestCase {
         XCTAssertEqual(state.offset(translation: CGPoint(x: 0, y: -24)), -4)
         XCTAssertEqual(state.offset(translation: CGPoint(x: 0, y: 24)), 8)
         XCTAssertEqual(state.offset(translation: .zero), -4)
-        XCTAssertEqual(state.offset(translation: CGPoint(x: -6, y: 0)), -1)
+        XCTAssertEqual(state.offset(translation: CGPoint(x: -trackpadWidth("f"), y: 0)), -1)
         XCTAssertEqual(state.offset(translation: CGPoint(x: -.infinity, y: 0)), 0)
     }
     func testProxyTrackpadCountsComposedCharactersAndClamps() {
         var state = ProxyTrackpad(before: "a👨‍👩‍👧‍👦", after: "b")
-        XCTAssertEqual(state.offset(translation: CGPoint(x: -6, y: 0)), -1)
+        XCTAssertEqual(state.offset(translation: CGPoint(x: trackpadWidth("a") - trackpadWidth("a👨‍👩‍👧‍👦"), y: 0)), -1)
         XCTAssertEqual(state.offset(translation: CGPoint(x: 10000, y: 0)), 2)
         XCTAssertEqual(state.offset(translation: CGPoint(x: -10000, y: 0)), -3)
+    }
+    private func trackpadWidth(_ text: String) -> CGFloat {
+        let font = CTFontCreateUIFontForLanguage(.system, 17, nil)!
+        let value = NSAttributedString(string: text, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font])
+        return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(value), nil, nil, nil))
     }
 }

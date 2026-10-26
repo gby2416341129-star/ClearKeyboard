@@ -15,8 +15,6 @@ final class KeyButton: UIButton {
     private var suppressTap = false
     private var cursorMode = false
     private var cursorOrigin = CGPoint.zero
-    private var pendingCursor: CGPoint?
-    private var cursorUpdateLink: UIUpdateLink?
     private var deletionDirection = 0
     private var choiceGesture: UILongPressGestureRecognizer?
     private var choicePopup: KeyChoicePopup?
@@ -38,6 +36,9 @@ final class KeyButton: UIButton {
     private var vibrationMode: VibrationMode = .crisp
     private let vibration: KeyboardVibration
     private var interactionActive = false
+    private var pressBeganAt: CFTimeInterval = 0
+    private var pressRelease: DispatchWorkItem?
+    private var releaseScheduled = false
     private var shiftSymbol = ""
     private var appearanceSettings: KeyboardSettings?
 
@@ -196,6 +197,8 @@ final class KeyButton: UIButton {
     @objc private func down() {
         if !interactionActive { interactionActive = true; onInteractionChanged?(true) }
         didRepeat = false; suppressTap = false
+        pressRelease?.cancel(); pressRelease = nil; releaseScheduled = false
+        pressBeganAt = CACurrentMediaTime()
         pressWash.layer.removeAnimation(forKey: "keyRelease"); pressWash.alpha = 1
         pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.24)
         plate.layer.removeAnimation(forKey: "keySpring")
@@ -219,6 +222,7 @@ final class KeyButton: UIButton {
     }
     @objc private func up() {
         let shouldFire = !didRepeat && !suppressTap && !draggingCursor
+        schedulePressRelease()
         // Keep the contact active through the write and its synchronous host
         // notifications. Releasing first scheduled idle reads that the very
         // same key immediately cancelled and re-created.
@@ -230,6 +234,19 @@ final class KeyButton: UIButton {
         // Do not prematurely cancel its ordered input contact on touchDragExit.
         guard choicePopup == nil else { return }
         repeatStart?.cancel(); repeatTimer?.invalidate(); repeatTimer = nil
+        schedulePressRelease()
+        if interactionActive { interactionActive = false; onInteractionChanged?(false) }
+    }
+    private func schedulePressRelease() {
+        guard !releaseScheduled else { return }
+        releaseScheduled = true
+        let delay = window == nil ? 0 : max(0, 0.045 - (CACurrentMediaTime() - pressBeganAt))
+        if delay == 0 { releasePressAppearance(); return }
+        let release = DispatchWorkItem { [weak self] in self?.releasePressAppearance() }
+        pressRelease = release; DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: release)
+    }
+    private func releasePressAppearance() {
+        pressRelease = nil
         let displayed = plate.layer.presentation()?.transform ?? plate.layer.transform
         plate.transform = .identity; plate.layer.removeAnimation(forKey: "keySpring")
         if (displayed.m11 < 0.999 || abs(displayed.m42) > 0.01), window != nil, !UIAccessibility.isReduceMotionEnabled {
@@ -238,9 +255,9 @@ final class KeyButton: UIButton {
             let depth = CASpringAnimation(keyPath: "transform.translation.y")
             depth.fromValue = displayed.m42; depth.toValue = 0
             for spring in [scale, depth] {
-                spring.mass = 1; spring.stiffness = 660; spring.damping = 29; spring.duration = 0.22
+                spring.mass = 1; spring.stiffness = 1100; spring.damping = 40; spring.duration = 0.12
             }
-            let spring = CAAnimationGroup(); spring.animations = [scale, depth]; spring.duration = 0.22
+            let spring = CAAnimationGroup(); spring.animations = [scale, depth]; spring.duration = 0.12
             let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
             spring.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
             plate.layer.add(spring, forKey: "keySpring")
@@ -252,11 +269,10 @@ final class KeyButton: UIButton {
             let release = CABasicAnimation(keyPath: "opacity")
             let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
             release.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-            release.fromValue = opacity; release.toValue = 0; release.duration = 0.11
+            release.fromValue = opacity; release.toValue = 0; release.duration = 0.07
             release.timingFunction = CAMediaTimingFunction(name: .easeOut)
             pressWash.layer.add(release, forKey: "keyRelease")
         }
-        if interactionActive { interactionActive = false; onInteractionChanged?(false) }
     }
     @objc private func alternativeGesture(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
@@ -289,27 +305,21 @@ final class KeyButton: UIButton {
         let point = gesture.location(in: window)
         switch gesture.state {
         case .began:
-            draggingCursor = true; suppressTap = true; cursorOrigin = point; pendingCursor = nil
+            draggingCursor = true; suppressTap = true; cursorOrigin = point
             // Trackpad entry is a mode-change acknowledgement, independent of typing vibration.
             vibration.attach(to: self); vibration.pulseCursorActivation()
             onCursorBegan?()
-            let link = UIUpdateLink(view: self) { [weak self] _, _ in self?.flushCursor() }
-            let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
-            link.isEnabled = true; cursorUpdateLink = link
-
         case .changed:
-            pendingCursor = CGPoint(x: point.x - cursorOrigin.x, y: point.y - cursorOrigin.y)
+            // The remote editor paints its own caret. Waiting for this keyboard
+            // to redraw can stall movement while the blank keys are static.
+            onCursor?(CGPoint(x: point.x - cursorOrigin.x, y: point.y - cursorOrigin.y))
         default:
-            if gesture.state == .ended { flushCursor() }
-            cursorUpdateLink?.isEnabled = false; cursorUpdateLink = nil; pendingCursor = nil
+            if gesture.state == .ended, draggingCursor {
+                onCursor?(CGPoint(x: point.x - cursorOrigin.x, y: point.y - cursorOrigin.y))
+            }
             if draggingCursor { draggingCursor = false; onCursorEnded?() }
             cancelPress()
         }
-    }
-    @objc private func flushCursor() {
-        guard let translation = pendingCursor else { return }
-        pendingCursor = nil; onCursor?(translation)
     }
     @objc private func deletionGesture(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
@@ -327,10 +337,9 @@ final class KeyButton: UIButton {
     func stopTracking() {
         choicePopup?.removeFromSuperview(); choicePopup = nil; choiceHost = nil
         suppressTap = true
-        cursorUpdateLink?.isEnabled = false; cursorUpdateLink = nil; pendingCursor = nil
         onDeleteHint?(nil)
         if draggingCursor { draggingCursor = false; onCursorEnded?() }
         cancelPress()
     }
-    deinit { repeatTimer?.invalidate(); repeatStart?.cancel() }
+    deinit { repeatTimer?.invalidate(); repeatStart?.cancel(); pressRelease?.cancel() }
 }

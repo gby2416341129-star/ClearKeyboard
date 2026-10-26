@@ -7,25 +7,37 @@ import Accelerate
 @MainActor final class CandidateInkMotion: UIView {
     private let sharp: UIImageView, middle: UIImageView, soft: UIImageView
     private var completion: (() -> Void)?
+    private static let blurQueue = DispatchQueue(label: "clear.candidate.ink", qos: .userInitiated)
+    private var blurWork: DispatchWorkItem?
+    private var finished = false
     init(image: UIImage) {
         sharp = UIImageView(image: image)
-        middle = UIImageView(image: Self.blurred(image, radius: 1.4) ?? image)
-        soft = UIImageView(image: Self.blurred(image, radius: 3.3) ?? image)
+        middle = UIImageView(); soft = UIImageView()
         super.init(frame: .zero)
         isUserInteractionEnabled = false; accessibilityElementsHidden = true
         backgroundColor = .clear; isOpaque = false
         [soft, middle, sharp].forEach { $0.isOpaque = false; $0.backgroundColor = .clear; addSubview($0) }
+        // Image convolution must not occupy the touch/host-write thread on
+        // every letter. New glyphs are already readable while this prepares.
+        let work = DispatchWorkItem { [weak self] in
+            let medium = Self.blurred(image, radius: 1.4), blurred = Self.blurred(image, radius: 3.3)
+            DispatchQueue.main.async {
+                guard let self, !self.finished else { return }
+                self.middle.image = medium; self.soft.image = blurred
+            }
+        }
+        blurWork = work; Self.blurQueue.async(execute: work)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() { super.layoutSubviews(); [soft, middle, sharp].forEach { $0.frame = bounds } }
     func run(appearing: Bool, completion: (() -> Void)? = nil) {
         self.completion = completion
-        sharp.alpha = appearing ? 0 : 1; middle.alpha = 0; soft.alpha = appearing ? 0.55 : 0
-        UIView.animateKeyframes(withDuration: appearing ? 0.18 : 0.15, delay: 0,
+        sharp.alpha = appearing ? 0.85 : 1; middle.alpha = 0; soft.alpha = appearing ? 0.2 : 0
+        UIView.animateKeyframes(withDuration: appearing ? 0.11 : 0.10, delay: 0,
                                options: [.calculationModeLinear, .allowUserInteraction], animations: {
             UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.5) {
-                self.sharp.alpha = 0.15
-                self.middle.alpha = 0.65; self.soft.alpha = 0.2
+                self.sharp.alpha = appearing ? 0.95 : 0.3
+                self.middle.alpha = appearing ? 0.2 : 0.55; self.soft.alpha = 0.15
             }
             UIView.addKeyframe(withRelativeStartTime: 0.5, relativeDuration: 0.5) {
                 self.sharp.alpha = appearing ? 1 : 0
@@ -34,11 +46,12 @@ import Accelerate
         }, completion: { [weak self] _ in self?.finish() })
     }
     func finish() {
+        finished = true; blurWork?.cancel(); blurWork = nil
         let callback = completion; completion = nil
         [sharp, middle, soft].forEach { $0.layer.removeAllAnimations() }
         callback?(); removeFromSuperview()
     }
-    private static func blurred(_ image: UIImage, radius: CGFloat) -> UIImage? {
+    nonisolated private static func blurred(_ image: UIImage, radius: CGFloat) -> UIImage? {
         guard let source = image.cgImage else { return nil }
         let width = source.width, height = source.height, row = width * 4
         var a = [UInt8](repeating: 0, count: row * height), b = a

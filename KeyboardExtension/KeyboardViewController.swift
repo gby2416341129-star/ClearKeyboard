@@ -42,6 +42,8 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var hostNotificationRevision = 0
     private var deferredMarkedFlush = false
     private var trackpad: ProxyTrackpad?
+    private var trackpadSelectionUnits = 0
+    private var trackpadMoved = false
     private var clipboardSelectionActive = false
     private var clipboardSelectionIdentity: String?
     // UIKit collapses a committed selection. Keep only the restored selected
@@ -678,13 +680,27 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             hostState.moveCursor(offset); textDocumentProxy.adjustTextPosition(byCharacterOffset: units)
         }
     }
-    func beginTrackpad() { finishRestoredSelection(); trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter) }
+    func beginTrackpad() {
+        finishRestoredSelection(); flushMarkedText()
+        trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter)
+        trackpadSelectionUnits = selectedText.utf16.count; trackpadMoved = false
+    }
     func trackCursor(translation: CGPoint) {
         guard var state = trackpad else { return }
         let offset = state.offset(translation: translation); trackpad = state
-        if offset != 0 { moveCursor(offset) }
+        guard offset != 0 else { return }
+        let units = state.utf16Offset - trackpadSelectionUnits
+        trackpadSelectionUnits = 0; trackpadMoved = true
+        // Cached UTF-16 stops avoid proxy reads, full string copies, marked
+        // writes, and candidate work on every finger movement.
+        beginHostWrite(); defer { endHostWrite() }
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: units)
     }
-    func endTrackpad() { trackpad = nil; refreshHostState() }
+    func endTrackpad() {
+        if let state = trackpad, trackpadMoved { hostState.moveCursor(state.displacement) }
+        trackpad = nil; trackpadSelectionUnits = 0; trackpadMoved = false
+        refreshHostState()
+    }
     func nextKeyboard() { advanceToNextInputMode() }
     func clearInput() -> DeletedInput? {
         guard hostState.snapshot.document != "disconnected" else { return nil }

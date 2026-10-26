@@ -32,6 +32,7 @@ public final class InputEngine {
     public let chinese: Lexicon
     public let english: Lexicon
     private var matureDecoder: RimeDecoder?
+    private var fuzzyDecoder: RimeDecoder?
     private var literalPositions: [CandidateRequestKey: Int] = [:]
     private var literalPositionOrder: [CandidateRequestKey] = []
     private var associations: Lexicon?
@@ -295,11 +296,44 @@ public final class InputEngine {
                     output.insert(Candidate(text: first.text + suffix, consumed: input.count, score: 110), at: 0); break
                 }
             }
-            if correction, !fuzzy.isEmpty {
-                for variant in FuzzyPinyin.variants(input, enabled: fuzzy, limit: limit <= 6 ? 3 : 12).dropFirst() {
-                    if cancelled() { return [] }
-                    output += matureDecoder.candidates(variant, limit: limit, context: context, cancelled: cancelled).filter { $0.consumed == variant.count }.map { Candidate(text: $0.text, reading: $0.reading, consumed: input.count, score: $0.score - 10) }
+            if correction, !fuzzy.isEmpty, !isEnglishWord {
+                let alternatives = FuzzyPinyin.alternatives(raw, enabled: fuzzy, limit: 48).dropFirst()
+                var additions: [Candidate] = []
+                var known = Set(output.map(\.text))
+                // Prefer attested whole words before spending time on sentence
+                // alternatives. A blanket switch must not rerun the typo and
+                // neural-correction pipeline up to eleven times per spelling.
+                let ranked = alternatives.map { variant -> (FuzzyPinyin.Alternative, [LexiconEntry]) in
+                    (variant, chinese.lookup("e:" + variant.code, limit: 4))
+                }.sorted {
+                    let a = ($0.1.first.map { log(Double($0.frequency) + 1) } ?? 0) - Double($0.0.edits) * 2
+                    let b = ($1.1.first.map { log(Double($0.frequency) + 1) } ?? 0) - Double($1.0.edits) * 2
+                    return a == b ? $0.0.code < $1.0.code : a > b
                 }
+                for (variant, entries) in ranked {
+                    for entry in entries where known.insert(entry.text).inserted {
+                        additions.append(Candidate(text: entry.text, reading: entry.reading, consumed: input.count,
+                            score: 88 - Double(variant.edits) * 2 + min(1, log(Double(entry.frequency) + 1) / 20)))
+                    }
+                }
+                if fuzzyDecoder == nil { fuzzyDecoder = try? matureDecoder.companion() }
+                let deadline = ProcessInfo.processInfo.systemUptime + (limit <= 9 ? 0.016 : 0.045)
+                for (variant, _) in ranked.prefix(limit <= 9 ? 2 : 5) {
+                    guard !cancelled(), ProcessInfo.processInfo.systemUptime < deadline else { break }
+                    let values = fuzzyDecoder?.candidates(variant.code, limit: min(limit, 6), correction: false,
+                        context: context, cancelled: { cancelled() || ProcessInfo.processInfo.systemUptime >= deadline }) ?? []
+                    for candidate in values where candidate.consumed == variant.code.count &&
+                        Self.matchesReadingWithInitials(variant.code, reading: candidate.reading) && known.insert(candidate.text).inserted {
+                        additions.append(Candidate(text: candidate.text, reading: candidate.reading, consumed: input.count,
+                            score: candidate.score - 12 - Double(variant.edits) * 2))
+                    }
+                }
+                // Keep the exact head. Put useful fuzzy matches on the first
+                // screen, ahead of unrelated partial conversions, not behind
+                // an entire page of speculative corrections.
+                let head = output.first?.consumed == input.count ? 1 : 0
+                additions.sort { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+                output.insert(contentsOf: additions, at: min(head, output.count))
             }
             if !isEnglishWord { output.insert(contentsOf: initialCompletions(input), at: 0) }
             if !isEnglishWord, !raw.contains("'"), input.count <= 4,
@@ -393,7 +427,11 @@ public final class InputEngine {
             }
         }
         var seen = Set<String>()
-        let sorted = choices.sorted { $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score }
+        let sorted = choices.sorted {
+                let a = FuzzyPinyin.normalize($0.reading) == input, b = FuzzyPinyin.normalize($1.reading) == input
+                if a != b { return a }
+                return $0.score == $1.score ? $0.text < $1.text : $0.score > $1.score
+            }
             .filter { seen.insert($0.text).inserted }
         return PersonalLexicon.merging(preferred.filter { $0.consumed > 0 && $0.consumed <= input.count },
             into: sorted, limit: max(1, min(4096, limit)))
