@@ -159,10 +159,10 @@ import UIKit
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        name.frame = CGRect(x: 0, y: bounds.midY - 13, width: 18, height: 12)
-        amount.frame = CGRect(x: 0, y: bounds.midY + 1, width: 18, height: 12)
+        name.frame = CGRect(x: bounds.width - 18, y: bounds.midY - 13, width: 18, height: 12)
+        amount.frame = CGRect(x: bounds.width - 18, y: bounds.midY + 1, width: 18, height: 12)
         amount.textAlignment = .left
-        slider.frame = CGRect(x: 20, y: bounds.midY - 14, width: max(1, bounds.width - 20), height: 28)
+        slider.frame = CGRect(x: 0, y: bounds.midY - 14, width: max(1, bounds.width - 20), height: 28)
     }
     func configure(_ value: Double) { if !slider.isTracking { slider.value = Float(value) }; updateAmount() }
     private func updateAmount() { amount.text = String(Int((slider.value * 255).rounded())) }
