@@ -29,10 +29,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p .build/StartupDiagnostics
+          python3 Scripts/boot_test_simulator.py > .build/StartupDiagnostics/simulator-boot.log 2>&1 &
+          startup_boot_pid=$!
           python3 Scripts/restore_pinned_model.py
           python3 Scripts/prepare_rime.py
           python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
           python3 Scripts/export_ime_shared.py
+          wait "$startup_boot_pid"
       - name: Check the reported clipboard cancellation regression
         run: |
           swiftc Core/ClipboardSelection.swift SharedUI/ClipboardTextSession.swift Scripts/check_clipboard_selection_repair.swift -o "$RUNNER_TEMP/clipboard-selection-repair"

@@ -11,6 +11,8 @@ fixed={name:(ROOT/name).read_bytes() if (ROOT/name).exists() else None for name 
 # Actions uses a shallow checkout; fetch the baseline tree before simulator setup.
 subprocess.run(['git','fetch','--no-tags','--depth=1','origin',BASE],check=True)
 for name in FILES:subprocess.run(['git','cat-file','-e',BASE+':'+name],check=True)
+subprocess.run(['swiftc','SharedUI/BrandMaterial.swift','Scripts/prepare_app_icon.swift','-o','.build/startup-prepare-app-icon'],check=True)
+subprocess.run(['.build/startup-prepare-app-icon'],check=True)
 subprocess.run(['python3','Scripts/boot_test_simulator.py'],check=True)
 device=(ROOT/'.build/composition-device-id').read_text().strip()
 
