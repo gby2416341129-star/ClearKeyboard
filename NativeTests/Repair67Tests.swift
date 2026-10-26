@@ -3,6 +3,52 @@ import UIKit
 import SwiftUI
 
 @MainActor final class Repair67Tests: XCTestCase {
+    private final class RejectingDocument: KeyboardDocument {
+        var committed = "", marked = "", reject = false
+        var contextBefore: String { committed + marked }
+        var contextAfter: String { "" }
+        var documentIdentity: String { "repair67-transaction" }
+        var selectedText: String { "" }
+        var enterTitle: String { "换行" }
+        var needsGlobe: Bool { false }
+        var fullAccess: Bool { false }
+        var prefersEnglish: Bool { false }
+        var capitalization: UITextAutocapitalizationType { .none }
+        func insert(_ text: String) { committed += text }
+        func deleteBackward() { if !committed.isEmpty { committed.removeLast() } }
+        func moveCursor(_ offset: Int) {}
+        func beginTrackpad() {}
+        func trackCursor(translation: CGPoint) {}
+        func endTrackpad() {}
+        func nextKeyboard() {}
+        func setMarkedText(_ text: String) { marked = text }
+        func commitMarkedText(_ text: String) { _ = commitMarkedText(text, remaining: "") }
+        func commitMarkedText(_ text: String, remaining: String) -> Bool {
+            guard !reject else { return false }; committed += text; marked = remaining; return true
+        }
+        func unmarkText() { committed += marked; marked = "" }
+        func clearInput() -> DeletedInput? { nil }
+        func restoreInput(_ value: DeletedInput) -> Bool { false }
+    }
+    func testRejectedPrefixAndLiteralCommitNeverConsumeTheOriginalDraft() async throws {
+        let document = RejectingDocument()
+        var settings = KeyboardSettings(); settings.automaticClipboard = false
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let model = KeyboardModel(document: document, settings: settings, defaults: defaults)
+        defer { model.suspend() }
+        try await waitFor { model.engineState == "离线就绪" }
+        for letter in "bbmmcfl" { model.handle(.text(String(letter))) }
+        try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "爸爸妈妈" } }
+        document.reject = true
+        model.choose(try XCTUnwrap(model.candidates.first { $0.text == "爸爸妈妈" }))
+        XCTAssertEqual(model.composition.raw, "bbmmcfl"); XCTAssertEqual(document.contextBefore, "bbmmcfl")
+        model.insertLiteral("!")
+        XCTAssertEqual(model.composition.raw, "bbmmcfl"); XCTAssertEqual(document.contextBefore, "bbmmcfl")
+        document.reject = false
+        try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "爸爸妈妈" } }
+        model.choose(try XCTUnwrap(model.candidates.first { $0.text == "爸爸妈妈" }))
+        XCTAssertEqual(model.composition.raw, "cfl"); XCTAssertEqual(document.contextBefore, "爸爸妈妈cfl")
+    }
     private func waitFor(_ condition: () -> Bool) async throws {
         for _ in 0..<300 { if condition() { return }; try await Task.sleep(nanoseconds: 20_000_000) }
         XCTFail("The current spelling did not produce its expected candidate")
@@ -37,13 +83,15 @@ import SwiftUI
             XCTAssertTrue(model.composition.isEmpty)
             expected += "爸爸妈妈吃饭了"
             XCTAssertEqual(controller.textView.text, expected, "Host text lost or duplicated at round \(round)")
-            model.handle(.enter); expected += "\n"
+            if round % 3 == 0 { model.clearInput(); expected = "" }
+            else if round % 3 == 1 { model.handle(.enter); expected += "\n" }
             // Exercise another query between repetitions rather than warming
             // only the single reported spelling's cache.
             for letter in "nihao" { model.handle(.text(String(letter))) }
             try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text == "你好" } }
             model.choose(try XCTUnwrap(model.candidates.first { $0.text == "你好" }))
-            model.handle(.enter); expected += "你好\n"
+            expected += "你好"
+            if round % 3 != 2 { model.handle(.enter); expected += "\n" }
             XCTAssertEqual(controller.textView.text, expected)
         }
     }
@@ -87,12 +135,12 @@ import SwiftUI
         defer { controller.model.suspend(); host.isHidden = true }
         controller.model.insertLiteral("原文👨‍👩‍👧‍👦123")
         controller.model.clearInput(); XCTAssertTrue(controller.model.canUndoClearInput)
-        let button = KeyButton(key: KeyboardKey("删除", action: .delete))
+        let button = KeyButton(key: KeyboardKey("删除", .delete))
         var received: Bool?
-        button.onDeleteSwipe = { clear in received = clear; if !clear { _ = controller.model.undoClearInput() } }
+        button.onDeleteSwipe = { (clear: Bool) in received = clear; if !clear { _ = controller.model.undoClearInput() } }
         let gesture = Pan(); gesture.phase = .began; gesture.distance = 32
         button.perform(NSSelectorFromString("deletionGesture:"), with: gesture)
-        button.sendActions(for: .touchCancel)
+        button.sendActions(for: UIControl.Event.touchCancel)
         gesture.phase = .ended
         button.perform(NSSelectorFromString("deletionGesture:"), with: gesture)
         XCTAssertEqual(received, false); XCTAssertEqual(controller.textView.text, "原文👨‍👩‍👧‍👦123")

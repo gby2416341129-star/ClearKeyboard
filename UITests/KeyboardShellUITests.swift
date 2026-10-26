@@ -606,7 +606,7 @@ import UIKit
         hash.tap(); expectHost(original + "#E3AC72", "Reselecting a token must restore it at its source position")
         Thread.sleep(forTimeInterval: 1.3)
         let a = hash.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let b = hex.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        let b = value.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
         a.press(forDuration: 0.05, thenDragTo: b)
         expectHost(original, "Sliding over selected tokens must cancel both")
         a.press(forDuration: 0.05, thenDragTo: b)

@@ -573,7 +573,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func stopClipboardCapture() { clipboardActive = false; clipboardCapture.stop() }
     func moveCursor(_ offset: Int) {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        if !isMovingCursor { if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() } }
+        if !isMovingCursor { if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return } }
         phraseLearning.reset(); finishNumericRun()
         document?.moveCursor(offset)
         if !isMovingCursor { refreshCandidates() }
@@ -581,7 +581,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func beginCursorMovement() {
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard !isMovingCursor else { return }
-        if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
+        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return }
         phraseLearning.reset(); finishNumericRun()
         isMovingCursor = true; deletionUndo = nil
         cancellation.cancel(); work?.cancel(); refinementCancellation.cancel(); refinementWork?.cancel()
@@ -631,7 +631,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func toggleLanguage() {
         beginDocumentEdit(); defer { endDocumentEdit() }
         finishNumericRun()
-        if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
+        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return }
         settings.language = settings.language == .chinese ? .english : .chinese
         if document?.prefersEnglish == true { fieldLanguageOverride = settings.language }
         page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
@@ -681,14 +681,16 @@ struct DeletedInput { let text: String; let selection: NSRange }
         var inputOnly = false
         switch action {
         case .literal(let text):
-            commitComposition(); insertText(text)
+            guard commitComposition() else { return }
+            insertText(text)
             if !capsLocked { shifted = false; manualShift = false }
         case .text(let text):
             let possibleOperator = composition.isEmpty && text.count == 1 && "xX+-*/×÷().".contains(text) &&
                 !(shifted && page == .letters && text.first?.isLetter == true)
             let mathCharacter = possibleOperator && document?.contextBefore.last.map({ $0.isNumber || $0 == ")" }) == true
             if mathCharacter {
-                commitComposition(); insertText(text)
+                guard commitComposition() else { return }
+                insertText(text)
             } else if settings.language == .chinese && page == .letters && !shifted && text.first?.isLetter == true {
                 finishNumericRun()
                 _ = composition.append(text)
@@ -699,7 +701,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 prepared = prepareCandidates(for: composition.raw)
                 inputOnly = true; syncMarkedText()
             } else {
-                commitComposition()
+                guard commitComposition() else { return }
                 let decimal = page == .numbers && text == "."
                 insertText(shifted && page == .letters ? text.uppercased() : decimal ? text : punctuation(text))
                 if !capsLocked { shifted = false; manualShift = false }
@@ -749,7 +751,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func beginClipboardSelection() -> ClipboardTextSession? {
         beginDocumentEdit(); defer { endDocumentEdit() }
         onContentKey?()
-        if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
+        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return nil }
         guard let document, document.selectedText.isEmpty else { return nil }
         return ClipboardTextSession(document: document)
     }
@@ -760,7 +762,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func insertLiteral(_ text: String) {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
+        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return }
         insertText(text); refreshCandidates()
     }
     func chooseArithmetic(_ text: String) {
@@ -771,24 +773,28 @@ struct DeletedInput { let text: String; let selection: NSRange }
         for _ in arithmetic.expression { document.deleteBackward() }
         document.insert(text); refreshCandidates()
     }
-    private func commitComposition(flushRemainder: Bool = true) {
-        guard !composition.isEmpty else { composition.clear(); return }
+    @discardableResult private func commitComposition(flushRemainder: Bool = true) -> Bool {
+        guard !composition.isEmpty else { composition.clear(); return true }
+        guard let document else { return false }
         let current = candidateGeneration == generation ? candidates.first : nil
-        // Gestures and language changes can commit before decoding finishes.
-        // Never enter any dictionary or mutable decoder from the UI thread.
         let fallback = current ?? hotWords.value(composition.raw)?.first
         if let candidate = fallback {
-            let spelling = composition.raw
+            let spelling = composition.raw, previousLearning = phraseLearning
             let phrase = trackPhrase(candidate)
-            composition.consume(candidate.consumed)
-            // Preserve any spelling not covered by a partial candidate.
-            let output = candidate.text + (flushRemainder ? composition.normalized : "")
-            if document?.commitMarkedText(output, remaining: flushRemainder ? "" : composition.raw) == true {
-                learn(candidate, raw: spelling, phrase: phrase)
+            var remainder = composition; remainder.consume(candidate.consumed)
+            let output = candidate.text + (flushRemainder ? remainder.normalized : "")
+            guard document.commitMarkedText(output, remaining: flushRemainder ? "" : remainder.raw) else {
+                phraseLearning = previousLearning; return false
             }
-        } else { document?.commitMarkedText(composition.normalized); phraseLearning.reset() }
+            composition = remainder
+            learn(candidate, raw: spelling, phrase: phrase)
+        } else {
+            guard document.commitMarkedText(composition.normalized, remaining: "") else { return false }
+            phraseLearning.reset()
+        }
         if flushRemainder { phraseLearning.reset() }
         if flushRemainder || fallback == nil { composition.clear() }
+        return true
     }
     func choose(_ candidate: Candidate) {
         guard candidateGeneration == generation, candidates.contains(candidate), let document else { return }
