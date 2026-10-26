@@ -1,0 +1,70 @@
+name: Repair 67 focused regressions and iPhone IPA
+on:
+  push:
+    branches: [codex/repair67-20261026]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: repair67-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      CLEAR_TEST_SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-4
+      CLEAR_TEST_REQUIRED_RUNTIME_MAJOR: '26'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache/restore@v4
+        with:
+          path: .rime-cache/wanxiang-lts-zh-hans.gram
+          key: wanxiang-model-1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488
+      - name: Prepare the unchanged pinned model and dictionaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 Scripts/restore_pinned_model.py
+          python3 Scripts/prepare_rime.py
+          python3 -m pip install --disable-pip-version-check 'coremltools==9.0' 'numpy==2.2.6' 'protobuf==5.29.5'
+          python3 Scripts/export_ime_shared.py
+      - name: Verify repeated typing, partial selection, clipboard ownership and undo
+        run: bash Scripts/test-repair67.sh
+      - name: Return focused native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-repair67-native
+          path: .build/Repair67
+          retention-days: 7
+      - name: Reset test data before exercising the actual installed extension
+        run: |
+          DEVICE="$(cat .build/composition-device-id)"
+          xcrun simctl shutdown "$DEVICE" || true
+          xcrun simctl erase "$DEVICE"
+      - name: Verify App transitions, settings and actual keyboard selection
+        run: bash Scripts/test-repair67-ui.sh
+      - name: Return installed extension evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-repair67-ui
+          path: .build/CurrentRoundUI
+          retention-days: 7
+      - name: Compile the repaired App and extension for iPhone and package IPA
+        run: bash Scripts/build-ipa.sh dist
+      - name: Return IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-unsigned-IPA
+          path: |
+            dist/ClearKeyboard-unsigned.ipa
+            dist/ClearKeyboard-unsigned.ipa.sha256
+            dist/ipa-validation.json
+          compression-level: 0
+          retention-days: 7

@@ -10,7 +10,7 @@ struct CustomizationView: View {
             AppCard {
                 ForEach(Array(AppearanceItem.allCases.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { Divider() }
-                    NavigationLink {
+                    AppNavigationLink {
                         AppAppearanceDetail(item: item)
                             .background(AppPalette.canvas).navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
                     } label: {
@@ -26,10 +26,10 @@ struct CustomizationView: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 8) { ToolIcon(symbol: "keyboard.fill").frame(width: 24, height: 24); Text("单手模式").font(.system(size: 16, weight: .medium)) }
-                    Picker("单手模式", selection: $preferences.settings.hand) {
+                    Picker("单手模式", selection: Binding(get: { preferences.settings.preferredHand ?? preferences.settings.hand }, set: { preferences.settings.preferredHand = $0 })) {
                         ForEach(HandMode.allCases) { Text($0.title).tag($0) }
                     }.pickerStyle(.segmented).accessibilityIdentifier("custom.hand")
-                    if preferences.settings.hand != .full {
+                    if (preferences.settings.preferredHand ?? preferences.settings.hand) != .full {
                         GlassValueSlider(title: "键盘宽度", value: Binding(get: { preferences.settings.oneHandFraction }, set: { preferences.settings.oneHandWidth = $0 }), range: 0.68...0.88, defaultValue: 0.78, identifier: "custom.oneHandWidth", percent: true)
                     }
                 }
@@ -143,21 +143,25 @@ struct InputSettingsView: View {
                 Divider()
                 PreferenceToggle(title: "续词预测", isOn: $preferences.settings.predictions)
                 Divider()
-                NavigationLink { FuzzySettingsView() } label: { AppRow(title: "模糊拼音", detail: preferences.settings.fuzzyPairs.isEmpty ? "关闭" : "\(preferences.settings.fuzzyPairs.count) 组", symbol: "waveform") }
+                AppNavigationLink { FuzzySettingsView() } label: { AppRow(title: "模糊拼音", detail: preferences.settings.fuzzyPairs.isEmpty ? "关闭" : "\(preferences.settings.fuzzyPairs.count) 组", symbol: "waveform") }
             }.buttonStyle(.plain)
             AppSectionTitle(title: "管理")
             AppCard {
-                NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "", symbol: "doc.on.clipboard") }.accessibilityIdentifier("input.clipboard")
+                AppNavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "", symbol: "doc.on.clipboard") }.accessibilityIdentifier("input.clipboard")
                 Divider()
-                NavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "", symbol: "lock.shield") }
+                AppNavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "", symbol: "lock.shield") }
             }.buttonStyle(.plain)
-            Button { confirmClear = true } label: {
-                Label { Text("重置选词记忆") } icon: { ToolIcon(symbol: "arrow.counterclockwise").frame(width: 24, height: 24) }.font(.subheadline)
-            }.padding(.horizontal, 4).accessibilityIdentifier("input.resetLearning")
+            AppSectionTitle(title: "选词记忆")
+            AppCard {
+                Button { confirmClear = true } label: {
+                    AppRow(title: "重置选词记忆", detail: "", symbol: "arrow.counterclockwise")
+                }.buttonStyle(AppRowButtonStyle()).accessibilityIdentifier("input.resetLearning")
+            }
         }.accessibilityIdentifier("input.page")
-            .confirmationDialog("清除已记住的选词？", isPresented: $confirmClear, titleVisibility: .visible) {
+            .alert("清除已记住的选词？", isPresented: $confirmClear) {
+                Button("取消", role: .cancel) {}
                 Button("清除选词记忆", role: .destructive) { preferences.clearLearning() }
-            }.onAppear { preferences.reload() }
+            } message: { Text("清除后，之前记住的选词偏好将重新学习。") }.onAppear { preferences.reload() }
     }
 }
 
@@ -186,6 +190,7 @@ struct ClipboardSettingsView: View {
     @State private var accessMessage = ""
     var body: some View {
         AppPage(title: "剪贴板") {
+            ClipboardHistoryView()
             AppSectionTitle(title: "收录与保留")
             AppCard {
                 PreferenceToggle(title: "自动收录复制内容", isOn: Binding(get: { preferences.settings.capturesClipboard }, set: { preferences.settings.automaticClipboard = $0 })).accessibilityIdentifier("clipboard.automatic")
@@ -248,7 +253,7 @@ struct InputAboutView: View {
                 Text("中文词库与上下文语言模型支持整句、简拼和拼写纠错；中文模式中也可输入 English。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Divider()
-                NavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
+                AppNavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
             }
             AppSectionTitle(title: "使用手势")
             AppCard {

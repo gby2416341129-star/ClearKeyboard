@@ -392,6 +392,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 
     private func presentCandidates(_ query: PreparedCandidates, notify: Bool = true) {
         guard activeCandidates === query, !query.token.isCancelled,
+              query.raw == composition.raw, requestedContext?.raw == query.raw,
               let result = query.result, result.revision > presentedRevision else { return }
         presentedRevision = result.revision
         var items = result.items
@@ -609,7 +610,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             guard let self else { return }
             if let deleted, let document {
                 self.deletionUndo = (deleted, document.documentIdentity, document.contextBefore, document.contextAfter, spelling)
-            } else { self.onNotice?("当前输入框无法完整清空，请在输入框内操作") }
+            }
             self.refreshCandidates(); self.endDocumentEdit()
         }
     }
@@ -868,13 +869,17 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
         if settings.language == .chinese {
             let spelling = learningRaw ?? composition.raw
+            let originalLearning = phraseLearning
             let phrase = trackPhrase(candidate)
             if composition.raw.isEmpty {
                 insertText(candidate.text)
             }
             else {
-                composition.consume(candidate.consumed)
-                guard document.commitMarkedText(candidate.text, remaining: composition.raw) else { return }
+                var remaining = composition; remaining.consume(candidate.consumed)
+                guard document.commitMarkedText(candidate.text, remaining: remaining.raw) else {
+                    phraseLearning = originalLearning; refreshCandidates(); return
+                }
+                composition = remaining
             }
             if !spelling.isEmpty { learn(candidate, raw: spelling, phrase: phrase) }
         } else {

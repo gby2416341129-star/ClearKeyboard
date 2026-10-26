@@ -153,7 +153,7 @@ import CoreText
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let clip = items[indexPath.row], activeStore = tabs.selectedSegmentIndex == 1 ? phrases : store
         if let attachment = clip.attachment {
-            guard let data = activeStore.attachmentData(for: clip) else { model.onNotice?("附件暂时无法读取，请重新复制"); return }
+            guard let data = activeStore.attachmentData(for: clip) else { return }
             UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
             UIAccessibility.post(notification: .announcement, argument: "已复制，请在输入框粘贴")
         } else { model.insertLiteral(clip.text) }
@@ -163,7 +163,7 @@ import CoreText
         var actions: [UIAction] = [UIAction(title: "复制", image: ToolArtwork.image(symbol: "doc.on.doc", size: 24)) { [weak self] _ in
             guard let self else { return }
             if let attachment = clip.attachment {
-                guard let data = (self.tabs.selectedSegmentIndex == 1 ? self.phrases : self.store).attachmentData(for: clip) else { self.model.onNotice?("附件暂时无法读取，请重新复制"); return }
+                guard let data = (self.tabs.selectedSegmentIndex == 1 ? self.phrases : self.store).attachmentData(for: clip) else { return }
                 UIPasteboard.general.setItems([[attachment.typeIdentifier: data]], options: [.localOnly: true])
             } else { UIPasteboard.general.string = clip.text }
             UIAccessibility.post(notification: .announcement, argument: "已复制")
@@ -197,7 +197,7 @@ import CoreText
             let store = ClipboardStore(url: target), saved = edit(store)
             DispatchQueue.main.async {
                 self?.reloadFromDisk()
-                if !saved { self?.model.onNotice?("未能保存修改，请重试") }
+
             }
         }
     }
@@ -253,8 +253,6 @@ import CoreText
         guard let session = selectionSession,
               model.updateClipboardSelection(session, text: ClipboardSelection.text(source, tokens: tokens, selected: indices)) else {
             selectionLink?.invalidate(); selectionLink = nil; selectionPoint = nil; dragStart = nil
-            model.onNotice?("输入位置已变化，请重新打开选词")
-            UIAccessibility.post(notification: .announcement, argument: "输入位置已变化，请重新打开选词")
             return false
         }
         selectedTokens = indices

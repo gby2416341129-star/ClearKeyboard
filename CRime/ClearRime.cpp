@@ -279,7 +279,8 @@ void rank_sentence(Query &query, const std::string &input, int length, bool lead
 void collect(uintptr_t id, const std::string &input, int limit, ChannelCache &cache,
              cr_cancelled cancelled, void *context) {
   if (cancelled && cancelled(context)) return;
-  if (!cache.initialized || cache.input != input) {
+  const char *live_input=api->get_input ? api->get_input(id) : nullptr;
+  if (!cache.initialized || cache.input != input || (live_input && input != live_input)) {
     const auto previous=cache.input;
     const bool ready=cache.initialized && api->process_key && api->get_input;
     bool edited=false;
@@ -293,8 +294,14 @@ void collect(uintptr_t id, const std::string &input, int limit, ChannelCache &ca
       }
     }
     const char *actual=edited?api->get_input(id):nullptr;
-    if (!actual || input!=actual) api->set_input(id,input.c_str());
-    cache={};cache.input=input;cache.initialized=true;
+    if (!actual || input!=actual) {
+      if (api->clear_composition) api->clear_composition(id);
+      api->set_input(id,input.c_str());
+    }
+    const char *accepted=api->get_input ? api->get_input(id) : nullptr;
+    cache={};
+    if (accepted && input!=accepted) return;
+    cache.input=input;cache.initialized=true;
   }
   const auto capacity = static_cast<size_t>(std::clamp(limit, 1, 4096));
   if (cache.exhausted || cache.items.size() >= capacity || (cancelled && cancelled(context))) return;

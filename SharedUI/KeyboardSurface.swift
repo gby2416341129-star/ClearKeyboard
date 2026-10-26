@@ -97,7 +97,7 @@ import SwiftUI
         toolbarScroll.delaysContentTouches = false; toolbarScroll.canCancelContentTouches = true
         toolbarScroll.delegate = self; toolbarScroll.alwaysBounceHorizontal = true
         toolbarScroll.pendingOffset = toolbarOffset
-        toolbarScroll.backgroundColor = .clear
+        toolbarScroll.backgroundColor = UIColor(white: 0.5, alpha: 0.01)
         toolbarScroll.contentInsetAdjustmentBehavior = .never
         toolbarShortcuts.axis = .horizontal; toolbarShortcuts.alignment = .center; toolbarShortcuts.spacing = 10
         toolbarShortcuts.translatesAutoresizingMaskIntoConstraints = false
@@ -141,6 +141,7 @@ import SwiftUI
         addSubview(keyGlassGroup); addSubview(sideRail)
         characterButton.setTitle("字", for: .normal)
         characterButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        characterButton.titleLabel?.transform = CGAffineTransform(translationX: 0, y: -1)
         characterButton.backgroundColor = .secondarySystemFill; characterButton.layer.cornerRadius = 10
         characterButton.accessibilityIdentifier = "candidate.characterMode"
         characterButton.addAction(UIAction { [weak self] _ in self?.model.toggleCharacterSelection() }, for: .touchUpInside)
@@ -163,8 +164,8 @@ import SwiftUI
             self.compositionChanged(); self.renderInput()
         }
         model.onContentKey = { [weak self] in self?.consumeClipboardForTyping() }
-        model.onNotice = { [weak self] text in self?.showNotice(text) }
-        model.clipboardCapture.onFailure = { [weak self] text in self?.showNotice(text) }
+        model.onNotice = nil
+        model.clipboardCapture.onFailure = nil
         for name in [UIAccessibility.reduceTransparencyStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification, Notification.Name.NSProcessInfoPowerStateDidChange] {
             observerTokens.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.appearanceSignature = ""; self?.render() }
@@ -235,7 +236,7 @@ import SwiftUI
         // The completion action shares the existing header. The words start
         // directly below it; no second empty header is reserved by the panel.
         let available = max(0, layout.header.width - (selectionDone.isHidden ? 54 : 108))
-        let width = min(contentWidth, available)
+        let width = available
         if toolbarWidth?.constant != width { toolbarWidth?.constant = width }
         toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
     }
@@ -398,7 +399,7 @@ import SwiftUI
         let base = toolbar.frame
         guard base.width > 0 else { return }
         var header = base.insetBy(dx: -4, dy: 0); header.size.height = candidateHeight
-        characterButton.frame = CGRect(x: header.maxX - 37, y: header.minY + 6, width: 34, height: 32)
+        characterButton.frame = CGRect(x: header.maxX - 37, y: header.midY - 16, width: 34, height: 32)
         let topFaces = keys.compactMap { entry -> CGRect? in
             let (button, row, _, _) = entry
             guard row == 0 else { return nil }
@@ -574,12 +575,11 @@ import SwiftUI
         UserDefaults.standard.set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
     }
     private func editorPulse() {
-        KeyboardVibration.shared.attach(to: self)
-        KeyboardVibration.shared.pulse(intensity: model.settings.resolvedVibrationIntensity, mode: model.settings.resolvedVibrationMode)
+        toolbarPulse()
     }
     private func toolbarPulse() {
         toolbarVibration.attach(to: self)
-        toolbarVibration.pulse(intensity: model.settings.resolvedVibrationIntensity, mode: model.settings.resolvedVibrationMode)
+        toolbarVibration.pulse(intensity: 1, mode: .crisp)
     }
     func setToolPinned(_ tool: ToolbarTool, pinned: Bool) {
         guard tool != .language else { return }
@@ -706,7 +706,7 @@ import SwiftUI
             config.imagePlacement = .top; config.imagePadding = 6; config.baseForegroundColor = .secondaryLabel
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
             config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { values in var result = values; result.font = .systemFont(ofSize: 10); return result }
-            let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+            let button = FeedbackButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.toolbarPulse(); action() })
             button.accessibilityIdentifier = identifier; sideRail.addArrangedSubview(button)
         }
     }
@@ -746,7 +746,7 @@ import SwiftUI
         if activeTool == tool, panel != nil { closePanel(); return }
         if tool == .oneHand {
             closePanel()
-            model.settings.hand = model.settings.hand == .right ? .left : .right
+            model.settings.hand = model.settings.hand == .full ? (model.settings.resolvedPreferredHand == .full ? .right : model.settings.resolvedPreferredHand) : .full
         } else if tool == .language { closePanel(); model.toggleLanguage() }
         else if tool == .compatibility { toggleLocalPinyinComposition() }
         else if let item = appearanceItem(for: tool) {
@@ -764,16 +764,6 @@ import SwiftUI
         }
     }
     func stopInteractions() { rememberToolbarOffset(); keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel(animated: false); panelTransition.cancel() }
-    private func showNotice(_ text: String) {
-        noticeWork?.cancel()
-        deleteHint.text = text; deleteHint.backgroundColor = .secondarySystemBackground
-        deleteHint.textColor = .label
-        deleteHint.frame = CGRect(x: 12, y: 47, width: max(0, bounds.width - 24), height: 40)
-        deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
-        UIAccessibility.post(notification: .announcement, argument: text)
-        let work = DispatchWorkItem { [weak self] in self?.deleteHint.isHidden = true }
-        noticeWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
-    }
     private func announce(_ text: String) {
         guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)

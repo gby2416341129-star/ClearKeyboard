@@ -53,6 +53,8 @@ public struct KeyboardSettings: Codable, Equatable {
     public var candidateTextSize: CandidateTextSize? = nil
     public var resolvedCandidateTextSize: CandidateTextSize { candidateTextSize ?? .standard }
     public var hand: HandMode = .full
+    public var preferredHand: HandMode? = nil
+    public var resolvedPreferredHand: HandMode { preferredHand ?? (hand == .full ? .right : hand) }
     public var toolbar: [ToolbarTool] = [.language, .clipboard, .emoji, .appearance]
     public var oneHandWidth: Double? = nil
     public var oneHandFraction: Double { min(0.88, max(0.68, oneHandWidth ?? 0.78)) }

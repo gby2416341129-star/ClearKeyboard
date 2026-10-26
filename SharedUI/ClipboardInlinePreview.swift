@@ -8,6 +8,7 @@ import CoreText
     var onPaste: (() -> Void)?
     var isReady: Bool { canvas.isReady }
     private let canvas = ClipboardLineCanvas()
+    private let edgeMask = CAGradientLayer()
     private(set) var text = ""
     var renderedLineRect: CGRect { canvas.lineRect }
     var visibleStringRange: NSRange { canvas.visibleStringRange }
@@ -37,6 +38,17 @@ import CoreText
         if contentSize != size { contentSize = size }
         canvas.frame = bounds
         canvas.viewportOrigin = contentOffset.x
+        let overflow = max(0, contentSize.width - bounds.width)
+        let left = contentOffset.x > 0.5, right = contentOffset.x < overflow - 0.5 || contentOffset.x < -0.5
+        let fade = min(16, bounds.width / 3)
+        guard bounds.width > 0 else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        layer.mask = edgeMask; edgeMask.frame = bounds
+        edgeMask.startPoint = CGPoint(x: 0, y: 0.5); edgeMask.endPoint = CGPoint(x: 1, y: 0.5)
+        edgeMask.colors = [UIColor.black.withAlphaComponent(left ? 0 : 1).cgColor, UIColor.black.cgColor,
+                           UIColor.black.cgColor, UIColor.black.withAlphaComponent(right ? 0 : 1).cgColor]
+        edgeMask.locations = [0, NSNumber(value: Double(fade / bounds.width)), NSNumber(value: Double(1 - fade / bounds.width)), 1]
+        CATransaction.commit()
     }
     func show(_ value: String) {
         let line = value.components(separatedBy: .newlines).joined(separator: " ").replacingOccurrences(of: "\t", with: " ")

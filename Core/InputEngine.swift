@@ -123,6 +123,18 @@ public final class InputEngine {
     /// Bounded, read-only word lookup for the current spelling. This never enters
     /// Rime or its lock; sentence decoding continues on the candidate worker.
     /// A visible word can therefore be selected while that worker is busy.
+    private func initialPrefixCandidates(_ input: String) -> [Candidate] {
+        guard input.count >= 5, input.allSatisfy(Self.initials.contains) else { return [] }
+        for length in stride(from: min(6, input.count - 1), through: 2, by: -1) {
+            let prefix = String(input.prefix(length))
+            let entries = chinese.lookup("a:" + prefix, limit: 32)
+            var seen = Set<String>()
+            let values = (entries.map { Candidate(text: $0.text, reading: $0.reading, consumed: length) } + shortInitialWords(prefix))
+                .filter { abbreviation($0.reading) == prefix && seen.insert($0.text).inserted }
+            if !values.isEmpty { return Array(values.prefix(4)) }
+        }
+        return []
+    }
     public func immediateCandidates(_ raw: String, preferred: [Candidate] = []) -> [Candidate] {
         let input = FuzzyPinyin.normalize(raw)
         guard !input.isEmpty else { return [] }
@@ -152,6 +164,7 @@ public final class InputEngine {
                 output += shortInitialWords(input)
             }
             output += initialCompletions(input)
+            output += initialPrefixCandidates(input)
             let entries = exact + chinese.lookup("a:" + input, limit: 8)
                 .filter { abbreviation($0.reading) == input }
             output += entries.sorted {
@@ -302,7 +315,15 @@ public final class InputEngine {
                     output.insert(output.remove(at: index), at: 0)
                 }
             }
-            if !isEnglishWord { output.insert(contentsOf: conversationalCandidates(input, raw: raw), at: 0) }
+            if !isEnglishWord {
+                let prefixes = initialPrefixCandidates(input)
+                // Complete legal sentences keep precedence, but speculative
+                // corrections cannot displace an exact user-selectable prefix.
+                if output.first.map({ $0.consumed == input.count && Self.matchesReadingWithInitials(input, reading: $0.reading) }) == true {
+                    output.insert(contentsOf: prefixes, at: min(1, output.count))
+                } else { output.insert(contentsOf: prefixes, at: 0) }
+                output.insert(contentsOf: conversationalCandidates(input, raw: raw), at: 0)
+            }
             if correction, !isEnglishWord, !result.contains(where: {
                 $0.consumed == input.count && Self.matchesReadingWithInitials(input, reading: $0.reading)
             }) {

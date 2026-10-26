@@ -146,28 +146,8 @@ import CoreImage
         }
         cache[key] = value; return value
     }
-    static func shift(active _: Bool, capsLocked: Bool, ink: UIColor) -> UIImage {
-        var source = image(symbol: "shift", size: 28)
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-        let resolved = ink.resolvedColor(with: .current)
-        let lightFace = resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) && red * 0.2126 + green * 0.7152 + blue * 0.0722 < 0.45
-        if lightFace {
-            if let adjusted = cache["shift.lightface.edge"] { source = adjusted }
-            else if let bitmap = source.cgImage {
-                // Preserve the same blue facets as Delete. A quiet thin
-                // navy edge separates the original colors from a light face;
-                // darkening the whole image made the two keys look unrelated.
-                let input = CIImage(cgImage: bitmap), extent = CGRect(x: 0, y: 0, width: CGFloat(bitmap.width), height: CGFloat(bitmap.height))
-                let mask = input.applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: source.scale * 1.2])
-                let clear = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: extent)
-                let navy = CIImage(color: CIColor(cgColor: UIColor(red: 0.035, green: 0.13, blue: 0.25, alpha: 1).cgColor)).cropped(to: extent)
-                let edge = navy.applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputBackgroundImageKey: clear, kCIInputMaskImageKey: mask])
-                if let rendered = edgeContext.createCGImage(input.composited(over: edge), from: extent) {
-                    source = UIImage(cgImage: rendered, scale: source.scale, orientation: .up).withRenderingMode(.alwaysOriginal)
-                    cache["shift.lightface.edge"] = source
-                }
-            }
-        }
+    static func shift(active _: Bool, capsLocked: Bool, ink _: UIColor) -> UIImage {
+        let source = image(symbol: "shift", size: 28)
         // The key face indicates a single capital; Caps Lock adds a slim bar.
         guard capsLocked else { return source }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
@@ -273,10 +253,10 @@ struct ToolIcon: UIViewRepresentable {
     }
     private func updateEdges() {
         let overflow = max(0, expectedContentWidth - bounds.width)
-        let left = contentOffset.x > 0.5, right = contentOffset.x < overflow - 0.5
+        let left = contentOffset.x > 0.5, right = contentOffset.x < overflow - 0.5 || contentOffset.x < -0.5
         let fade = min(26, bounds.width / 3)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if overflow > 0.5, bounds.width > 0 {
+        if bounds.width > 0 {
             if layer.mask !== edgeMask { layer.mask = edgeMask }
             edgeMask.frame = bounds
             edgeMask.startPoint = CGPoint(x: 0, y: 0.5); edgeMask.endPoint = CGPoint(x: 1, y: 0.5)
@@ -289,8 +269,12 @@ struct ToolIcon: UIViewRepresentable {
         for icon in edgeIcons {
             let rect = icon.convert(icon.bounds, to: self)
             let distance = min(left ? rect.midX - bounds.minX : fade, right ? bounds.maxX - rect.midX : fade)
-            icon.softenEdge(overflow > 0.5 ? 1 - min(fade, max(0, distance)) / max(1, fade) : 0)
+            icon.softenEdge(1 - min(fade, max(0, distance)) / max(1, fade))
         }
+    }
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard bounds.contains(point), !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
+        return super.hitTest(point, with: event) ?? self
     }
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
 }

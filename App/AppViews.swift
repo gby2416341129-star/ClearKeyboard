@@ -144,7 +144,7 @@ struct HomeView: View {
                     Image(systemName: "sparkle").font(.system(size: 23)).foregroundStyle(AppPalette.accent)
                 }
                 Button { showSetup = true } label: {
-                    HStack { ToolIcon(symbol: "setup").frame(width: 28, height: 28); Text("启用键盘"); Spacer(); ToolIcon(symbol: "arrow.up.right").frame(width: 24, height: 24) }.padding(.horizontal, 16)
+                    HStack { ToolIcon(symbol: "setup").frame(width: 28, height: 28); Text("启用键盘"); Spacer(); ToolIcon(symbol: "arrow.up.right").frame(width: 24, height: 24) }.frame(maxWidth: .infinity, minHeight: 52).padding(.horizontal, 16).contentShape(Rectangle())
                 }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("home.setup")
             }.padding(22).modifier(LiquidCard(radius: 28))
             AppCard {
@@ -154,9 +154,9 @@ struct HomeView: View {
                     .accessibilityIdentifier("home.inputPreferences")
             }.buttonStyle(.plain)
             AppCard {
-                NavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "复制记录", symbol: "doc.on.clipboard") }
+                AppNavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "复制记录", symbol: "doc.on.clipboard") }
                 Divider()
-                NavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "本机存储", symbol: "lock.shield") }
+                AppNavigationLink { InputAboutView() } label: { AppRow(title: "隐私与关于", detail: "本机存储", symbol: "lock.shield") }
             }.buttonStyle(.plain)
             HStack {
                 Text("离线输入"); Spacer()

@@ -456,7 +456,7 @@ import UIKit
         open("keyColor"); let blue = app.buttons["#558DF2"]; reveal(blue, in: app); blue.tap(); back()
         open("candidateColor"); let orange = app.buttons["#E3AC72"]; reveal(orange, in: app); orange.tap(); back()
         open("candidateSize"); app.segmentedControls["custom.candidateTextSize"].buttons["特大"].tap(); back()
-        let hand = app.segmentedControls["custom.hand"]; reveal(hand, in: app); hand.buttons["标准"].tap()
+        let hand = app.segmentedControls["custom.hand"]; reveal(hand, in: app); hand.buttons["左手"].tap()
         let height = app.sliders["custom.keyHeight"]; reveal(height, in: app); height.adjust(toNormalizedSliderPosition: 0.85)
         let expectedHeight = (44 + 14 * (try actualSliderFraction(height))).rounded()
         let vibration = elements(app, identifier: "custom.vibration").firstMatch
@@ -524,7 +524,7 @@ import UIKit
             return value["fullAccess"] as? Bool == true && value["sharedContainerAvailable"] as? Bool == true &&
                 settings["keyColorHex"] as? String == "#558DF2" && settings["candidateColorHex"] as? String == "#E3AC72" &&
                 settings["candidateTextSize"] as? String == "extraLarge" && settings["vibrationEnabled"] as? Bool == true &&
-                settings["automaticClipboard"] as? Bool == true && settings["hand"] as? String == "full" &&
+                settings["automaticClipboard"] as? Bool == true && settings["hand"] as? String == "full" && settings["preferredHand"] as? String == "left" &&
                 abs((settings["keyGlassStrength"] as? Double ?? -1) - expectedGlass) <= 0.011 &&
                 abs((settings["keyHeight"] as? Double ?? -1) - expectedHeight) < 0.1 &&
                 abs((settings["vibrationIntensity"] as? Double ?? -1) - expectedIntensity) <= 0.011 &&
@@ -604,10 +604,25 @@ import UIKit
         screen("round66-live-selection-highlight")
         hash.tap(); expectHost(original + "E3AC72", "Cancelling one token must remove only that token")
         hash.tap(); expectHost(original + "#E3AC72", "Reselecting a token must restore it at its source position")
+        Thread.sleep(forTimeInterval: 1.3)
+        let a = hash.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let b = hex.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+        a.press(forDuration: 0.05, thenDragTo: b)
+        expectHost(original, "Sliding over selected tokens must cancel both")
+        a.press(forDuration: 0.05, thenDragTo: b)
+        expectHost(original + "#E3AC72", "Sliding must select again after a reading pause")
         let done = control(safari, "clipboard.insertSelection")
         XCTAssertTrue(done.isEnabled); done.tap()
         expectHost(original + "#E3AC72", "Finishing selection must preserve text without inserting it twice")
         XCTAssertTrue(key(safari, "j").waitForExistence(timeout: 5), "Finishing selection must restore the letter keyboard")
+        let erase = safari.buttons.matching(NSPredicate(format: "label == %@", "删除")).firstMatch
+        XCTAssertTrue(erase.waitForExistence(timeout: 3))
+        let eraseCenter = erase.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        eraseCenter.press(forDuration: 0.05, thenDragTo: eraseCenter.withOffset(CGVector(dx: 0, dy: -42)))
+        expectHost("", "Delete swipe up must clear the field")
+        eraseCenter.press(forDuration: 0.05, thenDragTo: eraseCenter.withOffset(CGVector(dx: 0, dy: 42)))
+        expectHost(original + "#E3AC72", "Delete swipe down must undo the clear")
+        screen("repair67-clear-undo-restored")
         let report = try JSONSerialization.data(withJSONObject: evidence(), options: [.prettyPrinted, .sortedKeys])
         let result = XCTAttachment(data: report, uniformTypeIdentifier: "public.json")
         result.name = "round62-production-extension-evidence.json"; result.lifetime = .keepAlways; add(result)

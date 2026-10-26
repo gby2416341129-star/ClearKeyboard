@@ -1,0 +1,151 @@
+{
+  "build": 67,
+  "baseline": 66,
+  "authorization": "比如点击这些地方后的跳转动画和过渡动画不够优雅，重新做。开始本轮的修复不做没必要的检查以及没必要的其他东西，直击要害快速修改代码和问题，以及不要浪费token和额度，重复我的话并记住",
+  "items": [
+    {
+      "id": "reset-learning-entry-layout-confirmation-position-record-only-20261026",
+      "scope": [
+        "单独重新安排重置选词记忆入口的布局和位置，使其与页面结构协调。",
+        "执行清除前应有明确的二次确认，用户确认后才清除，并允许取消。",
+        "修正确认弹窗的显示位置，使其与触发入口及当前页面布局合理对应，不跑到页面上方的错误位置。",
+        "后续获授权时一并核对入口布局、页面滚动状态下的弹窗位置和确认流程。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "app-clipboard-restore-all-saved-history-view-record-only-20261026",
+      "scope": [
+        "恢复在主 App 的剪贴板页面查看全部已收录剪贴板历史内容的功能。",
+        "历史内容查看范围保留文字、链接、图片及附件等已支持并保存的内容，不缩限为当前系统剪贴板的一条内容。",
+        "历史查看功能与现有收录、保留和权限设置协调呈现，并保留已有记录。",
+        "后续获授权时核实历史查看功能未显示的具体原因，不将页面上没有列表直接认定为数据已丢失。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "enable-keyboard-entire-card-tap-navigation-record-only-20261026",
+      "scope": [
+        "启用键盘入口的整张卡片均为可点击跳转区域。",
+        "点击左侧图标和文字、中间空白、右侧箭头及卡片内其他位置，都应触发同一跳转。",
+        "沿用已记录的同类设置入口要求，整张卡片应有一致的按下高亮和动画反馈。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "app-settings-rows-press-highlight-animation-feedback-record-only-20261026",
+      "scope": [
+        "截图所示及同类可点击设置入口在按下时应立即提供可见的高亮反馈。",
+        "按下及释放过程应有自然、流畅的动画反馈，让用户能明确感知点击已响应。",
+        "反馈应覆盖可点击设置行，而非只能在准确点击小图标或右侧箭头时才有感觉。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "typing-and-functional-ui-haptics-independent-intensity-record-only-20261026",
+      "scope": [
+        "打字按键震动与功能图标、面板等界面操作震动应独立，不同步使用打字按键力度。",
+        "按键震动力度选择仅控制键盘输入区域的按键，涵盖字母、拼音、数字、符号及键盘输入操作。",
+        "小图标点击以及对应界面展开、关闭等功能操作应有震动和视觉反馈。",
+        "功能操作使用独立、清脆且强烈的震感，与打字震感明显不同，不随打字按键力度调整一起变化。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "clipboard-tap-swipe-selection-regression-position-warning-record-only-20261026",
+      "scope": [
+        "后续获授权时恢复原本可用的单点选词和滑动选词能力。",
+        "沿用既有要求：支持多个单点选择、单点与滑动混合使用、选中高亮及再次操作取消。",
+        "沿用既有要求：选择后对应文字及时进入输入框，取消选择后及时移除对应文字，保护原有输入内容。",
+        "将选词功能回退作为独立功能问题处理，并关联已记录的取消异常提示需求。",
+        "在单点、连续滑动和混合操作中核对选词状态与输入框内容，不以去掉提醒或短暂一次成功认定功能恢复。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "clipboard-preview-text-soft-blur-fade-boundary-record-only-20261026",
+      "scope": [
+        "复制预览栏文本区域的边界采用柔和模糊和淡入淡出效果，避免直线硬切文字。",
+        "文本滑动进入或离开可视区域时，边界过渡应自然连续。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "app-onehand-side-default-without-immediate-keyboard-activation-record-only-20261026",
+      "scope": [
+        "App 中单手模式选择左手或右手时，只记住用户的默认左右手偏好，不立即启用单手模式或改变当前键盘布局。",
+        "之后用户在键盘中主动开启单手模式时，再使用已保存的左右手偏好。",
+        "区分默认偏好的保存与当前单手模式是否启用，避免把偏好设置直接当成启用操作。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "candidate-right-zi-button-vertical-alignment-record-only-20261026",
+      "scope": [
+        "候选栏右侧的字按钮应与候选词框处于同一水平行，视觉上居中对齐，不能显得偏下。",
+        "后续获授权时结合按钮可见轮廓、字形和候选文字检查实际视觉对齐，不仅比较视图坐标。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "severe-bbmmcfl-repeat-candidates-disappear-dropped-input-record-only-20261026",
+      "scope": [
+        "后续获授权时重点复现同一简拼多轮输入及分段选词，核对前几次正常、重复后异常的差异。",
+        "分段选词后，剩余简拼与对应候选应正确衔接，不应出现无关候选或候选栏消失。",
+        "输入和选词过程应完整保留用户按键及已确认文字，避免吞字。",
+        "原样保留用户陈述的目标妈妈爸爸吃饭了，以及先选爸爸妈妈再选吃饭了的曾可用路径，不擅自改写输入或预期顺序。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "clear-completed-incomplete-warning-remove-record-only-20261026",
+      "scope": [
+        "后续获授权时核查完整清理的实际结果与未完整清空提示之间的判定不一致。",
+        "取消上述清理、选词、附件读取和保存相关的八条同类异常横幅提醒，不再加入这种让用户感觉功能有问题的提示。",
+        "完整清理功能本身仍应正确生效，提示的处理需与实际清理结果一并核对。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "toolbar-few-icons-same-edge-fade-no-black-line-record-only-20261026",
+      "scope": [
+        "图标较少时，滑动到边界也应采用图标较多时相同的柔和渐隐淡出效果。",
+        "图标进入或离开边界应自然过渡，不能出现黑线、残留竖条或生硬截断。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "shift-remove-black-outline-record-only-20261026",
+      "scope": [
+        "取消大写键图标外围新增的黑色／深色描边。",
+        "以删除键图标为基准，使大写键图标的明暗度及相同颜色的饱和度与删除键一致。",
+        "调整大写键图标大小，使其与删除键的可见尺寸和肉眼感知体量协调一致，避免显得过大或过小；后续验收不能仅比较图片画布宽高。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "toolbar-blank-space-horizontal-swipe-record-only-20261026",
+      "scope": [
+        "顶部工具图标的横向滚动区域应允许从图标本体、图标间隙和区域内空白处开始左右滑动。",
+        "手指从空白处落下并拖动时即可滚动，不应要求先准确按中图标，或抬指后重新按中图标才能滚动。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "app-settings-navigation-refined-transitions-20261026",
+      "scope": [
+        "重新设计剪贴板、隐私与关于等设置入口的页面跳转和返回过渡，使其自然流畅、优雅。",
+        "与本轮按下高亮及动画反馈统一，避免突兀、卡顿。"
+      ],
+      "status": "in_progress"
+    },
+    {
+      "id": "delete-key-downward-undo-regression-20261026",
+      "scope": [
+        "恢复删除键下滑撤回手势及原本可用的撤回功能。",
+        "手势从控制按钮转入滑动或越过按键区域时仍正确触发撤回，保留普通点击删除和上滑清空。"
+      ],
+      "status": "in_progress"
+    }
+  ]
+}

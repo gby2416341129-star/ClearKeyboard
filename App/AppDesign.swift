@@ -86,7 +86,7 @@ struct AppRow: View {
                     .accessibilityLabel("当前颜色")
             }
             Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
-        }.padding(.vertical, 4).contentShape(Rectangle())
+        }.frame(maxWidth: .infinity, minHeight: 48).padding(.vertical, 4).contentShape(Rectangle())
     }
 }
 
@@ -97,6 +97,42 @@ struct PrimaryAppButton: ButtonStyle {
         configuration.label.font(.system(size: 16, weight: .semibold))
             .frame(maxWidth: .infinity).padding(.vertical, 15)
             .foregroundStyle(bodyColor).modifier(LiquidCard(radius: 18, interactive: true))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).fill(Color.primary.opacity(configuration.isPressed ? 0.10 : 0)).allowsHitTesting(false))
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.smooth(duration: 0.18), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, down in if down { AppFunctionalFeedback.pulse() } }
+    }
+}
+
+@MainActor enum AppFunctionalFeedback {
+    private static let generator = UIImpactFeedbackGenerator(style: .rigid)
+    static func pulse() { generator.impactOccurred(intensity: 1); generator.prepare() }
+}
+
+struct AppRowButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(configuration.isPressed ? 0.09 : 0)))
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.992 : 1)
+            .animation(.smooth(duration: 0.18), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, down in if down { AppFunctionalFeedback.pulse() } }
+    }
+}
+
+struct AppNavigationLink<Destination: View, Label: View>: View {
+    @Namespace private var source
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ViewBuilder var destination: Destination
+    @ViewBuilder var label: Label
+    var body: some View {
+        NavigationLink {
+            if reduceMotion { destination }
+            else { destination.navigationTransition(.zoom(sourceID: "page", in: source)) }
+        } label: {
+            label.matchedTransitionSource(id: "page", in: source)
+        }.buttonStyle(AppRowButtonStyle())
     }
 }

@@ -291,17 +291,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let wasReadable = readableHostContext
         if read.connected { readableHostContext = actual.available }
         let outcome: HostTextState.Reconciliation
-        if clipboardSelectionActive, read.connected, actual.available,
-           !hostState.accepts(hostState.snapshot, actual: actual, now: now, boundedAcknowledgements: true) {
-            // A delayed prior write has a bounded lease. Once it expires,
-            // preserve the host's accepted text and revoke further replacement.
-            // The exact owned marked boundary remains valid for clients that
-            // omit their active composition from public context getters.
-            let stalled = hostState.accepts(hostState.snapshot, actual: actual, now: now)
-            finishClipboardSelection()
-            hostState = HostTextState(actual); outcome = .externalEdit
-            if stalled { model?.onNotice?("输入框未确认完整选词，已保留当前文字，请重新选择") }
-        } else if read.connected && !actual.available && !actual.selected.isEmpty {
+        if read.connected && !actual.available && !actual.selected.isEmpty {
             hostState = HostTextState(actual); outcome = .externalEdit
         } else if read.connected, (!wasReadable || !hostState.snapshot.available), actual.available, actual.selected.isEmpty,
                   actual.document == hostState.snapshot.document, !markedDraft.isEmpty,
@@ -457,7 +447,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         let read = readHostSnapshot()
         let expected = HostTextSnapshot(before: before, after: after, document: identity)
         let ledger = clipboardSelectionActive ? hostState : HostTextState(expected)
-        return read.connected && ledger.accepts(expected, actual: read.snapshot, boundedAcknowledgements: true)
+        return read.connected && ledger.accepts(expected, actual: read.snapshot)
     }
     func replaceClipboardSelection(_ text: String, previous: String) -> Bool {
         guard previous.isEmpty || clipboardSelectionActive,
@@ -476,7 +466,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // ledger here discarded proof of ownership when the remote read still
         // exposed the pre-write boundary of a successful marked-text call.
         let accepted = read.connected && read.snapshot.document == identity &&
-            hostState.accepts(expected, actual: read.snapshot, boundedAcknowledgements: true)
+            hostState.accepts(expected, actual: read.snapshot)
 #if DEBUG
         NSLog("CLEAR66_CLIP_ACK accepted=%d sameDocument=%d beforeUnits=%ld/%ld selectedUnits=%ld", accepted ? 1 : 0,
               read.snapshot.document == identity ? 1 : 0, expected.before.utf16.count, read.snapshot.before.utf16.count, read.snapshot.selected.utf16.count)
@@ -486,7 +476,6 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             clipboardSelectionActive = false; discardMarkedDelivery()
             if read.connected { hostState = HostTextState(read.snapshot) }
             needsHostRefresh = true
-            model?.onNotice?("当前输入框未接受完整选词，请重新选择或直接粘贴")
             return false
         }
         return true
@@ -506,7 +495,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // Give those entry points the same unresolved-selection protection.
         if candidateSelectionNeedsValidation,
            !validateCandidate(before: contextBefore, after: contextAfter, identity: documentIdentity) {
-            abandonDraftWithoutHostWrite()
+            needsHostRefresh = true; scheduleHostRefresh()
             return false
         }
         beginHostWrite(); defer { endHostWrite() }

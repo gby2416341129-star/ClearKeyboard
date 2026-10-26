@@ -992,7 +992,7 @@ import SwiftUI
         XCTAssertEqual(proxy.committed, original + "丙"); XCTAssertTrue(proxy.marked.isEmpty)
         XCTAssertEqual(proxy.deleteWrites, 0)
     }
-    func testClipboardRevokesAStalledPriorValueWithoutDeletingOriginalText() async throws {
+    func testClipboardAllowsDelayedOwnedValueCancellationWithoutDeletingOriginalText() async throws {
         let proxy = BufferedMarkedDocumentProxy(), controller = ProxyKeyboardController()
         proxy.includesMarkedContext = true; proxy.markedLimit = 1
         let original = proxy.committed
@@ -1001,8 +1001,10 @@ import SwiftUI
         let session = ClipboardTextSession(document: controller)
         XCTAssertTrue(session.apply("甲")); XCTAssertTrue(session.apply("甲乙"))
         try await Task.sleep(nanoseconds: 1_400_000_000)
-        XCTAssertFalse(session.apply(""), "An old requested value cannot remain an indefinite acknowledgement of a truncated update")
-        XCTAssertEqual(proxy.committed + proxy.marked, original + "甲"); XCTAssertEqual(proxy.deleteWrites, 0)
+        XCTAssertTrue(session.apply(""), "A delayed, previously requested marked value must not disable deselection")
+        XCTAssertEqual(proxy.committed + proxy.marked, original); XCTAssertEqual(proxy.deleteWrites, 0)
+        XCTAssertTrue(session.apply("乙")); session.finish()
+        XCTAssertEqual(proxy.committed, original + "乙")
     }
     func testLongClearAndUndoRestoreTheOriginalSelectionInRealUIKit() async throws {
         let field = UITextView(); field.autocorrectionType = .no; field.spellCheckingType = .no
