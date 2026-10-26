@@ -1,0 +1,98 @@
+name: Repair split output head and precompile iPhone probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [npu/qwen35-08b-calibrated-q4]
+    paths: ['.github/workflows/ane-repair.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: iphone-ane-repair-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  repair-verify-build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      MODEL_DIRECTORY: Models/Qwen3.5-0.8B-IME-Q4-SplitHead
+      REPAIR_REVISION: '1'
+      OPENBLAS_NUM_THREADS: '2'
+      OMP_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Qwen35-IME-Q4-model
+          path: Models/Qwen3.5-0.8B-IME-Q4
+          run-id: 40387279417
+          github-token: ${{ github.token }}
+      - name: Install only native model repair dependencies
+        run: python3 -m pip install coremltools==9.0 numpy==2.4.4 protobuf==5.29.5
+      - name: Preserve calibrated weights and split only the oversized output head
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/artifacts
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('Models/Qwen3.5-0.8B-IME-Q4')
+          info = json.loads((root / 'model-info.json').read_text())
+          assert info['fingerprint'] == 'bfdd3e0c1abba67575df670091e957e294a13920780a3f95335a1f98367362f8'
+          with (root / info['embeddingFile']).open('rb') as handle:
+              assert hashlib.file_digest(handle, 'sha256').hexdigest() == '3486df1df0b0be964a59925f8cc44e50b33dc52e6dcb262807e01cca7aad31b3'
+          PY
+          python3 -u Conversion/repair_tail.py --source Models/Qwen3.5-0.8B-IME-Q4 --out "$MODEL_DIRECTORY" 2>&1 | tee work/artifacts/tail-repair.log
+      - name: Require real native Core ML load and predict
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -u Scripts/native_coreml_verify.py --model-directory "$MODEL_DIRECTORY" --report work/artifacts/native-coreml.json 2>&1 | tee work/artifacts/native-coreml.log
+      - name: Compile every model for iphoneos and build the independent probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version > work/artifacts/apple-toolchain.txt
+          xcrun swift --version >> work/artifacts/apple-toolchain.txt
+          bash Scripts/build_probe.sh 2>&1 | tee work/artifacts/xcodebuild.log
+      - name: Package unsigned v2 IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/ipa/Payload
+          ditto work/build/Build/Products/Release-iphoneos/ANEProbe.app work/ipa/Payload/ANEProbe.app
+          cd work/ipa
+          ditto -c -k --keepParent Payload ../artifacts/ANEProbe-Q4-v2-unsigned.ipa
+          cd ../artifacts
+          shasum -a 256 ANEProbe-Q4-v2-unsigned.ipa > ANEProbe-Q4-v2-unsigned.ipa.sha256
+          printf '%s\n' 'Native macOS CPU prediction and iphoneos build checked. iPhone ANE execution pending physical-device validation.' > STATUS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Qwen35-IME-Q4-SplitHead-model
+          path: Models/Qwen3.5-0.8B-IME-Q4-SplitHead/
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ANEProbe-Q4-v2-diagnostics
+          path: |
+            work/artifacts/*.log
+            work/artifacts/*.json
+            work/artifacts/*.txt
+            Models/Qwen3.5-0.8B-IME-Q4-SplitHead/*audit.json
+            Models/Qwen3.5-0.8B-IME-Q4-SplitHead/*equivalence.json
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: ANEProbe-Q4-v2-unsigned-IPA
+          path: |
+            work/artifacts/ANEProbe-Q4-v2-unsigned.ipa
+            work/artifacts/ANEProbe-Q4-v2-unsigned.ipa.sha256
+            work/artifacts/STATUS.txt
+          compression-level: 0
+          retention-days: 7
