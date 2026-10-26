@@ -70,6 +70,7 @@ import SwiftUI
     private var keyFramesNeedLayout = true
     private var presentedHeaderHeight: CGFloat = -1
     private var requestedSpelling = ""
+    private var clipboardRevisionCache: (value: Int, sampledAt: TimeInterval)?
     private struct KeyContact {
         let key: ObjectIdentifier
         var action: KeyAction
@@ -199,7 +200,7 @@ import SwiftUI
               requestedCharacterMode != model.characterSelectionMode else { return }
         if (requestedLiteralRevision != model.literalInputRevision || (requestedSpelling != raw && !raw.isEmpty)),
            let clip = recentClip {
-            clipboardSuggestionState.consume(clip, revision: UIPasteboard.general.changeCount); recentClip = nil
+            clipboardSuggestionState.consume(clip, revision: clipboardRevision()); recentClip = nil
         }
         requestedSpelling = raw
         requestedLiteralRevision = model.literalInputRevision
@@ -825,10 +826,12 @@ import SwiftUI
         clipboardSuggestion.addArrangedSubview(close)
     }
     private func reloadClipboardSuggestion(fresh: Bool = true) {
+        clipboardRevisionCache = nil
+        let revision = clipboardRevision()
         let store = ClipboardStore(url: SharedStorage.clipboardURL(allowShared: model.document?.fullAccess == true))
         let lifetime = model.settings.clipboardLifetimeHours * 3600, now = Date()
         recentClip = store.clips.first(where: { lifetime <= 0 || $0.pinned || now.timeIntervalSince($0.createdAt) <= lifetime }).flatMap {
-            !clipboardSuggestionState.isConsumed($0, revision: UIPasteboard.general.changeCount) &&
+            !clipboardSuggestionState.isConsumed($0, revision: revision) &&
                 (fresh || Date().timeIntervalSince($0.createdAt) < 900) ? $0 : nil
         }
         clipboardPaste.configuration?.title = nil
@@ -843,14 +846,22 @@ import SwiftUI
         showPanel(.clipboard)
         (panel as? ClipboardPanel)?.selectText(text)
     }
-    private func dismissRecentClip() {
+    private func clipboardRevision() -> Int {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let cached = clipboardRevisionCache, now - cached.sampledAt < 0.25 { return cached.value }
+        let revision = UIPasteboard.general.changeCount
+        clipboardRevisionCache = (revision, now)
+        return revision
+    }
+    private func dismissRecentClip(revision: Int? = nil) {
         guard let clip = recentClip else { return }
-        clipboardSuggestionState.consume(clip, revision: UIPasteboard.general.changeCount)
+        clipboardSuggestionState.consume(clip, revision: revision ?? clipboardRevision())
         recentClip = nil; renderCandidates()
     }
     private func consumeClipboardForTyping() {
-        clipboardSuggestionState.consumeInputRevision(UIPasteboard.general.changeCount)
-        dismissRecentClip()
+        let revision = clipboardRevision()
+        clipboardSuggestionState.consumeInputRevision(revision)
+        dismissRecentClip(revision: revision)
     }
     private func pasteRecentClip() {
         guard let clip = recentClip else { return }

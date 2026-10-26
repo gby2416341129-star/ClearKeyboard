@@ -1,4 +1,4 @@
-name: Repair 68 restore Build 65 interactions and build iPhone IPA
+name: Repair 69 typing response and candidate spring animation IPA
 on:
   push:
     branches: [codex/repair67-20261026]

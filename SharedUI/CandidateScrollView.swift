@@ -107,6 +107,14 @@ import os
         if next == presentation, ink.isEqual(accent) {
             frameValue.discard(); displayFrame.cancel(); return
         }
+        // A new spelling's first result is already on the main thread. Publish
+        // it in this turn instead of waiting for a remote-view display callback.
+        // Same-query decoder refinements still share one presentation per frame.
+        if presentation == nil || !sameQuery(presentation, next) {
+            frameValue.discard(); displayFrame.cancel()
+            apply(next, accent: accent)
+            return
+        }
         frameValue.replace(with: (next, accent))
         displayFrame.schedule(in: self, maximumFramesPerSecond: window?.screen.maximumFramesPerSecond ?? 60) { [weak self] in
             guard let self, let (next, color) = self.frameValue.take() else { return }
@@ -237,7 +245,8 @@ import os
                                  font: index == 0 ? firstFont : normalFont,
                                  animate: animateChanges && window != nil, normalColor: current.textColor,
                                  firstAppearance: firstAppearance)
-                button.tag = index; button.frame = frames[index]
+                button.tag = index
+                button.move(to: frames[index], animated: animateChanges && old != nil && window != nil)
             }
             if button.isHidden { button.isHidden = false }
             button.isAccessibilityElement = false
@@ -394,8 +403,7 @@ import os
     private let plate = UIView()
     private let label = UILabel()
     private(set) var transitionDeadline: CFTimeInterval = 0
-    private var transitionCleanup: DispatchWorkItem?
-    private static let transitionDuration: CFTimeInterval = 0.18
+    private static let transitionDuration: CFTimeInterval = 0.24
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(plate); addSubview(label)
@@ -443,66 +451,51 @@ import os
             return
         }
         guard animate, !reduceMotion, !voiceOver else { finishTransition(); return }
-        // One readable glyph layer replaces the old two-label overlap. The old
-        // word must never shine through a different word or dim the whole row.
-        // A burst shares one settle clock: later results change the real text
-        // immediately, without bouncing again or stretching the handoff.
+        // Retarget the currently displayed ink. New words are readable at once;
+        // no old bitmap, opacity dip or delayed cleanup competes with later keys.
         let now = CACurrentMediaTime()
-        if now < transitionDeadline, label.layer.animation(forKey: "candidateText") != nil { return }
-        finishTransition()
+        let current = label.layer.presentation()?.transform ?? CATransform3DIdentity
+        let y = firstAppearance ? 4 : (abs(current.m42) > 0.01 ? current.m42 : 1.25)
+        let scale = firstAppearance ? 0.965 : (abs(current.m11 - 1) > 0.001 ? current.m11 : 0.985)
+        transitionDeadline = now + Self.transitionDuration
+        label.layer.add(spring("transform.translation.y", from: y, to: CGFloat.zero, layer: label.layer, now: now),
+                        forKey: "candidateTextPosition")
+        label.layer.add(spring("transform.scale", from: scale, to: CGFloat(1), layer: label.layer, now: now),
+                        forKey: "candidateText")
+    }
+    private func spring(_ key: String, from: Any, to: Any, layer: CALayer, now: CFTimeInterval) -> CASpringAnimation {
+        let animation = CASpringAnimation(keyPath: key)
+        animation.mass = 1; animation.stiffness = 560; animation.damping = 32
+        animation.initialVelocity = 0
+        animation.fromValue = from; animation.toValue = to
+        animation.duration = Self.transitionDuration
+        animation.beginTime = layer.convertTime(now, from: nil)
         let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
-        let rate = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-        // Only the ink settles by two points. Cells, highlight, scroll offset
-        // and hit targets always use their latest exact geometry. First ink has
-        // one sub-pixel rebound; replacements keep the quiet, one-way settle.
-        // Both finish on the same deadline, without an outgoing word bitmap.
-        let duration = Self.transitionDuration
-        transitionDeadline = now + duration
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.preferredFrameRateRange = rate
-        // Replacing readable words must not dim them on every result. Only
-        // the first appearance has a very slight opacity settle.
-        fade.fromValue = firstAppearance ? 0.96 : 1
-        fade.toValue = 1; fade.duration = duration
-        fade.beginTime = label.layer.convertTime(now, from: nil)
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        label.layer.add(fade, forKey: "candidateText")
-        let settle: CABasicAnimation
-        // Appearance belongs to the row's empty -> populated transition, not
-        // a pooled label's lifetime. Scrolling or new results never opt in.
-        if firstAppearance {
-            let spring = CASpringAnimation(keyPath: "transform.translation.y")
-            // A single small rebound settles below 0.002pt by 180ms. Do not use settlingDuration here:
-            // extending its clock would stretch a fast typing burst.
-            spring.mass = 1; spring.stiffness = 6_400; spring.damping = 84
-            spring.initialVelocity = 0
-            spring.timingFunction = CAMediaTimingFunction(name: .linear)
-            settle = spring
-        } else {
-            settle = CABasicAnimation(keyPath: "transform.translation.y")
-            settle.timingFunction = fade.timingFunction
+        animation.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
+        return animation
+    }
+    func move(to target: CGRect, animated: Bool) {
+        let position = layer.presentation()?.position ?? layer.position
+        let previous = frame
+        frame = target
+        guard animated, previous != target, !isHidden,
+              !UIAccessibility.isReduceMotionEnabled, !UIAccessibility.isVoiceOverRunning else {
+            layer.removeAnimation(forKey: "candidateCellPosition")
+            return
         }
-        settle.preferredFrameRateRange = rate
-        settle.fromValue = 2; settle.toValue = 0; settle.duration = duration
-        settle.beginTime = fade.beginTime
-        label.layer.add(settle, forKey: "candidateTextPosition")
-        // Explicitly retire the bounded burst at its original deadline. A
-        // remote host or hierarchy snapshot can retain CA animation copies
-        // after their displayed motion has ended. Never carry that old clock
-        // into a later word, and never defer input or restart the bounce.
-        let deadline = transitionDeadline
-        let cleanup = DispatchWorkItem { [weak self] in
-            self?.finishTransition(matching: deadline)
-        }
-        transitionCleanup = cleanup
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: cleanup)
+        // The latest layout and hit targets are authoritative. Core Animation
+        // only carries the visible cell from its current position to that layout.
+        let offset = max(-18, min(18, position.x - layer.position.x))
+        let start = CGPoint(x: layer.position.x + offset, y: layer.position.y)
+        layer.add(spring("position", from: NSValue(cgPoint: start), to: NSValue(cgPoint: layer.position),
+                         layer: layer, now: CACurrentMediaTime()), forKey: "candidateCellPosition")
     }
     func finishTransition(matching deadline: CFTimeInterval) {
         guard transitionDeadline == deadline else { return }
         finishTransition()
     }
     func finishTransition() {
-        transitionCleanup?.cancel(); transitionCleanup = nil
+        layer.removeAnimation(forKey: "candidateCellPosition")
         label.layer.removeAnimation(forKey: "candidateText")
         label.layer.removeAnimation(forKey: "candidateTextPosition")
         label.layer.opacity = 1; label.layer.transform = CATransform3DIdentity
