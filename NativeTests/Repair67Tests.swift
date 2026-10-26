@@ -103,6 +103,22 @@ import SwiftUI
         let decoded = try JSONDecoder().decode(KeyboardSettings.self, from: JSONEncoder().encode(applied))
         XCTAssertEqual(decoded.hand, .full); XCTAssertEqual(decoded.preferredHand, .left)
     }
+    func testFunctionalFeedbackIsStrongAndDistinctEvenAtMaximumTypingStrength() {
+        var pulses: [CGFloat] = []
+        let feedback = KeyboardVibration(emit: { pulses.append($0) })
+        feedback.pulseInterface()
+        XCTAssertEqual(pulses, [1])
+        for mode in VibrationMode.allCases {
+            for intensity in [0.2, 1.0] {
+                feedback.pulse(intensity: intensity, mode: mode)
+                let typingStyle = feedback.requestedStyle
+                feedback.pulseInterface()
+                XCTAssertEqual(feedback.requestedStyle, .heavy)
+                XCTAssertNotEqual(feedback.requestedStyle, typingStyle)
+                XCTAssertEqual(pulses.last, 1)
+            }
+        }
+    }
     func testShortToolbarHasGapHitSurfaceAndFadesDuringBounce() throws {
         let controller = UIViewController(), host = try window(controller)
         defer { host.isHidden = true }

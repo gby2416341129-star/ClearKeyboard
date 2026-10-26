@@ -105,7 +105,7 @@ struct LiquidCard: ViewModifier {
         guard emit == nil, view.window != nil, presentationView !== view else { return }
         presentationView = view
         generators.removeAll()
-        for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft] {
+        for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft, .heavy] {
             let generator: UIImpactFeedbackGenerator
             if #available(iOS 17.5, *) { generator = UIImpactFeedbackGenerator(style: style, view: view) }
             else { generator = UIImpactFeedbackGenerator(style: style) }
@@ -139,6 +139,18 @@ struct LiquidCard: ViewModifier {
         if generator != nil { submittedPulses += 1 }
 #endif
         generator?.prepare()
+    }
+    func pulseInterface() {
+#if DEBUG
+        requestedStyle = .heavy
+#endif
+        if let emit { emit(1); return }
+        guard presentationView?.window != nil, let generator = generators[.heavy] else { return }
+        generator.impactOccurred(intensity: 1)
+#if DEBUG
+        submittedPulses += 1
+#endif
+        generator.prepare()
     }
     func stop() { generators = [:]; presentationView = nil }
 }

@@ -583,7 +583,7 @@ import SwiftUI
     }
     private func toolbarPulse() {
         toolbarVibration.attach(to: self)
-        toolbarVibration.pulse(intensity: 1, mode: .crisp)
+        toolbarVibration.pulseInterface()
     }
     func setToolPinned(_ tool: ToolbarTool, pinned: Bool) {
         guard tool != .language else { return }

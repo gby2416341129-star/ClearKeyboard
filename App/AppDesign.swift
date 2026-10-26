@@ -106,7 +106,7 @@ struct PrimaryAppButton: ButtonStyle {
 }
 
 @MainActor enum AppFunctionalFeedback {
-    private static let generator = UIImpactFeedbackGenerator(style: .rigid)
+    private static let generator = UIImpactFeedbackGenerator(style: .heavy)
     static func pulse() { generator.impactOccurred(intensity: 1); generator.prepare() }
 }
 
