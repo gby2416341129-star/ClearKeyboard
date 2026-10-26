@@ -131,6 +131,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     var candidatesAreCurrent: Bool { candidateGeneration == generation }
     private var automaticChoiceIsReady: Bool {
         guard candidatesAreCurrent else { return false }
+        guard activeCandidates?.result?.refining != true else { return false }
         let raw = composition.normalized
         guard raw.utf8.count >= 3, raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) }),
               (activeCandidates?.result?.stage ?? 1) == 0 else { return true }
@@ -161,14 +162,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var appearanceLink: AppearanceSettingsLink?
     private let suppliedDefaults: UserDefaults?
     private var engine: InputEngine?
-    // One serial decoder owner. Common words have an independent memory/CLX
-    // path; sentence enrichment starts in a typing gap or on explicit browsing.
+    // One serial Qwen inference owner; immutable Qwen scores have a separate
+    // phonetic filtering worker so sentence generation cannot hold up a key.
     private let queue = DispatchQueue(label: "clear.candidates", qos: .userInitiated, autoreleaseFrequency: .workItem)
-    // Read-only CLX lookups must not page mapped dictionaries in on the UI thread.
-    // Keep them independent of the serial sentence decoder so a long sentence
-    // never holds up the next common-word lookup.
+    // Constraint matching stays off the UI thread and the inference queue.
     private let wordQueue = DispatchQueue(label: "clear.words", qos: .userInitiated)
-    private let warmQueue = DispatchQueue(label: "clear.words.prefetch", qos: .utility)
     private let wordLookup: (InputEngine, String, [Candidate]) -> [Candidate]
     private let hotWords = HotWordCache()
     private let warmsWords: Bool
@@ -292,22 +290,30 @@ struct DeletedInput { let text: String; let selection: NSRange }
             return query
         }
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
-        let lookup = wordLookup, cache = hotWords, warm = warmsWords
-        let cachedWords = warm ? cache.value(raw) : nil
+        let lookup = wordLookup, cache = hotWords, warm = warmsWords, fuzzy = settings.fuzzyPairs
+        let wordKey = raw + "\u{1f}" + preceding + "\u{1f}" + fuzzy.sorted().joined(separator: ",")
+        let cachedWords = warm ? cache.value(wordKey) : nil
+        let window = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
+        let expectedConsumption = FuzzyPinyin.normalize(window).count
         if preferred.contains(where: { $0.score == 4 }) {
             // A learned initials alias is an explicit user mapping. It is safe
             // to publish from memory during this key, without a worker roundtrip.
             query.publish(Self.preferredWords(preferred, cachedWords ?? []), stage: 0)
         } else if let cachedWords, !cachedWords.isEmpty {
-            query.publish(Self.preferredWords(preferred, cachedWords), stage: 0)
+            query.publish(Self.preferredWords(preferred, cachedWords), stage: 0,
+                          refining: (cachedWords.first?.consumed ?? 0) < expectedConsumption)
         }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             guard !query.token.isCancelled else { return }
-            let words = cachedWords ?? lookup(engine, raw, warm ? [] : preferred)
-            if warm { cache.put(raw, words) }
+            let words = cachedWords ?? (warm ? engine.immediateCandidates(raw, context: preceding, fuzzy: fuzzy,
+                cancelled: { query.token.isCancelled }) : lookup(engine, raw, preferred))
+            if warm, !query.token.isCancelled { cache.put(wordKey, words) }
             query.wordLookupCompleted(empty: words.isEmpty)
             guard !query.token.isCancelled else { return }
-            if !words.isEmpty { query.publish(Self.preferredWords(preferred, words), stage: 0) }
+            if !words.isEmpty {
+                let items = Self.preferredWords(preferred, words)
+                query.publish(items, stage: 0, refining: (items.first?.consumed ?? 0) < expectedConsumption)
+            }
             DispatchQueue.main.async {
                 guard let self, !query.token.isCancelled else { return }
                 if self.preparedCandidates === query, self.activeCandidates !== query {
@@ -367,10 +373,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
             // A single constrained Qwen request handles the active spelling.
             let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
-                correction: correction, context: query.preceding, cancelled: cancelled, updated: { items, more in
+                correction: correction, context: query.preceding, cancelled: cancelled, updated: { items, more, settled in
                     guard !cancelled() else { return }
                     query.publish(Array(items.prefix(limit)), stage: stage, limit: limit,
-                                  hasMore: more || items.count > limit, correction: correction)
+                                  hasMore: more || items.count > limit, correction: correction, refining: !settled)
                     DispatchQueue.main.async {
                         guard let self, self.activeCandidates === query, !cancelled() else { return }
                         self.loadingMoreCandidates = false; self.presentCandidates(query)
@@ -378,7 +384,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 })
             guard !cancelled() else { return }
             query.publish(Array(result.prefix(limit)), stage: stage, limit: limit,
-                          hasMore: result.count > limit && limit < 4095,
+                          hasMore: (result.count > limit || query.result?.hasMore == true) && limit < 4095,
                           correction: correction)
             DispatchQueue.main.async {
                 guard let self, self.activeCandidates === query, !cancelled() else { return }
@@ -406,7 +412,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         candidates = items; hasMoreCandidates = result.hasMore
         candidateGeneration = generation; candidateContext = requestedContext
         candidates = candidatePreferences?.applying(candidates, context: candidateContext) ?? candidates
-        if result.stage > 0 && result.stage < 3 {
+        if result.stage > 0 && result.stage < 3 && !result.refining {
             if query.cacheEpoch == candidateCacheEpoch {
                 if candidateCache[query.cacheKey] == nil { candidateCacheOrder.append(query.cacheKey) }
                 candidateCache[query.cacheKey] = result
@@ -461,7 +467,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if inputChanged { self.refreshCandidates() }
         }
         if document.fullAccess { self.appearanceLink?.activate() }
-        let cache = hotWords, warm = warmsWords, prefetch = warmQueue
         queue.async { [weak self] in
             let result = Result { try InputEngine.bundled() }
             DispatchQueue.main.async {
@@ -479,14 +484,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
                     self.resumeDeferredActions()
                 case .failure: self.finishCompositionAsTyped(); self.engineState = "Qwen 加载失败 · 可继续输入英文"; self.onChange?()
-                }
-            }
-            if warm, case .success(let engine) = result {
-                prefetch.async {
-                    for letter in "abcdefghijklmnopqrstuvwxyz" {
-                        let raw = String(letter)
-                        if cache.value(raw) == nil { cache.put(raw, engine.immediateCandidates(raw)) }
-                    }
                 }
             }
         }
@@ -1110,7 +1107,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 private final class PreparedCandidates: @unchecked Sendable {
     struct Result {
         let items: [Candidate]; let stage: Int; let revision: Int
-        let limit: Int; let hasMore: Bool; let correction: Bool
+        let limit: Int; let hasMore: Bool; let correction: Bool; let refining: Bool
     }
     let raw: String
     let generation: Int
@@ -1129,11 +1126,12 @@ private final class PreparedCandidates: @unchecked Sendable {
     var result: Result? { lock.lock(); defer { lock.unlock() }; return stored }
     var missedWords: Bool { lock.lock(); defer { lock.unlock() }; return emptyWordLookup }
     func wordLookupCompleted(empty: Bool) { lock.lock(); emptyWordLookup = empty; lock.unlock() }
-    func publish(_ items: [Candidate], stage: Int, limit: Int = 8, hasMore: Bool = true, correction: Bool = false) {
+    func publish(_ items: [Candidate], stage: Int, limit: Int = 8, hasMore: Bool = true, correction: Bool = false,
+                 refining: Bool = false) {
         lock.lock(); defer { lock.unlock() }
         guard stage >= (stored?.stage ?? -1) else { return }
         stored = Result(items: items, stage: stage, revision: (stored?.revision ?? 0) + 1,
-                        limit: limit, hasMore: hasMore, correction: correction)
+                        limit: limit, hasMore: hasMore, correction: correction, refining: refining)
     }
 }
 

@@ -37,9 +37,10 @@ def verify(path):
         assert b'ggml_backend_metal_reg' in app_binary, 'App Metal runtime missing'
         assert b'ggml_backend_metal_reg' not in keyboard_binary, 'Metal runtime linked into keyboard'
         assert b'ck_qwen_create' in keyboard_binary, 'Qwen keyboard bridge missing'
+        assert b'ck_qwen_preview' in keyboard_binary, 'Qwen immediate candidate path missing'
         for prefix in [base, extension]:
             info = plistlib.loads(ipa.read(prefix + 'Info.plist'))
-            assert str(info['CFBundleVersion']) == '80'
+            assert str(info['CFBundleVersion']) == '81'
             assert 'iPhoneOS' in info['CFBundleSupportedPlatforms']
         info = plistlib.loads(ipa.read(extension + 'Info.plist'))
         assert info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.keyboard-service'

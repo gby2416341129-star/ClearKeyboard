@@ -102,13 +102,19 @@ struct Branch {
 struct BranchLess { bool operator()(const Branch &a,const Branch &b)const {return a.priority()<b.priority();} };
 struct Query {
     std::string key,letters; std::set<int> boundaries; uint32_t fuzzy=0;
-    bool corrections=false,character=false,prediction=false,started=false;
+    bool corrections=false,character=false,prediction=false,started=false,refined=false;
+    CKQwenCancelled cancelled=nullptr; void *cancelData=nullptr;
+    bool stop() const {return cancelled && cancelled(cancelData);}
     std::vector<llama_token> prompt;
-    std::vector<Item> items; std::vector<Branch> prefixes,heads; std::unordered_set<std::string> seen;
+    std::vector<Item> items; std::unordered_set<std::string> seen;
     std::priority_queue<Branch,std::vector<Branch>,BranchLess> frontier;
     std::unordered_map<uint64_t,std::vector<Alignment>> matches;
     std::unordered_map<std::string,std::vector<std::pair<std::string,double>>> spellings;
+    std::unordered_map<std::string,std::vector<Alignment>> syllables;
+    Branch initial;
 };
+struct Scores { std::vector<float> logp; };
+struct ScoredPrefix { std::vector<llama_token> tokens; std::shared_ptr<const Scores> scores; };
 struct TokenCharacters { uint32_t offset=0,count=0; };
 struct CharacterSpan {
     const uint32_t *data; size_t count;
@@ -126,6 +132,8 @@ void appendUTF8(std::string &text,uint32_t cp) {
 }
 }
 
+struct CKQwenPreview { std::vector<Item> items; };
+
 struct CKQwen {
     llama_model *model=nullptr; llama_context *context=nullptr; const llama_vocab *vocab=nullptr;
     std::unordered_map<uint32_t,std::vector<std::string>> phonetics;
@@ -134,11 +142,18 @@ struct CKQwen {
     // every token in the 248K vocabulary.
     std::vector<TokenCharacters> tokenCharacters; std::vector<uint32_t> scalars;
     std::vector<llama_token> usable;
+    std::vector<int32_t> scoreIndex;
     std::array<std::vector<llama_token>,26> leading;
     std::vector<std::shared_ptr<Query>> cache; std::shared_ptr<Query> current;
     std::vector<llama_token> basePrompt;
-    std::vector<uint8_t> baseState;
-    static constexpr auto stateFlags=LLAMA_STATE_SEQ_FLAGS_ON_DEVICE;
+    std::vector<llama_token> liveTokens;
+    std::vector<ScoredPrefix> scoredPrefixes;
+    // Immutable Qwen logits can be filtered on the word worker while the
+    // single inference worker is busy. No recurrent-state copy is retained.
+    std::mutex priorLock;
+    std::string priorContext;
+    std::vector<llama_token> priorTokens;
+    std::shared_ptr<const Scores> prior,emptyPrior;
     CKQwenCancelled cancelled=nullptr; CKQwenUpdated updated=nullptr; void *cancelData=nullptr;
     ~CKQwen() { if(context)llama_free(context); if(model)llama_model_free(model); }
     bool stop() const { return cancelled && cancelled(cancelData); }
@@ -163,7 +178,12 @@ struct CKQwen {
             if(stop()) return false;
             int n=int(std::min(decodeBatch,tokens.size()-i));
             auto batch=llama_batch_get_one(const_cast<llama_token *>(tokens.data()+i),n);
-            if(llama_decode(context,batch)!=0) return false;
+            if(llama_decode(context,batch)!=0) {
+                // An aborted hybrid decode can leave processed microbatches
+                // behind; never reuse that partly advanced recurrent state.
+                liveTokens.clear(); llama_memory_clear(llama_get_memory(context),false); return false;
+            }
+            liveTokens.insert(liveTokens.end(),tokens.begin()+i,tokens.begin()+i+n);
             i+=n;
         }
         return !stop();
@@ -195,13 +215,13 @@ struct CKQwen {
         auto next=q.boundaries.upper_bound(start);
         return next==q.boundaries.end() || *next>=end;
     }
-    std::vector<Alignment> syllable(Query &q,const Alignment &base,const std::string &reading) {
-        std::vector<Alignment> out; int start=base.end,remaining=int(q.letters.size())-start;
-        if(remaining<=0) return out;
+    const std::vector<Alignment> &syllableMatches(Query &q,int start,const std::string &reading) {
+        std::string key=std::to_string(start)+'\t'+reading;
+        if(auto it=q.syllables.find(key);it!=q.syllables.end()) return it->second;
+        std::vector<Alignment> out; int remaining=int(q.letters.size())-start;
         auto add=[&](int length,double penalty,int edits=0) {
-            if(length<=0 || length>remaining || !boundaryAllows(q,start,start+length) || base.edits+edits>2) return;
-            Alignment a=base; a.end+=length; a.penalty+=penalty; a.edits+=edits;
-            if(!a.reading.empty()) a.reading+=' '; a.reading+=reading; out.push_back(std::move(a));
+            if(length<=0 || length>remaining || !boundaryAllows(q,start,start+length)) return;
+            out.push_back({start+length,edits,penalty,reading});
         };
         for(const auto &variant:spellings(q,reading)) {
             const auto &s=variant.first;
@@ -223,7 +243,18 @@ struct CKQwen {
         std::sort(out.begin(),out.end(),[](const Alignment &a,const Alignment &b){return a.penalty<b.penalty;});
         std::vector<Alignment> unique;
         for(auto &a:out) if(std::none_of(unique.begin(),unique.end(),[&](const Alignment &b){return a.end==b.end && a.edits==b.edits;})) unique.push_back(std::move(a));
-        return unique;
+        if(q.syllables.size()>=4096) q.syllables.clear();
+        return q.syllables.emplace(std::move(key),std::move(unique)).first->second;
+    }
+    std::vector<Alignment> syllable(Query &q,const Alignment &base,const std::string &reading) {
+        if(base.end>=int(q.letters.size())) return {};
+        std::vector<Alignment> out;
+        for(const auto &match:syllableMatches(q,base.end,reading)) if(base.edits+match.edits<=2) {
+            Alignment next=match; next.edits+=base.edits; next.penalty+=base.penalty;
+            if(!base.reading.empty()) next.reading=base.reading+' '+next.reading;
+            out.push_back(std::move(next));
+        }
+        return out;
     }
     const std::vector<Alignment> &align(Query &q,llama_token token,int position) {
         uint64_t key=(uint64_t(uint32_t(position))<<32)|uint32_t(token);
@@ -232,6 +263,7 @@ struct CKQwen {
         const auto chars=characters(token);
         if(chars.empty() || (q.character && (chars.size()!=1 || !han(chars[0])))) paths.clear();
         for(const auto &ch:chars) {
+            if(q.stop()) {paths.clear();break;}
             std::vector<Alignment> next;
             if(auto it=phonetics.find(ch);it!=phonetics.end()) {
                 for(const auto &path:paths) for(const auto &reading:it->second) {
@@ -256,13 +288,37 @@ struct CKQwen {
         if(q.matches.size()>matchCacheLimit) q.matches.clear();
         return q.matches.emplace(key,std::move(paths)).first->second;
     }
-    std::vector<Match> options(Query &q,int position,int usedEdits) {
+    std::shared_ptr<const Scores> readScores() {
         const float *logits=llama_get_logits_ith(context,-1);
-        if(!logits) return {};
+        if(!logits) throw std::runtime_error("Qwen produced no token scores");
         float largest=-std::numeric_limits<float>::infinity();
         for(int i=0;i<int(tokenCharacters.size());++i) largest=std::max(largest,logits[i]);
         double sum=0; for(int i=0;i<int(tokenCharacters.size());++i) sum+=std::exp(double(logits[i]-largest));
         double logZ=largest+std::log(sum);
+        auto scores=std::make_shared<Scores>(); scores->logp.reserve(usable.size());
+        for(auto token:usable) scores->logp.push_back(float(logits[token]-logZ));
+        return scores;
+    }
+    std::shared_ptr<const Scores> scoresFor(Query &q,const std::vector<llama_token> &prefix) {
+        std::vector<llama_token> wanted=q.prompt; wanted.insert(wanted.end(),prefix.begin(),prefix.end());
+        if(prefix.empty()) {
+            std::lock_guard<std::mutex> lock(priorLock);
+            if(wanted==basePrompt && emptyPrior) return emptyPrior;
+            if(wanted==priorTokens && prior) return prior;
+        }
+        for(auto it=scoredPrefixes.begin();it!=scoredPrefixes.end();++it) if(it->tokens==wanted) {
+            auto hit=*it; scoredPrefixes.erase(it); scoredPrefixes.push_back(hit); return hit.scores;
+        }
+        const bool append=liveTokens.size()<=wanted.size() && std::equal(liveTokens.begin(),liveTokens.end(),wanted.begin());
+        if(!append) {liveTokens.clear();llama_memory_clear(llama_get_memory(context),false);}
+        const std::vector<llama_token> suffix(wanted.begin()+liveTokens.size(),wanted.end());
+        if(!suffix.empty() && !evaluate(suffix)) return {};
+        if(stop()) return {};
+        auto scores=readScores(); scoredPrefixes.push_back({std::move(wanted),scores});
+        if(scoredPrefixes.size()>(keyboardExtension?8:24)) scoredPrefixes.erase(scoredPrefixes.begin());
+        return scores;
+    }
+    std::vector<Match> options(Query &q,int position,int usedEdits,const Scores &scores) {
         std::vector<Match> best;
         // Index the first output character once at model load. Avoid running a
         // phonetic lattice over the entire 248K-token vocabulary at every step.
@@ -281,15 +337,15 @@ struct CKQwen {
             pool=&narrowed;
         }
         for(size_t i=0;i<pool->size();++i) {
-            if((i&1023)==0 && stop()) return {};
+            if((i&63)==0 && q.stop()) return {};
             auto token=(*pool)[i];
             if(q.prediction) {
                 const auto chars=characters(token);
                 if(chars.empty() || chars.size()>6 || !std::all_of(chars.begin(),chars.end(),[](uint32_t cp){return han(cp);})) continue;
-                best.push_back({token,{0,0,0,""},logits[token]-logZ});
+                best.push_back({token,{0,0,0,""},scores.logp[scoreIndex[token]]});
             } else {
                 for(const auto &a:align(q,token,position)) if(usedEdits+a.edits<=2)
-                    best.push_back({token,a,logits[token]-logZ});
+                    best.push_back({token,a,scores.logp[scoreIndex[token]]});
             }
         }
         auto rank=[&](const Match &a,const Match &b) {
@@ -316,59 +372,39 @@ struct CKQwen {
         });
     }
     void publish(Query &q,int limit) {
-        if(updated && !stop()) updated(cancelData,this,std::min(limit,int(q.items.size())),!q.frontier.empty());
+        const int flags=(!q.frontier.empty()?CK_QWEN_MORE:0)|(!q.refined?CK_QWEN_REFINING:0);
+        if(updated && !stop()) updated(cancelData,this,std::min(limit,int(q.items.size())),flags);
     }
-    bool replay(Query &q,const Branch &b) {
-        llama_memory_clear(llama_get_memory(context),false);
-        bool restored=!baseState.empty() && llama_state_seq_set_data_ext(context,baseState.data(),baseState.size(),0,stateFlags)>0;
-        if(!restored) {
-            baseState.clear(); llama_memory_clear(llama_get_memory(context),false);
-            if(!evaluate(basePrompt)) return false;
-            // A recurrent-state snapshot duplicates a large hybrid-model
-            // buffer. Reserve that optimization for the foreground App.
-            if constexpr(!keyboardExtension) {
-                const size_t bytes=llama_state_seq_get_size_ext(context,0,stateFlags);
-                if(bytes>0 && bytes<64*1024*1024) {
-                    baseState.resize(bytes);
-                    if(llama_state_seq_get_data_ext(context,baseState.data(),bytes,0,stateFlags)!=bytes) baseState.clear();
-                }
-            }
-        }
-        return evaluate(q.prompt) && (b.tokens.empty() || evaluate(b.tokens));
+    Branch extending(const Branch &base,const Match &choice) const {
+        Branch b=base; b.tokens.push_back(choice.token); b.text+=piece(choice.token);
+        b.characterCount+=int(characters(choice.token).size());
+        if(!b.reading.empty() && !choice.alignment.reading.empty()) b.reading+=' ';
+        b.reading+=choice.alignment.reading; b.consumed=choice.alignment.end;
+        b.edits+=choice.alignment.edits; b.penalty+=choice.alignment.penalty; b.logp+=choice.logp;
+        return b;
     }
     bool expand(Query &q,Branch branch,bool first) {
-        if(!replay(q,branch)) return false;
         std::vector<Branch> prefixes;
         for(int step=0;step<256;++step) {
             if(stop()) return false;
             if((!q.prediction && branch.consumed==int(q.letters.size())) || q.character || (q.prediction && !branch.text.empty())) {
                 add(q,branch,true); break;
             }
-            auto choices=options(q,branch.consumed,branch.edits);
+            auto scores=scoresFor(q,branch.tokens); if(!scores) return false;
+            auto choices=options(q,branch.consumed,branch.edits,*scores);
             if(choices.empty()) { add(q,branch,false); break; }
             for(size_t i=1;i<choices.size();++i) {
-                const auto &choice=choices[i]; Branch alternate=branch;
-                alternate.tokens.push_back(choice.token); alternate.text+=piece(choice.token);
-                alternate.characterCount+=int(characters(choice.token).size());
-                if(!alternate.reading.empty() && !choice.alignment.reading.empty()) alternate.reading+=' ';
-                alternate.reading+=choice.alignment.reading; alternate.consumed=choice.alignment.end;
-                alternate.edits+=choice.alignment.edits; alternate.penalty+=choice.alignment.penalty; alternate.logp+=choice.logp;
-                if(first && branch.tokens.empty()) q.heads.push_back(alternate);
+                Branch alternate=extending(branch,choices[i]);
                 if(q.frontier.size()<frontierLimit) q.frontier.push(std::move(alternate));
             }
-            const auto &choice=choices.front();
-            branch.tokens.push_back(choice.token); branch.text+=piece(choice.token);
-            branch.characterCount+=int(characters(choice.token).size());
-            if(!branch.reading.empty() && !choice.alignment.reading.empty()) branch.reading+=' ';
-            branch.reading+=choice.alignment.reading; branch.consumed=choice.alignment.end;
-            branch.edits+=choice.alignment.edits; branch.penalty+=choice.alignment.penalty; branch.logp+=choice.logp;
+            branch=extending(branch,choices.front());
             prefixes.push_back(branch);
             if(q.character || q.prediction || branch.consumed==int(q.letters.size())) { add(q,branch,true); break; }
-            if(basePrompt.size()+q.prompt.size()+branch.tokens.size()>=740 || !evaluate({choice.token})) { add(q,branch,false); break; }
+            if(q.prompt.size()+branch.tokens.size()>=740) { add(q,branch,false); break; }
         }
         // Prefixes are real model paths with their own consumption spans. Keep
         // the first complete sentence ahead of them; never fabricate a reading.
-        if(first) for(auto it=prefixes.rbegin();it!=prefixes.rend();++it) q.prefixes.push_back(*it);
+        if(first) for(auto it=prefixes.rbegin();it!=prefixes.rend();++it) add(q,*it,false);
         return !stop();
     }
 };
@@ -429,7 +465,7 @@ extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath
             }
         }
         if(!engine->context) throw std::runtime_error("Cannot create the Qwen3.5 hybrid context");
-        int count=llama_vocab_n_tokens(engine->vocab); engine->tokenCharacters.resize(count);
+        int count=llama_vocab_n_tokens(engine->vocab); engine->tokenCharacters.resize(count); engine->scoreIndex.assign(count,-1);
         for(int token=0;token<count;++token) {
             if(llama_vocab_is_control(engine->vocab,token) || llama_vocab_is_eog(engine->vocab,token)) continue;
             char small[512]; int n=llama_token_to_piece(engine->vocab,token,small,sizeof(small),0,false);
@@ -455,16 +491,62 @@ extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath
             for(char c:heads) if(c>='a' && c<='z') engine->leading[c-'a'].push_back(token);
             engine->tokenCharacters[token]={uint32_t(engine->scalars.size()),uint32_t(chars.size())};
             for(const auto &ch:chars) engine->scalars.push_back(ch.value);
-            engine->usable.push_back(token);
+            engine->scoreIndex[token]=int32_t(engine->usable.size()); engine->usable.push_back(token);
         }
         engine->scalars.shrink_to_fit();
-        engine->basePrompt=engine->tokenize("<|im_start|>system\n你是中文输入法。把全拼、简拼或混拼转成自然的常用中文词句；按语境选常用词，不机械拼接同音字。英文原样保留。只输出转换结果。<|im_end|>\n");
+        // Qwen supplies the Chinese language probabilities; the phonetic
+        // decoder enforces the typed input. Changing pinyin does not change
+        // this language prefix, so its logits can serve every key immediately.
+        engine->basePrompt=engine->tokenize("<|im_start|>system\n续写中文，只输出正文。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n");
+        Query warm; warm.prompt=engine->basePrompt;
+        engine->emptyPrior=engine->scoresFor(warm,{}); engine->prior=engine->emptyPrior; engine->priorTokens=engine->basePrompt;
+        if(!engine->emptyPrior) throw std::runtime_error("Cannot prepare Qwen language scores");
         return engine.release();
     } catch(const std::exception &e) { lastError=e.what(); return nullptr; }
     catch(...) { lastError="Qwen initialization failed"; return nullptr; }
 }
 extern "C" void ck_qwen_destroy(CKQwen *engine) { delete engine; }
 extern "C" const char *ck_qwen_error() { return lastError.c_str(); }
+static void configureQuery(Query &q,const std::string &input,uint32_t fuzzy,int corrections,int characterOnly,
+                           CKQwenCancelled cancelled,void *opaque) {
+    q.fuzzy=fuzzy; q.corrections=corrections!=0; q.character=characterOnly!=0;
+    q.cancelled=cancelled; q.cancelData=opaque;
+    for(unsigned char c:input) {
+        if(c>='A' && c<='Z') c+=32;
+        if(c>='a' && c<='z') q.letters+=char(c);
+        else if(c=='\'') q.boundaries.insert(int(q.letters.size()));
+    }
+    q.prediction=q.letters.empty();
+}
+extern "C" CKQwenPreview *ck_qwen_preview(CKQwen *engine,const char *raw,const char *context,uint32_t fuzzy,int corrections,int limit,CKQwenCancelled cancelled,void *opaque) {
+    if(!engine || !raw || !*raw) return nullptr;
+    try {
+        Query q; configureQuery(q,raw,fuzzy,corrections,0,cancelled,opaque);
+        if(q.prediction || q.stop()) return nullptr;
+        const std::string preceding=suffixText(context?context:"",96);
+        std::shared_ptr<const Scores> scores;
+        {
+            std::lock_guard<std::mutex> lock(engine->priorLock);
+            scores=engine->priorContext==preceding?engine->prior:engine->emptyPrior;
+        }
+        if(!scores) return nullptr;
+        for(const auto &choice:engine->options(q,0,0,*scores)) {
+            auto branch=engine->extending({},choice); engine->add(q,branch,branch.consumed==int(q.letters.size()));
+        }
+        if(q.stop()) return nullptr;
+        engine->sortInitial(q); q.items.resize(std::min(q.items.size(),size_t(std::max(1,std::min(24,limit)))));
+        auto page=std::make_unique<CKQwenPreview>();page->items=std::move(q.items);return page.release();
+    } catch(...) {return nullptr;}
+}
+extern "C" void ck_qwen_preview_destroy(CKQwenPreview *page) {delete page;}
+extern "C" int ck_qwen_preview_count(const CKQwenPreview *page) {return page?int(page->items.size()):0;}
+static const Item *previewItem(const CKQwenPreview *page,int index) {
+    return page && index>=0 && index<int(page->items.size())?&page->items[index]:nullptr;
+}
+extern "C" const char *ck_qwen_preview_text(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->text.c_str():"";}
+extern "C" const char *ck_qwen_preview_reading(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->reading.c_str():"";}
+extern "C" int ck_qwen_preview_consumed(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->consumed:0;}
+extern "C" double ck_qwen_preview_score(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->score:0;}
 extern "C" int ck_qwen_query(CKQwen *engine,const char *raw,const char *context,uint32_t fuzzy,int corrections,int characterOnly,int limit,CKQwenCancelled cancelled,CKQwenUpdated updated,void *opaque) {
     if(!engine) return 0;
     engine->cancelled=cancelled; engine->updated=updated; engine->cancelData=opaque;
@@ -477,27 +559,20 @@ extern "C" int ck_qwen_query(CKQwen *engine,const char *raw,const char *context,
             query=*it; engine->cache.erase(it); break;
         }
         if(!query) {
-            query=std::make_shared<Query>(); query->key=key; query->fuzzy=fuzzy;
-            query->corrections=corrections!=0; query->character=characterOnly!=0;
-            for(unsigned char c:input) {
-                if(c>='A' && c<='Z') c+=32;
-                if(c>='a' && c<='z') query->letters+=char(c);
-                else if(c=='\'') query->boundaries.insert(int(query->letters.size()));
-            }
-            query->prediction=query->letters.empty();
+            query=std::make_shared<Query>(); query->key=key;
+            configureQuery(*query,input,fuzzy,corrections,characterOnly,cancelled,opaque);
             if(query->prediction && preceding.empty()) return 0;
-            std::string prompt="<|im_start|>user\n";
-            if(!preceding.empty()) prompt+="上文："+preceding+"\n";
-            prompt+=query->prediction?"续写下一个词。":"拼音："+input;
-            prompt+="<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
-            query->prompt=engine->tokenize(prompt,false);
-            if(query->prompt.empty() || engine->basePrompt.size()+query->prompt.size()>480) throw std::runtime_error("Input exceeds the Qwen context window");
+            query->prompt=engine->basePrompt;
+            const auto prefix=engine->tokenize(preceding,false); query->prompt.insert(query->prompt.end(),prefix.begin(),prefix.end());
+            if(query->prompt.empty() || query->prompt.size()>480) throw std::runtime_error("Input exceeds the Qwen context window");
         }
+        query->cancelled=cancelled;query->cancelData=opaque;
         engine->cache.insert(engine->cache.begin(),query); if(engine->cache.size()>queryCacheLimit) engine->cache.pop_back();
         engine->current=query; limit=std::max(1,std::min(4096,limit));
         if(query->character) {
-            if(query->items.empty() && engine->replay(*query,{})) {
-                for(const auto &option:engine->options(*query,0,0)) {
+            const auto scores=engine->scoresFor(*query,{});
+            if(query->items.empty() && scores) {
+                for(const auto &option:engine->options(*query,0,0,*scores)) {
                     Branch b; b.text=engine->piece(option.token); b.reading=option.alignment.reading;
                     b.characterCount=int(engine->characters(option.token).size());
                     b.consumed=option.alignment.end; b.penalty=option.alignment.penalty; b.logp=option.logp;
@@ -506,15 +581,27 @@ extern "C" int ck_qwen_query(CKQwen *engine,const char *raw,const char *context,
             }
         } else {
             if(!query->started) {
-                if(!engine->expand(*query,{},true)) return 0;
-                // Publish the first model result immediately. Other first-row
-                // choices already have Qwen logits; no extra full prompt runs
-                // are needed before displaying them.
-                for(const auto &head:query->heads) engine->add(*query,head,head.consumed==int(query->letters.size()));
-                for(const auto &prefix:query->prefixes) engine->add(*query,prefix,false);
-                query->heads.clear(); query->prefixes.clear();
-                engine->sortInitial(*query); engine->publish(*query,limit);
+                const auto scores=engine->scoresFor(*query,{}); if(!scores) return 0;
+                {
+                    std::lock_guard<std::mutex> lock(engine->priorLock);
+                    engine->prior=scores; engine->priorContext=preceding; engine->priorTokens=query->prompt;
+                }
+                const auto choices=engine->options(*query,0,0,*scores);
+                if(engine->stop()) return 0;
+                for(const auto &choice:choices) {
+                    auto branch=engine->extending({},choice);
+                    engine->add(*query,branch,query->prediction || branch.consumed==int(query->letters.size()));
+                    query->frontier.push(branch);
+                }
+                if(!choices.empty()) query->initial=engine->extending({},choices.front());
+                engine->sortInitial(*query);
+                query->refined=query->prediction || choices.empty() || (!query->items.empty() && query->items.front().consumed==int(query->letters.size()));
                 query->started=true;
+                engine->publish(*query,limit);
+            }
+            if(!query->refined) {
+                if(!engine->expand(*query,query->initial,true)) return 0;
+                query->refined=true; engine->sortInitial(*query); engine->publish(*query,limit);
             }
             while(int(query->items.size())<limit && !query->frontier.empty() && !engine->stop()) {
                 Branch branch=query->frontier.top(); query->frontier.pop();
@@ -523,6 +610,7 @@ extern "C" int ck_qwen_query(CKQwen *engine,const char *raw,const char *context,
                 engine->publish(*query,limit);
             }
         }
+        query->refined=true; engine->publish(*query,limit);
         return engine->stop()?0:std::min(limit,int(query->items.size()));
     } catch(const std::exception &e) {lastError=e.what();return 0;}
     catch(...) {lastError="Qwen candidate generation failed";return 0;}

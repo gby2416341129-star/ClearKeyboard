@@ -6,8 +6,8 @@ import CQwen
 private final class QwenCancellation {
     let cancelled: () -> Bool
     let maximum: Int
-    let updated: (([Candidate], Bool) -> Void)?
-    init(_ cancelled: @escaping () -> Bool, raw: String, updated: (([Candidate], Bool) -> Void)?) {
+    let updated: (([Candidate], Bool, Bool) -> Void)?
+    init(_ cancelled: @escaping () -> Bool, raw: String, updated: (([Candidate], Bool, Bool) -> Void)?) {
         self.cancelled = cancelled; self.maximum = FuzzyPinyin.normalize(raw).count; self.updated = updated
     }
     func snapshot(_ handle: OpaquePointer, count: Int32) -> [Candidate] {
@@ -27,7 +27,7 @@ private let qwenUpdated: @convention(c) (UnsafeMutableRawPointer?, OpaquePointer
     let request = Unmanaged<QwenCancellation>.fromOpaque(opaque).takeUnretainedValue()
     guard !request.cancelled(), let updated = request.updated else { return }
     let snapshot = request.snapshot(handle, count: count)
-    if !snapshot.isEmpty, !request.cancelled() { updated(snapshot, more != 0) }
+    if !snapshot.isEmpty, !request.cancelled() { updated(snapshot, (more & 1) != 0, (more & 2) == 0) }
 }
 private let qwenCancelled: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
     guard let opaque else { return 0 }
@@ -51,7 +51,7 @@ final class QwenDecoder {
     private var immediate: [String: [Candidate]] = [:]
     private var immediateOrder: [String] = []
     private let cacheLock = NSLock()
-    static let revision = 80
+    static let revision = 81
 
     static func bundled() throws -> QwenDecoder {
         ownerLock.lock(); defer { ownerLock.unlock() }
@@ -67,38 +67,60 @@ final class QwenDecoder {
         handle = value
     }
     deinit { ck_qwen_destroy(handle) }
-    // Completed Qwen results only; key events never enter the generation lock.
-    func cached(_ raw: String) -> [Candidate] {
-        cacheLock.lock(); defer { cacheLock.unlock() }
-        return immediate[raw] ?? []
+    private func mask(_ fuzzy: Set<String>) -> UInt32 {
+        FuzzyPinyin.availablePairs.enumerated().reduce(UInt32(0)) { value, pair in
+            fuzzy.contains(pair.element) ? value | (UInt32(1) << UInt32(pair.offset)) : value
+        }
+    }
+    private func key(_ raw: String, _ context: String, _ fuzzy: UInt32, _ correction: Bool) -> String {
+        raw + "\u{1f}" + context + "\u{1f}" + String(fuzzy) + (correction ? "t" : "f")
+    }
+    // This path only filters immutable Qwen logits. It never takes the
+    // generation lock or waits for a sentence request to finish.
+    func preview(_ raw: String, context: String, fuzzy: Set<String>, correction: Bool,
+                 cancelled: () -> Bool) -> [Candidate] {
+        guard !cancelled() else { return [] }
+        let fuzzyMask = mask(fuzzy)
+        let cacheKey = key(raw, context, fuzzyMask, correction)
+        cacheLock.lock(); let cached = immediate[cacheKey]; cacheLock.unlock()
+        if let cached { return cached }
+        return withoutActuallyEscaping(cancelled) { callback -> [Candidate] in
+            let request = QwenCancellation(callback, raw: raw, updated: nil)
+            let opaque = Unmanaged.passUnretained(request).toOpaque()
+            guard let page = ck_qwen_preview(handle, raw, context, fuzzyMask, correction ? 1 : 0, 8, qwenCancelled, opaque) else { return [] }
+            defer { ck_qwen_preview_destroy(page) }
+            guard !callback() else { return [] }
+            return (0..<ck_qwen_preview_count(page)).compactMap { index in
+                let text = String(cString: ck_qwen_preview_text(page, index))
+                let consumed = Int(ck_qwen_preview_consumed(page, index))
+                guard !text.isEmpty, consumed > 0, consumed <= request.maximum else { return nil }
+                return Candidate(text: text, reading: String(cString: ck_qwen_preview_reading(page, index)),
+                                 consumed: consumed, score: ck_qwen_preview_score(page, index))
+            }
+        }
     }
     func candidates(_ raw: String, context: String = "", fuzzy: Set<String> = [],
                     correction: Bool = true, characterOnly: Bool = false,
                     limit: Int = 24, cancelled: () -> Bool = { false },
-                    updated: (([Candidate], Bool) -> Void)? = nil) -> [Candidate] {
+                    updated: (([Candidate], Bool, Bool) -> Void)? = nil) -> [Candidate] {
         guard !cancelled() else { return [] }
         lock.lock(); defer { lock.unlock() }
         guard !cancelled() else { return [] }
-        let mask = FuzzyPinyin.availablePairs.enumerated().reduce(UInt32(0)) { value, pair in
-            fuzzy.contains(pair.element) ? value | (UInt32(1) << UInt32(pair.offset)) : value
-        }
+        let fuzzyMask = mask(fuzzy)
+        let cacheKey = key(raw, context, fuzzyMask, correction)
         return withoutActuallyEscaping(cancelled) { callback in
             let cancellation = QwenCancellation(callback, raw: raw, updated: updated)
             let opaque = Unmanaged.passUnretained(cancellation).toOpaque()
-            let count = ck_qwen_query(handle, raw, context, mask, correction ? 1 : 0,
+            let count = ck_qwen_query(handle, raw, context, fuzzyMask, correction ? 1 : 0,
                                      characterOnly ? 1 : 0, Int32(clamping: max(1, min(4096, limit))), qwenCancelled, qwenUpdated, opaque)
             guard !callback(), count > 0 else { return [] }
             let output = cancellation.snapshot(handle, count: count)
             if !raw.isEmpty, !characterOnly, !callback() {
                 cacheLock.lock()
-                // A later request may have different fuzzy settings or context.
-                // The context-free hot row reuses exact aligned readings only.
-                let spelling = FuzzyPinyin.normalize(raw)
-                immediate[raw] = Array(output.filter { candidate in
-                    let reading = FuzzyPinyin.normalize(candidate.reading)
-                    return !reading.isEmpty && reading.count == candidate.consumed && spelling.hasPrefix(reading)
-                }.prefix(8))
-                immediateOrder.removeAll { $0 == raw }; immediateOrder.append(raw)
+                // Context and fuzzy settings are part of the key; an old row
+                // must not override a different phonetic request.
+                immediate[cacheKey] = Array(output.prefix(8))
+                immediateOrder.removeAll { $0 == cacheKey }; immediateOrder.append(cacheKey)
                 while immediateOrder.count > 128 { immediate.removeValue(forKey: immediateOrder.removeFirst()) }
                 cacheLock.unlock()
             }

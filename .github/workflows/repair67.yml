@@ -1,4 +1,4 @@
-name: Build 80 isolated keyboard runtime IPA
+name: Build 81 cached Qwen candidate pipeline IPA
 on:
   push:
     branches: [codex/repair67-20261026]

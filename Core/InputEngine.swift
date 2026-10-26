@@ -11,14 +11,18 @@ public final class InputEngine {
     public static func bundled() throws -> InputEngine {
         try InputEngine(english: .bundled("english"), decoder: .bundled())
     }
-    public func immediateCandidates(_ raw: String, preferred: [Candidate] = []) -> [Candidate] {
-        PersonalLexicon.merging(preferred, into: decoder.cached(raw), limit: 8)
+    public func immediateCandidates(_ raw: String, preferred: [Candidate] = [], context: String = "",
+                                    fuzzy: Set<String> = [], correction: Bool = true,
+                                    cancelled: () -> Bool = { false }) -> [Candidate] {
+        let query = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
+        return PersonalLexicon.merging(preferred, into: decoder.preview(query, context: context, fuzzy: fuzzy,
+                                                                       correction: correction, cancelled: cancelled), limit: 8)
     }
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:],
                            preferred: [Candidate] = [], recentCorrections: [Candidate] = [],
                            limit: Int = 24, compose: Bool = true, correction: Bool = true,
                            context: String = "", cancelled: () -> Bool = { false },
-                           updated: (([Candidate], Bool) -> Void)? = nil) -> [Candidate] {
+                           updated: (([Candidate], Bool, Bool) -> Void)? = nil) -> [Candidate] {
         guard !raw.isEmpty, !cancelled() else { return [] }
         let normalized = FuzzyPinyin.normalize(raw)
         let valid = (preferred + (correction ? recentCorrections : [])).filter {
@@ -26,8 +30,8 @@ public final class InputEngine {
         }
         let query = Composition.queryPrefix(raw, normalized: normalized)
         var generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
-                                           limit: limit, cancelled: cancelled, updated: { items, more in
-            updated?(PersonalLexicon.merging(valid, into: items, limit: max(1, limit)), more)
+                                           limit: limit, cancelled: cancelled, updated: { items, more, settled in
+            updated?(PersonalLexicon.merging(valid, into: items, limit: max(1, limit)), more, settled)
         })
         guard !cancelled() else { return [] }
         if !learned.isEmpty {
