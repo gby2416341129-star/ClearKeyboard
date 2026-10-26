@@ -5,6 +5,9 @@ on:
     branches: [npu/qwen35-08b-calibrated-q4]
     paths-ignore:
       - '.github/workflows/artifact-delivery.yml'
+      - '.github/workflows/ane-repair.yml'
+      - 'Conversion/repair_tail.py'
+      - 'Scripts/native_coreml_verify.py'
       - 'README.md'
       - 'Evidence/**'
 permissions:

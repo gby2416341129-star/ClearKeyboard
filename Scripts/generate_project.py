@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Generate an independent iOS probe project, with no third-party build tools."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -13,6 +14,18 @@ def identifier(name):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model-directory", type=Path)
+    args = parser.parse_args()
+    model_directory = args.model_directory or ROOT / "Models/Qwen3.5-0.8B-IME-Q4-SplitHead"
+    if args.model_directory is None and not model_directory.exists():
+        model_directory = ROOT / "Models/Qwen3.5-0.8B-IME-Q4"
+    model_directory = model_directory.resolve()
+    info = json.loads((model_directory / "model-info.json").read_text(encoding="utf-8"))
+    names = ["chunk_" + suffix for suffix in "abcd"] + [head["name"] for head in info.get("headModels", [])]
+    model_sources = [(model_directory / (name + ".mlpackage")).relative_to(ROOT).as_posix() for name in names]
+    if not all((ROOT / path).is_dir() for path in model_sources):
+        raise FileNotFoundError("Missing model package; prepare the selected model first")
     objects = []
     def add(name, definition):
         key = identifier(name)
@@ -23,13 +36,14 @@ def main():
     def listing(items):
         return "(" + ", ".join(items) + ("," if items else "") + ")"
     sources = ["ProbeApp/ANEProbeApp.swift", "Sources/QwenANERuntime/QwenANE.swift",
-               "Sources/QwenANERuntime/ANEPlan.swift"]
-    resources = ["ProbeApp/fixture.json", "Models/Qwen3.5-0.8B-IME-Q4",
+               "Sources/QwenANERuntime/ANEPlan.swift"] + model_sources
+    resources = ["ProbeApp/fixture.json", "work/probe-assets/Qwen3.5-0.8B-IME-Q4",
                  "THIRD_PARTY_NOTICES.txt", "LICENSE-QWEN.txt"]
     references, source_builds, resource_builds = [], [], []
     for path in sources + resources:
         kind = ("sourcecode.swift" if path.endswith(".swift") else
-                "folder" if path.startswith("Models/") else
+                "folder.mlpackage" if path.endswith(".mlpackage") else
+                "folder" if path.startswith("work/probe-assets/") else
                 "text.json" if path.endswith(".json") else "text")
         reference = add("file:" + path, f"isa = PBXFileReference; lastKnownFileType = {kind}; path = {quote(path)}; sourceTree = \"<group>\";")
         references.append(reference)
@@ -51,8 +65,8 @@ def main():
             "GENERATE_INFOPLIST_FILE": "YES", "CODE_SIGN_STYLE": "Automatic",
             "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "1",
-            "MARKETING_VERSION": "0.1", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
+            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "2",
+            "MARKETING_VERSION": "0.2", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
         }
         body = " ".join(f"{key} = {quote(value)};" for key, value in settings.items())
         configurations.append(add("config:" + mode, f"isa = XCBuildConfiguration; buildSettings = {{ {body} }}; name = {mode};"))

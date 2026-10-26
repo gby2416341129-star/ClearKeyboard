@@ -21,10 +21,28 @@ public actor QwenANE {
         case fp16
         case int8Rowwise = "int8_rowwise_fp16_scale"
     }
+    public struct HeadOutput: Codable, Sendable {
+        public let name: String
+        public let offset: Int
+        public let length: Int
+        public init(name: String, offset: Int, length: Int) {
+            self.name = name; self.offset = offset; self.length = length
+        }
+    }
+    public struct HeadModel: Codable, Sendable {
+        public let name: String
+        public let outputs: [HeadOutput]
+        public init(name: String, outputs: [HeadOutput]) {
+            self.name = name; self.outputs = outputs
+        }
+    }
     public static let contextLength = 2048
     public static let vocabularySize = 248_320
     public static let hiddenSize = 1024
     private let models: [MLModel]
+    private let headModels: [(model: MLModel, layout: HeadModel)]
+    private let bodyOutput: String
+    private let headInput: String
     private var kvStates: [MLState]
     private var recurrent: [[String: MLMultiArray]]
     private let embedding: Data
@@ -38,15 +56,34 @@ public actor QwenANE {
     private var lastLogits: [Float]?
 
     public init(compiledDirectory: URL, embeddingURL: URL,
-                embeddingEncoding: EmbeddingEncoding = .fp16) throws {
+                embeddingEncoding: EmbeddingEncoding = .fp16,
+                headModels: [HeadModel] = [], bodyOutput: String? = nil,
+                headInput: String = "normed_hidden",
+                progress: (@Sendable (String) -> Void)? = nil) throws {
+        try Self.validateLayout(headModels)
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
+        func load(_ name: String) throws -> MLModel {
+            progress?("load:start:\(name)")
+            let start = ProcessInfo.processInfo.systemUptime
+            let model = try MLModel(contentsOf: compiledDirectory.appendingPathComponent(name + ".mlmodelc"),
+                                    configuration: configuration)
+            let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+            progress?("load:complete:\(name):\(ms)")
+            return model
+        }
         var loaded: [MLModel] = []
         for suffix in ["a", "b", "c", "d"] {
-            let url = compiledDirectory.appendingPathComponent("chunk_\(suffix).mlmodelc")
-            loaded.append(try MLModel(contentsOf: url, configuration: configuration))
+            loaded.append(try load("chunk_\(suffix)"))
         }
-        try Self.validate(loaded)
+        let outputName = bodyOutput ?? (headModels.isEmpty ? "logits" : "normed_hidden")
+        try Self.validate(loaded, outputName: outputName, splitHead: !headModels.isEmpty)
+        var loadedHeads: [(model: MLModel, layout: HeadModel)] = []
+        for layout in headModels {
+            let model = try load(layout.name)
+            try Self.validateHead(model, layout: layout, inputName: headInput)
+            loadedHeads.append((model, layout))
+        }
         let mapped = try Data(contentsOf: embeddingURL, options: .alwaysMapped)
         let expected = embeddingEncoding == .fp16
             ? Self.vocabularySize * Self.hiddenSize * 2
@@ -55,6 +92,9 @@ public actor QwenANE {
             throw ANEError.invalid("Embedding size \(mapped.count), expected \(expected)")
         }
         models = loaded
+        self.headModels = loadedHeads
+        self.bodyOutput = outputName
+        self.headInput = headInput
         kvStates = loaded.map { $0.makeState() }
         recurrent = try Self.zeroRecurrent(loaded)
         embedding = mapped
@@ -86,9 +126,16 @@ public actor QwenANE {
             Array(prompt.prefix(tokens.count)) == tokens
         if !isExtension { try reset() }
         do {
-            for token in prompt.dropFirst(tokens.count) {
+            let pending = Array(prompt.dropFirst(tokens.count))
+            for (index, token) in pending.enumerated() {
                 try Task.checkCancellation()
-                lastLogits = try step(token: token, at: tokens.count)
+                // Intermediate prefill tokens only update the recurrent/KV
+                // states. The separate full-vocabulary head is needed once,
+                // on the final token, preserving exactly the same final logits.
+                if let scores = try step(token: token, at: tokens.count,
+                                         produceLogits: index == pending.count - 1) {
+                    lastLogits = scores
+                }
                 tokens.append(token)
             }
             guard let result = lastLogits else {
@@ -103,7 +150,7 @@ public actor QwenANE {
         }
     }
 
-    private func step(token: Int32, at offset: Int) throws -> [Float] {
+    private func step(token: Int32, at offset: Int, produceLogits: Bool) throws -> [Float]? {
         embedding.withUnsafeBytes { source in
             switch embeddingEncoding {
             case .fp16:
@@ -166,9 +213,37 @@ public actor QwenANE {
             finalOutput = output
         }
         try Task.checkCancellation()
-        guard let scores = finalOutput?.featureValue(for: "logits")?.multiArrayValue,
-              scores.count == Self.vocabularySize else {
-            throw ANEError.invalid("Expected full-vocabulary logits; reject legacy top-K export")
+        guard produceLogits else { return nil }
+        guard let output = finalOutput?.featureValue(for: bodyOutput)?.multiArrayValue else {
+            throw ANEError.invalid("Missing body output \(bodyOutput)")
+        }
+        if headModels.isEmpty {
+            return try Self.floatValues(output, count: Self.vocabularySize)
+        }
+        guard output.shape.map(\.intValue) == [1, 1, Self.hiddenSize] else {
+            throw ANEError.invalid("Split head requires normalized hidden [1,1,1024]")
+        }
+        let input = try MLDictionaryFeatureProvider(dictionary: [
+            headInput: MLFeatureValue(multiArray: output)
+        ])
+        var logits = [Float](repeating: 0, count: Self.vocabularySize)
+        for head in headModels {
+            try Task.checkCancellation()
+            let prediction = try head.model.prediction(from: input)
+            for tile in head.layout.outputs {
+                guard let scores = prediction.featureValue(for: tile.name)?.multiArrayValue else {
+                    throw ANEError.invalid("Missing \(head.layout.name).\(tile.name)")
+                }
+                let values = try Self.floatValues(scores, count: tile.length)
+                logits.replaceSubrange(tile.offset..<(tile.offset + tile.length), with: values)
+            }
+        }
+        return logits
+    }
+
+    private static func floatValues(_ scores: MLMultiArray, count: Int) throws -> [Float] {
+        guard scores.count == count else {
+            throw ANEError.invalid("Output count \(scores.count), expected \(count)")
         }
         // Use Accelerate for the 248K-element transfer. Respect strides before
         // using the contiguous path; never assume an arbitrary array is dense.
@@ -181,7 +256,7 @@ public actor QwenANE {
             }
             contiguousStride *= length
         }
-        var values = [Float](repeating: 0, count: Self.vocabularySize)
+        var values = [Float](repeating: 0, count: count)
         if contiguous && scores.dataType == .float16 {
             var source = vImage_Buffer(data: scores.dataPointer, height: 1,
                 width: vImagePixelCount(values.count), rowBytes: values.count * 2)
@@ -215,7 +290,7 @@ public actor QwenANE {
         }
     }
 
-    private static func validate(_ models: [MLModel]) throws {
+    private static func validate(_ models: [MLModel], outputName: String, splitHead: Bool) throws {
         for (index, model) in models.enumerated() {
             let description = model.modelDescription
             let expected: [String: [Int]] = [
@@ -233,9 +308,57 @@ public actor QwenANE {
             guard Set(states.keys) == ["kv_cache"] else {
                 throw ANEError.invalid("Chunk \(index) requires one kv_cache MLState")
             }
+            let name = index < models.count - 1 ? "hidden" : outputName
+            let shape = index < models.count - 1 || splitHead
+                ? [1, 1, Self.hiddenSize] : [1, 1, Self.vocabularySize]
+            let output = description.outputDescriptionsByName[name]?.multiArrayConstraint
+            guard output?.shape.map(\.intValue) == shape, output?.dataType == .float16 else {
+                throw ANEError.invalid("Chunk \(index) output mismatch: \(name)")
+            }
         }
-        guard models.last?.modelDescription.outputDescriptionsByName["logits"] != nil else {
-            throw ANEError.invalid("Last chunk must emit full logits")
+    }
+
+    private static func validateLayout(_ layouts: [HeadModel]) throws {
+        guard !layouts.isEmpty else { return }
+        guard Set(layouts.map(\.name)).count == layouts.count else {
+            throw ANEError.invalid("Duplicate output-head model name")
+        }
+        for layout in layouts {
+            guard layout.name.hasPrefix("head_"),
+                  layout.name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }),
+                  !layout.outputs.isEmpty,
+                  Set(layout.outputs.map(\.name)).count == layout.outputs.count else {
+                throw ANEError.invalid("Invalid output-head layout \(layout.name)")
+            }
+        }
+        let tiles = layouts.flatMap(\.outputs).sorted { $0.offset < $1.offset }
+        var next = 0
+        for tile in tiles {
+            guard tile.offset == next, tile.length > 0, tile.length <= 8192,
+                  tile.offset <= Self.vocabularySize - tile.length else {
+                throw ANEError.invalid("Output tiles must cover the full vocabulary without gaps or overlap")
+            }
+            next += tile.length
+        }
+        guard next == Self.vocabularySize else {
+            throw ANEError.invalid("Output tiles omit vocabulary entries")
+        }
+    }
+
+    private static func validateHead(_ model: MLModel, layout: HeadModel, inputName: String) throws {
+        let description = model.modelDescription
+        let input = description.inputDescriptionsByName[inputName]?.multiArrayConstraint
+        guard Set(description.inputDescriptionsByName.keys) == [inputName],
+              input?.shape.map(\.intValue) == [1, 1, Self.hiddenSize],
+              input?.dataType == .float16, description.stateDescriptionsByName.isEmpty,
+              Set(description.outputDescriptionsByName.keys) == Set(layout.outputs.map(\.name)) else {
+            throw ANEError.invalid("\(layout.name) input/state/output contract mismatch")
+        }
+        for tile in layout.outputs {
+            let output = description.outputDescriptionsByName[tile.name]?.multiArrayConstraint
+            guard output?.shape.map(\.intValue) == [1, 1, tile.length], output?.dataType == .float16 else {
+                throw ANEError.invalid("\(layout.name).\(tile.name) output contract mismatch")
+            }
         }
     }
 }
