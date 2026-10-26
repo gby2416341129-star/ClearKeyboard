@@ -145,7 +145,7 @@ final class KeyButton: UIButton {
         caption.frame = plate.bounds; icon.frame = plate.bounds; pressWash.frame = plate.bounds
         shiftStateWash?.frame = plate.bounds
         if icon.image != nil {
-            let limit: CGFloat = key.action == .globe ? 32 : key.action == .shift ? 27 : 28
+            let limit: CGFloat = key.action == .globe ? 32 : key.action == .shift ? 24 : 28
             let side = max(0, min(limit, min(plate.bounds.width - 4, plate.bounds.height - 6)))
             icon.contentMode = .scaleAspectFit
             icon.frame = CGRect(x: (plate.bounds.width - side) / 2, y: (plate.bounds.height - side) / 2, width: side, height: side)
@@ -310,9 +310,7 @@ final class KeyButton: UIButton {
             deletionDirection = y < -24 ? 1 : y > 24 ? -1 : 0
             onDeleteHint?(deletionDirection)
         case .ended:
-            let y = gesture.translation(in: window).y
-            let direction = y < -24 ? 1 : y > 24 ? -1 : 0
-            if direction != 0 { onDeleteSwipe?(direction == 1) }
+            if deletionDirection != 0 { onDeleteSwipe?(deletionDirection == 1) }
             onDeleteHint?(nil); deletionDirection = 0; cancelPress()
         default: onDeleteHint?(nil); deletionDirection = 0; cancelPress()
         }

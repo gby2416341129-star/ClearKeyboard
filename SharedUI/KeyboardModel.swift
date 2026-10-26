@@ -24,37 +24,13 @@ import os
     @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool
     func unmarkText()
     func clearInput() -> DeletedInput?
-    func clearInput(completion: @escaping (DeletedInput?) -> Void)
     func restoreInput(_ value: DeletedInput) -> Bool
     func validateCandidate(before: String, after: String, identity: String) -> Bool
     func candidateInteractionChanged(_ active: Bool)
     func keyInteractionChanged(_ active: Bool)
-    func validateClipboardSelection(before: String, after: String, identity: String) -> Bool
-    func replaceClipboardSelection(_ text: String, previous: String) -> Bool
-    func finishClipboardSelection()
 }
 
 extension KeyboardDocument {
-    func clearInput(completion: @escaping (DeletedInput?) -> Void) { completion(clearInput()) }
-    func validateClipboardSelection(before: String, after: String, identity: String) -> Bool {
-        validateCandidate(before: before, after: after, identity: identity)
-    }
-    func replaceClipboardSelection(_ text: String, previous: String) -> Bool {
-        let before = contextBefore, after = contextAfter
-        guard before.hasSuffix(previous), selectedText.isEmpty else { return false }
-        let old = Array(previous), next = Array(text)
-        var prefix = 0, suffix = 0
-        while prefix < min(old.count, next.count), old[prefix] == next[prefix] { prefix += 1 }
-        while suffix < min(old.count, next.count) - prefix,
-              old[old.count - 1 - suffix] == next[next.count - 1 - suffix] { suffix += 1 }
-        if suffix > 0 { moveCursor(-suffix) }
-        for _ in prefix..<(old.count - suffix) { deleteBackward() }
-        let insertion = String(next[prefix..<(next.count - suffix)])
-        if !insertion.isEmpty { insert(insertion) }
-        if suffix > 0 { moveCursor(suffix) }
-        return contextBefore == String(before.dropLast(previous.count)) + text && contextAfter == after
-    }
-    func finishClipboardSelection() {}
     var usesLocalPinyinComposition: Bool { false }
     @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool {
         commitMarkedText(text)
@@ -615,7 +591,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
     }
     @discardableResult func undoClearInput() -> Bool {
-        guard documentEditDepth == 0 else { return false }
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document, let (deleted, identity, before, after, spelling) = deletionUndo,
               document.documentIdentity == identity, document.contextBefore == before,
@@ -750,14 +725,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func beginClipboardSelection() -> ClipboardTextSession? {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        onContentKey?()
-        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return nil }
+        if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
         guard let document, document.selectedText.isEmpty else { return nil }
         return ClipboardTextSession(document: document)
     }
     @discardableResult func updateClipboardSelection(_ session: ClipboardTextSession, text: String) -> Bool {
         beginDocumentEdit(); defer { endDocumentEdit() }
         let updated = session.apply(text)
+        if updated { refreshCandidates() }
         return updated
     }
     func insertLiteral(_ text: String) {

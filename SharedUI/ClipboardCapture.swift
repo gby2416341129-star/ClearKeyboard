@@ -19,7 +19,6 @@ import UniformTypeIdentifiers
     private let hasContent: () -> Bool
     private let readText: () -> String?
     private let readAttachment: () -> (Data, String, String)?
-    private let systemAttachments: Bool
     private let asynchronousStorage: Bool
     private let io = DispatchQueue(label: "clear.clipboard.io", qos: .utility)
     private let notificationName: Notification.Name
@@ -48,11 +47,10 @@ import UniformTypeIdentifiers
         // permission attempt. An empty clipboard must not consume that attempt.
         self.hasContent = hasContent ?? (hasStrings ?? { !UIPasteboard.general.types.isEmpty })
         self.readText = readText ?? { UIPasteboard.general.string ?? UIPasteboard.general.url?.absoluteString }
-        systemAttachments = readAttachment == nil && readText == nil
         asynchronousStorage = makeStore == nil
         if let readAttachment { self.readAttachment = readAttachment }
         else if readText != nil { self.readAttachment = { nil } }
-        else { self.readAttachment = { nil } }
+        else { self.readAttachment = { Self.systemAttachment() } }
         self.notificationName = notificationName
         self.revisionCheckInterval = revisionCheckInterval.isFinite && revisionCheckInterval > 0 ? revisionCheckInterval : 0.75
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, pointer, _, _, _ in
@@ -72,7 +70,7 @@ import UniformTypeIdentifiers
         let newSession = !active
         active = true
         if retryPermission || newSession { observation.retry() }
-        if !systemAttachments { makeStore().prune(lifetime: settings.clipboardLifetimeHours * 3600) }
+        makeStore().prune(lifetime: settings.clipboardLifetimeHours * 3600)
         if observer == nil {
             observer = NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.captureIfChanged() }
@@ -94,13 +92,6 @@ import UniformTypeIdentifiers
         // Suppress repeated attempts in this visible session. A failed read
         // must not permanently suppress the same revision after reopening.
         observation.didAttempt(changeCount: count)
-        if systemAttachments {
-            let providers = UIPasteboard.general.itemProviders
-            if !providers.isEmpty { ClipboardItemLoader.load(providers, revision: count, into: self) }
-            else if hasStrings(), let text = readText() { acceptText(text, revision: count) }
-            else { reportFailure(nil) }
-            return
-        }
         if saveCurrentContent() {
             if count == changeCount() { observation.didCapture(changeCount: count) }
             captured()
@@ -109,13 +100,6 @@ import UniformTypeIdentifiers
     }
     @discardableResult func captureManually() -> Bool {
         let count = changeCount()
-        if systemAttachments, hasContent() {
-            let providers = UIPasteboard.general.itemProviders
-            if !providers.isEmpty { ClipboardItemLoader.load(providers, revision: count, into: self) }
-            else if hasStrings(), let text = readText() { acceptText(text, revision: count) }
-            else { reportFailure(nil) }
-            return true
-        }
         let saved = saveCurrentContent()
         observation.didAttempt(changeCount: count)
         if saved {
@@ -127,7 +111,6 @@ import UniformTypeIdentifiers
         // This checks one explicit read, not the system's persistent Ask/Allow/
         // Deny setting, for which UIKit exposes no authorization-status API.
         guard hasContent() else { return .empty }
-        if systemAttachments { _ = captureManually(); return .reading }
         return captureManually() ? .contentRead : .unavailable
     }
     func retryAfterPermissionChange() { observation.retry(); captureIfChanged() }
@@ -176,6 +159,24 @@ import UniformTypeIdentifiers
         guard hasStrings(), let text = readText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         store.add(text)
         return makeStore().clips.contains { $0.attachment == nil && $0.text == text }
+    }
+    private static func systemAttachment() -> (Data, String, String)? {
+        let board = UIPasteboard.general
+        if board.hasImages {
+            for type in ["public.png", "public.jpeg", "public.heic"] {
+                if let data = board.data(forPasteboardType: type) { return (data, type, "图片") }
+            }
+            if let data = board.image?.jpegData(compressionQuality: 0.85) { return (data, "public.jpeg", "图片") }
+        }
+        guard !board.hasStrings, !board.hasURLs else { return nil }
+        for item in board.items {
+            for (type, value) in item {
+                if let data = value as? Data, UTType(type)?.conforms(to: .data) == true {
+                    return (data, type, UTType(type)?.localizedDescription ?? "附件")
+                }
+            }
+        }
+        return nil
     }
     func stop() {
         active = false

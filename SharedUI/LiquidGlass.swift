@@ -101,19 +101,25 @@ struct LiquidCard: ViewModifier {
     private weak var presentationView: UIView?
     private let emit: ((CGFloat) -> Void)?
     init(emit: ((CGFloat) -> Void)? = nil) { self.emit = emit }
+    private func generator(for style: UIImpactFeedbackGenerator.FeedbackStyle) -> UIImpactFeedbackGenerator {
+        if let generator = generators[style] { return generator }
+        // The keyboard runs in a remote input view. Do not associate its
+        // actuator with a containing App's view or a detached preview.
+        let generator = UIImpactFeedbackGenerator(style: style)
+        generators[style] = generator
+        generator.prepare()
+        return generator
+    }
     func attach(to view: UIView) {
-        guard emit == nil, view.window != nil, presentationView !== view else { return }
+        guard emit == nil else { return }
+        if presentationView === view, !generators.isEmpty { return }
         presentationView = view
-        generators.removeAll()
         for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft, .heavy] {
-            let generator: UIImpactFeedbackGenerator
-            if #available(iOS 17.5, *) { generator = UIImpactFeedbackGenerator(style: style, view: view) }
-            else { generator = UIImpactFeedbackGenerator(style: style) }
-            generators[style] = generator; generator.prepare()
+            generator(for: style).prepare()
         }
     }
     func prepare(mode: VibrationMode = .crisp) {
-        if emit == nil { generators[mode == .crisp ? .rigid : .soft]?.prepare() }
+        if emit == nil { generator(for: mode == .crisp ? .rigid : .soft).prepare() }
     }
     // Keep the attack characteristic independent of strength. Switching among
     // soft/light/heavy while moving the slider changed the whole sensation.
@@ -132,20 +138,19 @@ struct LiquidCard: ViewModifier {
         requestedStyle = style
 #endif
         if let emit { emit(value); return }
-        guard presentationView?.window != nil else { return }
-        let generator = generators[style]
-        generator?.impactOccurred(intensity: value)
+        let generator = generator(for: style)
+        generator.impactOccurred(intensity: value)
 #if DEBUG
-        if generator != nil { submittedPulses += 1 }
+        submittedPulses += 1
 #endif
-        generator?.prepare()
+        generator.prepare()
     }
     func pulseInterface() {
 #if DEBUG
         requestedStyle = .heavy
 #endif
         if let emit { emit(1); return }
-        guard presentationView?.window != nil, let generator = generators[.heavy] else { return }
+        let generator = generator(for: .heavy)
         generator.impactOccurred(intensity: 1)
 #if DEBUG
         submittedPulses += 1

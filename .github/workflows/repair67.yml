@@ -1,4 +1,4 @@
-name: Repair 67 direct iPhone IPA for user testing
+name: Repair 68 restore Build 65 interactions and build iPhone IPA
 on:
   push:
     branches: [codex/repair67-20261026]

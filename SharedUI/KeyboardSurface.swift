@@ -445,10 +445,15 @@ import SwiftUI
         return true
     }
     private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
-        let button = FeedbackButton(type: .system)
-        var config = UIButton.Configuration.plain()
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
+        let button = FeedbackButton(type: navigationIcon ? .system : .custom)
+        var config = UIButton.Configuration.plain()
         if #available(iOS 26.0, *), navigationIcon { config = .glass() }
+        if !navigationIcon {
+            config.background = .clear()
+            button.backgroundColor = .clear
+            button.layer.borderWidth = 0; button.layer.shadowOpacity = 0
+        }
         if let image { config.image = image }
         else if let symbol, navigationIcon {
             config.image = ToolArtwork.image(symbol: symbol, size: 24)

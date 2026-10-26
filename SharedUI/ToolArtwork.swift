@@ -13,8 +13,10 @@ import CoreImage
         let source = image(symbol: symbol, size: 32)
         guard let cg = source.cgImage else { return nil }
         let input = CIImage(cgImage: cg)
-        guard let filter = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: input, kCIInputRadiusKey: 1.7 * source.scale]),
-              let output = filter.outputImage, let blurred = edgeContext.createCGImage(output, from: input.extent) else { return nil }
+        let radius = 1.7 * source.scale
+        let extent = input.extent.insetBy(dx: -ceil(radius * 4), dy: -ceil(radius * 4))
+        guard let filter = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: input, kCIInputRadiusKey: radius]),
+              let output = filter.outputImage, let blurred = edgeContext.createCGImage(output, from: extent) else { return nil }
         let result = UIImage(cgImage: blurred, scale: source.scale, orientation: .up).withRenderingMode(.alwaysOriginal)
         edgeCache[symbol] = result; return result
     }
@@ -148,12 +150,13 @@ import CoreImage
     }
     static func shift(active _: Bool, capsLocked: Bool, ink _: UIColor) -> UIImage {
         let source = image(symbol: "shift", size: 28)
-        // The key face indicates a single capital; Caps Lock adds a slim bar.
+        // Keep the same blue facets as Delete. The key face indicates a single
+        // capital; Caps Lock adds its own bar without cropping or tinting ink.
         guard capsLocked else { return source }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
         return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28), format: format).image { renderer in
             source.draw(in: CGRect(x: 1.4, y: 0, width: 25.2, height: 25.2))
-            UIColor(red: 49.0/255, green: 139.0/255, blue: 247.0/255, alpha: 1).setFill()
+            UIColor(red: 105.0/255, green: 204.0/255, blue: 247.0/255, alpha: 1).setFill()
             UIBezierPath(roundedRect: CGRect(x: 8.75, y: 24, width: 10.5, height: 1.8), cornerRadius: 0.9).fill()
         }.withRenderingMode(.alwaysOriginal)
     }
@@ -170,6 +173,7 @@ import CoreImage
         isOpaque = false; backgroundColor = .clear
         isUserInteractionEnabled = false; isAccessibilityElement = false
         ink.contentMode = .scaleAspectFit; edgeInk.contentMode = .scaleAspectFit
+        ink.backgroundColor = .clear; edgeInk.backgroundColor = .clear
         edgeInk.layer.opacity = 0; addSubview(edgeInk); addSubview(ink); setSymbol(symbol)
         compatibilityCheck.fillColor = UIColor.clear.cgColor
         compatibilityCheck.strokeColor = UIColor.systemGreen.cgColor
@@ -188,7 +192,11 @@ import CoreImage
         let wide = symbol == "keyboard.fill" || symbol == "key.height"
         let side = min(34, bounds.width + (wide ? 4 : 0))
         ink.frame = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
-        edgeInk.frame = ink.frame
+        if let original = ink.image, let blurred = edgeInk.image {
+            let scale = min(ink.bounds.width / original.size.width, ink.bounds.height / original.size.height)
+            edgeInk.bounds = CGRect(origin: .zero, size: CGSize(width: blurred.size.width * scale, height: blurred.size.height * scale))
+            edgeInk.center = ink.center
+        } else { edgeInk.frame = ink.frame }
         let path = UIBezierPath()
         path.move(to: CGPoint(x: side * 0.35, y: side * 0.36))
         path.addLine(to: CGPoint(x: side * 0.46, y: side * 0.47))
