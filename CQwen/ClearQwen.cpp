@@ -20,6 +20,15 @@
 #include <vector>
 
 namespace {
+#if defined(CLEAR_KEYBOARD_EXTENSION) && CLEAR_KEYBOARD_EXTENSION
+constexpr bool keyboardExtension=true;
+#else
+constexpr bool keyboardExtension=false;
+#endif
+constexpr size_t decodeBatch=keyboardExtension?32:64;
+constexpr size_t matchCacheLimit=keyboardExtension?4096:16384;
+constexpr size_t frontierLimit=keyboardExtension?2048:8192;
+constexpr size_t queryCacheLimit=keyboardExtension?1:4;
 thread_local std::string lastError;
 struct Rune { uint32_t value; std::string bytes; };
 std::vector<Rune> runes(const std::string &s) {
@@ -100,12 +109,30 @@ struct Query {
     std::unordered_map<uint64_t,std::vector<Alignment>> matches;
     std::unordered_map<std::string,std::vector<std::pair<std::string,double>>> spellings;
 };
+struct TokenCharacters { uint32_t offset=0,count=0; };
+struct CharacterSpan {
+    const uint32_t *data; size_t count;
+    const uint32_t *begin() const {return data;}
+    const uint32_t *end() const {return count?data+count:data;}
+    bool empty() const {return count==0;}
+    size_t size() const {return count;}
+    uint32_t operator[](size_t i) const {return data[i];}
+};
+void appendUTF8(std::string &text,uint32_t cp) {
+    if(cp<0x80) text+=char(cp);
+    else if(cp<0x800) {text+=char(0xc0|(cp>>6));text+=char(0x80|(cp&63));}
+    else if(cp<0x10000) {text+=char(0xe0|(cp>>12));text+=char(0x80|((cp>>6)&63));text+=char(0x80|(cp&63));}
+    else {text+=char(0xf0|(cp>>18));text+=char(0x80|((cp>>12)&63));text+=char(0x80|((cp>>6)&63));text+=char(0x80|(cp&63));}
+}
 }
 
 struct CKQwen {
     llama_model *model=nullptr; llama_context *context=nullptr; const llama_vocab *vocab=nullptr;
     std::unordered_map<uint32_t,std::vector<std::string>> phonetics;
-    std::vector<std::string> pieces; std::vector<std::vector<Rune>> characters;
+    // The model already owns its vocabulary. Keep one compact scalar index,
+    // rather than a second string and individually allocated Rune vector for
+    // every token in the 248K vocabulary.
+    std::vector<TokenCharacters> tokenCharacters; std::vector<uint32_t> scalars;
     std::vector<llama_token> usable;
     std::array<std::vector<llama_token>,26> leading;
     std::vector<std::shared_ptr<Query>> cache; std::shared_ptr<Query> current;
@@ -116,6 +143,13 @@ struct CKQwen {
     ~CKQwen() { if(context)llama_free(context); if(model)llama_model_free(model); }
     bool stop() const { return cancelled && cancelled(cancelData); }
     static bool abort(void *p) { return static_cast<CKQwen *>(p)->stop(); }
+    CharacterSpan characters(llama_token token) const {
+        const auto &range=tokenCharacters[token];
+        return {range.count?scalars.data()+range.offset:nullptr,range.count};
+    }
+    std::string piece(llama_token token) const {
+        std::string text; for(auto cp:characters(token)) appendUTF8(text,cp); return text;
+    }
     std::vector<llama_token> tokenize(const std::string &text,bool addSpecial=true) {
         int n=llama_tokenize(vocab,text.data(),int(text.size()),nullptr,0,addSpecial,true);
         if(n>=0) return {};
@@ -127,7 +161,7 @@ struct CKQwen {
     bool evaluate(const std::vector<llama_token> &tokens) {
         for(size_t i=0;i<tokens.size();) {
             if(stop()) return false;
-            int n=int(std::min(size_t(64),tokens.size()-i));
+            int n=int(std::min(decodeBatch,tokens.size()-i));
             auto batch=llama_batch_get_one(const_cast<llama_token *>(tokens.data()+i),n);
             if(llama_decode(context,batch)!=0) return false;
             i+=n;
@@ -195,18 +229,18 @@ struct CKQwen {
         uint64_t key=(uint64_t(uint32_t(position))<<32)|uint32_t(token);
         if(auto it=q.matches.find(key);it!=q.matches.end()) return it->second;
         std::vector<Alignment> paths={{position,0,0,""}};
-        const auto &chars=characters[token];
-        if(chars.empty() || (q.character && (chars.size()!=1 || !han(chars[0].value)))) paths.clear();
+        const auto chars=characters(token);
+        if(chars.empty() || (q.character && (chars.size()!=1 || !han(chars[0])))) paths.clear();
         for(const auto &ch:chars) {
             std::vector<Alignment> next;
-            if(auto it=phonetics.find(ch.value);it!=phonetics.end()) {
+            if(auto it=phonetics.find(ch);it!=phonetics.end()) {
                 for(const auto &path:paths) for(const auto &reading:it->second) {
                     auto more=syllable(q,path,reading); next.insert(next.end(),more.begin(),more.end());
                 }
-            } else if(ch.value<128 && ((ch.value>='a' && ch.value<='z') || (ch.value>='A' && ch.value<='Z'))) {
-                for(auto path:paths) if(path.end<int(q.letters.size()) && q.letters[path.end]==char(ch.value|32)) {
+            } else if(ch<128 && ((ch>='a' && ch<='z') || (ch>='A' && ch<='Z'))) {
+                for(auto path:paths) if(path.end<int(q.letters.size()) && q.letters[path.end]==char(ch|32)) {
                     ++path.end; path.penalty+=1.1;
-                    if(!path.reading.empty()) path.reading+=' '; path.reading+=char(ch.value|32); next.push_back(std::move(path));
+                    if(!path.reading.empty()) path.reading+=' '; path.reading+=char(ch|32); next.push_back(std::move(path));
                 }
             }
             std::sort(next.begin(),next.end(),[](const Alignment &a,const Alignment &b){return a.penalty<b.penalty;});
@@ -219,15 +253,15 @@ struct CKQwen {
         }
         static const std::vector<Alignment> empty;
         if(paths.empty()) return empty;
-        if(q.matches.size()>16384) q.matches.clear();
+        if(q.matches.size()>matchCacheLimit) q.matches.clear();
         return q.matches.emplace(key,std::move(paths)).first->second;
     }
     std::vector<Match> options(Query &q,int position,int usedEdits) {
         const float *logits=llama_get_logits_ith(context,-1);
         if(!logits) return {};
         float largest=-std::numeric_limits<float>::infinity();
-        for(int i=0;i<int(pieces.size());++i) largest=std::max(largest,logits[i]);
-        double sum=0; for(int i=0;i<int(pieces.size());++i) sum+=std::exp(double(logits[i]-largest));
+        for(int i=0;i<int(tokenCharacters.size());++i) largest=std::max(largest,logits[i]);
+        double sum=0; for(int i=0;i<int(tokenCharacters.size());++i) sum+=std::exp(double(logits[i]-largest));
         double logZ=largest+std::log(sum);
         std::vector<Match> best;
         // Index the first output character once at model load. Avoid running a
@@ -250,8 +284,8 @@ struct CKQwen {
             if((i&1023)==0 && stop()) return {};
             auto token=(*pool)[i];
             if(q.prediction) {
-                const auto &chars=characters[token];
-                if(chars.empty() || chars.size()>6 || !std::all_of(chars.begin(),chars.end(),[](const Rune &r){return han(r.value);})) continue;
+                const auto chars=characters(token);
+                if(chars.empty() || chars.size()>6 || !std::all_of(chars.begin(),chars.end(),[](uint32_t cp){return han(cp);})) continue;
                 best.push_back({token,{0,0,0,""},logits[token]-logZ});
             } else {
                 for(const auto &a:align(q,token,position)) if(usedEdits+a.edits<=2)
@@ -259,7 +293,7 @@ struct CKQwen {
             }
         }
         auto rank=[&](const Match &a,const Match &b) {
-            auto score=[&](const Match &m) {double n=std::max(size_t(1),characters[m.token].size());return m.logp/n-m.alignment.penalty/std::sqrt(n);};
+            auto score=[&](const Match &m) {double n=std::max(size_t(1),characters(m.token).size());return m.logp/n-m.alignment.penalty/std::sqrt(n);};
             return score(a)>score(b);
         };
         size_t count=std::min(size_t(q.character?4096:24),best.size());
@@ -290,10 +324,14 @@ struct CKQwen {
         if(!restored) {
             baseState.clear(); llama_memory_clear(llama_get_memory(context),false);
             if(!evaluate(basePrompt)) return false;
-            const size_t bytes=llama_state_seq_get_size_ext(context,0,stateFlags);
-            if(bytes>0 && bytes<64*1024*1024) {
-                baseState.resize(bytes);
-                if(llama_state_seq_get_data_ext(context,baseState.data(),bytes,0,stateFlags)!=bytes) baseState.clear();
+            // A recurrent-state snapshot duplicates a large hybrid-model
+            // buffer. Reserve that optimization for the foreground App.
+            if constexpr(!keyboardExtension) {
+                const size_t bytes=llama_state_seq_get_size_ext(context,0,stateFlags);
+                if(bytes>0 && bytes<64*1024*1024) {
+                    baseState.resize(bytes);
+                    if(llama_state_seq_get_data_ext(context,baseState.data(),bytes,0,stateFlags)!=bytes) baseState.clear();
+                }
             }
         }
         return evaluate(q.prompt) && (b.tokens.empty() || evaluate(b.tokens));
@@ -310,17 +348,17 @@ struct CKQwen {
             if(choices.empty()) { add(q,branch,false); break; }
             for(size_t i=1;i<choices.size();++i) {
                 const auto &choice=choices[i]; Branch alternate=branch;
-                alternate.tokens.push_back(choice.token); alternate.text+=pieces[choice.token];
-                alternate.characterCount+=int(characters[choice.token].size());
+                alternate.tokens.push_back(choice.token); alternate.text+=piece(choice.token);
+                alternate.characterCount+=int(characters(choice.token).size());
                 if(!alternate.reading.empty() && !choice.alignment.reading.empty()) alternate.reading+=' ';
                 alternate.reading+=choice.alignment.reading; alternate.consumed=choice.alignment.end;
                 alternate.edits+=choice.alignment.edits; alternate.penalty+=choice.alignment.penalty; alternate.logp+=choice.logp;
                 if(first && branch.tokens.empty()) q.heads.push_back(alternate);
-                if(q.frontier.size()<8192) q.frontier.push(std::move(alternate));
+                if(q.frontier.size()<frontierLimit) q.frontier.push(std::move(alternate));
             }
             const auto &choice=choices.front();
-            branch.tokens.push_back(choice.token); branch.text+=pieces[choice.token];
-            branch.characterCount+=int(characters[choice.token].size());
+            branch.tokens.push_back(choice.token); branch.text+=piece(choice.token);
+            branch.characterCount+=int(characters(choice.token).size());
             if(!branch.reading.empty() && !choice.alignment.reading.empty()) branch.reading+=' ';
             branch.reading+=choice.alignment.reading; branch.consumed=choice.alignment.end;
             branch.edits+=choice.alignment.edits; branch.penalty+=choice.alignment.penalty; branch.logp+=choice.logp;
@@ -339,16 +377,17 @@ extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath
     try {
         lastError.clear(); static std::once_flag once;
         std::call_once(once,[]{
-            // A keyboard must not run the Metal residency keep-alive thread
-            // while the user is idle, nor probe optional tensor shaders.
-            setenv("GGML_METAL_NO_RESIDENCY","1",1);
-            setenv("GGML_METAL_TENSOR_DISABLE","1",1);
+            if constexpr(!keyboardExtension) {
+                setenv("GGML_METAL_NO_RESIDENCY","1",1);
+                setenv("GGML_METAL_TENSOR_DISABLE","1",1);
+            }
             llama_backend_init();
         });
         auto engine=std::make_unique<CKQwen>();
         std::ifstream input(phoneticPath); if(!input) throw std::runtime_error("Missing Unicode pinyin table");
         std::string line;
         while(std::getline(input,line)) {
+            if(!line.empty() && line.back()=='\r') line.pop_back();
             auto tab=line.find('\t'); if(tab==std::string::npos) continue;
             auto chars=runes(line.substr(0,tab)); if(chars.size()!=1) continue;
             std::istringstream readings(line.substr(tab+1)); std::string reading;
@@ -356,13 +395,14 @@ extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath
         }
         if(engine->phonetics.size()<20000) throw std::runtime_error("Incomplete Unicode pinyin table");
         auto modelParams=llama_model_default_params();
-        // Metal shares mmap-backed weights on Apple silicon. CPU remains the
-        // supported backend for individual operations the GPU cannot execute.
-        modelParams.n_gpu_layers=-1; modelParams.load_mode=LLAMA_LOAD_MODE_MMAP;
+        // A GPU allocation can kill an extension before a fallback can run.
+        // The keyboard links a CPU-only runtime and maps the same GGUF file;
+        // it never attempts a full-model GPU allocation during startup.
+        modelParams.n_gpu_layers=keyboardExtension?0:-1; modelParams.load_mode=LLAMA_LOAD_MODE_MMAP;
         modelParams.use_extra_bufts=false;
         engine->model=llama_model_load_from_file(modelPath,modelParams);
-        bool gpu=engine->model!=nullptr;
-        if(!engine->model) {
+        bool gpu=!keyboardExtension && engine->model!=nullptr;
+        if(!engine->model && !keyboardExtension) {
             modelParams.n_gpu_layers=0;
             engine->model=llama_model_load_from_file(modelPath,modelParams);
         }
@@ -371,7 +411,7 @@ extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath
         llama_model_meta_val_str(engine->model,"general.architecture",architecture,sizeof(architecture));
         if(std::string(architecture)!="qwen35") throw std::runtime_error("Unexpected GGUF architecture");
         engine->vocab=llama_model_get_vocab(engine->model);
-        auto params=llama_context_default_params(); params.n_ctx=768; params.n_batch=64; params.n_ubatch=16;
+        auto params=llama_context_default_params(); params.n_ctx=768; params.n_batch=uint32_t(decodeBatch); params.n_ubatch=keyboardExtension?4:16;
         params.n_seq_max=1; params.n_rs_seq=0; params.offload_kqv=gpu; params.op_offload=gpu; params.no_perf=true;
         params.n_threads=params.n_threads_batch=std::max(1,std::min(2,int(std::thread::hardware_concurrency())));
         params.abort_callback=CKQwen::abort; params.abort_callback_data=engine.get();
@@ -389,7 +429,7 @@ extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath
             }
         }
         if(!engine->context) throw std::runtime_error("Cannot create the Qwen3.5 hybrid context");
-        int count=llama_vocab_n_tokens(engine->vocab); engine->pieces.resize(count); engine->characters.resize(count);
+        int count=llama_vocab_n_tokens(engine->vocab); engine->tokenCharacters.resize(count);
         for(int token=0;token<count;++token) {
             if(llama_vocab_is_control(engine->vocab,token) || llama_vocab_is_eog(engine->vocab,token)) continue;
             char small[512]; int n=llama_token_to_piece(engine->vocab,token,small,sizeof(small),0,false);
@@ -413,8 +453,11 @@ extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath
                 if(chars.size()>1 && chars[1].value<128) heads.insert(char(chars[1].value|32));
             }
             for(char c:heads) if(c>='a' && c<='z') engine->leading[c-'a'].push_back(token);
-            engine->pieces[token]=std::move(piece); engine->characters[token]=std::move(chars); engine->usable.push_back(token);
+            engine->tokenCharacters[token]={uint32_t(engine->scalars.size()),uint32_t(chars.size())};
+            for(const auto &ch:chars) engine->scalars.push_back(ch.value);
+            engine->usable.push_back(token);
         }
+        engine->scalars.shrink_to_fit();
         engine->basePrompt=engine->tokenize("<|im_start|>system\n你是中文输入法。把全拼、简拼或混拼转成自然的常用中文词句；按语境选常用词，不机械拼接同音字。英文原样保留。只输出转换结果。<|im_end|>\n");
         return engine.release();
     } catch(const std::exception &e) { lastError=e.what(); return nullptr; }
@@ -450,13 +493,13 @@ extern "C" int ck_qwen_query(CKQwen *engine,const char *raw,const char *context,
             query->prompt=engine->tokenize(prompt,false);
             if(query->prompt.empty() || engine->basePrompt.size()+query->prompt.size()>480) throw std::runtime_error("Input exceeds the Qwen context window");
         }
-        engine->cache.insert(engine->cache.begin(),query); if(engine->cache.size()>4) engine->cache.pop_back();
+        engine->cache.insert(engine->cache.begin(),query); if(engine->cache.size()>queryCacheLimit) engine->cache.pop_back();
         engine->current=query; limit=std::max(1,std::min(4096,limit));
         if(query->character) {
             if(query->items.empty() && engine->replay(*query,{})) {
                 for(const auto &option:engine->options(*query,0,0)) {
-                    Branch b; b.text=engine->pieces[option.token]; b.reading=option.alignment.reading;
-                    b.characterCount=int(engine->characters[option.token].size());
+                    Branch b; b.text=engine->piece(option.token); b.reading=option.alignment.reading;
+                    b.characterCount=int(engine->characters(option.token).size());
                     b.consumed=option.alignment.end; b.penalty=option.alignment.penalty; b.logp=option.logp;
                     engine->add(*query,b,true);
                 }

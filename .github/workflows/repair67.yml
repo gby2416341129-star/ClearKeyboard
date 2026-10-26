@@ -1,4 +1,4 @@
-name: Build 79 responsive low-duty Qwen IPA
+name: Build 80 isolated keyboard runtime IPA
 on:
   push:
     branches: [codex/repair67-20261026]

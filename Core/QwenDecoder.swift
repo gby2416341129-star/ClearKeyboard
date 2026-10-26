@@ -51,7 +51,7 @@ final class QwenDecoder {
     private var immediate: [String: [Candidate]] = [:]
     private var immediateOrder: [String] = []
     private let cacheLock = NSLock()
-    static let revision = 79
+    static let revision = 80
 
     static func bundled() throws -> QwenDecoder {
         ownerLock.lock(); defer { ownerLock.unlock() }
