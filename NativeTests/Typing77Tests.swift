@@ -31,16 +31,20 @@ import CoreText
         XCTAssertEqual(proportional.offset(translation: CGPoint(x: -width("Wi"), y: 0)), -2)
         print("POINTER_TARGETS oneJump=6 eventRateIndependent=true reversalImmediate=true proportionalGlyphs=true")
     }
-    func testRemoteControllerUsesOneJumpAndNoContextReadsDuringMovement() throws {
+    func testRemoteControllerUsesOneJumpAndNoContextReadsDuringMovement() async throws {
         let proxy = Typing77Proxy(), controller = Typing77Controller()
         proxy.textView.text = "12345678"; proxy.textView.selectedRange = NSRange(location: 8, length: 0)
         controller.proxy = proxy; controller.loadViewIfNeeded()
+        controller.textDidChange(nil)
         controller.beginTrackpad(); proxy.reads = 0
         controller.trackCursor(translation: CGPoint(x: -width("345678"), y: 0))
         XCTAssertEqual(proxy.moves, [-6]); XCTAssertEqual(proxy.textView.selectedRange.location, 2)
         controller.trackCursor(translation: .zero)
         XCTAssertEqual(proxy.moves, [-6, 6]); XCTAssertEqual(proxy.reads, 0)
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(proxy.reads, 0, "A stationary finger must not trigger blocking idle context reads")
         controller.endTrackpad()
+        XCTAssertEqual(proxy.reads, 0, "Finger-up must not block on proxy IPC before the next key")
         XCTAssertEqual(proxy.textView.text, "12345678"); XCTAssertEqual(controller.contextBefore, "12345678")
         let text = "A👨‍👩‍👧‍👦é中"
         proxy.textView.text = text; proxy.textView.selectedRange = NSRange(location: text.utf16.count, length: 0)

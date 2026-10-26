@@ -250,7 +250,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     private func scheduleHostRefresh() {
         hostRefresh?.invalidate(); hostRefresh = nil
-        guard hostActive, activeKeys == 0, hostWriteDepth == 0 else { return }
+        guard hostActive, activeKeys == 0, hostWriteDepth == 0, trackpad == nil else { return }
         hostRefreshGeneration += 1; let request = hostRefreshGeneration
         let timer = Timer(timeInterval: 0.35, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -682,6 +682,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     func beginTrackpad() {
         finishRestoredSelection(); flushMarkedText()
+        hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
         trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter)
         trackpadSelectionUnits = selectedText.utf16.count; trackpadMoved = false
     }
@@ -699,7 +700,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     func endTrackpad() {
         if let state = trackpad, trackpadMoved { hostState.moveCursor(state.displacement) }
         trackpad = nil; trackpadSelectionUnits = 0; trackpadMoved = false
-        refreshHostState()
+        // Ordered remote writes already locate the caret. Keep finger-up and
+        // the next key free of synchronous IPC; reconcile in the normal idle gap.
+        needsHostRefresh = true; scheduleHostRefresh()
     }
     func nextKeyboard() { advanceToNextInputMode() }
     func clearInput() -> DeletedInput? {
