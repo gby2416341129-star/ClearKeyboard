@@ -148,11 +148,11 @@ struct HomeView: View {
                 }.buttonStyle(PrimaryAppButton()).accessibilityIdentifier("home.setup")
             }.padding(22).modifier(LiquidCard(radius: 28))
             AppCard {
-                Button { selectedTab = .custom } label: { AppRow(title: "外观与手感", detail: "按你的喜好", symbol: "slider.horizontal.3") }
+                Button { withAnimation(AppMotion.content) { selectedTab = .custom } } label: { AppRow(title: "外观与手感", detail: "按你的喜好", symbol: "slider.horizontal.3") }
                 Divider()
-                Button { selectedTab = .input } label: { AppRow(title: "输入偏好", detail: "选词与纠错", symbol: AppTab.input.symbol) }
+                Button { withAnimation(AppMotion.content) { selectedTab = .input } } label: { AppRow(title: "输入偏好", detail: "选词与纠错", symbol: AppTab.input.symbol) }
                     .accessibilityIdentifier("home.inputPreferences")
-            }.buttonStyle(.plain)
+            }.buttonStyle(AppRowButtonStyle())
             AppCard {
                 AppNavigationLink { ClipboardSettingsView() } label: { AppRow(title: "剪贴板", detail: "复制记录", symbol: "doc.on.clipboard") }
                 Divider()
@@ -164,7 +164,7 @@ struct HomeView: View {
             }.font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 4)
                 .accessibilityElement(children: .combine).accessibilityIdentifier("home.footer")
         }.accessibilityIdentifier("home.page")
-            .sheet(isPresented: $showSetup) { SetupView() }
+            .navigationDestination(isPresented: $showSetup) { SetupView().navigationTransition(.automatic) }
             .onAppear { preferences.reload() }
     }
 }
@@ -172,7 +172,7 @@ struct HomeView: View {
 struct SetupView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        NavigationStack {
+        Group {
             AppPage(title: "启用键盘") {
                 AppCard {
                     setupStep("1", title: "打开键盘设置", detail: "通用 → 键盘 → 键盘")

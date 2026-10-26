@@ -23,10 +23,8 @@ import ImageIO
     private var tokens: [ClipboardSelection.Token] = []
     private var selectedTokens = Set<Int>()
     private var selectionSession: ClipboardTextSession?
-    private var dragBaseline = Set<Int>()
+    private var selectionDrag: ClipboardSelection.Drag?
     private var dragStart: Int?
-    private var dragAdds = true
-    private var dragVisited = Set<Int>()
     private var selectionUpdates: UIUpdateLink?
     private var selectionPoint: CGPoint?
     private var selectionTimestamp: CFTimeInterval = 0
@@ -36,7 +34,7 @@ import ImageIO
     var onClose: (() -> Void)?
     var onSelectionStateChanged: (() -> Void)?
     var isChoosing: Bool { selectionSource != nil }
-    var canFinishSelection: Bool { !selectedTokens.isEmpty }
+    var canFinishSelection: Bool { isChoosing }
     private let completionInToolbar: Bool
     init(model: KeyboardModel, showPhrases: Bool = false, completionInToolbar: Bool = false) {
         self.model = model
@@ -79,7 +77,7 @@ import ImageIO
                 return (self.tokens[index].text as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 18)]).width + 12
             }
         }
-        let drag = UIPanGestureRecognizer(target: self, action: #selector(selectWords(_:))); drag.delegate = self; drag.cancelsTouchesInView = false
+        let drag = UIPanGestureRecognizer(target: self, action: #selector(selectWords(_:))); drag.maximumNumberOfTouches = 1; drag.delegate = self; drag.cancelsTouchesInView = false
         wordSelectionPan = drag; words.addGestureRecognizer(drag); words.panGestureRecognizer.require(toFail: drag)
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapWord(_:)))
         tap.require(toFail: drag); tap.cancelsTouchesInView = false; tap.delaysTouchesBegan = false; tap.delaysTouchesEnded = false; words.addGestureRecognizer(tap)
@@ -111,7 +109,7 @@ import ImageIO
         let choosing = selectionSource != nil
         selectionGlass.isHidden = !choosing
         tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing || completionInToolbar
-        send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
+        send.isEnabled = isChoosing; words.isHidden = !choosing; table.isHidden = choosing
         empty.isHidden = choosing || !items.isEmpty
         empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : "暂无复制内容"
         more.menu = overflowMenu()
@@ -230,7 +228,7 @@ import ImageIO
         for case let cell as ClipboardTokenCell in words.visibleCells {
             if let index = words.indexPath(for: cell)?.item, changed.contains(index) { configure(cell, at: index) }
         }
-        send.isEnabled = !selectedTokens.isEmpty
+        send.isEnabled = isChoosing
         if wasEmpty != selectedTokens.isEmpty { onSelectionStateChanged?() }
         if dragStart == nil { return flushHostSelection() }
         return true
@@ -263,16 +261,16 @@ import ImageIO
     }
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === wordSelectionPan, let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: words)
-        // Lock intent only at the beginning: a vertical start scrolls the long
-        // article. Once a horizontal selection begins it may cross rows freely.
-        guard abs(velocity.x) > abs(velocity.y) * 1.1 else { return false }
-        let point = pan.location(in: words), move = pan.translation(in: words)
-        return index(at: CGPoint(x: point.x - move.x, y: point.y - move.y)) != nil
+        let velocity = pan.velocity(in: words), point = pan.location(in: words), move = pan.translation(in: words)
+        let origin = CGPoint(x: point.x - move.x, y: point.y - move.y)
+        let startsSelected = words.indexPathForItem(at: origin).map { selectedTokens.contains($0.item) } ?? false
+        guard ClipboardSelection.startsSelection(horizontal: Double(velocity.x), vertical: Double(velocity.y), startIsSelected: startsSelected) else { return false }
+        return index(at: origin) != nil
     }
+
     private func stopSelectionUpdates() {
         selectionUpdates?.requiresContinuousUpdates = false; selectionUpdates?.isEnabled = false
-        selectionUpdates = nil; selectionPoint = nil; dragStart = nil
+        selectionUpdates = nil; selectionPoint = nil; dragStart = nil; selectionDrag = nil
     }
     @objc private func selectWords(_ gesture: UIPanGestureRecognizer) {
         let point = gesture.location(in: words)
@@ -280,8 +278,7 @@ import ImageIO
             let translation = gesture.translation(in: words)
             let origin = CGPoint(x: point.x - translation.x, y: point.y - translation.y)
             guard let start = index(at: origin) else { return }
-            dragStart = start; dragBaseline = selectedTokens; dragVisited = []
-            dragAdds = !selectedTokens.contains(start)
+            dragStart = start; selectionDrag = ClipboardSelection.Drag(anchor: start, selected: selectedTokens)
             selectionTimestamp = CACurrentMediaTime()
             let updates = UIUpdateLink(view: words)
             updates.addAction(to: .beforeCATransactionCommit) { [weak self] _, _ in self?.selectionTick() }
@@ -296,11 +293,7 @@ import ImageIO
         }
     }
     private func updateDrag(at point: CGPoint) {
-        guard let start = dragStart, let index = index(at: point) else { return }
-        let range = Set(min(start, index)...max(start, index))
-        dragVisited.formUnion(range)
-        let next = dragAdds ? dragBaseline.union(range).subtracting(dragVisited.subtracting(range))
-            : dragBaseline.subtracting(dragVisited)
+        guard dragStart != nil, let index = index(at: point), let next = selectionDrag?.update(through: index) else { return }
         _ = setSelection(next)
     }
     private func selectionTick() {

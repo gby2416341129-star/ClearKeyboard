@@ -311,7 +311,7 @@ struct ToolIcon: UIViewRepresentable {
             contentOffset.x = loopCenter + phaseOffset
             recentering = false
         }
-        updateEdges(); updateScrollFeedback()
+        updateEdges()
     }
     func clampedOffset(_ proposed: CGFloat) -> CGFloat {
         min(max(0, proposed), max(0, expectedContentWidth - bounds.width))
@@ -348,7 +348,8 @@ struct ToolIcon: UIViewRepresentable {
             icon.softenEdge(1 - min(fade, max(0, distance)) / max(1, fade))
         }
     }
-    private func updateScrollFeedback() {
+    func updateScrollFeedback() {
+        guard !recentering else { return }
         let now = CACurrentMediaTime(), offset = contentOffset.x
         defer { feedbackOffset = offset; feedbackTime = now }
         guard !suppressScrollFeedback, isDragging || isDecelerating, let previous = feedbackOffset else {
@@ -359,8 +360,8 @@ struct ToolIcon: UIViewRepresentable {
         guard delta.isFinite, abs(delta) > 0.01 else { return }
         toothDistance += abs(delta)
         let speed = abs(delta) / CGFloat(max(1.0 / 240, now - feedbackTime))
-        if toothDistance >= 9, now - lastTooth >= 0.024 {
-            toothDistance.formTruncatingRemainder(dividingBy: 9); lastTooth = now; onTooth?(speed)
+        if toothDistance >= 22, now - lastTooth >= 0.055 {
+            toothDistance.formTruncatingRemainder(dividingBy: 22); lastTooth = now; onTooth?(speed)
         }
     }
 
@@ -445,9 +446,10 @@ struct ToolIcon: UIViewRepresentable {
     override func layoutSubviews() {
         super.layoutSubviews()
         lens.frame = bounds; pressWash.frame = bounds
-        artwork.frame = CGRect(x: bounds.midX-14,y: 7,width: 28,height: 28)
-        caption.frame = CGRect(x: 5,y: 40,width: max(0,bounds.width-10),height: 16)
-        badge.frame = CGRect(x: bounds.midX + 7, y: 4, width: 16, height: 16)
+        let top = max(7, (bounds.height - 52) / 2)
+        artwork.frame = CGRect(x: bounds.midX-14,y: top,width: 28,height: 28)
+        caption.frame = CGRect(x: 5,y: top + 33,width: max(0,bounds.width-10),height: 16)
+        badge.frame = CGRect(x: bounds.midX + 7, y: top - 3, width: 16, height: 16)
     }
     func configureManagement(title: String, pinned: Bool) {
         caption.text = title; badge.isHidden = false

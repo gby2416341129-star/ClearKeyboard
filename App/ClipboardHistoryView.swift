@@ -44,9 +44,15 @@ struct ClipboardHistoryView: View {
     }
 }
 
+private struct ClipboardHistorySelection: Hashable {
+    let clip: Clip
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.clip.id == rhs.clip.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(clip.id) }
+}
+
 private struct ClipboardHistoryTimeline: View {
     @ObservedObject var model: ClipboardHistoryModel
-    @State private var selected: Clip?
+    @State private var selected: ClipboardHistorySelection?
     private static let date: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy年M月d日"; return f }()
     private static let time: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
     private var days: [ClipboardDay] {
@@ -60,7 +66,7 @@ private struct ClipboardHistoryTimeline: View {
                     ForEach(days) { day in
                         Section {
                             ForEach(day.clips) { clip in
-                                Button { selected = clip } label: {
+                                Button { selected = ClipboardHistorySelection(clip: clip) } label: {
                                     VStack(alignment: .leading, spacing: 8) {
                                         HStack {
                                             Text(clip.attachment == nil ? "文字" : "图片与附件")
@@ -88,22 +94,21 @@ private struct ClipboardHistoryTimeline: View {
                         Menu {
                             ForEach(days) { day in
                                 Button(Self.date.string(from: day.id)) {
-                                    withAnimation(.easeInOut(duration: 0.24)) { proxy.scrollTo(day.id, anchor: .top) }
+                                    withAnimation(AppMotion.content) { proxy.scrollTo(day.id, anchor: .top) }
                                 }
                             }
                         } label: { Image(systemName: "calendar") }.accessibilityLabel("按日期定位复制记录")
                     }
                 }
-        }.sheet(item: $selected) { ClipboardHistoryDetail(clip: $0) }.onAppear { model.reload() }
+        }.navigationDestination(item: $selected) { ClipboardHistoryDetail(clip: $0.clip).navigationTransition(.automatic) }.onAppear { model.reload() }
     }
 }
 
 private struct ClipboardHistoryDetail: View {
     let clip: Clip
-    @Environment(\.dismiss) private var dismiss
     @State private var attachmentData: Data?
     var body: some View {
-        NavigationStack {
+        Group {
             Group {
                 if clip.attachment == nil { ClipboardArticleView(text: clip.text) }
                 else {
@@ -118,7 +123,6 @@ private struct ClipboardHistoryDetail: View {
                 }
             }.background(AppPalette.canvas).navigationTitle("复制内容").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
                     ToolbarItem(placement: .primaryAction) {
                         Button("复制") {
                             if let attachment = clip.attachment, let data = attachmentData {

@@ -1,4 +1,4 @@
-import UIKit
+import Foundation
 
 /// Own only this selection's insertion. A host edit or cursor move revokes that
 /// ownership before any deletion; unrelated text is never guessed or erased.
@@ -13,10 +13,22 @@ import UIKit
         before = document.contextBefore; after = document.contextAfter
     }
     @discardableResult func apply(_ text: String) -> Bool {
-        guard let document, document.validateClipboardSelection(before: before, after: after, identity: identity) else { return false }
+        guard let document, document.documentIdentity == identity else { return false }
+        let currentBefore = document.contextBefore, currentAfter = document.contextAfter
+        // Remote editors expose bounded text windows. A shorter window still
+        // proves the same caret when its suffix matches our last insertion.
+        func sameWindow(_ lhs: String, _ rhs: String, preceding: Bool) -> Bool {
+            if lhs == rhs { return true }
+            guard !lhs.isEmpty, !rhs.isEmpty else { return false }
+            return preceding ? lhs.hasSuffix(rhs) || rhs.hasSuffix(lhs) : lhs.hasPrefix(rhs) || rhs.hasPrefix(lhs)
+        }
+        guard sameWindow(before, currentBefore, preceding: true), sameWindow(after, currentAfter, preceding: false),
+              document.validateClipboardSelection(before: currentBefore, after: currentAfter, identity: identity) else { return false }
         guard text != value else { return true }
         if !value.isEmpty {
-            guard document.selectedText.isEmpty, document.contextBefore.hasSuffix(value) else { return false }
+            guard document.selectedText.isEmpty, !currentBefore.isEmpty else { return false }
+            let count = min(value.count, currentBefore.count)
+            guard value.suffix(count) == currentBefore.suffix(count) else { return false }
         }
         let old = Array(value), next = Array(text)
         var prefix = 0, suffix = 0

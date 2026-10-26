@@ -602,6 +602,9 @@ import SwiftUI
         }
         for (tool, tile) in editorTiles { tile.configureManagement(title: tool.title, pinned: model.settings.toolbar.contains(tool)) }
     }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView === toolbarScroll { toolbarScroll.updateScrollFeedback() }
+    }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if scrollView === toolbarScroll, !decelerate { rememberToolbarOffset() }
     }
@@ -611,7 +614,9 @@ import SwiftUI
         if !toolbarScroll.isLooping { targetContentOffset.pointee.x = toolbarScroll.clampedOffset(targetContentOffset.pointee.x) }
     }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        if scrollView === toolbarScroll { toolbarScroll.pendingOffset = nil }
+        if scrollView === toolbarScroll {
+            toolbarScroll.pendingOffset = nil; toolbarVibration.attach(to: self); toolbarVibration.prepareScroll()
+        }
     }
     private func rememberToolbarOffset() {
         toolbarScroll.pendingOffset = nil

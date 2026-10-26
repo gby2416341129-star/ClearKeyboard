@@ -11,6 +11,11 @@ enum AppPalette {
         : UIColor(red: 0.35,green: 0.37,blue: 0.43,alpha: 1) })
 }
 
+enum AppMotion {
+    static let control = Animation.easeOut(duration: 0.18)
+    static let content = Animation.easeInOut(duration: 0.26)
+}
+
 struct AppPage<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
@@ -91,6 +96,7 @@ struct AppRow: View {
 }
 
 struct PrimaryAppButton: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var bodyColor: Color = AppPalette.accent
     var ink: Color = .white
     func makeBody(configuration: Configuration) -> some View {
@@ -99,8 +105,8 @@ struct PrimaryAppButton: ButtonStyle {
             .foregroundStyle(bodyColor).modifier(LiquidCard(radius: 18, interactive: true))
             .contentShape(RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).fill(Color.primary.opacity(configuration.isPressed ? 0.10 : 0)).allowsHitTesting(false))
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(.smooth(duration: 0.18), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .animation(AppMotion.control, value: configuration.isPressed)
             .onChange(of: configuration.isPressed) { _, down in if down { AppFunctionalFeedback.pulse() } }
     }
 }
@@ -116,23 +122,19 @@ struct AppRowButtonStyle: ButtonStyle {
         configuration.label.frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(configuration.isPressed ? 0.09 : 0)))
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.992 : 1)
-            .animation(.smooth(duration: 0.18), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .animation(AppMotion.control, value: configuration.isPressed)
             .onChange(of: configuration.isPressed) { _, down in if down { AppFunctionalFeedback.pulse() } }
     }
 }
 
+/// All full pages use the navigation stack's forward/backward transition.
+/// A chevron always pops that stack, including interactive swipe-back.
 struct AppNavigationLink<Destination: View, Label: View>: View {
-    @Namespace private var source
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ViewBuilder var destination: Destination
     @ViewBuilder var label: Label
     var body: some View {
-        NavigationLink {
-            if reduceMotion { destination }
-            else { destination.navigationTransition(.zoom(sourceID: "page", in: source)) }
-        } label: {
-            label.matchedTransitionSource(id: "page", in: source)
-        }.buttonStyle(AppRowButtonStyle())
+        NavigationLink { destination.navigationTransition(.automatic) } label: { label }
+            .buttonStyle(AppRowButtonStyle())
     }
 }

@@ -97,6 +97,7 @@ struct LiquidCard: ViewModifier {
     private(set) var submittedPulses = 0
     private(set) var requestedStyle: UIImpactFeedbackGenerator.FeedbackStyle?
 #endif
+    private var scrollGenerator: UISelectionFeedbackGenerator?
     private var generators: [UIImpactFeedbackGenerator.FeedbackStyle: UIImpactFeedbackGenerator] = [:]
     private weak var presentationView: UIView?
     private weak var presentationWindow: UIWindow?
@@ -126,7 +127,7 @@ struct LiquidCard: ViewModifier {
         // A transient detached callback must not replace the last live host.
         guard let window = anchor.window else { return }
         guard presentationView !== anchor || presentationWindow !== window || generators.isEmpty else { return }
-        presentationView = anchor; presentationWindow = window; generators.removeAll()
+        presentationView = anchor; presentationWindow = window; generators.removeAll(); scrollGenerator = nil
         for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft, .heavy] {
             generator(for: style).prepare()
         }
@@ -170,11 +171,22 @@ struct LiquidCard: ViewModifier {
 #endif
         generator.prepare()
     }
-    func pulseScroll(speed: CGFloat) {
-        let strength = min(0.72, 0.24 + max(0, speed) / 1800)
-        if let emit { emit(strength); return }
-        let generator = generator(for: .rigid)
-        generator.impactOccurred(intensity: strength); generator.prepare()
+    private func selectionGenerator() -> UISelectionFeedbackGenerator {
+        if let scrollGenerator { return scrollGenerator }
+        let feedback: UISelectionFeedbackGenerator
+        if let view = presentationView, view.window != nil { feedback = UISelectionFeedbackGenerator(view: view) }
+        else { feedback = UISelectionFeedbackGenerator() }
+        scrollGenerator = feedback; return feedback
     }
-    func stop() { generators = [:]; presentationView = nil; presentationWindow = nil }
+    func prepareScroll() { if emit == nil { selectionGenerator().prepare() } }
+    func pulseScroll(speed: CGFloat) {
+        // Selection ticks replace the dense rigid impacts. Cadence follows
+        // scroll travel; the feedback generator stays attached to the host.
+        if let emit { emit(0.25); return }
+        let feedback = selectionGenerator(); feedback.selectionChanged(); feedback.prepare()
+#if DEBUG
+        submittedPulses += 1
+#endif
+    }
+    func stop() { scrollGenerator = nil; generators = [:]; presentationView = nil; presentationWindow = nil }
 }

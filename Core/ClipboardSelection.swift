@@ -1,6 +1,24 @@
 import Foundation
 
 public enum ClipboardSelection {
+    /// A vertical start on unselected content scrolls. Starting on a selected
+    /// token can remove the selection in either direction, including downward.
+    public static func startsSelection(horizontal: Double, vertical: Double, startIsSelected: Bool) -> Bool {
+        startIsSelected || abs(horizontal) > abs(vertical) * 1.1
+    }
+    public struct Drag {
+        private let anchor: Int
+        private let baseline: Set<Int>
+        private let adds: Bool
+        private var visited = Set<Int>()
+        public init(anchor: Int, selected: Set<Int>) {
+            self.anchor = anchor; baseline = selected; adds = !selected.contains(anchor)
+        }
+        public mutating func update(through index: Int) -> Set<Int> {
+            let range = Set(min(anchor, index)...max(anchor, index)); visited.formUnion(range)
+            return adds ? baseline.union(range).subtracting(visited.subtracting(range)) : baseline.subtracting(visited)
+        }
+    }
     private static let expression = try! NSRegularExpression(pattern: "[A-Za-z0-9]+(?:[.+#_/-][A-Za-z0-9]+)*|\\X")
     public struct Token {
         public let text: String

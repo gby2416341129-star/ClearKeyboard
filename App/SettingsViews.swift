@@ -52,10 +52,12 @@ struct CustomizationView: View {
             }
             AppCard {
                 Button { showToolbarEditor = true } label: { AppRow(title: "快捷工具", detail: "排列与选择", symbol: "rectangle.3.group") }
-                    .buttonStyle(.plain).accessibilityIdentifier("custom.toolbarEditor")
+                    .buttonStyle(AppRowButtonStyle()).accessibilityIdentifier("custom.toolbarEditor")
             }
         }.accessibilityIdentifier("custom.page").tint(AppPalette.accent)
-            .sheet(isPresented: $showToolbarEditor) { ToolbarEditorView().tint(AppPalette.accent) }
+            .animation(AppMotion.content, value: preferences.settings.usesVibration)
+            .animation(AppMotion.content, value: preferences.settings.preferredHand)
+            .navigationDestination(isPresented: $showToolbarEditor) { ToolbarEditorView().tint(AppPalette.accent).navigationTransition(.automatic) }
             .onAppear { preferences.reload() }
             .background(VibrationPreviewAnchor().allowsHitTesting(false))
     }
@@ -101,7 +103,7 @@ private struct ToolbarEditorView: View {
     @EnvironmentObject private var preferences: Preferences
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        NavigationStack {
+        Group {
             List {
                 Section("按住右侧拖动排序") {
                     ForEach(preferences.settings.toolbar) { item in
