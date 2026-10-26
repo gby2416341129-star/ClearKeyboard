@@ -1,4 +1,4 @@
-name: Repair 70 keyboard motion and recorded feedback IPA
+name: Repair 71 keyboard motion, background and haptics IPA
 on:
   push:
     branches: [codex/repair67-20261026]

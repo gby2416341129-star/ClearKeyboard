@@ -56,7 +56,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         NSLog("CLEAR66_STARTUP load.begin")
 #endif
         super.viewDidLoad()
-        view.backgroundColor = .clear; view.isOpaque = false
+        // One continuous receiving surface, including gaps. Per-key and per-row
+        // translucent backings created visible rectangular bands.
+        view.backgroundColor = UIColor(white: 0.5, alpha: 0.01); view.isOpaque = false
         view.accessibilityIdentifier = "clear.keyboard.root"
 #if DEBUG
         runtimeProbe.isUserInteractionEnabled = false

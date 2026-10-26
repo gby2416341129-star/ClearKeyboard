@@ -24,6 +24,8 @@ import SwiftUI
     private var dragPoint = CGPoint.zero
     private var toolbarDragUpdates: UIUpdateLink?
     private var toolbarDragOrder: [ToolbarTool]?
+    private var toolbarDragSlots: [CGPoint] = []
+    private var toolbarReorderAnimations: [ToolbarTool: UIViewPropertyAnimator] = [:]
     private var toolbarDragTimestamp: CFTimeInterval = 0
     private var toolbarDragGeneration = 0
     private var appearancePanelCache: KeyboardAppearancePanelView?
@@ -92,7 +94,7 @@ import SwiftUI
         clipboardSuggestionState = suggestionState ?? ClipboardSuggestionState(defaults: SharedStorage.defaults(allowShared: model.document?.fullAccess == true))
         self.toolbarVibration = toolbarVibration ?? .shared
         super.init(frame: .zero)
-        isOpaque = false; backgroundColor = .clear; clipsToBounds = !systemBacked
+        isOpaque = false; backgroundColor = systemBacked ? .clear : UIColor(white: 0.5, alpha: 0.01); clipsToBounds = !systemBacked
         layer.cornerCurve = .continuous; layer.cornerRadius = systemBacked ? 0 : 28
         // Remote hosts may advertise a much larger corner radius; never inherit it.
         if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28)) }
@@ -103,7 +105,7 @@ import SwiftUI
         toolbarScroll.delaysContentTouches = false; toolbarScroll.canCancelContentTouches = true
         toolbarScroll.delegate = self; toolbarScroll.alwaysBounceHorizontal = true
         toolbarScroll.pendingOffset = toolbarOffset
-        toolbarScroll.backgroundColor = UIColor(white: 0.5, alpha: 0.01)
+        toolbarScroll.backgroundColor = .clear
         toolbarScroll.contentInsetAdjustmentBehavior = .never
         toolbarShortcuts.axis = .horizontal; toolbarShortcuts.alignment = .center; toolbarShortcuts.spacing = 10
         toolbarShortcuts.translatesAutoresizingMaskIntoConstraints = false
@@ -486,8 +488,9 @@ import SwiftUI
         }
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
         button.heightAnchor.constraint(equalToConstant: 34).isActive = true
-        button.addAction(UIAction { [weak self, weak button] _ in
-            self?.toolbarPulse(); button?.playActivationFeedback(); action()
+        button.addAction(UIAction { [weak self] _ in self?.toolbarPulse() }, for: .touchDown)
+        button.addAction(UIAction { [weak button] _ in
+            button?.playActivationFeedback(); action()
         }, for: .touchUpInside)
         return button
     }
@@ -631,7 +634,9 @@ import SwiftUI
         guard tool != .language, model.settings.toolbar.contains(tool) else { return false }
         if toolbarDragActive { finishToolbarDrag() }
         toolbarDragGeneration += 1
+        toolbarShortcuts.layoutIfNeeded()
         toolbarDragOrder = model.settings.toolbar
+        toolbarDragSlots = model.settings.toolbar.filter { $0 != .language }.compactMap { toolbarButtons[$0]?.center }
         draggedTool = tool
         toolbarDragActive = true; toolbarTapBlockedUntil = .infinity
         toolbarScroll.pendingOffset = nil
@@ -653,9 +658,18 @@ import SwiftUI
         if let tool = draggedTool { toolbarButtons[tool]?.alpha = 1 }
         dragIcon?.removeFromSuperview(); dragIcon = nil; draggedTool = nil
         toolbarDragActive = false; toolbarTapBlockedUntil = CACurrentMediaTime() + 0.18
-        // Persist and broadcast once, outside the frame-by-frame drag work.
-        if let order, order != model.settings.toolbar { model.settings.toolbar = order }
-        toolbarSignature = ""; render()
+        // Keep the same arranged views throughout the drag. Commit their real
+        // order and remove compensating transforms in one layout transaction.
+        UIView.performWithoutAnimation {
+            for animator in toolbarReorderAnimations.values where animator.state == .active {
+                animator.stopAnimation(false); animator.finishAnimation(at: .end)
+            }
+            toolbarReorderAnimations.removeAll(); toolbarDragSlots.removeAll()
+            toolbarButtons.values.forEach { $0.transform = .identity }
+            if let order, order != model.settings.toolbar { model.settings.toolbar = order }
+            toolbarSignature = ""; render()
+            toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
+        }
         rememberToolbarOffset()
     }
     @objc private func toolbarHold(_ gesture: UILongPressGestureRecognizer) {
@@ -684,7 +698,7 @@ import SwiftUI
             let generation = toolbarDragGeneration
             if let image = dragIcon, let button = toolbarButtons[tool], !UIAccessibility.isReduceMotionEnabled {
                 let target = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: self)
-                UIView.animate(withDuration: 0.20, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
+                UIView.animate(withDuration: 0.26, delay: 0, usingSpringWithDamping: 0.90, initialSpringVelocity: 0,
                                options: [.allowUserInteraction, .beginFromCurrentState], animations: {
                     image.center = target; image.transform = .identity; image.alpha = 0
                 }, completion: { [weak self] _ in
@@ -715,27 +729,26 @@ import SwiftUI
             }
         }
         performToolbarDrop(tool, at: dragPoint)
+        toolbarScroll.refreshEdgeAppearance()
     }
     private func presentToolbarDragOrder(_ tools: [ToolbarTool]) {
-        let previous = toolbarButtons.mapValues { $0.layer.presentation()?.position ?? $0.layer.position }
-        UIView.performWithoutAnimation {
-            for (index, tool) in tools.filter({ $0 != .language }).enumerated() {
-                guard let button = toolbarButtons[tool], toolbarShortcuts.arrangedSubviews.firstIndex(of: button) != index else { continue }
-                toolbarShortcuts.removeArrangedSubview(button)
-                toolbarShortcuts.insertArrangedSubview(button, at: index)
+        // Auto Layout owns the slot frames. Animate an independent transform;
+        // removing/reinserting arranged views during every swap can reset their
+        // layer positions before the remote host presents the animation.
+        for (index, tool) in tools.filter({ $0 != .language }).enumerated() {
+            guard toolbarDragSlots.indices.contains(index), let button = toolbarButtons[tool] else { continue }
+            let target = CGAffineTransform(translationX: toolbarDragSlots[index].x - button.center.x, y: 0)
+            guard button.transform != target else { continue }
+            if let animator = toolbarReorderAnimations[tool], animator.state == .active {
+                animator.stopAnimation(false); animator.finishAnimation(at: .current)
             }
-            toolbarShortcuts.layoutIfNeeded()
-        }
-        guard !UIAccessibility.isReduceMotionEnabled else { return }
-        let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
-        for (tool, button) in toolbarButtons where tool != draggedTool {
-            guard let position = previous[tool], position != button.layer.position else { continue }
-            let motion = CASpringAnimation(keyPath: "position")
-            motion.fromValue = NSValue(cgPoint: position); motion.toValue = NSValue(cgPoint: button.layer.position)
-            motion.mass = 1; motion.stiffness = 520; motion.damping = 34
-            motion.duration = 0.24
-            motion.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-            button.layer.add(motion, forKey: "toolbar.reorder")
+            if UIAccessibility.isReduceMotionEnabled || tool == draggedTool {
+                button.transform = target; continue
+            }
+            let animator = UIViewPropertyAnimator(duration: 0.24, dampingRatio: 0.90) {
+                button.transform = target
+            }
+            toolbarReorderAnimations[tool] = animator; animator.startAnimation()
         }
     }
     private func toolbarButton(_ tool: ToolbarTool) -> UIButton? {
@@ -765,17 +778,24 @@ import SwiftUI
     func performToolbarDrop(_ tool: ToolbarTool, at point: CGPoint) {
         guard toolbarScroll.convert(toolbarScroll.bounds, to: self).insetBy(dx: -4, dy: -5).contains(point) else { return }
         let location = toolbarShortcuts.convert(point, from: self)
-        let buttons = toolbarShortcuts.arrangedSubviews.compactMap { $0 as? UIButton }
-        guard let closest = buttons.min(by: { abs($0.frame.midX - location.x) < abs($1.frame.midX - location.x) }),
-              let identifier = closest.accessibilityIdentifier,
-              let target = ToolbarTool(rawValue: String(identifier.dropFirst("toolbar.".count))) else { return }
         var tools = toolbarDragOrder ?? model.settings.toolbar
-        guard tool != target, let from = tools.firstIndex(of: tool), let to = tools.firstIndex(of: target) else { return }
-        if toolbarDragActive, let source = toolbarButtons[tool] {
-            // Cross the slot midpoint plus a small dead band before swapping.
-            // A finger resting near a boundary must not exchange slots repeatedly.
-            let threshold = abs(closest.frame.midX - source.frame.midX) / 2 + 3
-            guard abs(location.x - source.frame.midX) > threshold else { return }
+        let visible = tools.filter { $0 != .language }
+        let from: Int, to: Int
+        if toolbarDragActive {
+            guard let source = visible.firstIndex(of: tool), toolbarDragSlots.indices.contains(source),
+                  let target = toolbarDragSlots.indices.min(by: { abs(toolbarDragSlots[$0].x - location.x) < abs(toolbarDragSlots[$1].x - location.x) }),
+                  visible.indices.contains(target), source != target,
+                  let sourceIndex = tools.firstIndex(of: tool), let targetIndex = tools.firstIndex(of: visible[target]) else { return }
+            let threshold = abs(toolbarDragSlots[target].x - toolbarDragSlots[source].x) / 2 + 3
+            guard abs(location.x - toolbarDragSlots[source].x) > threshold else { return }
+            from = sourceIndex; to = targetIndex
+        } else {
+            let buttons = toolbarShortcuts.arrangedSubviews.compactMap { $0 as? UIButton }
+            guard let closest = buttons.min(by: { abs($0.frame.midX - location.x) < abs($1.frame.midX - location.x) }),
+                  let identifier = closest.accessibilityIdentifier,
+                  let target = ToolbarTool(rawValue: String(identifier.dropFirst("toolbar.".count))),
+                  tool != target, let sourceIndex = tools.firstIndex(of: tool), let targetIndex = tools.firstIndex(of: target) else { return }
+            from = sourceIndex; to = targetIndex
         }
         tools.remove(at: from); tools.insert(tool, at: min(to, tools.count))
         if toolbarDragActive {

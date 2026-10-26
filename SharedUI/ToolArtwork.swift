@@ -279,6 +279,7 @@ struct ToolIcon: UIViewRepresentable {
     func clampedOffset(_ proposed: CGFloat) -> CGFloat {
         min(max(0, proposed), max(0, expectedContentWidth - bounds.width))
     }
+    func refreshEdgeAppearance() { updateEdges() }
     private func updateEdges() {
         let overflow = max(0, expectedContentWidth - bounds.width)
         let left = contentOffset.x > 0.5, right = contentOffset.x < overflow - 0.5 || contentOffset.x < -0.5
@@ -301,7 +302,10 @@ struct ToolIcon: UIViewRepresentable {
         } else { layer.mask = nil }
         CATransaction.commit()
         for icon in edgeIcons {
-            let rect = icon.convert(icon.bounds, to: self)
+            let rect: CGRect
+            if let visible = icon.layer.presentation(), let viewport = layer.presentation() {
+                rect = visible.convert(visible.bounds, to: viewport)
+            } else { rect = icon.convert(icon.bounds, to: self) }
             let distance = min(left ? rect.midX - bounds.minX : fade, right ? bounds.maxX - rect.midX : fade)
             icon.softenEdge(1 - min(fade, max(0, distance)) / max(1, fade))
         }

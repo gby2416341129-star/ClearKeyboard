@@ -99,21 +99,34 @@ struct LiquidCard: ViewModifier {
 #endif
     private var generators: [UIImpactFeedbackGenerator.FeedbackStyle: UIImpactFeedbackGenerator] = [:]
     private weak var presentationView: UIView?
+    private weak var presentationWindow: UIWindow?
     private let emit: ((CGFloat) -> Void)?
     init(emit: ((CGFloat) -> Void)? = nil) { self.emit = emit }
     private func generator(for style: UIImpactFeedbackGenerator.FeedbackStyle) -> UIImpactFeedbackGenerator {
         if let generator = generators[style] { return generator }
-        // The keyboard runs in a remote input view. Do not associate its
-        // actuator with a containing App's view or a detached preview.
-        let generator = UIImpactFeedbackGenerator(style: style)
+        // Bind feedback to the active keyboard's view, as in the working
+        // Build 65 path. An unassociated generator can target the extension
+        // process instead of the hosted, interactive keyboard scene.
+        let generator: UIImpactFeedbackGenerator
+        if let view = presentationView, view.window != nil {
+            generator = UIImpactFeedbackGenerator(style: style, view: view)
+        } else { generator = UIImpactFeedbackGenerator(style: style) }
         generators[style] = generator
         generator.prepare()
         return generator
     }
     func attach(to view: UIView) {
         guard emit == nil else { return }
-        if presentationView === view, !generators.isEmpty { return }
-        presentationView = view
+        var anchor = view
+        var ancestor: UIView? = view
+        while let current = ancestor {
+            if current is KeyboardSurface { anchor = current; break }
+            ancestor = current.superview
+        }
+        // A transient detached callback must not replace the last live host.
+        guard let window = anchor.window else { return }
+        guard presentationView !== anchor || presentationWindow !== window || generators.isEmpty else { return }
+        presentationView = anchor; presentationWindow = window; generators.removeAll()
         for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft, .heavy] {
             generator(for: style).prepare()
         }
@@ -157,5 +170,5 @@ struct LiquidCard: ViewModifier {
 #endif
         generator.prepare()
     }
-    func stop() { generators = [:]; presentationView = nil }
+    func stop() { generators = [:]; presentationView = nil; presentationWindow = nil }
 }
