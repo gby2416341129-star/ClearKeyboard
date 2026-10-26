@@ -25,6 +25,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SYSTEM = "你是中文输入法。把全拼、简拼或混拼转成自然的常用中文词句；按语境选常用词，不机械拼接同音字。英文原样保留。只输出转换结果。"
 REVISION = "2fc06364715b967f1860aea9cf38778875588b17"
+STABLE_REFERENCE_FALLBACKS = []
 
 
 def save_json(path, value):
@@ -95,8 +96,40 @@ def make_batch(tokenizer, item):
 
 
 def forward_scores(model, batch):
-    return model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
-                 logits_to_keep=batch["score_positions"], use_cache=False, return_dict=True).logits[0].float()
+    def run():
+        return model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
+                     logits_to_keep=batch["score_positions"], use_cache=False, return_dict=True).logits[0].float()
+    scores = run()
+    if torch.isfinite(scores).all():
+        return scores
+    # The CPU chunked DeltaNet implementation is a parallel factorization of
+    # this same recurrent update. Retry a non-finite forward with the official
+    # sequential FP32 recurrence and explicit attention math. Do not drop the
+    # sample, alter its labels, replace NaNs, or update model weights.
+    del scores
+    from transformers.models.qwen3_5.modeling_qwen3_5 import torch_recurrent_gated_delta_rule
+    from torch.nn.attention import sdpa_kernel, SDPBackend
+    def stable_sequence(query, key, value, g, beta, initial_state=None,
+                        output_final_state=False, use_qk_l2norm_in_kernel=False, **unused):
+        return torch_recurrent_gated_delta_rule(query, key, value, g, beta, initial_state,
+            output_final_state, use_qk_l2norm_in_kernel)
+    replaced = []
+    for layer in model.model.layers:
+        if hasattr(layer, "linear_attn"):
+            mixer = layer.linear_attn
+            replaced.append((mixer, mixer.chunk_gated_delta_rule))
+            mixer.chunk_gated_delta_rule = stable_sequence
+    try:
+        with sdpa_kernel(SDPBackend.MATH):
+            scores = run()
+    finally:
+        for mixer, original in replaced:
+            mixer.chunk_gated_delta_rule = original
+    if not torch.isfinite(scores).all():
+        raise RuntimeError(f"Non-finite reference even with stable recurrence: {batch['id']}")
+    STABLE_REFERENCE_FALLBACKS.append(batch["id"])
+    print(f"Stable FP32 recurrent reference used for {batch['id']}", flush=True)
+    return scores
 
 
 @torch.no_grad()
@@ -306,8 +339,20 @@ def main():
                                    num_sensitivity_workers=1)
     model.zero_grad(set_to_none=True)
     gc.collect()
+    checked_sensitivity = torch.load(fisher_path, map_location="cpu", weights_only=True)
+    invalid_sensitivity = [name for name, value in checked_sensitivity.items()
+                           if not torch.isfinite(value).all() or not (value > 0).all()]
+    if invalid_sensitivity:
+        raise RuntimeError("Invalid Fisher information: " + ", ".join(invalid_sensitivity[:8]))
+    print(f"Validated finite positive Fisher tensors: {len(checked_sensitivity)}", flush=True)
+    del checked_sensitivity
+    gc.collect()
     model = compressor.compress(sensitivity_path=str(fisher_path),
         num_kmeans_workers=args.kmeans_workers, inplace=True)
+    # coremltools retains a full FP32 baseline even with inplace=True, solely
+    # for report(). We compute our own held-out comparison and do not need it.
+    compressor._uncompressed_model = None
+    gc.collect()
     rounds = []
     errors = []
     for attempt in range(3):
@@ -331,6 +376,8 @@ def main():
         compressor = SKMPalettizer(model, skm_config(model, len(calibration), {name: 6 for name in promote}))
         model = compressor.compress(sensitivity_path=str(fisher_path),
             num_kmeans_workers=args.kmeans_workers, inplace=True)
+        compressor._uncompressed_model = None
+        gc.collect()
     coverage = {str(bits): sum(item["parameters"] for item in errors if item["bits"] == bits)
                 for bits in [4, 6]}
     if coverage["4"] <= coverage["6"]:
@@ -341,11 +388,13 @@ def main():
         "corpusSHA256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in [HERE / "calibration.jsonl", HERE / "holdout.jsonl"]},
         "rounds": rounds, "bodyParameterCoverage": coverage,
+        "stableReferenceFallbacks": STABLE_REFERENCE_FALLBACKS,
         "embedding": embedding, "layers": errors,
         "iphoneExecuted": False, "typingAccuracyValidated": False})
     # Native compiler only runs on macOS. Export imports intentionally occur
     # after CPU reference/quality work, so the loader can be checked on Windows.
     from export_coreml import export_chunks
+    del compressor
     gc.collect()
     export = export_chunks(model, args.out)
     save_json(args.out / "coreml-export.json", export)
