@@ -61,7 +61,7 @@ import UIKit
         super.layoutSubviews()
         amount.frame = CGRect(x: 0, y: 0, width: min(36, bounds.width), height: 21)
         slider.bounds = CGRect(x: 0, y: 0, width: max(56, bounds.height - 35), height: 28)
-        slider.center = CGPoint(x: min(17, bounds.midX), y: (bounds.height + 23) / 2)
+        slider.center = CGPoint(x: min(17, bounds.midX), y: (bounds.height + 35) / 2)
     }
     func configure(value: Double, enabled: Bool = true) {
         if !slider.isTracking { slider.value = Float(value) }
