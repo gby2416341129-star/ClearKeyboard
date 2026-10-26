@@ -140,7 +140,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let syllables = candidates.first?.reading.split(separator: " ").count ?? 0
         return syllables > raw.utf8.count || (settings.learnChoices && personal.candidates(for: composition.raw).contains { $0.score >= 3 })
     }
-    private(set) var engineState = "离线词库加载中…"
+    private(set) var engineState = "本地 Qwen 加载中…"
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
     var onInputChange: (() -> Void)?
@@ -273,7 +273,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 
     private func prepareCandidates(for raw: String) -> PreparedCandidates? {
         guard !characterSelectionMode, let engine, let document, !raw.isEmpty, document.selectedText.isEmpty else { return nil }
-        let backend = CoreMLSentence.shared.revision
+        let backend = engine.backendRevision
         if backend != candidateBackendRevision {
             candidateBackendRevision = backend; candidateCacheEpoch += 1
             candidateCache = [:]; candidateCacheOrder = []
@@ -292,7 +292,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
             return query
         }
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
-        let immediateComposition = engine.hasImmediateComposition(raw)
         let lookup = wordLookup, cache = hotWords, warm = warmsWords
         let cachedWords = warm ? cache.value(raw) : nil
         if preferred.contains(where: { $0.score == 4 }) {
@@ -300,7 +299,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             // to publish from memory during this key, without a worker roundtrip.
             query.publish(Self.preferredWords(preferred, cachedWords ?? []), stage: 0)
         } else if let cachedWords, !cachedWords.isEmpty {
-            query.publish(Self.preferredWords(preferred, cachedWords), stage: immediateComposition ? 1 : 0)
+            query.publish(Self.preferredWords(preferred, cachedWords), stage: 0)
         }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             guard !query.token.isCancelled else { return }
@@ -308,7 +307,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if warm { cache.put(raw, words) }
             query.wordLookupCompleted(empty: words.isEmpty)
             guard !query.token.isCancelled else { return }
-            if !words.isEmpty { query.publish(Self.preferredWords(preferred, words), stage: immediateComposition ? 1 : 0) }
+            if !words.isEmpty { query.publish(Self.preferredWords(preferred, words), stage: 0) }
             DispatchQueue.main.async {
                 guard let self, !query.token.isCancelled else { return }
                 if self.preparedCandidates === query, self.activeCandidates !== query {
@@ -328,7 +327,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
         wordQueue.async(execute: job)
         let contextualShortSpelling = !preceding.isEmpty && raw.utf8.count <= 6
-        if !immediateComposition, contextualShortSpelling ||
+        if contextualShortSpelling ||
             (raw.utf8.count >= 3 && raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) })) {
             // Start the semantic row at contact-down. It can finish while the
             // key is still held. A context-aware short spelling must not wait
@@ -365,22 +364,18 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             let cancelled = { query.token.isCancelled || token.isCancelled }
             guard !cancelled() else { return }
-            // The first semantic row never waits for fuzzy expansions. Publish
-            // it first; the bounded fuzzy pass enriches that same query later.
-            let result = engine.candidates(raw, fuzzy: correction && stage >= 2 ? settings.fuzzyPairs : [],
+            // A single constrained Qwen request handles the active spelling.
+            let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
                 correction: correction, context: query.preceding, cancelled: cancelled)
             guard !cancelled() else { return }
             query.publish(Array(result.prefix(limit)), stage: stage, limit: limit,
-                          hasMore: stage == 1 ? !result.isEmpty : (result.count > limit && limit < 4095),
+                          hasMore: result.count > limit && limit < 4095,
                           correction: correction)
             DispatchQueue.main.async {
                 guard let self, self.activeCandidates === query, !cancelled() else { return }
                 self.loadingMoreCandidates = false
                 self.presentCandidates(query)
-                if stage == 1, !settings.fuzzyPairs.isEmpty, !cancelled() {
-                    self.scheduleDecoder(query, limit: limit, stage: 2, correction: correction, delay: 0)
-                }
             }
         }
         refinementWork = job
@@ -475,7 +470,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     }
                     self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
                     self.resumeDeferredActions()
-                case .failure: self.finishCompositionAsTyped(); self.engineState = "词库不可用 · 可继续输入英文"; self.onChange?()
+                case .failure: self.finishCompositionAsTyped(); self.engineState = "Qwen 加载失败 · 可继续输入英文"; self.onChange?()
                 }
             }
             if warm, case .success(let engine) = result {
@@ -984,7 +979,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if characterSelectionMode, settings.language == .chinese, !raw.isEmpty {
             render()
             let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
-                let result = engine.characterCandidates(raw, cancelled: { token.isCancelled })
+                let result = engine.characterCandidates(raw, fuzzy: settings.fuzzyPairs, cancelled: { token.isCancelled })
                 guard !token.isCancelled else { return }
                 DispatchQueue.main.async {
                     guard let self, self.generation == requestedGeneration, !token.isCancelled else { return }
@@ -1007,8 +1002,6 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 // sentence and replacing it 250 ms later made the row jump and
                 // allowed Space to commit the intermediate, incorrect phrase.
                 scheduleDecoder(query, delay: 0)
-            } else if query.result?.stage == 1, !settings.fuzzyPairs.isEmpty {
-                scheduleDecoder(query, stage: 2, delay: 0)
             }
             return
         }
@@ -1017,7 +1010,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             guard !token.isCancelled else { return }
             let result: [Candidate]
             if settings.language == .chinese {
-                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context) : []) : engine.candidates(raw, learned: settings.learnChoices ? learned : [:], preferred: preferred, correction: false, cancelled: { token.isCancelled })
+                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context, cancelled: { token.isCancelled }) : []) : engine.candidates(raw, learned: settings.learnChoices ? learned : [:], preferred: preferred, correction: false, cancelled: { token.isCancelled })
             } else {
                 let word = EnglishContext.word(in: context)
                 if word.isEmpty {
@@ -1145,7 +1138,7 @@ private final class QueryCancellation: @unchecked Sendable {
 
 
 /// Only immutable quick-word rows live here. This lock is never held while
-/// looking up a dictionary, entering Rime, or calling UIKit/the document proxy.
+/// looking up a dictionary, entering the model decoder, or calling UIKit/the document proxy.
 private final class HotWordCache: @unchecked Sendable {
     private let lock = NSLock()
     private var rows: [String: [Candidate]] = [:]

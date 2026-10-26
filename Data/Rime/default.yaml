@@ -1,5 +1,0 @@
-config_version: '0.1.11'
-schema_list:
-  - schema: clear_pinyin
-menu:
-  page_size: 16

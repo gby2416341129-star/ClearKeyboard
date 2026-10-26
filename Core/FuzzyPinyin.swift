@@ -134,7 +134,7 @@ enum PinyinSpelling {
         return end >= limit - 6 ? end : min(limit, count)
     }
     /// Initialisms can represent many more syllables than equally long full
-    /// pinyin. Bound that ambiguity before entering Rime's synchronous search.
+    /// pinyin. Bound that ambiguity before running the model decoder.
     /// Full spelling and short mixed input retain their entire sentence.
     static func abbreviatedWindowBoundary(_ input: String, syllableLimit: Int = 16) -> Int? {
         let letters = Array(input), count = letters.count
@@ -192,65 +192,5 @@ enum PinyinSpelling {
             return index > 0 && long[index] == long[index - 1] ? 1.8 : 4
         }
         return nil
-    }
-}
-
-/// CLRC0001: header(48), sorted fingerprint/lexicon-ID records(12 each).
-/// The precompiled index remains mapped; no word trie or expanded signature dictionary is built at startup.
-final class PinyinCorrectionIndex {
-    private let data: Data
-    private let count: Int
-    init(url: URL, lexiconCount: Int) throws {
-        let bytes = try Data(contentsOf: url, options: .mappedIfSafe)
-        guard bytes.count >= 48, bytes.prefix(8) == Data("CLRC0001".utf8) else { throw LexiconError.invalidFormat }
-        let words = bytes.withUnsafeBytes { Int(UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: 8, as: UInt32.self))) }
-        let records = bytes.withUnsafeBytes { Int(UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: 12, as: UInt32.self))) }
-        guard words == lexiconCount, records <= (bytes.count - 48) / 12, 48 + records * 12 == bytes.count else { throw LexiconError.truncated }
-        data = bytes; count = records
-    }
-    static func bundled(lexiconCount: Int) throws -> PinyinCorrectionIndex {
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
-        guard let url = bundle.url(forResource: "pinyin-corrections", withExtension: "clx") else { throw LexiconError.invalidFormat }
-        return try PinyinCorrectionIndex(url: url, lexiconCount: lexiconCount)
-    }
-    private static func signature(_ bytes: [UInt8], skipping: Int? = nil) -> UInt64 {
-        var result: UInt64 = 0xCBF29CE484222325
-        for index in bytes.indices where index != skipping { result = (result ^ UInt64(bytes[index])) &* 0x100000001B3 }
-        return result
-    }
-    private func ids(for fingerprint: UInt64) -> [Int] {
-        data.withUnsafeBytes { raw in
-            func hash(_ index: Int) -> UInt64 { UInt64(littleEndian: raw.loadUnaligned(fromByteOffset: 48 + index * 12, as: UInt64.self)) }
-            var low = 0, high = count
-            while low < high { let mid = (low + high) / 2; if hash(mid) < fingerprint { low = mid + 1 } else { high = mid } }
-            var result: [Int] = []
-            while low < count, result.count < 24, hash(low) == fingerprint {
-                result.append(Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: 56 + low * 12, as: UInt32.self)))); low += 1
-            }
-            return result
-        }
-    }
-    func matches(_ input: String, lexicon: Lexicon, cancelled: () -> Bool = { false }) -> [(LexiconEntry, Double)] {
-        let bytes = Array(input.utf8)
-        guard (2...13).contains(bytes.count) else { return [] }
-        var identifiers = Set(ids(for: Self.signature(bytes))), additional: [LexiconEntry] = []
-        for index in bytes.indices {
-            if cancelled() { return [] }
-            identifiers.formUnion(ids(for: Self.signature(bytes, skipping: index)))
-            let shorter = String(decoding: Array(bytes[..<index]) + Array(bytes[(index + 1)...]), as: UTF8.self)
-            additional += lexicon.lookup("e:" + shorter, limit: 3)
-        }
-        var seen = Set<String>(), result: [(LexiconEntry, Double)] = []
-        for entry in identifiers.sorted().compactMap({ lexicon.entry($0) }) + additional {
-            if cancelled() { return [] }
-            guard seen.insert(entry.key + ":" + entry.text).inserted,
-                  let penalty = PinyinSpelling.editPenalty(input, entry.key) else { continue }
-            result.append((entry, penalty))
-        }
-        return result
     }
 }

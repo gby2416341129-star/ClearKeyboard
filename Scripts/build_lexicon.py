@@ -11,9 +11,7 @@ import struct
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-PINYIN_REV = "0c6861ef7420ee780270ca6d993d18d4101049d0"
 ENGLISH_REV = "74790861f652b15e4ac49015a90074ad62a27690"
-PINYIN_URL = f"https://raw.githubusercontent.com/rime/rime-pinyin-simp/{PINYIN_REV}/pinyin_simp.dict.yaml"
 ENGLISH_URL = f"https://raw.githubusercontent.com/cmusphinx/cmudict/{ENGLISH_REV}/cmudict.dict"
 
 def download(url, target):
@@ -85,21 +83,6 @@ def main():
     resources.mkdir(parents=True, exist_ok=True)
     license_dir = ROOT / "Licenses"
     license_dir.mkdir(exist_ok=True)
-    pinyin_data = download(PINYIN_URL, args.cache / "pinyin.yaml")
-    chinese = []
-    for line in pinyin_data.decode("utf-8-sig").splitlines():
-        fields = line.split("\t")
-        if len(fields) < 3 or not fields[2].strip().isdigit():
-            continue
-        text, reading = fields[:2]
-        key = re.sub("[^a-z]", "", reading.lower())
-        if key and 0 < len(text) <= 20:
-            chinese.append((key, text, reading, int(fields[2])))
-    for line in (ROOT / "Data" / "phrases.tsv").read_text(encoding="utf-8").splitlines():
-        if not line or line.startswith("#"):
-            continue
-        text, reading, frequency = line.split("\t")
-        chinese.append((reading.replace(" ", ""), text, reading, int(frequency)))
     en_raw = download(ENGLISH_URL, args.cache / "cmudict.txt")
     vocabulary = set()
     for line in en_raw.decode("utf-8").splitlines():
@@ -110,23 +93,16 @@ def main():
     ranks = {word: 100_000 - i * 10 for i, word in reversed(list(enumerate(common)))}
     vocabulary.update(common)
     english = [(re.sub("[^a-z]", "", word), word, word, ranks.get(word, max(1, 800 - len(word) * 40))) for word in vocabulary]
-    if len(chinese) < 50_000 or len(english) < 10_000:
-        raise RuntimeError(f"Unexpected source format: {len(chinese)} Chinese / {len(english)} English entries")
+    if len(english) < 10_000: raise RuntimeError("English source format mismatch")
     # A compact high-frequency vocabulary leaves headroom in the keyboard extension's memory budget.
     english = sorted(english, key=lambda item: (-item[3], item[0], item[1]))[:50_000]
-    license_bytes = download(f"https://raw.githubusercontent.com/rime/rime-pinyin-simp/{PINYIN_REV}/LICENSE", args.cache / "apache.txt")
-    (license_dir / "Apache-2.0.txt").write_bytes(license_bytes)
     cmu_license = download(f"https://raw.githubusercontent.com/cmusphinx/cmudict/{ENGLISH_REV}/LICENSE", args.cache / "cmu-license.txt")
     (license_dir / "CMUdict.txt").write_bytes(cmu_license)
-    manifest = {"format": "CLRX0001", "pinyinSource": PINYIN_URL, "englishSource": ENGLISH_URL,
-                "pinyinSourceSHA256": hashlib.sha256(pinyin_data).hexdigest(),
-                "englishSourceSHA256": hashlib.sha256(en_raw).hexdigest(),
-                "pinyin": compile_dictionary(chinese, resources / "pinyin.clx", True),
-                "english": compile_dictionary(english, resources / "english.clx", False)}
-    (ROOT / "Data" / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    from build_spelling_index import compile_index
-    manifest["pinyinCorrections"] = compile_index()
-    print(json.dumps(manifest, indent=2))
+    manifest = json.loads((ROOT / "Data/manifest.json").read_text())
+    manifest["english"] = compile_dictionary(english, resources / "english.clx", False)
+    manifest["englishSource"] = ENGLISH_URL
+    manifest["englishSourceSHA256"] = hashlib.sha256(en_raw).hexdigest()
+    (ROOT / "Data/manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 if __name__ == "__main__":
     main()

@@ -101,12 +101,7 @@ public final class Lexicon {
     public static func bundled(_ name: String) throws -> Lexicon {
         bundleLock.lock(); defer { bundleLock.unlock() }
         if let value = bundledLexicons[name] { return value }
-        #if SWIFT_PACKAGE
-        let bundle = Bundle.module
-        #else
-        let bundle = Bundle.main
-        #endif
-        guard let url = bundle.url(forResource: name, withExtension: "clx") else { throw LexiconError.invalidFormat }
+        guard let url = InputResources.url(name, extension: "clx") else { throw LexiconError.invalidFormat }
         let value = try Lexicon(url: url, validateContents: false); bundledLexicons[name] = value; return value
     }
 }

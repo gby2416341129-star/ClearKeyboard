@@ -1,27 +1,22 @@
 {
   "format": "CLRX0001",
-  "pinyinSource": "https://raw.githubusercontent.com/rime/rime-pinyin-simp/0c6861ef7420ee780270ca6d993d18d4101049d0/pinyin_simp.dict.yaml",
   "englishSource": "https://raw.githubusercontent.com/cmusphinx/cmudict/74790861f652b15e4ac49015a90074ad62a27690/cmudict.dict",
-  "pinyinSourceSHA256": "e341598343a0f0f2035bb1aafc34a7f3bb7887deeecb3f60796262aaa2983e6b",
   "englishSourceSHA256": "81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22",
-  "pinyin": {
-    "entries": 65137,
-    "indexKeys": 176540,
-    "bytes": 8792227,
-    "sha256": "94693b630ad1215b24a9850e200ccb8aa4367c96f7f5299c8073ebab79780a02"
-  },
   "english": {
     "entries": 50000,
     "indexKeys": 131156,
     "bytes": 5562321,
     "sha256": "c0ec19c39badffdc635f39d6af32c824a7e06b5974932b5d5b50dd5fdbcbfc13"
   },
-  "pinyinCorrections": {
-    "format": "CLRC0001",
-    "words": 24000,
-    "records": 150140,
-    "bytes": 1801728,
-    "sha256": "a255d2ec31e1f41aea8e9b9a8985da455003e6ea31b95d5061d84ed5a1ab4e80",
-    "lexiconSHA256": "94693b630ad1215b24a9850e200ccb8aa4367c96f7f5299c8073ebab79780a02"
+  "chinese": {
+    "model": "Qwen/Qwen3.5-0.8B",
+    "quantization": "unsloth/Qwen3.5-0.8B-GGUF",
+    "file": "Qwen3.5-0.8B-Q4_K_M.gguf",
+    "bytes": 532517120,
+    "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+    "runtime": "llama.cpp",
+    "runtimeCommit": "caa8191df159f764fb0160e3d2fc6be008948aee",
+    "phoneticData": "mozillazg/pinyin-data",
+    "phoneticCommit": "9d05c9e29cb6a7e5c79f2f5279f5c1014246a19a"
   }
 }

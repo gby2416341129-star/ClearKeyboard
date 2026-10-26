@@ -26,20 +26,13 @@ def phase(target, name, isa, files, **fields):
 
 if __name__ == "__main__":
     sources = sorted(p.relative_to(ROOT).as_posix() for directory in ["App", "Core", "SharedUI", "KeyboardExtension"] for p in (ROOT / directory).glob("*.swift"))
-    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Core/Resources/Rime", "Core/Resources/associations.clx", "Core/Resources/pinyin.clx", "Core/Resources/english.clx", "Core/Resources/pinyin-corrections.clx", "Config/PrivacyInfo.xcprivacy"]
+    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Core/Resources/Models", "Core/Resources/Phonetics", "Core/Resources/english.clx", "Config/PrivacyInfo.xcprivacy"]
     licenses = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Licenses").glob("*.txt"))
     config = ["Config/Project.xcconfig", "Config/App-Info.plist", "Config/Keyboard-Info.plist", "Config/App.entitlements", "Config/Keyboard.entitlements"]
     asset = "App/Assets.xcassets"
     app_icon = "App/ClearAppIcon.icon"
-    bridge = "CRime/ClearRime.cpp"
-    refs = {path: reference(path, "folder" if path in ("Core/Resources/Rime", "SharedUI/Resources/ToolIcons") else None) for path in sources + resources + licenses + config + [asset, app_icon, bridge]}
-    rime_package = obj("package:rime", "XCRemoteSwiftPackageReference", repositoryURL=q("https://github.com/ghostflyby/librime-xcframework.git"), requirement='{ kind = exactVersion; version = "1.17.0-pack.10.0.0"; }')
-    def rime_product(target):
-        product = obj("package-product:rime:"+target, "XCSwiftPackageProductDependency", package=rime_package, productName=q("RimeStatic"))
-        build = obj("package-build:rime:"+target, "PBXBuildFile", productRef=product)
-        return product, build
-    app_rime, app_rime_build = rime_product("app")
-    ext_rime, ext_rime_build = rime_product("ext")
+    bridge = "CQwen/ClearQwen.cpp"
+    refs = {path: reference(path, "folder" if path in ("Core/Resources/Models", "Core/Resources/Phonetics", "SharedUI/Resources/ToolIcons") else None) for path in sources + resources + licenses + config + [asset, app_icon, bridge]}
     app_product = obj("product:app", "PBXFileReference", explicitFileType=q("wrapper.application"), path=q("ClearKeyboard.app"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     ext_product = obj("product:extension", "PBXFileReference", explicitFileType=q("wrapper.app-extension"), path=q("ClearKeyboardExtension.appex"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     products = obj("group:products", "PBXGroup", children=arr([app_product, ext_product]), name=q("Products"), sourceTree=q("<group>"))
@@ -51,7 +44,7 @@ if __name__ == "__main__":
     ui_product = obj("product:ui-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardUITests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product, ui_product]) + "; name = Products; sourceTree = \"<group>\"; }"
     group = obj("group:main", "PBXGroup", children=arr(list(refs.values()) + [products]), sourceTree=q("<group>"))
-    common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0", "SWIFT_OBJC_BRIDGING_HEADER": "CRime/include/ClearRime.h", "CLANG_CXX_LANGUAGE_STANDARD": "c++17", "OTHER_LDFLAGS": "$(inherited) -lc++ -framework Accelerate"}
+    common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0", "SWIFT_OBJC_BRIDGING_HEADER": "CQwen/include/ClearQwen.h", "CLANG_CXX_LANGUAGE_STANDARD": "c++17", "HEADER_SEARCH_PATHS": "$(inherited) $(SRCROOT)/.build/qwen-runtime/install/include", "LIBRARY_SEARCH_PATHS": "$(inherited) $(SRCROOT)/.build/qwen-runtime/install/lib", "OTHER_LDFLAGS": "$(inherited) -lllama -lggml -lggml-base -lggml-cpu -lc++ -framework Accelerate"}
     def configurations(target, extra):
         values = []
         for mode in ["Debug", "Release"]:
@@ -67,14 +60,14 @@ if __name__ == "__main__":
     app_configs = configurations("app", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER)", "PRODUCT_NAME": "ClearKeyboard", "INFOPLIST_FILE": "Config/App-Info.plist", "CODE_SIGN_ENTITLEMENTS": "Config/App.entitlements", "ASSETCATALOG_COMPILER_APPICON_NAME": "ClearAppIcon", "GENERATE_INFOPLIST_FILE": "NO", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks", "SWIFT_EMIT_LOC_STRINGS": "YES"})
     ext_configs = configurations("ext", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).Keyboard", "PRODUCT_NAME": "ClearKeyboardExtension", "INFOPLIST_FILE": "Config/Keyboard-Info.plist", "CODE_SIGN_ENTITLEMENTS": "Config/Keyboard.entitlements", "GENERATE_INFOPLIST_FILE": "NO", "APPLICATION_EXTENSION_API_ONLY": "YES", "SKIP_INSTALL": "YES", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"})
     shared = [path for path in sources if path.startswith(("Core/", "SharedUI/"))]
-    ext_phases = [phase("ext", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("KeyboardExtension/")]), obj("phase:ext:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files=arr([ext_rime_build]), runOnlyForDeploymentPostprocessing="0"), phase("ext", "Resources", "PBXResourcesBuildPhase", [p for p in resources if p != "Core/Resources/Rime"] + licenses)]
-    ext = obj("target:extension", "PBXNativeTarget", packageProductDependencies=arr([ext_rime]), buildConfigurationList=ext_configs, buildPhases=arr(ext_phases), buildRules="()", dependencies="()", name=q("ClearKeyboardExtension"), productName=q("ClearKeyboardExtension"), productReference=ext_product, productType=q("com.apple.product-type.app-extension"))
+    ext_phases = [phase("ext", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("KeyboardExtension/")]), obj("phase:ext:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files="()", runOnlyForDeploymentPostprocessing="0"), phase("ext", "Resources", "PBXResourcesBuildPhase", [p for p in resources if not p.startswith("Core/Resources/")] + licenses)]
+    ext = obj("target:extension", "PBXNativeTarget", buildConfigurationList=ext_configs, buildPhases=arr(ext_phases), buildRules="()", dependencies="()", name=q("ClearKeyboardExtension"), productName=q("ClearKeyboardExtension"), productReference=ext_product, productType=q("com.apple.product-type.app-extension"))
     proxy = obj("proxy:extension", "PBXContainerItemProxy", containerPortal=uid("project"), proxyType="1", remoteGlobalIDString=ext, remoteInfo=q("ClearKeyboardExtension"))
     dependency = obj("dependency:extension", "PBXTargetDependency", target=ext, targetProxy=proxy)
     embed_build = obj("embed:extension", "PBXBuildFile", fileRef=ext_product, settings="{ ATTRIBUTES = (RemoveHeadersOnCopy, CodeSignOnCopy); }")
     embed = obj("phase:app:Embed", "PBXCopyFilesBuildPhase", buildActionMask="2147483647", dstPath=q(""), dstSubfolderSpec="13", files=arr([embed_build]), name=q("Embed App Extensions"), runOnlyForDeploymentPostprocessing="0")
-    app_phases = [phase("app", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("App/")]), obj("phase:app:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files=arr([app_rime_build]), runOnlyForDeploymentPostprocessing="0"), phase("app", "Resources", "PBXResourcesBuildPhase", resources + licenses + [asset, app_icon]), embed]
-    app = obj("target:app", "PBXNativeTarget", packageProductDependencies=arr([app_rime]), buildConfigurationList=app_configs, buildPhases=arr(app_phases), buildRules="()", dependencies=arr([dependency]), name=q("ClearKeyboard"), productName=q("ClearKeyboard"), productReference=app_product, productType=q("com.apple.product-type.application"))
+    app_phases = [phase("app", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("App/")]), obj("phase:app:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files="()", runOnlyForDeploymentPostprocessing="0"), phase("app", "Resources", "PBXResourcesBuildPhase", resources + licenses + [asset, app_icon]), embed]
+    app = obj("target:app", "PBXNativeTarget", buildConfigurationList=app_configs, buildPhases=arr(app_phases), buildRules="()", dependencies=arr([dependency]), name=q("ClearKeyboard"), productName=q("ClearKeyboard"), productReference=app_product, productType=q("com.apple.product-type.application"))
     test_configs = configurations("runtime-tests", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).RuntimeTests", "PRODUCT_NAME": "ClearKeyboardRuntimeTests", "GENERATE_INFOPLIST_FILE": "YES", "TEST_HOST": "$(BUILT_PRODUCTS_DIR)/ClearKeyboard.app/ClearKeyboard", "BUNDLE_LOADER": "$(TEST_HOST)", "CODE_SIGN_ENTITLEMENTS": "", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"})
     app_proxy = obj("proxy:app", "PBXContainerItemProxy", containerPortal=uid("project"), proxyType="1", remoteGlobalIDString=app, remoteInfo=q("ClearKeyboard"))
     app_dependency = obj("dependency:app", "PBXTargetDependency", target=app, targetProxy=app_proxy)
@@ -83,7 +76,7 @@ if __name__ == "__main__":
     ui_configs = configurations("ui-tests", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).UITests", "PRODUCT_NAME": "ClearKeyboardUITests", "GENERATE_INFOPLIST_FILE": "YES", "TEST_TARGET_NAME": "ClearKeyboard", "SWIFT_OBJC_BRIDGING_HEADER": "", "CODE_SIGN_ENTITLEMENTS": "", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"})
     ui_phases = [phase("ui-tests", "Sources", "PBXSourcesBuildPhase", ui_sources), phase("ui-tests", "Frameworks", "PBXFrameworksBuildPhase", []), phase("ui-tests", "Resources", "PBXResourcesBuildPhase", [])]
     ui_target = obj("target:ui-tests", "PBXNativeTarget", buildConfigurationList=ui_configs, buildPhases=arr(ui_phases), buildRules="()", dependencies=arr([app_dependency]), name=q("ClearKeyboardUITests"), productName=q("ClearKeyboardUITests"), productReference=ui_product, productType=q("com.apple.product-type.bundle.ui-testing"))
-    project = obj("project", "PBXProject", packageReferences=arr([rime_package]), attributes="{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; }", buildConfigurationList=project_configs, compatibilityVersion=q("Xcode 14.0"), developmentRegion=q("zh-Hans"), hasScannedForEncodings="0", knownRegions=arr([q("zh-Hans"), q("en"), q("Base")]), mainGroup=group, productRefGroup=products, projectDirPath=q(""), projectRoot=q(""), targets=arr([app, ext, runtime_target, ui_target]))
+    project = obj("project", "PBXProject", attributes="{ BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; }", buildConfigurationList=project_configs, compatibilityVersion=q("Xcode 14.0"), developmentRegion=q("zh-Hans"), hasScannedForEncodings="0", knownRegions=arr([q("zh-Hans"), q("en"), q("Base")]), mainGroup=group, productRefGroup=products, projectDirPath=q(""), projectRoot=q(""), targets=arr([app, ext, runtime_target, ui_target]))
     folder = ROOT / "ClearKeyboard.xcodeproj"
     folder.mkdir(exist_ok=True)
     text = "// !$*UTF8*$!\n{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {\n"

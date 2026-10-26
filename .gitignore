@@ -9,6 +9,8 @@ __pycache__/
 dist/
 pending-feedback.json
 
-.rime-cache/
-Core/Resources/Rime/
-Core/Resources/associations.clx
+
+# Generated from the shared approved brand material on macOS.
+App/ClearAppIcon.icon/Assets/
+Core/Resources/Models/*.gguf
+Core/Resources/Phonetics/

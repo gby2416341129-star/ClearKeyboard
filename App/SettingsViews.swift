@@ -251,8 +251,8 @@ struct InputAboutView: View {
             }
             AppSectionTitle(title: "离线引擎")
             AppCard {
-                Text("Rime · 万象拼音").font(.system(size: 16, weight: .medium))
-                Text("中文词库与上下文语言模型支持整句、简拼和拼写纠错；中文模式中也可输入 English。")
+                Text("Qwen3.5 · 本地中文输入").font(.system(size: 16, weight: .medium))
+                Text("Qwen3.5 在本机生成中文候选，结合拼音约束支持整句、简拼和拼写纠错；中文模式中也可输入 English。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Divider()
                 AppNavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
@@ -277,7 +277,7 @@ private struct ClipboardSaveControl: UIViewRepresentable {
 
 private struct LicenseView: View {
     private var license: String {
-        ["THIRD_PARTY_NOTICES", "Rime-and-dependencies", "RimeXCFramework-license", "CC-BY-4.0", "Apache-2.0", "CMUdict", "IME-25M-LICENSE", "IME-25M-NOTICE"].compactMap { name in
+        ["THIRD_PARTY_NOTICES", "Apache-2.0", "CMUdict", "llama-cpp", "Unicode-pinyin"].compactMap { name in
             Bundle.main.url(forResource: name, withExtension: "txt").flatMap { try? String(contentsOf: $0, encoding: .utf8) }
         }.joined(separator: "\n\n")
     }
