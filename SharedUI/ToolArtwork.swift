@@ -185,6 +185,8 @@ import CoreImage
     private let ink = UIImageView()
     private let edgeInk = UIImageView()
     private let compatibilityCheck = CAShapeLayer()
+    private let activeMark = CAShapeLayer()
+    private var active = false
     private var compatibilityEnabled = false
     private var edgeAmount: Float = -1
     private var symbol = ""
@@ -200,6 +202,7 @@ import CoreImage
         compatibilityCheck.lineWidth = 2.3
         compatibilityCheck.lineCap = .round; compatibilityCheck.lineJoin = .round
         compatibilityCheck.opacity = 0; ink.layer.addSublayer(compatibilityCheck)
+        activeMark.opacity = 0; layer.addSublayer(activeMark)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func setSymbol(_ value: String) {
@@ -223,6 +226,7 @@ import CoreImage
         path.addLine(to: CGPoint(x: side * 0.67, y: side * 0.25))
         CATransaction.begin(); CATransaction.setDisableActions(true)
         compatibilityCheck.frame = ink.bounds; compatibilityCheck.path = path.cgPath
+        activeMark.path = UIBezierPath(roundedRect: CGRect(x: bounds.midX - 6, y: bounds.maxY + 0.5, width: 12, height: 2.5), cornerRadius: 1.25).cgPath
         CATransaction.commit()
     }
     func softenEdge(_ amount: CGFloat) {
@@ -231,6 +235,17 @@ import CoreImage
         CATransaction.begin(); CATransaction.setDisableActions(true)
         ink.layer.opacity = 1 - blend; edgeInk.layer.opacity = blend
         CATransaction.commit()
+    }
+    func setActive(_ value: Bool, tint: UIColor) {
+        let changed = active != value; active = value
+        let from = activeMark.presentation()?.opacity ?? activeMark.opacity
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        activeMark.fillColor = tint.resolvedColor(with: traitCollection).cgColor
+        activeMark.opacity = value ? 1 : 0
+        CATransaction.commit()
+        guard changed, window != nil, !UIAccessibility.isReduceMotionEnabled else { return }
+        let fade = CABasicAnimation(keyPath: "opacity"); fade.fromValue = from; fade.toValue = value ? 1 : 0; fade.duration = 0.18
+        activeMark.add(fade, forKey: "toolbar.active")
     }
     func setCompatibilityEnabled(_ enabled: Bool) {
         guard symbol == "desktopcomputer", compatibilityEnabled != enabled else { return }
@@ -273,6 +288,12 @@ struct ToolIcon: UIViewRepresentable {
         let phase = (contentOffset.x - loopCenter).truncatingRemainder(dividingBy: loopPeriod)
         return phase < 0 ? phase + loopPeriod : phase
     }
+    var onTooth: ((CGFloat) -> Void)?
+    var suppressScrollFeedback = false
+    private var feedbackOffset: CGFloat?
+    private var feedbackTime: CFTimeInterval = 0
+    private var toothDistance: CGFloat = 0
+    private var lastTooth: CFTimeInterval = 0
     private var recentering = false
     private let edgeMask = CAGradientLayer()
     private let verticalMask = CAGradientLayer()
@@ -290,7 +311,7 @@ struct ToolIcon: UIViewRepresentable {
             contentOffset.x = loopCenter + phaseOffset
             recentering = false
         }
-        updateEdges()
+        updateEdges(); updateScrollFeedback()
     }
     func clampedOffset(_ proposed: CGFloat) -> CGFloat {
         min(max(0, proposed), max(0, expectedContentWidth - bounds.width))
@@ -317,15 +338,32 @@ struct ToolIcon: UIViewRepresentable {
                                   NSNumber(value: Double(1 - fade / bounds.width)), 1]
         } else { layer.mask = nil }
         CATransaction.commit()
+        // UIView conversion uses one coherent model coordinate space. Mixing
+        // presentation-layer bounds with a recentered scroll layer smeared the
+        // edge state onto recycled/reordered copies, including the whole row.
         for icon in edgeIcons {
-            let rect: CGRect
-            if let visible = icon.layer.presentation(), let viewport = layer.presentation() {
-                rect = visible.convert(visible.bounds, to: viewport)
-            } else { rect = icon.convert(icon.bounds, to: self) }
+            let rect = icon.convert(icon.bounds, to: self)
+            guard rect.intersects(bounds), bounds.width > 0 else { icon.softenEdge(0); continue }
             let distance = min(left ? rect.midX - bounds.minX : fade, right ? bounds.maxX - rect.midX : fade)
             icon.softenEdge(1 - min(fade, max(0, distance)) / max(1, fade))
         }
     }
+    private func updateScrollFeedback() {
+        let now = CACurrentMediaTime(), offset = contentOffset.x
+        defer { feedbackOffset = offset; feedbackTime = now }
+        guard !suppressScrollFeedback, isDragging || isDecelerating, let previous = feedbackOffset else {
+            toothDistance = 0; return
+        }
+        var delta = offset - previous
+        if isLooping, abs(delta) > loopPeriod / 2 { delta -= (delta / loopPeriod).rounded() * loopPeriod }
+        guard delta.isFinite, abs(delta) > 0.01 else { return }
+        toothDistance += abs(delta)
+        let speed = abs(delta) / CGFloat(max(1.0 / 240, now - feedbackTime))
+        if toothDistance >= 9, now - lastTooth >= 0.024 {
+            toothDistance.formTruncatingRemainder(dividingBy: 9); lastTooth = now; onTooth?(speed)
+        }
+    }
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard bounds.contains(point), !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
         return super.hitTest(point, with: event) ?? self
@@ -385,7 +423,7 @@ struct ToolIcon: UIViewRepresentable {
         super.init(frame: .zero)
         addSubview(lens); addSubview(pressWash); addSubview(artwork); addSubview(caption)
         pressWash.isUserInteractionEnabled = false; pressWash.alpha = 0
-        pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
+        pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.19)
         pressWash.layer.cornerRadius = 16; pressWash.layer.cornerCurve = .continuous
         caption.text = title; caption.textColor = .label; caption.font = .systemFont(ofSize: 12,weight: .medium)
         caption.textAlignment = .center; caption.adjustsFontSizeToFitWidth = true; caption.minimumScaleFactor = 0.9
@@ -422,9 +460,14 @@ struct ToolIcon: UIViewRepresentable {
     func updateCaption(_ title: String) { caption.text = title; accessibilityLabel = title }
     override var isHighlighted: Bool {
         didSet {
-            lens.alpha = isHighlighted ? 0.72 : 1
-            UIView.animate(withDuration: isHighlighted ? 0.06 : 0.18, delay: 0,
-                           options: [.beginFromCurrentState, .allowUserInteraction]) { self.pressWash.alpha = self.isHighlighted ? 1 : 0 }
+            guard oldValue != isHighlighted else { return }
+            UIView.animate(withDuration: isHighlighted ? 0.085 : 0.23, delay: 0,
+                           usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction]) {
+                self.pressWash.alpha = self.isHighlighted ? 1 : 0
+                self.transform = self.isHighlighted && !UIAccessibility.isReduceMotionEnabled
+                    ? CGAffineTransform(translationX: 0, y: 1.5).scaledBy(x: 0.965, y: 0.965) : .identity
+            }
         }
     }
 }

@@ -16,6 +16,8 @@ import ImageIO
     private let empty = UILabel()
     private var manualReadFailed = false
     private let table = UITableView(frame: .zero, style: .plain)
+    private let selectionGlass = LiquidGlassView(radius: 20, clear: true)
+    private var wordSelectionPan: UIPanGestureRecognizer?
     private let words = UICollectionView(frame: .zero, collectionViewLayout: ClipboardTokenLayout())
     private var selectionSource: String?
     private var tokens: [ClipboardSelection.Token] = []
@@ -44,6 +46,9 @@ import ImageIO
         store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL)
         super.init(frame: .zero)
         accessibilityIdentifier = "clipboard.panel"
+        selectionGlass.isUserInteractionEnabled = false; selectionGlass.isHidden = true
+        selectionGlass.configure(tint: UIColor.systemCyan.withAlphaComponent(0.035), strength: 0.24, fallback: .secondarySystemBackground)
+        addSubview(selectionGlass)
         [tabs, more, table, words, empty].forEach(addSubview)
         if !completionInToolbar { addSubview(send) }
         tabs.accessibilityIdentifier = "clipboard.tabs"
@@ -66,7 +71,8 @@ import ImageIO
         words.prepareForKeyboardPanel(); words.dataSource = self; words.delegate = self
         words.register(ClipboardTokenCell.self, forCellWithReuseIdentifier: "token")
         words.allowsSelection = false
-        words.delaysContentTouches = false
+        words.delaysContentTouches = false; words.showsVerticalScrollIndicator = true
+        words.alwaysBounceVertical = true; words.layer.cornerRadius = 16; words.clipsToBounds = true
         if let layout = words.collectionViewLayout as? ClipboardTokenLayout {
             layout.widthForToken = { [weak self] index in
                 guard let self, self.tokens.indices.contains(index) else { return 28 }
@@ -74,7 +80,7 @@ import ImageIO
             }
         }
         let drag = UIPanGestureRecognizer(target: self, action: #selector(selectWords(_:))); drag.delegate = self; drag.cancelsTouchesInView = false
-        words.addGestureRecognizer(drag); words.panGestureRecognizer.require(toFail: drag)
+        wordSelectionPan = drag; words.addGestureRecognizer(drag); words.panGestureRecognizer.require(toFail: drag)
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapWord(_:)))
         tap.require(toFail: drag); tap.cancelsTouchesInView = false; tap.delaysTouchesBegan = false; tap.delaysTouchesEnded = false; words.addGestureRecognizer(tap)
         reload()
@@ -90,7 +96,8 @@ import ImageIO
         let content = CGRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
         let recoveryFooter = false
         table.frame = CGRect(x: content.minX, y: content.minY, width: content.width, height: max(0, content.height - (recoveryFooter ? 82 : 0)))
-        words.frame = content
+        selectionGlass.frame = content.insetBy(dx: 2, dy: 3)
+        words.frame = content.insetBy(dx: 10, dy: 11)
         let recoveryY = recoveryFooter ? content.maxY - 82 : content.midY - 44
         empty.frame = CGRect(x: 8, y: recoveryY, width: max(0, bounds.width - 16), height: 34)
     }
@@ -102,6 +109,7 @@ import ImageIO
     private func reload() {
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3_600)
         let choosing = selectionSource != nil
+        selectionGlass.isHidden = !choosing
         tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing || completionInToolbar
         send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
         empty.isHidden = choosing || !items.isEmpty
@@ -254,8 +262,13 @@ import ImageIO
         collectionView(words, didSelectItemAt: IndexPath(item: index, section: 0))
     }
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer is UIPanGestureRecognizer else { return true }
-        return index(at: gestureRecognizer.location(in: words)) != nil
+        guard gestureRecognizer === wordSelectionPan, let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: words)
+        // Lock intent only at the beginning: a vertical start scrolls the long
+        // article. Once a horizontal selection begins it may cross rows freely.
+        guard abs(velocity.x) > abs(velocity.y) * 1.1 else { return false }
+        let point = pan.location(in: words), move = pan.translation(in: words)
+        return index(at: CGPoint(x: point.x - move.x, y: point.y - move.y)) != nil
     }
     private func stopSelectionUpdates() {
         selectionUpdates?.requiresContinuousUpdates = false; selectionUpdates?.isEnabled = false

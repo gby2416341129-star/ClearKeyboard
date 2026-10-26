@@ -170,5 +170,11 @@ struct LiquidCard: ViewModifier {
 #endif
         generator.prepare()
     }
+    func pulseScroll(speed: CGFloat) {
+        let strength = min(0.72, 0.24 + max(0, speed) / 1800)
+        if let emit { emit(strength); return }
+        let generator = generator(for: .rigid)
+        generator.impactOccurred(intensity: strength); generator.prepare()
+    }
     func stop() { generators = [:]; presentationView = nil; presentationWindow = nil }
 }

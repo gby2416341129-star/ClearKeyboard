@@ -1,4 +1,4 @@
-name: Repair 72 recorded fixes, looping toolbar and tap effects IPA
+name: Repair 73 feedback, clipboard and toolbar interaction IPA
 on:
   push:
     branches: [codex/repair67-20261026]

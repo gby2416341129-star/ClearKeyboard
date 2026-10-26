@@ -64,12 +64,11 @@ import UniformTypeIdentifiers
             }
         }, Self.historyChanged as CFString, nil, .deliverImmediately)
     }
-    func activate(settings: KeyboardSettings, allowed: Bool, retryPermission: Bool = false) {
+    func activate(settings: KeyboardSettings, allowed: Bool, retryPermission: Bool = false, userRequested: Bool = false) {
         self.settings = settings
         guard allowed, settings.capturesClipboard else { stop(); return }
-        let newSession = !active
         active = true
-        if retryPermission || newSession { observation.retry() }
+        if retryPermission { observation.retry() }
         makeStore().prune(lifetime: settings.clipboardLifetimeHours * 3600)
         if observer == nil {
             observer = NotificationCenter.default.addObserver(forName: notificationName, object: nil, queue: .main) { [weak self] _ in
@@ -83,7 +82,7 @@ import UniformTypeIdentifiers
             revisionTimer = timer
             RunLoop.main.add(timer, forMode: .common)
         }
-        captureIfChanged()
+        if userRequested { captureOnUserRequest() } else { captureIfChanged() }
     }
     func captureIfChanged() {
         guard active else { return }
@@ -97,6 +96,16 @@ import UniformTypeIdentifiers
             captured()
 
         }
+    }
+    /// A failed background read must not consume the first actual keyboard
+    /// clipboard gesture. Retry that revision once from the user's action;
+    /// reopening either the keyboard or history is not a permission retry loop.
+    func captureOnUserRequest() {
+        guard active else { return }
+        let count = changeCount()
+        guard observation.shouldReadOnUserRequest(changeCount: count, hasContent: hasContent()) else { return }
+        observation.didRequest(changeCount: count)
+        _ = captureManually()
     }
     @discardableResult func captureManually() -> Bool {
         let count = changeCount()

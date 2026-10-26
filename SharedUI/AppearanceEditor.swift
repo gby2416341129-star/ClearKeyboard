@@ -126,85 +126,82 @@ struct AppearanceDetailContent: View {
         }.buttonStyle(.plain).accessibilityLabel(hex)
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
-    private func option(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.system(size: 12, weight: .medium)).frame(maxWidth: .infinity, minHeight: 30)
-                .background(selected ? Color.accentColor.opacity(0.20) : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
-    }
-    private var presets: some View {
-        VStack(spacing: 6) {
-            if item.colorPath != nil {
-                ForEach(["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"], id: \.self) { swatch($0, side: 28) }
-            } else if item == .keyGlass {
-                option("清透", selected: value.resolvedKeyGlassStrength > 0.8) { settings.keyGlassStrength = 0.9 }
-                option("均衡", selected: abs(value.resolvedKeyGlassStrength - 0.55) < 0.01) { settings.keyGlassStrength = 0.55 }
-                option("质感", selected: value.resolvedKeyGlassStrength < 0.2) { settings.keyGlassStrength = 0.15 }
-            } else {
-                ForEach(CandidateTextSize.allCases) { size in
-                    option(size.title, selected: value.resolvedCandidateTextSize == size) { settings.candidateTextSize = size }
-                }
-            }
-        }.frame(width: compact ? 44 : 50)
-    }
-    private var adjustments: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if item.colorPath != nil {
-                ForEach(0..<3, id: \.self) { index in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(["R", "G", "B"][index]).font(.caption.monospaced())
-                        Slider(value: Binding(get: { [rgb.red, rgb.green, rgb.blue][index] }, set: { value in
-                            var next = rgb
-                            if index == 0 { next.red = value } else if index == 1 { next.green = value } else { next.blue = value }
-                            setColor(next)
-                        }), in: 0...1).accessibilityLabel("自定义颜色 " + ["R", "G", "B"][index])
-                    }
-                }
-            } else if item == .keyGlass {
-                GlassValueSlider(title: "通透", value: strength, range: 0...1, defaultValue: 0.55, identifier: "appearance.strength." + item.rawValue, percent: true)
-            } else {
-                Text("候选动画").font(.caption.weight(.medium))
-                ForEach(CandidateAnimation.allCases) { animation in
-                    option(animation.shortTitle, selected: value.resolvedCandidateAnimation == animation) { settings.candidateAnimation = animation }
-                }
-            }
-        }.frame(width: compact ? 88 : 96)
-    }
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                HStack(spacing: 10) {
-                    presets
-                    KeyboardPreview(settings: value).frame(maxWidth: .infinity).frame(height: compact ? 150 : 190)
-                        .accessibilityLabel("键盘效果预览")
-                        .accessibilityValue(KeyboardAppearancePreview.accessibilityDescription(of: value))
-                        .accessibilityIdentifier("preview." + item.rawValue)
-                    adjustments
-                }.padding(compact ? 10 : 14).modifier(LiquidCard(radius: 20))
-                if item.colorPath != nil, !compact {
-                    VStack(spacing: 14) {
-                        ColorPicker("自定义颜色", selection: color, supportsOpacity: false)
-                            .accessibilityIdentifier("appearance.color." + item.rawValue)
-                        HStack(spacing: 10) {
-                            TextField("#RRGGBB", text: hexText).font(.system(size: 16, design: .monospaced))
-                                .textInputAutocapitalization(.characters).autocorrectionDisabled().submitLabel(.done)
-                                .keyboardType(.asciiCapable).focused($editingHex).onSubmit { applyHex() }
-                                .padding(12).background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-                                .accessibilityIdentifier("appearance.hex")
-                            Button("应用") { applyHex() }.disabled(!hasPendingHexChange).accessibilityIdentifier("appearance.applyHex")
+            VStack(spacing: compact ? 14 : 24) {
+                KeyboardPreview(settings: value).frame(maxWidth: .infinity)
+                    .frame(height: compact ? 166 : nil)
+                    .accessibilityLabel("键盘效果预览")
+                    .accessibilityValue(KeyboardAppearancePreview.accessibilityDescription(of: value))
+                    .accessibilityIdentifier("preview." + item.rawValue)
+                VStack(alignment: .leading, spacing: 18) {
+                    if item == .keyGlass {
+                        GlassValueSlider(title: "通透强度", value: strength, range: 0...1, defaultValue: 0.55, identifier: "appearance.strength." + item.rawValue, percent: true)
+                    } else if item == .candidateSize {
+                        Picker("候选词大小", selection: Binding(get: { value.resolvedCandidateTextSize }, set: { settings.candidateTextSize = $0 })) {
+                            ForEach(CandidateTextSize.allCases) { Text($0.title).tag($0) }
+                        }.pickerStyle(.segmented).accessibilityIdentifier("custom.candidateTextSize")
+                        Text("候选词动画").font(.subheadline.weight(.medium))
+                        Picker("候选词动画", selection: Binding(get: { value.resolvedCandidateAnimation }, set: { settings.candidateAnimation = $0 })) {
+                            ForEach(CandidateAnimation.allCases) { Text($0.shortTitle).tag($0) }
+                        }.pickerStyle(.segmented).accessibilityIdentifier("custom.candidateAnimation")
+                        Text(value.resolvedCandidateAnimation.title).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        if !compact { ColorPicker("自定义颜色", selection: color, supportsOpacity: false).accessibilityIdentifier("appearance.color." + item.rawValue) }
+                        GeometryReader { geometry in
+                            let side = min(compact ? 36.0 : 44.0, max(0, geometry.size.width / 6))
+                            HStack(spacing: 0) {
+                                ForEach(["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"], id: \.self) { value in
+                                    swatch(value, side: side)
+                                    if value != "#E3AC72" { Spacer(minLength: 0) }
+                                }
+                            }
+                        }.frame(height: compact ? 36 : 44)
+                        if compact {
+                            ForEach(0..<3, id: \.self) { index in
+                                HStack {
+                                    Text(["R", "G", "B"][index]).font(.caption.monospaced()).frame(width: 14)
+                                    Slider(value: Binding(get: { [rgb.red, rgb.green, rgb.blue][index] }, set: { value in
+                                        var next = rgb
+                                        if index == 0 { next.red = value } else if index == 1 { next.green = value } else { next.blue = value }
+                                        setColor(next)
+                                    }), in: 0...1).accessibilityLabel("自定义颜色 " + ["R", "G", "B"][index])
+                                }
+                            }
+                        } else {
+                            HStack(spacing: 10) {
+                                TextField("#RRGGBB", text: hexText).font(.system(size: 17, weight: .medium, design: .monospaced))
+                                    .textInputAutocapitalization(.characters).autocorrectionDisabled().submitLabel(.done)
+                                    .keyboardType(.asciiCapable).focused($editingHex).onSubmit { applyHex() }
+                                    .padding(.horizontal, 14).frame(minHeight: 48)
+                                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 13))
+                                    .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(invalidHex ? Color.red : editingHex ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.14), lineWidth: 1))
+                                    .accessibilityLabel("HEX 颜色")
+                                    .accessibilityIdentifier("appearance.hex")
+                                Button { applyHex() } label: {
+                                    Text("应用").font(.system(size: 15, weight: .semibold))
+                                        .frame(width: 72, height: 48)
+                                        .foregroundStyle(hasPendingHexChange ? Color.white : Color.secondary)
+                                        .background(hasPendingHexChange ? Color.accentColor : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
+                                }.buttonStyle(.plain).disabled(!hasPendingHexChange).accessibilityIdentifier("appearance.applyHex")
+                            }
+                            if invalidHex { Text("请输入 #RGB 或 #RRGGBB").font(.caption).foregroundStyle(.red) }
                         }
-                        if invalidHex { Text("请输入 #RGB 或 #RRGGBB").font(.caption).foregroundStyle(.red) }
-                    }.padding(16).modifier(LiquidCard(radius: 18))
-                }
-                Button { reset() } label: {
-                    HStack {
-                        ToolIcon(symbol: "arrow.counterclockwise").frame(width: 24, height: 24)
-                        Text("恢复默认"); Spacer()
-                        if usesDefault { Image(systemName: "checkmark") }
-                    }.font(.system(size: 14, weight: .medium)).padding(14)
-                        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
-                }.buttonStyle(.plain).accessibilityIdentifier("appearance.reset." + item.rawValue)
-            }.padding(compact ? 10 : 16).padding(.bottom, 18)
+                    }
+                    Button { reset() } label: {
+                        HStack(spacing: 10) {
+                            ToolIcon(symbol: "arrow.counterclockwise").frame(width: 24, height: 24)
+                            Text("恢复默认")
+                            Spacer(minLength: 8)
+                            if usesDefault { Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold)) }
+                        }.font(.system(size: 14, weight: .medium)).foregroundStyle(.primary)
+                            .padding(.horizontal, 14).frame(minHeight: compact ? 38 : 44)
+                            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 13))
+                    }.buttonStyle(.plain).accessibilityIdentifier("appearance.reset." + item.rawValue)
+                        .accessibilityAddTraits(usesDefault ? .isSelected : [])
+                }.padding(compact ? 14 : 20).modifier(LiquidCard(radius: 24))
+            }.padding(compact ? 12 : 20).padding(.bottom, 18)
         }.scrollDismissesKeyboard(.interactively)
     }
 }
+

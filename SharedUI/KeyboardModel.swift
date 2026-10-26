@@ -563,9 +563,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         document?.setMarkedText(composition.raw)
         if composition.raw.isEmpty { document?.unmarkText() }
     }
-    func startClipboardCapture(retryPermission: Bool = false) {
+    func startClipboardCapture(retryPermission: Bool = false, userRequested: Bool = false) {
         clipboardActive = true
-        clipboardCapture.activate(settings: settings, allowed: document?.fullAccess == true, retryPermission: retryPermission)
+        clipboardCapture.activate(settings: settings, allowed: document?.fullAccess == true, retryPermission: retryPermission, userRequested: userRequested)
     }
     func stopClipboardCapture() { clipboardActive = false; clipboardCapture.stop() }
     func moveCursor(_ offset: Int) {
