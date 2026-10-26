@@ -574,21 +574,17 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard isMovingCursor else { return }; document?.endTrackpad(); isMovingCursor = false; refreshCandidates()
     }
     func clearInput() {
+        beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document else { return }
-        guard documentEditDepth == 0 else { return }
-        beginDocumentEdit()
-        deletionUndo = nil
         cancelDeferredActions()
         phraseLearning.reset(); numericRun.reset()
+        deletionUndo = nil
         let spelling = composition
         document.unmarkText(); composition.clear()
-        document.clearInput { [weak self, weak document] deleted in
-            guard let self else { return }
-            if let deleted, let document {
-                self.deletionUndo = (deleted, document.documentIdentity, document.contextBefore, document.contextAfter, spelling)
-            }
-            self.refreshCandidates(); self.endDocumentEdit()
+        if let deleted = document.clearInput() {
+            deletionUndo = (deleted, document.documentIdentity, document.contextBefore, document.contextAfter, spelling)
         }
+        refreshCandidates()
     }
     @discardableResult func undoClearInput() -> Bool {
         beginDocumentEdit(); defer { endDocumentEdit() }
