@@ -594,7 +594,16 @@ import UIKit
         XCTAssertTrue(value.waitForExistence(timeout: 3), "Stored copy must expose the hex token")
         let original = field.value as? String ?? ""
         func expectHost(_ expected: String, _ reason: String) {
-            let update = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in (field.value as? String) == expected }, object: nil)
+            let update = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                let actual = field.value as? String ?? ""
+                // WebKit exposes its placeholder as AX value when the input
+                // is empty. Match that field's actual placeholder, never an
+                // arbitrary Search string, and keep nonempty checks exact.
+                if expected.isEmpty {
+                    return actual.isEmpty || (!actual.isEmpty && actual == field.placeholderValue)
+                }
+                return actual == expected
+            }, object: nil)
             let result = XCTWaiter.wait(for: [update], timeout: 5)
             if result != .completed { screen("clipboard-live-selection-failed"); attachTree(safari, "clipboard-live-selection-failed") }
             XCTAssertEqual(result, .completed, reason + "; actual=" + String((field.value as? String ?? "").prefix(80)))
