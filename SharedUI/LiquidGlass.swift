@@ -128,7 +128,7 @@ struct LiquidCard: ViewModifier {
         guard let window = anchor.window else { return }
         guard presentationView !== anchor || presentationWindow !== window || generators.isEmpty else { return }
         presentationView = anchor; presentationWindow = window; generators.removeAll(); scrollGenerator = nil
-        for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft, .heavy] {
+        for style in [UIImpactFeedbackGenerator.FeedbackStyle.rigid, .soft, .heavy, .medium] {
             generator(for: style).prepare()
         }
     }
@@ -158,6 +158,22 @@ struct LiquidCard: ViewModifier {
         submittedPulses += 1
 #endif
         generator.prepare()
+    }
+    func prepareCursorActivation() {
+        if emit == nil { generator(for: .medium).prepare() }
+    }
+    func pulseCursorActivation() {
+        // One system transient on entering caret mode; no drag or release pulses.
+#if DEBUG
+        requestedStyle = .medium
+#endif
+        if let emit { emit(0.7); return }
+        let feedback = generator(for: .medium)
+        feedback.impactOccurred()
+#if DEBUG
+        submittedPulses += 1
+#endif
+        feedback.prepare()
     }
     func pulseInterface() {
 #if DEBUG

@@ -9,7 +9,7 @@ import UIKit
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false; backgroundColor = .clear
-        for rail in [left, right] { rail.axis = .vertical; rail.spacing = 5; rail.distribution = .equalSpacing }
+        for rail in [left, right] { rail.axis = .vertical; rail.spacing = 5; rail.distribution = .fillEqually }
         for title in [leftTitle, rightTitle] {
             title.font = .systemFont(ofSize: 12, weight: .medium); title.textColor = .secondaryLabel
             title.textAlignment = .center; title.adjustsFontSizeToFitWidth = true; title.minimumScaleFactor = 0.9
@@ -19,20 +19,25 @@ import UIKit
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     func configure(left title: String, right other: String) {
         leftTitle.text = title; rightTitle.text = other
-        for rail in [left, right] { rail.distribution = .equalSpacing; for view in rail.arrangedSubviews { rail.removeArrangedSubview(view); view.removeFromSuperview() } }
+        for rail in [left, right] { rail.distribution = .fillEqually; for view in rail.arrangedSubviews { rail.removeArrangedSubview(view); view.removeFromSuperview() } }
         setNeedsLayout()
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let area = bounds.insetBy(dx: 10, dy: 10), side = min(84, floor(max(0, area.width) * 0.22)), gap: CGFloat = 8
+        let area = bounds.insetBy(dx: 10, dy: 8)
+        let side = min(76, floor(max(0, area.width) * 0.18)), gap: CGFloat = 6
         let middle = max(1, area.width - side * 2 - gap * 2)
-        let height = min(max(144, preview.fittingSize(forWidth: middle).height), max(144, area.height - 22))
-        let top = max(area.minY, area.midY - (height + 22) / 2)
-        leftTitle.frame = CGRect(x: area.minX, y: top, width: side, height: 16)
-        rightTitle.frame = CGRect(x: area.maxX - side, y: top, width: side, height: 16)
-        left.frame = CGRect(x: area.minX, y: top + 22, width: side, height: height)
-        right.frame = CGRect(x: area.maxX - side, y: top + 22, width: side, height: height)
-        preview.frame = CGRect(x: left.frame.maxX + gap, y: top + 22, width: middle, height: height)
+        let natural = preview.fittingSize(forWidth: middle)
+        let scale = min(1, max(1, area.height - 20) / max(1, natural.height))
+        let size = CGSize(width: middle * scale, height: natural.height * scale)
+        let top = area.midY - (size.height + 20) / 2
+        let previewX = bounds.midX - size.width / 2
+        leftTitle.frame = CGRect(x: previewX - gap - side, y: top, width: side, height: 16)
+        rightTitle.frame = CGRect(x: previewX + size.width + gap, y: top, width: side, height: 16)
+        left.frame = CGRect(x: leftTitle.frame.minX, y: top + 20, width: side, height: size.height)
+        right.frame = CGRect(x: rightTitle.frame.minX, y: top + 20, width: side, height: size.height)
+        // This is the rendered canvas size, not a taller container around a smaller keyboard.
+        preview.frame = CGRect(x: previewX, y: top + 20, width: size.width, height: size.height)
     }
 }
 
@@ -54,9 +59,9 @@ import UIKit
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        amount.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 21)
+        amount.frame = CGRect(x: 0, y: 0, width: min(36, bounds.width), height: 21)
         slider.bounds = CGRect(x: 0, y: 0, width: max(56, bounds.height - 35), height: 28)
-        slider.center = CGPoint(x: bounds.midX, y: (bounds.height + 23) / 2)
+        slider.center = CGPoint(x: min(17, bounds.midX), y: (bounds.height + 23) / 2)
     }
     func configure(value: Double, enabled: Bool = true) {
         if !slider.isTracking { slider.value = Float(value) }

@@ -1,4 +1,4 @@
-name: Repair 74 unified navigation, workspace and selection IPA
+name: Repair 75 responsive caret, centered workspace and motion IPA
 on:
   push:
     branches: [codex/repair67-20261026]
@@ -37,6 +37,10 @@ jobs:
         run: |
           swiftc Core/ClipboardSelection.swift SharedUI/ClipboardTextSession.swift Scripts/check_clipboard_selection_repair.swift -o "$RUNNER_TEMP/clipboard-selection-repair"
           "$RUNNER_TEMP/clipboard-selection-repair"
+      - name: Check responsive caret movement and reversal
+        run: |
+          swiftc Core/ProxyTrackpad.swift Scripts/check_trackpad_repair.swift -o "$RUNNER_TEMP/trackpad-repair"
+          "$RUNNER_TEMP/trackpad-repair"
       - name: Compile the repaired App and extension for iPhone and package IPA
         run: bash Scripts/build-ipa.sh dist
       - name: Return IPA

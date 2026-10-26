@@ -16,7 +16,7 @@ final class KeyButton: UIButton {
     private var cursorMode = false
     private var cursorOrigin = CGPoint.zero
     private var pendingCursor: CGPoint?
-    private var cursorDisplayLink: CADisplayLink?
+    private var cursorUpdateLink: UIUpdateLink?
     private var deletionDirection = 0
     private var choiceGesture: UILongPressGestureRecognizer?
     private var choicePopup: KeyChoicePopup?
@@ -103,7 +103,7 @@ final class KeyButton: UIButton {
         addTarget(self, action: #selector(cancelPress), for: [.touchUpOutside, .touchCancel, .touchDragExit])
         if key.action == .space {
             let cursor = UILongPressGestureRecognizer(target: self, action: #selector(cursorGesture(_:)))
-            cursor.minimumPressDuration = 0.35; cursor.allowableMovement = 14; addGestureRecognizer(cursor)
+            cursor.minimumPressDuration = 0.22; cursor.allowableMovement = 14; addGestureRecognizer(cursor)
         }
         if key.action == .delete {
             let swipe = UIPanGestureRecognizer(target: self, action: #selector(deletionGesture(_:)))
@@ -202,6 +202,7 @@ final class KeyButton: UIButton {
         plate.transform = UIAccessibility.isReduceMotionEnabled ? .identity
             : CGAffineTransform(translationX: 0, y: 1.3).scaledBy(x: 0.945, y: 0.945)
         onPrepare?(key.action)
+        if key.action == .space { vibration.attach(to: self); vibration.prepareCursorActivation() }
         if vibrationEnabled {
             var host: UIView = self
             while let parent = host.superview, !(host is KeyboardSurface) { host = parent }
@@ -289,17 +290,19 @@ final class KeyButton: UIButton {
         switch gesture.state {
         case .began:
             draggingCursor = true; suppressTap = true; cursorOrigin = point; pendingCursor = nil
+            // Trackpad entry is a mode-change acknowledgement, independent of typing vibration.
+            vibration.attach(to: self); vibration.pulseCursorActivation()
             onCursorBegan?()
-            let link = CADisplayLink(target: self, selector: #selector(flushCursor))
+            let link = UIUpdateLink(view: self) { [weak self] _, _ in self?.flushCursor() }
             let rate = Float(window?.screen.maximumFramesPerSecond ?? 60)
             link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, rate), maximum: rate, preferred: rate)
-            link.add(to: .main, forMode: .common); cursorDisplayLink = link
+            link.isEnabled = true; cursorUpdateLink = link
 
         case .changed:
             pendingCursor = CGPoint(x: point.x - cursorOrigin.x, y: point.y - cursorOrigin.y)
         default:
             if gesture.state == .ended { flushCursor() }
-            cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = nil
+            cursorUpdateLink?.isEnabled = false; cursorUpdateLink = nil; pendingCursor = nil
             if draggingCursor { draggingCursor = false; onCursorEnded?() }
             cancelPress()
         }
@@ -324,10 +327,10 @@ final class KeyButton: UIButton {
     func stopTracking() {
         choicePopup?.removeFromSuperview(); choicePopup = nil; choiceHost = nil
         suppressTap = true
-        cursorDisplayLink?.invalidate(); cursorDisplayLink = nil; pendingCursor = nil
+        cursorUpdateLink?.isEnabled = false; cursorUpdateLink = nil; pendingCursor = nil
         onDeleteHint?(nil)
         if draggingCursor { draggingCursor = false; onCursorEnded?() }
         cancelPress()
     }
-    deinit { repeatTimer?.invalidate(); repeatStart?.cancel(); cursorDisplayLink?.invalidate() }
+    deinit { repeatTimer?.invalidate(); repeatStart?.cancel() }
 }

@@ -1,6 +1,5 @@
 import UIKit
 import os
-import CoreImage
 
 /// A paged strip with a bounded pool of visible candidate controls. The whole row is one touch surface;
 /// UIKit owns dragging and momentum, independently of the word under a finger.
@@ -21,8 +20,7 @@ import CoreImage
     private let frameLog = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
     private var ink: UIColor = .systemTeal
     private let strip = UIView()
-    private static let inkContext = CIContext(options: [.cacheIntermediates: false])
-    private let inkBlur = UIImageView()
+    private var incomingInk: CandidateInkMotion?
     private var inkAnimator: UIViewPropertyAnimator?
     private var outgoingInk: UIView?
     private var managementActive = false
@@ -57,9 +55,6 @@ import CoreImage
         super.init(frame: .zero)
         delegate = self
         addSubview(strip)
-        inkBlur.isUserInteractionEnabled = false; inkBlur.accessibilityElementsHidden = true; inkBlur.alpha = 0
-        inkBlur.backgroundColor = .clear; inkBlur.isOpaque = false
-        addSubview(inkBlur)
         strip.isOpaque = false
         // Word faces and their spacing are presentation only. Every contact,
         // including one in a gap, reaches this same scroll view and native pan.
@@ -145,63 +140,62 @@ import CoreImage
             } else { self.apply(next, accent: color) }
         }
     }
-    private func inkSnapshot(blurred: Bool) -> UIImage? {
+    private func inkSnapshot() -> UIImage? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 2
-        // Render glyphs on transparent pixels. System material and viewport
-        // snapshots also capture/tint the background, producing a flashing bar.
-        let image = UIGraphicsImageRenderer(size: bounds.size, format: format).image { renderer in
-            for button in buttons where !button.isHidden {
-                button.drawInk(in: renderer.cgContext, relativeTo: self)
-            }
+        return UIGraphicsImageRenderer(size: bounds.size, format: format).image { renderer in
+            for button in buttons where !button.isHidden { button.drawInk(in: renderer.cgContext, relativeTo: self) }
         }
-        guard blurred else { return image }
-        guard let cg = image.cgImage else { return nil }
-        let input = CIImage(cgImage: cg)
-        guard let filter = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: input, kCIInputRadiusKey: 5.6]),
-              let output = filter.outputImage,
-              let result = Self.inkContext.createCGImage(output, from: input.extent) else { return nil }
-        return UIImage(cgImage: result, scale: format.scale, orientation: .up)
+    }
+    private func finishIncomingInk() {
+        incomingInk?.finish(); incomingInk = nil
+        buttons.forEach { $0.setInkOpacity(1) }
     }
     private func transitionInk(_ animation: CandidateAnimation, disappearing: Bool, appearing: Bool) {
         guard window != nil, !UIAccessibility.isReduceMotionEnabled, !UIAccessibility.isVoiceOverRunning else { return }
-        if disappearing, let host = superview, let image = inkSnapshot(blurred: animation == .blur) {
-            let old = UIImageView(image: image)
-            outgoingInk?.removeFromSuperview(); outgoingInk = old
-            old.frame = convert(bounds, to: host); old.isUserInteractionEnabled = false; old.accessibilityElementsHidden = true
-            old.backgroundColor = .clear; old.isOpaque = false
-            host.addSubview(old)
-            UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: {
-                old.alpha = 0
-                if animation == .bounce { old.transform = CGAffineTransform(scaleX: 0.94, y: 0.94) }
-            }, completion: { [weak self, weak old] _ in
-                old?.removeFromSuperview()
-                if self?.outgoingInk === old { self?.outgoingInk = nil }
-            })
+        if disappearing, let host = superview, let image = inkSnapshot() {
+            outgoingInk?.removeFromSuperview()
+            if animation == .blur {
+                let old = CandidateInkMotion(image: image); outgoingInk = old
+                old.frame = convert(bounds, to: host); host.addSubview(old)
+                old.run(appearing: false) { [weak self, weak old] in
+                    if self?.outgoingInk === old { self?.outgoingInk = nil }
+                }
+            } else {
+                let old = UIImageView(image: image); outgoingInk = old
+                old.frame = convert(bounds, to: host); host.addSubview(old)
+                UIView.animate(withDuration: 0.15, animations: {
+                    old.alpha = 0
+                    if animation == .bounce { old.transform = CGAffineTransform(scaleX: 0.96, y: 0.96) }
+                }, completion: { [weak self, weak old] _ in
+                    old?.removeFromSuperview(); if self?.outgoingInk === old { self?.outgoingInk = nil }
+                })
+            }
         }
-        // Blend the latest transparent glyph image into sharp text, just like
-        // the shortcut's soft edge. Replacing an in-flight image prevents an
-        // earlier spelling lingering over a later key. No backdrop is filtered.
-        guard appearing, animation != .bounce else { return }
-        let image = animation == .blur ? inkSnapshot(blurred: true) : nil
-        inkAnimator?.stopAnimation(true)
-        inkBlur.image = image
-        inkBlur.frame = bounds; inkBlur.alpha = animation == .blur ? 0.28 : 0
+        guard appearing else { return }
+        finishIncomingInk()
+        guard animation != .bounce else { return }
+        finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
         strip.alpha = 1
-        buttons.forEach { $0.setInkOpacity(animation == .blur ? 0.72 : 0.86) }
-        let animator = UIViewPropertyAnimator(duration: 0.18, curve: .easeOut) { [weak self] in
-            self?.inkBlur.alpha = 0; self?.strip.alpha = 1; self?.buttons.forEach { $0.setInkOpacity(1) }
+        if animation == .blur, let image = inkSnapshot() {
+            let effect = CandidateInkMotion(image: image)
+            effect.frame = bounds; addSubview(effect); incomingInk = effect
+            buttons.forEach { $0.setInkOpacity(0) }
+            effect.run(appearing: true) { [weak self, weak effect] in
+                guard self?.incomingInk === effect else { return }
+                self?.incomingInk = nil; self?.buttons.forEach { $0.setInkOpacity(1) }
+            }
+        } else {
+            buttons.forEach { $0.setInkOpacity(0.86) }
+            let animator = UIViewPropertyAnimator(duration: 0.16, curve: .easeOut) { [weak self] in self?.buttons.forEach { $0.setInkOpacity(1) } }
+            inkAnimator = animator; animator.startAnimation()
         }
-        animator.addCompletion { [weak self] _ in
-            self?.inkBlur.image = nil; self?.inkBlur.alpha = 0; self?.strip.alpha = 1; self?.buttons.forEach { $0.setInkOpacity(1) }
-        }
-        inkAnimator = animator; animator.startAnimation()
     }
     func prepareToDisappear() {
         guard presentation?.items.isEmpty == false else { return }
         transitionInk(presentation?.animation ?? .blur, disappearing: true, appearing: false)
-        inkAnimator?.stopAnimation(true); inkAnimator = nil
-        inkBlur.image = nil; inkBlur.alpha = 0; strip.alpha = 1
+        finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
+        strip.alpha = 1
         displayFrame.cancel(); frameValue.discard(); pending = nil
         presentation = nil; geometry.reset(); visibleRange = 0..<0
         buttons.forEach { $0.finishTransition(); $0.isHidden = true; $0.tag = -1 }
@@ -259,9 +253,12 @@ import CoreImage
         let changedColor = !ink.isEqual(accent) || presentation?.textColor != next.textColor
         let changedFont = presentation?.textSize != next.textSize
         let changedAnimation = presentation?.animation != next.animation
+        if changedItems {
+            finishIncomingInk(); outgoingInk?.removeFromSuperview(); outgoingInk = nil
+        }
         if changedAnimation {
-            inkAnimator?.stopAnimation(true); inkAnimator = nil
-            inkBlur.image = nil; inkBlur.alpha = 0; strip.alpha = 1
+            finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
+            strip.alpha = 1
             buttons.forEach { $0.finishTransition() }
         }
         if changedFont {
@@ -296,7 +293,6 @@ import CoreImage
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        inkBlur.frame = bounds
         if viewportSize != bounds.size {
             viewportSize = bounds.size
             geometry.resize(height: bounds.height)
@@ -357,7 +353,7 @@ import CoreImage
                                  animate: current.animation == .bounce && animateChanges && window != nil, normalColor: current.textColor,
                                  firstAppearance: firstAppearance)
                 button.tag = index
-                button.move(to: frames[index], animated: animateChanges && old != nil && window != nil)
+                button.move(to: frames[index], animated: current.animation == .bounce && animateChanges && old != nil && window != nil)
             }
             if button.isHidden { button.isHidden = false }
             button.isAccessibilityElement = false
@@ -458,8 +454,8 @@ import CoreImage
         // Touches select the latest actual row. End any visual blend at contact
         // down; native scrolling and selection never chase an animated target.
         buttons.forEach { $0.finishTransition() }
-        inkAnimator?.stopAnimation(true); inkAnimator = nil
-        inkBlur.image = nil; inkBlur.alpha = 0; strip.alpha = 1; outgoingInk?.removeFromSuperview(); outgoingInk = nil
+        finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
+        strip.alpha = 1; outgoingInk?.removeFromSuperview(); outgoingInk = nil
         browsed = presentation
         setInteraction(true)
         if let (next, color) = pending, sameQuery(browsed, next) {
@@ -504,8 +500,8 @@ import CoreImage
         super.didMoveToWindow()
         if window == nil {
             displayFrame.cancel(); frameValue.discard()
-            inkAnimator?.stopAnimation(true); inkAnimator = nil
-            inkBlur.image = nil; inkBlur.alpha = 0; strip.alpha = 1
+            finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
+            strip.alpha = 1
             outgoingInk?.removeFromSuperview(); outgoingInk = nil
             buttons.forEach { $0.finishTransition() }
             pending = nil; browsed = nil; setInteraction(false)

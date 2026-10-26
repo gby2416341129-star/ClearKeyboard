@@ -241,14 +241,16 @@ import SwiftUI
             trailingInset: safeAreaInsets.right, fitHeight: !systemBacked)
         if keyFramesNeedLayout || geometryPresentation != geometry {
             geometryPresentation = geometry; keyFramesNeedLayout = false
-            toolbar.frame = layout.header
-            keyGlassGroup.frame = layout.keys
-            for (button, row, start, units) in keys {
-                button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
-                                      width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
+            UIView.performWithoutAnimation {
+                toolbar.frame = layout.header
+                keyGlassGroup.frame = layout.keys
+                for (button, row, start, units) in keys {
+                    button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
+                                          width: CGFloat(units) * layout.unitWidth, height: layout.rowPitch)
+                }
+                sideRail.isHidden = settings.hand == .full
+                sideRail.frame = layout.sideRail
             }
-            sideRail.isHidden = settings.hand == .full
-            sideRail.frame = layout.sideRail
         }
         layoutCandidateHeader()
         var panelFrame = layout.panel

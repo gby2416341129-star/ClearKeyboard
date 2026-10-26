@@ -28,9 +28,9 @@ import UIKit
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews(); workspace.frame = bounds
-        let side = max(60, min((bounds.width - 34) / 2, (bounds.height - 38) / 2))
-        let extent = side * 2 + 10
-        menu.frame = CGRect(x: (bounds.width - extent) / 2, y: max(8, (bounds.height - extent) / 2), width: extent, height: extent)
+        let width = max(1, bounds.width - 24)
+        let height = max(1, min(bounds.height - 24, 220))
+        menu.frame = CGRect(x: 12, y: max(8, (bounds.height - height) / 2), width: width, height: height)
     }
     private func pulse() { KeyboardVibration.shared.attach(to: self); KeyboardVibration.shared.pulseInterface() }
     private func option(_ title: String, selected: @escaping (KeyboardSettings) -> Bool = { _ in false }, action: @escaping () -> Void) -> UIButton {
@@ -41,7 +41,7 @@ import UIKit
             var next = values; next.font = .systemFont(ofSize: 12, weight: .medium); return next
         }
         let button = FeedbackButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.pulse(); action() })
-        button.heightAnchor.constraint(equalToConstant: 28).isActive = true; options.append((button, selected)); return button
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 26).isActive = true; options.append((button, selected)); return button
     }
     func show(_ item: AppearanceItem?) {
         if selected == item, !workspace.isHidden { apply(current()); return }
@@ -81,10 +81,9 @@ import UIKit
             workspace.configure(left: "预设颜色", right: "RGB")
             let palette = ["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"]
             for start in stride(from: 0, to: palette.count, by: 2) {
-                let row = UIStackView(); row.spacing = 5; row.distribution = .fillEqually
+                let row = KeyboardColorPresetRow(); row.spacing = 5; row.distribution = .fillEqually
                 for hex in palette[start..<start + 2] {
                     let button = FeedbackButton(type: .custom); button.backgroundColor = KeyboardSettings.color(hex: hex); button.layer.cornerRadius = 9
-                    button.heightAnchor.constraint(equalToConstant: 28).isActive = true
                     button.accessibilityLabel = hex; button.accessibilityIdentifier = "keyboard.swatch." + hex
                     button.addAction(UIAction { [weak self] _ in self?.pulse(); self?.setColor(hex) }, for: .touchUpInside)
                     row.addArrangedSubview(button); swatches.append((button, hex))
@@ -93,7 +92,7 @@ import UIKit
             }
             workspace.left.addArrangedSubview(reset)
             for (index, name) in ["R", "G", "B"].enumerated() {
-                let control = KeyboardRGBControl(name: name); control.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                let control = KeyboardRGBControl(name: name)
                 control.onChange = { [weak self] value in
                     guard let self else { return }; var rgb = self.color()
                     if index == 0 { rgb.red = value }; if index == 1 { rgb.green = value }; if index == 2 { rgb.blue = value }
@@ -101,6 +100,8 @@ import UIKit
                 }
                 colors.append(control); workspace.right.addArrangedSubview(control)
             }
+            // Four equal slots on both sides: RGB thumbs match all three color rows.
+            workspace.right.addArrangedSubview(UIView())
         }
         apply(current()); setNeedsLayout()
     }
@@ -132,6 +133,19 @@ import UIKit
     }
 }
 
+@MainActor private final class KeyboardColorPresetRow: UIView {
+    private let row = UIStackView()
+    var spacing: CGFloat { get { row.spacing } set { row.spacing = newValue } }
+    var distribution: UIStackView.Distribution { get { row.distribution } set { row.distribution = newValue } }
+    override init(frame: CGRect) { super.init(frame: frame); addSubview(row) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
+    func addArrangedSubview(_ view: UIView) { row.addArrangedSubview(view) }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        row.frame = CGRect(x: 0, y: bounds.midY - 14, width: bounds.width, height: 28)
+    }
+}
+
 @MainActor private final class KeyboardRGBControl: UIView {
     private let name = UILabel(), amount = UILabel(), slider = UISlider()
     var onChange: ((Double) -> Void)?
@@ -144,9 +158,11 @@ import UIKit
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
-        super.layoutSubviews(); name.frame = CGRect(x: 0, y: 0, width: 16, height: 14)
-        amount.frame = CGRect(x: 18, y: 0, width: max(0, bounds.width - 18), height: 14)
-        slider.frame = CGRect(x: 0, y: 15, width: bounds.width, height: 28)
+        super.layoutSubviews()
+        name.frame = CGRect(x: 0, y: bounds.midY - 13, width: 18, height: 12)
+        amount.frame = CGRect(x: 0, y: bounds.midY + 1, width: 18, height: 12)
+        amount.textAlignment = .left
+        slider.frame = CGRect(x: 20, y: bounds.midY - 14, width: max(1, bounds.width - 20), height: 28)
     }
     func configure(_ value: Double) { if !slider.isTracking { slider.value = Float(value) }; updateAmount() }
     private func updateAmount() { amount.text = String(Int((slider.value * 255).rounded())) }

@@ -67,7 +67,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         runtimeProbe.accessibilityLabel = "Keyboard runtime evidence"
         view.addSubview(runtimeProbe)
 #endif
-        inputView?.allowsSelfSizing = false
+        inputView?.allowsSelfSizing = true
         refreshHostState(refreshTraits: true)
 #if DEBUG
         NSLog("CLEAR66_STARTUP host.ready")
@@ -191,15 +191,15 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             constraint.identifier = "clear.keyboard.content-height"
             constraint.priority = .required; constraint.isActive = true; heightConstraint = constraint
         } else if abs((heightConstraint?.constant ?? 0) - height) > 0.5 { heightConstraint?.constant = height }
-        let hostWidth = KeyboardGeometry.fittingWidth(primary: view.bounds.width,
-            container: view.superview?.bounds.width ?? 0, window: view.window?.bounds.width ?? 0)
+        let hostWidth = KeyboardGeometry.fittingWidth(primary: view.superview?.bounds.width ?? 0,
+            container: view.bounds.width, window: view.window?.bounds.width ?? 0)
         guard hostWidth.isFinite, hostWidth > 0 else { return }
         // UIKit owns the available width. A lower-priority fallback gives its native
         // fitting pass a nonzero width without fighting required host constraints.
         // Never treat a remote window's full width or height as the keyboard's size.
         if widthConstraint == nil {
             let constraint = view.widthAnchor.constraint(equalToConstant: hostWidth)
-            constraint.identifier = "clear.keyboard.system-width"; constraint.priority = .defaultHigh
+            constraint.identifier = "clear.keyboard.system-width"; constraint.priority = .fittingSizeLevel
             constraint.isActive = true; widthConstraint = constraint
         } else if abs((widthConstraint?.constant ?? 0) - hostWidth) > 0.5 { widthConstraint?.constant = hostWidth }
         if inputView?.allowsSelfSizing != true { inputView?.allowsSelfSizing = true }

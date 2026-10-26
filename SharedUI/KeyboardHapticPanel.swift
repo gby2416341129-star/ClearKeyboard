@@ -12,7 +12,8 @@ import UIKit
         isOpaque = false; backgroundColor = .clear; accessibilityIdentifier = "keyboard.vibration.panel"
         addSubview(workspace); workspace.configure(left: "按键触感", right: "震动力度")
         workspace.right.distribution = .fill
-        let switchRow = UIView(); switchRow.heightAnchor.constraint(equalToConstant: 31).isActive = true
+        let switchRow = UIView(); switchRow.heightAnchor.constraint(greaterThanOrEqualToConstant: 31).isActive = true
+        enabled.onTintColor = UIColor(red: 0.43, green: 0.40, blue: 0.91, alpha: 1)
         enabled.translatesAutoresizingMaskIntoConstraints = false; switchRow.addSubview(enabled)
         NSLayoutConstraint.activate([enabled.centerXAnchor.constraint(equalTo: switchRow.centerXAnchor), enabled.centerYAnchor.constraint(equalTo: switchRow.centerYAnchor)])
         enabled.accessibilityIdentifier = "keyboard.vibration.enabled"; enabled.accessibilityLabel = "按键震动"
@@ -39,7 +40,7 @@ import UIKit
             var next = values; next.font = .systemFont(ofSize: 12, weight: .medium); return next
         }
         let button = FeedbackButton(configuration: config, primaryAction: UIAction { _ in action() })
-        button.heightAnchor.constraint(equalToConstant: 28).isActive = true; return button
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 26).isActive = true; return button
     }
     func apply(_ settings: KeyboardSettings) {
         enabled.isOn = settings.usesVibration

@@ -17,7 +17,7 @@ import UIKit
         content.alpha = 1; content.transform = .identity; content.isUserInteractionEnabled = true
         guard enabled else { return }; enabled = false
         destination = content
-        content.transform = CGAffineTransform(translationX: 0, y: 6).scaledBy(x: 0.994, y: 0.994)
+        content.transform = CGAffineTransform(translationX: 0, y: 6)
         let motion = UIViewPropertyAnimator(duration: 0.26, dampingRatio: 0.92) { content.transform = .identity }
         animator = motion
         motion.addCompletion { [weak self, weak content] _ in
