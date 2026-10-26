@@ -8,6 +8,9 @@ OUT=ROOT/'.build/StartupDiagnostics';OUT.mkdir(parents=True,exist_ok=True)
 BASE='7bbac2b2f4175c304ba0490335a1ab727694e35b'
 FILES=['App/AppViews.swift','App/AppRefreshPreference.swift','Config/Project.xcconfig']
 fixed={name:(ROOT/name).read_bytes() if (ROOT/name).exists() else None for name in FILES}
+# Actions uses a shallow checkout; fetch the baseline tree before simulator setup.
+subprocess.run(['git','fetch','--no-tags','--depth=1','origin',BASE],check=True)
+for name in FILES:subprocess.run(['git','cat-file','-e',BASE+':'+name],check=True)
 subprocess.run(['python3','Scripts/boot_test_simulator.py'],check=True)
 device=(ROOT/'.build/composition-device-id').read_text().strip()
 
