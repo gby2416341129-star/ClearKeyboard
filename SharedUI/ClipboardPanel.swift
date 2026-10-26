@@ -105,7 +105,7 @@ import ImageIO
         tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing || completionInToolbar
         send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
         empty.isHidden = choosing || !items.isEmpty
-        empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : "暂无复制内容，可粘贴收录"
+        empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : "暂无复制内容"
         more.menu = overflowMenu()
         table.reloadData(); words.reloadData(); setNeedsLayout(); onSelectionStateChanged?()
     }

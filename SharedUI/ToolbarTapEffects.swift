@@ -3,7 +3,7 @@ import UIKit
 /// Short, transparent vector accents. No backdrop, bitmap capture or layout
 /// changes; navigation and the original button feedback run immediately.
 @MainActor final class ToolbarTapEffects {
-    private enum Kind: CaseIterable { case fireworks, rings, stars, repel }
+    private enum Kind: CaseIterable, Equatable { case fireworks, rings, stars, repel }
     private var previous: [ObjectIdentifier: Kind] = [:]
     private var active: [(layer: CALayer, cleanup: DispatchWorkItem)] = []
     private var nudged: [CALayer] = []
@@ -75,6 +75,7 @@ import UIKit
         active.append((canvas, cleanup)); DispatchQueue.main.asyncAfter(deadline: .now() + 0.48, execute: cleanup)
     }
     private func run(_ animations: [CAAnimation], on layer: CALayer, duration: CFTimeInterval, host: UIView) {
+        for animation in animations { animation.duration = duration }
         let group = CAAnimationGroup(); group.animations = animations; group.duration = duration
         group.timingFunction = CAMediaTimingFunction(name: .easeOut)
         let rate = Float(host.window?.screen.maximumFramesPerSecond ?? 60)
