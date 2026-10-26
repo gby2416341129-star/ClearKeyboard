@@ -91,7 +91,7 @@ struct AppearanceDetailContent: View {
     private var usesDefault: Bool {
         if let path = item.colorPath { return value[keyPath: path] == nil }
         if item == .keyGlass { return value.keyGlassStrength == nil }
-        return value.candidateTextSize == nil
+        return value.candidateTextSize == nil && value.candidateAnimation == nil
     }
     private func setColor(_ value: RGBColor) {
         guard let path = item.colorPath else { return }
@@ -110,7 +110,7 @@ struct AppearanceDetailContent: View {
     private func reset() {
         if let path = item.colorPath { settings[keyPath: path] = nil }
         else if item == .keyGlass { settings.keyGlassStrength = nil }
-        else { settings.candidateTextSize = nil }
+        else { settings.candidateTextSize = nil; settings.candidateAnimation = nil }
         hexDraft = nil; invalidHex = false; editingHex = false
     }
     private func swatch(_ hex: String, side: CGFloat) -> some View {
@@ -141,6 +141,11 @@ struct AppearanceDetailContent: View {
                         Picker("候选词大小", selection: Binding(get: { value.resolvedCandidateTextSize }, set: { settings.candidateTextSize = $0 })) {
                             ForEach(CandidateTextSize.allCases) { Text($0.title).tag($0) }
                         }.pickerStyle(.segmented).accessibilityIdentifier("custom.candidateTextSize")
+                        Text("候选词动画").font(.subheadline.weight(.medium))
+                        Picker("候选词动画", selection: Binding(get: { value.resolvedCandidateAnimation }, set: { settings.candidateAnimation = $0 })) {
+                            ForEach(CandidateAnimation.allCases) { Text($0.shortTitle).tag($0) }
+                        }.pickerStyle(.segmented).accessibilityIdentifier("custom.candidateAnimation")
+                        Text(value.resolvedCandidateAnimation.title).font(.caption).foregroundStyle(.secondary)
                     } else {
                         if !compact { ColorPicker("自定义颜色", selection: color, supportsOpacity: false).accessibilityIdentifier("appearance.color." + item.rawValue) }
                         GeometryReader { geometry in

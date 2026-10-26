@@ -12,6 +12,7 @@ import CoreImage
         let hasMore: Bool
         let textSize: CandidateTextSize
         let textColor: UIColor?
+        let animation: CandidateAnimation
     }
     private var presentation: Presentation?
     private var pending: (Presentation, UIColor)?
@@ -93,9 +94,9 @@ import CoreImage
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
     func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool,
-                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil) {
+                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil, animation: CandidateAnimation = .blur) {
         var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize,
-                                textColor: textColor?.resolvedColor(with: traitCollection))
+                                textColor: textColor?.resolvedColor(with: traitCollection), animation: animation)
         let resolved = accent.resolvedColor(with: traitCollection)
         if UIAccessibility.isReduceMotionEnabled || UIAccessibility.isVoiceOverRunning {
             buttons.forEach { $0.finishTransition() }
@@ -106,7 +107,7 @@ import CoreImage
             var seen = Set(current.items.map(\.text))
             let appended = current.items + items.filter { seen.insert($0.text).inserted }
             next = Presentation(items: appended, context: current.context,
-                                arithmetic: arithmetic, hasMore: hasMore, textSize: textSize, textColor: next.textColor)
+                                arithmetic: arithmetic, hasMore: hasMore, textSize: textSize, textColor: next.textColor, animation: next.animation)
             pending = nil; schedule(next, accent: resolved); return
         }
         if holdsCandidateUpdates { pending = (next, resolved); return }
@@ -140,11 +141,11 @@ import CoreImage
                 var seen = Set(current.items.map(\.text))
                 let merged = current.items + next.items.filter { seen.insert($0.text).inserted }
                 self.apply(Presentation(items: merged, context: current.context, arithmetic: next.arithmetic,
-                    hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor), accent: color)
+                    hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation), accent: color)
             } else { self.apply(next, accent: color) }
         }
     }
-    private func blurredInk() -> UIImage? {
+    private func inkSnapshot(blurred: Bool) -> UIImage? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 2
         // Render glyphs on transparent pixels. System material and viewport
@@ -154,6 +155,7 @@ import CoreImage
                 button.drawInk(in: renderer.cgContext, relativeTo: self)
             }
         }
+        guard blurred else { return image }
         guard let cg = image.cgImage else { return nil }
         let input = CIImage(cgImage: cg)
         guard let filter = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: input, kCIInputRadiusKey: 5.6]),
@@ -161,9 +163,9 @@ import CoreImage
               let result = Self.inkContext.createCGImage(output, from: input.extent) else { return nil }
         return UIImage(cgImage: result, scale: format.scale, orientation: .up)
     }
-    private func transitionInk(disappearing: Bool, appearing: Bool) {
+    private func transitionInk(_ animation: CandidateAnimation, disappearing: Bool, appearing: Bool) {
         guard window != nil, !UIAccessibility.isReduceMotionEnabled, !UIAccessibility.isVoiceOverRunning else { return }
-        if disappearing, let host = superview, let image = blurredInk() {
+        if disappearing, let host = superview, let image = inkSnapshot(blurred: animation == .blur) {
             let old = UIImageView(image: image)
             outgoingInk?.removeFromSuperview(); outgoingInk = old
             old.frame = convert(bounds, to: host); old.isUserInteractionEnabled = false; old.accessibilityElementsHidden = true
@@ -171,6 +173,7 @@ import CoreImage
             host.addSubview(old)
             UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: {
                 old.alpha = 0
+                if animation == .bounce { old.transform = CGAffineTransform(scaleX: 0.94, y: 0.94) }
             }, completion: { [weak self, weak old] _ in
                 old?.removeFromSuperview()
                 if self?.outgoingInk === old { self?.outgoingInk = nil }
@@ -179,10 +182,12 @@ import CoreImage
         // Blend the latest transparent glyph image into sharp text, just like
         // the shortcut's soft edge. Replacing an in-flight image prevents an
         // earlier spelling lingering over a later key. No backdrop is filtered.
-        guard appearing, let image = blurredInk() else { return }
+        guard appearing, animation != .bounce else { return }
+        let image = animation == .blur ? inkSnapshot(blurred: true) : nil
         inkAnimator?.stopAnimation(true)
         inkBlur.image = image
-        inkBlur.frame = bounds; inkBlur.alpha = 0.80; strip.alpha = 0.20
+        inkBlur.frame = bounds; inkBlur.alpha = animation == .blur ? 0.80 : 0
+        strip.alpha = animation == .blur ? 0.20 : 0.35
         let animator = UIViewPropertyAnimator(duration: 0.18, curve: .easeOut) { [weak self] in
             self?.inkBlur.alpha = 0; self?.strip.alpha = 1
         }
@@ -193,7 +198,7 @@ import CoreImage
     }
     func prepareToDisappear() {
         guard presentation?.items.isEmpty == false else { return }
-        transitionInk(disappearing: true, appearing: false)
+        transitionInk(presentation?.animation ?? .blur, disappearing: true, appearing: false)
         inkAnimator?.stopAnimation(true); inkAnimator = nil
         inkBlur.image = nil; inkBlur.alpha = 0; strip.alpha = 1
         displayFrame.cancel(); frameValue.discard(); pending = nil
@@ -252,6 +257,12 @@ import CoreImage
         let changedItems = previous.map(\.text) != next.items.map(\.text)
         let changedColor = !ink.isEqual(accent) || presentation?.textColor != next.textColor
         let changedFont = presentation?.textSize != next.textSize
+        let changedAnimation = presentation?.animation != next.animation
+        if changedAnimation {
+            inkAnimator?.stopAnimation(true); inkAnimator = nil
+            inkBlur.image = nil; inkBlur.alpha = 0; strip.alpha = 1
+            buttons.forEach { $0.finishTransition() }
+        }
         if changedFont {
             normalFont = .systemFont(ofSize: CGFloat(next.textSize.points))
             firstFont = .systemFont(ofSize: CGFloat(next.textSize.points), weight: .medium)
@@ -261,7 +272,7 @@ import CoreImage
         if changedQuery { browsed = nil; requestedCount = -1 }
         if changedItems, !holdsCandidateUpdates {
             let deleting = next.items.isEmpty || (next.context?.raw.count ?? 0) < (presentation?.context?.raw.count ?? 0)
-            transitionInk(disappearing: deleting && !previous.isEmpty, appearing: false)
+            transitionInk(next.animation, disappearing: deleting && !previous.isEmpty, appearing: false)
         }
         presentation = next; ink = accent
         if changedItems || changedFont {
@@ -272,12 +283,12 @@ import CoreImage
         // Browsing outlives the physical drag. An appended same-query page can
         // arrive just after finger-up, when UIKit no longer reports tracking;
         // its newly pooled words must still appear at rest beside stable targets.
-        updateVisible(force: changedColor || changedFont || (changedItems && !appendOnly),
+        updateVisible(force: changedColor || changedFont || changedAnimation || (changedItems && !appendOnly),
                       animateChanges: changedItems && (!changedFont || previous.isEmpty) &&
                           !holdsCandidateUpdates && !sameQuery(browsed, next),
                       firstAppearance: previous.isEmpty && !next.items.isEmpty)
-        if changedItems, !holdsCandidateUpdates, !next.items.isEmpty {
-            transitionInk(disappearing: false, appearing: true)
+        if changedItems || changedAnimation, !holdsCandidateUpdates, !next.items.isEmpty {
+            transitionInk(next.animation, disappearing: false, appearing: true)
         }
         if changedItems || changedQuery { updateAccessibility() }
         requestMoreIfNeeded()
@@ -342,7 +353,7 @@ import CoreImage
             if force || old == nil {
                 button.configure(current.items[index], first: index == 0, accent: ink,
                                  font: index == 0 ? firstFont : normalFont,
-                                 animate: false, normalColor: current.textColor,
+                                 animate: current.animation == .bounce && animateChanges && window != nil, normalColor: current.textColor,
                                  firstAppearance: firstAppearance)
                 button.tag = index
                 button.move(to: frames[index], animated: animateChanges && old != nil && window != nil)
@@ -453,7 +464,7 @@ import CoreImage
         if let (next, color) = pending, sameQuery(browsed, next) {
             pending = nil
             update(next.items, context: next.context, arithmetic: next.arithmetic,
-                   accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor)
+                   accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation)
         }
         requestedCount = -1; requestMoreIfNeeded()
     }
@@ -469,7 +480,7 @@ import CoreImage
                 if let (next, color) = self.pending {
                     self.pending = nil
                     // Recheck the browsing lock after finger-up as well.
-                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor)
+                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation)
                 }
             }
         }

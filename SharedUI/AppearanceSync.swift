@@ -10,6 +10,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     let keyColorHex: String?
     let candidateColorHex: String?
     let candidateTextSize: CandidateTextSize?
+    let candidateAnimation: CandidateAnimation?
     let keyHeight: Double?
     let vibrationEnabled: Bool?
     let vibrationIntensity: Double?
@@ -33,6 +34,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         keyGlassStrength = value.keyGlassStrength
         keyColorHex = value.keyColorHex
         candidateColorHex = value.candidateColorHex; candidateTextSize = value.candidateTextSize
+        candidateAnimation = value.candidateAnimation
         keyHeight = value.keyHeight
         vibrationEnabled = value.usesVibration; vibrationIntensity = value.resolvedVibrationIntensity
         vibrationMode = value.resolvedVibrationMode
@@ -51,6 +53,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         value.keyGlassStrength = keyGlassStrength
         value.keyColorHex = keyColorHex
         value.candidateColorHex = candidateColorHex; value.candidateTextSize = candidateTextSize
+        value.candidateAnimation = candidateAnimation
         if let keyHeight { value.keyHeight = keyHeight }
         if let vibrationEnabled { value.vibrationEnabled = vibrationEnabled }
         if let vibrationIntensity { value.vibrationIntensity = vibrationIntensity }

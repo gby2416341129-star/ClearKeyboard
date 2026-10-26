@@ -392,7 +392,7 @@ import SwiftUI
         // A result can arrive before the first host layout. Do not ask a zero-
         // sized flow layout to lay out 44-point cells; layout will pull the latest.
         if !panelOpen, height > 0, candidateScroll.bounds.width > 0 {
-            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize, textColor: model.settings.candidateTintColor)
+            candidateScroll.update(displayed, context: model.candidateContext, arithmetic: model.arithmetic != nil, accent: model.settings.accentInkColor, hasMore: model.hasMoreCandidates, textSize: model.settings.resolvedCandidateTextSize, textColor: model.settings.candidateTintColor, animation: model.settings.resolvedCandidateAnimation)
         }
         let clipboardVisible = !panelOpen && !movingCursor && model.composition.isEmpty && model.arithmetic == nil && !model.hasEnglishPrefix && recentClip != nil
         model.englishSpaceSelectionIsVisible = !clipboardVisible && !panelOpen

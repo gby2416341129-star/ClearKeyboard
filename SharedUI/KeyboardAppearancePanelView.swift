@@ -13,6 +13,7 @@ import UIKit
     var onNavigate: ((AppearanceItem?) -> Void)?
     private var strength: ValueSliderView?
     private var sizes: UISegmentedControl?
+    private var animations: UISegmentedControl?
     private var colorSliders: [UISlider] = []
     private var swatches: [(UIButton, String)] = []
     private var reset: UIButton?
@@ -54,7 +55,7 @@ import UIKit
     }
     func show(_ item: AppearanceItem?) {
         if selected == item, !stack.arrangedSubviews.isEmpty { return }
-        selected = item; strength = nil; sizes = nil; colorSliders = []; swatches = []; reset = nil
+        selected = item; strength = nil; sizes = nil; animations = nil; colorSliders = []; swatches = []; reset = nil
         stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
         scroll.setContentOffset(.zero, animated: false)
         guard let item else {
@@ -79,6 +80,17 @@ import UIKit
                 self?.edit { $0.candidateTextSize = CandidateTextSize.allCases[value.selectedSegmentIndex] }
             }, for: .valueChanged)
             sizes = value; stack.addArrangedSubview(value)
+            let label = UILabel(); label.text = "候选词动画"; label.font = .systemFont(ofSize: 14, weight: .medium)
+            stack.addArrangedSubview(label)
+            let animation = UISegmentedControl(items: CandidateAnimation.allCases.map(\.shortTitle))
+            animation.accessibilityIdentifier = "keyboard.appearance.candidateAnimation"
+            animation.heightAnchor.constraint(equalToConstant: 34).isActive = true
+            animation.addAction(UIAction { [weak self, weak animation] _ in
+                guard let self, let animation, CandidateAnimation.allCases.indices.contains(animation.selectedSegmentIndex) else { return }
+                self.edit { $0.candidateAnimation = CandidateAnimation.allCases[animation.selectedSegmentIndex] }
+                KeyboardVibration.shared.attach(to: self); KeyboardVibration.shared.pulseInterface()
+            }, for: .valueChanged)
+            animations = animation; stack.addArrangedSubview(animation)
         case .keyColor, .candidateColor:
             let row = UIStackView(); row.spacing = 8; row.distribution = .fillEqually
             for hex in ["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"] {
@@ -115,7 +127,7 @@ import UIKit
                 case .keyGlass: $0.keyGlassStrength = nil
                 case .keyColor: $0.keyColorHex = nil
                 case .candidateColor: $0.candidateColorHex = nil
-                case .candidateSize: $0.candidateTextSize = nil
+                case .candidateSize: $0.candidateTextSize = nil; $0.candidateAnimation = nil
                 }
             }
         }
@@ -151,6 +163,7 @@ import UIKit
         strength?.configure(title: "通透强度", value: settings.resolvedKeyGlassStrength, range: 0...1, defaultValue: 0.55,
                             identifier: "keyboard.appearance.strength", percent: true)
         sizes?.selectedSegmentIndex = CandidateTextSize.allCases.firstIndex(of: settings.resolvedCandidateTextSize) ?? 1
+        animations?.selectedSegmentIndex = CandidateAnimation.allCases.firstIndex(of: settings.resolvedCandidateAnimation) ?? 0
         if selected.colorPath != nil {
             let rgb = color(), values = [rgb.red, rgb.green, rgb.blue]
             for (index, slider) in colorSliders.enumerated() where !slider.isTracking { slider.value = Float(values[index]) }

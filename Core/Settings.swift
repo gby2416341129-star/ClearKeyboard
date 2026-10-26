@@ -17,6 +17,16 @@ public enum Accent: String, Codable, CaseIterable, Identifiable {
     public var id: String { rawValue }
     public var title: String { switch self { case .jade: return "青瓷"; case .ocean: return "海盐"; case .rose: return "蔷薇"; case .graphite: return "石墨" } }
 }
+public enum CandidateAnimation: String, Codable, CaseIterable, Identifiable {
+    case blur, bounce, fade
+    public var id: String { rawValue }
+    public var title: String {
+        switch self { case .blur: return "模糊淡出"; case .bounce: return "弹跳"; case .fade: return "柔和淡入淡出" }
+    }
+    public var shortTitle: String {
+        switch self { case .blur: return "模糊"; case .bounce: return "弹跳"; case .fade: return "柔和" }
+    }
+}
 public enum CandidateTextSize: String, Codable, CaseIterable, Identifiable {
     case small, standard, large, extraLarge
     public var id: String { rawValue }
@@ -51,6 +61,8 @@ public struct KeyboardSettings: Codable, Equatable {
     public var keyHeight: Double = 50
     /// Optional storage keeps settings saved before this control was added readable.
     public var candidateTextSize: CandidateTextSize? = nil
+    public var candidateAnimation: CandidateAnimation? = nil
+    public var resolvedCandidateAnimation: CandidateAnimation { candidateAnimation ?? .blur }
     public var resolvedCandidateTextSize: CandidateTextSize { candidateTextSize ?? .standard }
     public var hand: HandMode = .full
     public var preferredHand: HandMode? = nil
