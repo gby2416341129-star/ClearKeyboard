@@ -64,6 +64,18 @@ def load_text(source):
     model.load_state_dict(weights, strict=True, assign=True)
     model = model.float().eval()
     model.tie_weights()
+    # assign=True loads persistent checkpoint tensors only. RoPE frequencies
+    # are non-persistent and otherwise remain on the meta device. Recreate
+    # them explicitly; finite checkpoint weights alone are insufficient.
+    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5TextRotaryEmbedding
+    model.model.rotary_emb = Qwen3_5TextRotaryEmbedding(config, device=torch.device("cpu"))
+    unresolved = [name for name, value in list(model.named_parameters()) + list(model.named_buffers())
+                  if value.is_meta]
+    if unresolved:
+        raise RuntimeError("Uninitialized meta tensors: " + ", ".join(unresolved))
+    for name, value in model.named_buffers():
+        if value.is_floating_point() and not torch.isfinite(value).all():
+            raise RuntimeError("Non-finite initialized buffer: " + name)
     del weights
     gc.collect()
     print(f"Loaded text-only original: {sum(p.numel() for p in model.parameters()):,} parameters", flush=True)
