@@ -1,0 +1,3444 @@
+{
+  "source": "2fc06364715b967f1860aea9cf38778875588b17",
+  "reference": "official HF eager attention + sequential FP32 DeltaNet recurrence",
+  "notes": "Tiny structural check only; raw unpalettized body, not IME accuracy or device ANE validation",
+  "phases": [
+    {
+      "phase": "float32_structural_isolation",
+      "dtype": "torch.float32",
+      "head": null,
+      "cases": [
+        {
+          "case": {
+            "text": "你好，今天",
+            "token_ids": [
+              109266,
+              3709,
+              97375
+            ]
+          },
+          "positions": [
+            {
+              "position": 0,
+              "token_id": 109266,
+              "logits": {
+                "finite": true,
+                "max_abs": 3.707408905029297e-05,
+                "relative_l2": 1.9994336071249563e-06,
+                "cosine": 1.0000001192092896
+              },
+              "reference_top1": 3709,
+              "chunk_top1": 3709,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 2.980232238769531e-07,
+                  "relative_l2": 5.935702915849106e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 1.2665987014770508e-07,
+                  "relative_l2": 6.261039970922866e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 2.980232238769531e-07,
+                  "relative_l2": 6.150728495413205e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 6.556510925292969e-07,
+                  "relative_l2": 6.421382749977056e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 3.8743019104003906e-07,
+                  "relative_l2": 5.750037530560803e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 2.905726432800293e-07,
+                  "relative_l2": 5.534387810257613e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 1.1920928955078125e-06,
+                  "relative_l2": 2.783098977943155e-07,
+                  "cosine": 1.000000238418579
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 1.6689300537109375e-06,
+                  "relative_l2": 5.926016228841036e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 1.5497207641601562e-06,
+                  "relative_l2": 5.543518000195036e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 5.379910135161481e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 4.4942248678125907e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 1.0530161489441525e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 1.3113021850585938e-06,
+                  "relative_l2": 1.222243099618936e-06,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 1.2516975402832031e-06,
+                  "relative_l2": 1.2212359479235602e-06,
+                  "cosine": 1.000000238418579
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 3.5762786865234375e-06,
+                  "relative_l2": 6.133325882728968e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 2.8759241104125977e-06,
+                  "relative_l2": 3.4082554520864505e-06,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 2.682209014892578e-06,
+                  "relative_l2": 3.3781470847316086e-06,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 2.6226043701171875e-06,
+                  "relative_l2": 3.3114367852249416e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 2.209097146987915e-06,
+                  "relative_l2": 2.885638878069585e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 2.1830201148986816e-06,
+                  "relative_l2": 2.8917907002323773e-06,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 2.205371856689453e-06,
+                  "relative_l2": 2.7735866297007306e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 2.3245811462402344e-06,
+                  "relative_l2": 2.9490927317965543e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 3.0994415283203125e-06,
+                  "relative_l2": 2.821331918312353e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 4.410743713378906e-06,
+                  "relative_l2": 2.8644988105952507e-06,
+                  "cosine": 1.0000003576278687
+                }
+              ]
+            },
+            {
+              "position": 1,
+              "token_id": 3709,
+              "logits": {
+                "finite": true,
+                "max_abs": 1.919269561767578e-05,
+                "relative_l2": 1.6532690096937586e-06,
+                "cosine": 1.000002145767212
+              },
+              "reference_top1": 103724,
+              "chunk_top1": 103724,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 1.4901161193847656e-07,
+                  "relative_l2": 6.350267653942865e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 5.066394805908203e-07,
+                  "relative_l2": 1.1066831575590186e-06,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 2.980232238769531e-07,
+                  "relative_l2": 1.1279846603429178e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 2.1606683731079102e-07,
+                  "relative_l2": 1.1781177136072074e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 7.748603820800781e-07,
+                  "relative_l2": 1.4944273516448447e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 2.4586915969848633e-07,
+                  "relative_l2": 1.2798176385331317e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 2.644956111907959e-07,
+                  "relative_l2": 1.1934498616028577e-06,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 2.60770320892334e-07,
+                  "relative_l2": 1.2718168136416352e-06,
+                  "cosine": 0.9999997615814209
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 2.5331974029541016e-07,
+                  "relative_l2": 1.2452973123799893e-06,
+                  "cosine": 0.9999997615814209
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 2.7567148208618164e-07,
+                  "relative_l2": 1.2587121318574646e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 3.0547380447387695e-07,
+                  "relative_l2": 1.1465150464573526e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 2.7567148208618164e-07,
+                  "relative_l2": 1.1482090940262424e-06,
+                  "cosine": 1.000000238418579
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 2.60770320892334e-07,
+                  "relative_l2": 1.1210589718757547e-06,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 2.8312206268310547e-07,
+                  "relative_l2": 1.0772220093713258e-06,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 4.172325134277344e-07,
+                  "relative_l2": 1.1109393653896404e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 4.76837158203125e-07,
+                  "relative_l2": 1.1260652854616637e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 5.960464477539062e-07,
+                  "relative_l2": 1.1228399898755015e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 7.152557373046875e-07,
+                  "relative_l2": 1.1023665820175665e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 8.344650268554688e-07,
+                  "relative_l2": 9.188331659970572e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 1.0812480013555614e-06,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 1.7881393432617188e-06,
+                  "relative_l2": 1.1200825156265637e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 1.3029558658672613e-06,
+                  "cosine": 0.9999998211860657
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 1.6689300537109375e-06,
+                  "relative_l2": 1.3672117802343564e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 2.86102294921875e-06,
+                  "relative_l2": 1.4393535821000114e-06,
+                  "cosine": 1.0000001192092896
+                }
+              ]
+            },
+            {
+              "position": 2,
+              "token_id": 97375,
+              "logits": {
+                "finite": true,
+                "max_abs": 1.5020370483398438e-05,
+                "relative_l2": 1.1991579640380223e-06,
+                "cosine": 1.000000238418579
+              },
+              "reference_top1": 101618,
+              "chunk_top1": 101618,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 1.1920928955078125e-07,
+                  "relative_l2": 5.624773962153995e-07,
+                  "cosine": 0.9999998211860657
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 4.172325134277344e-07,
+                  "relative_l2": 6.97508482971898e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 4.172325134277344e-07,
+                  "relative_l2": 6.3805839545239e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 4.172325134277344e-07,
+                  "relative_l2": 7.678070801375725e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 3.5762786865234375e-07,
+                  "relative_l2": 7.574158189527225e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 2.384185791015625e-07,
+                  "relative_l2": 7.761733513689251e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 2.384185791015625e-07,
+                  "relative_l2": 7.172649247877416e-07,
+                  "cosine": 1.000000238418579
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 1.7881393432617188e-07,
+                  "relative_l2": 7.694561645621434e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 1.7974525690078735e-07,
+                  "relative_l2": 7.375078894256148e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 2.2351741790771484e-07,
+                  "relative_l2": 7.653694069631456e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 2.2351741790771484e-07,
+                  "relative_l2": 6.778116699024395e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 3.5762786865234375e-07,
+                  "relative_l2": 7.324809985220782e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 2.384185791015625e-07,
+                  "relative_l2": 6.987129381741397e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 2.682209014892578e-07,
+                  "relative_l2": 6.563398073922144e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 4.470348358154297e-07,
+                  "relative_l2": 7.126847094696132e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 4.76837158203125e-07,
+                  "relative_l2": 7.508137400691339e-07,
+                  "cosine": 0.9999998211860657
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 5.364418029785156e-07,
+                  "relative_l2": 6.941090191503463e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 6.556510925292969e-07,
+                  "relative_l2": 7.080579962348565e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 5.960464477539062e-07,
+                  "relative_l2": 6.412101356545463e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 1.1920928955078125e-06,
+                  "relative_l2": 6.842491302450071e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 6.638549621129641e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 1.1920928955078125e-06,
+                  "relative_l2": 6.826438720963779e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 9.5367431640625e-07,
+                  "relative_l2": 7.350034820774454e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 2.6226043701171875e-06,
+                  "relative_l2": 9.287186344408838e-07,
+                  "cosine": 1.0000001192092896
+                }
+              ]
+            }
+          ],
+          "caches": [
+            {
+              "layer": 0,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 6.67572021484375e-06,
+              "relative_l2": 2.023245855298228e-07,
+              "cosine": 1.0000004768371582
+            },
+            {
+              "layer": 0,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 1.7881393432617188e-07,
+              "relative_l2": 2.9132513645890867e-07,
+              "cosine": 1.0000361204147339
+            },
+            {
+              "layer": 1,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 4.911262294626795e-07,
+              "cosine": 0.9999997615814209
+            },
+            {
+              "layer": 1,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 5.066394805908203e-07,
+              "relative_l2": 5.151941877556965e-07,
+              "cosine": 1.000046968460083
+            },
+            {
+              "layer": 2,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 5.7220458984375e-06,
+              "relative_l2": 5.603574777524045e-07,
+              "cosine": 0.9999999403953552
+            },
+            {
+              "layer": 2,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 1.1920928955078125e-06,
+              "relative_l2": 6.781513661735517e-07,
+              "cosine": 1.0000379085540771
+            },
+            {
+              "layer": 4,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 9.5367431640625e-06,
+              "relative_l2": 4.5198447651273455e-07,
+              "cosine": 1.0000003576278687
+            },
+            {
+              "layer": 4,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 4.291534423828125e-06,
+              "relative_l2": 4.1293913000117755e-07,
+              "cosine": 1.0000485181808472
+            },
+            {
+              "layer": 5,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 9.059906005859375e-06,
+              "relative_l2": 5.014004500480951e-07,
+              "cosine": 1.0000004768371582
+            },
+            {
+              "layer": 5,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 1.430511474609375e-06,
+              "relative_l2": 4.428065381034685e-07,
+              "cosine": 1.0000499486923218
+            },
+            {
+              "layer": 3,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 5.245208740234375e-06,
+              "relative_l2": 6.358088739943923e-07,
+              "cosine": 0.9999997615814209
+            },
+            {
+              "layer": 3,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 2.9206275939941406e-06,
+              "relative_l2": 7.142245976865524e-07,
+              "cosine": 0.9999999403953552
+            },
+            {
+              "layer": 6,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 9.5367431640625e-06,
+              "relative_l2": 5.614731435343856e-07,
+              "cosine": 0.9999996423721313
+            },
+            {
+              "layer": 6,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 7.152557373046875e-07,
+              "relative_l2": 6.960494260965788e-07,
+              "cosine": 1.000043511390686
+            },
+            {
+              "layer": 8,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 4.9779856681198e-07,
+              "cosine": 1.0000005960464478
+            },
+            {
+              "layer": 8,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 3.0994415283203125e-06,
+              "relative_l2": 6.7878215759265e-07,
+              "cosine": 1.0000301599502563
+            },
+            {
+              "layer": 9,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 5.9604644775390625e-06,
+              "relative_l2": 5.994899083816563e-07,
+              "cosine": 1.0000004768371582
+            },
+            {
+              "layer": 9,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 6.183981895446777e-07,
+              "relative_l2": 5.466905577122816e-07,
+              "cosine": 1.000040054321289
+            },
+            {
+              "layer": 10,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 6.198883056640625e-06,
+              "relative_l2": 7.235815360218112e-07,
+              "cosine": 1.0000003576278687
+            },
+            {
+              "layer": 10,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 7.82310962677002e-07,
+              "relative_l2": 1.0884774610531167e-06,
+              "cosine": 1.0000395774841309
+            },
+            {
+              "layer": 7,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 6.198883056640625e-06,
+              "relative_l2": 6.83204518736602e-07,
+              "cosine": 1.000000238418579
+            },
+            {
+              "layer": 7,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 3.814697265625e-06,
+              "relative_l2": 4.3180361330996675e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 11,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 5.7220458984375e-06,
+              "relative_l2": 6.497414233308518e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 11,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 2.2649765014648438e-06,
+              "relative_l2": 5.062485683993145e-07,
+              "cosine": 1.0000001192092896
+            },
+            {
+              "layer": 12,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.52587890625e-05,
+              "relative_l2": 5.380475727179146e-07,
+              "cosine": 1.000000238418579
+            },
+            {
+              "layer": 12,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.384185791015625e-06,
+              "relative_l2": 6.301686994447664e-07,
+              "cosine": 1.0000495910644531
+            },
+            {
+              "layer": 13,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 7.342966910073301e-07,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 13,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 4.023313522338867e-07,
+              "relative_l2": 9.29360908230592e-07,
+              "cosine": 1.0000550746917725
+            },
+            {
+              "layer": 14,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 7.867813110351562e-06,
+              "relative_l2": 6.857922016934026e-07,
+              "cosine": 1.0000003576278687
+            },
+            {
+              "layer": 14,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 7.301568984985352e-07,
+              "relative_l2": 1.2132535402997746e-06,
+              "cosine": 1.000062108039856
+            },
+            {
+              "layer": 16,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 2.384185791015625e-05,
+              "relative_l2": 1.1668864772218512e-06,
+              "cosine": 0.9999998211860657
+            },
+            {
+              "layer": 16,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 3.159046173095703e-06,
+              "relative_l2": 2.00436534214532e-06,
+              "cosine": 1.000044584274292
+            },
+            {
+              "layer": 17,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 2.8967857360839844e-05,
+              "relative_l2": 1.1427921435824828e-06,
+              "cosine": 1.0000001192092896
+            },
+            {
+              "layer": 17,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 4.172325134277344e-06,
+              "relative_l2": 1.606460955372313e-06,
+              "cosine": 1.0000429153442383
+            },
+            {
+              "layer": 15,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 5.4836273193359375e-06,
+              "relative_l2": 6.611645062548632e-07,
+              "cosine": 1.000000238418579
+            },
+            {
+              "layer": 15,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 4.2734154703794047e-07,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 18,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 2.288818359375e-05,
+              "relative_l2": 9.390948889631545e-07,
+              "cosine": 1.0000005960464478
+            },
+            {
+              "layer": 18,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 9.357929229736328e-06,
+              "relative_l2": 1.7070728972612415e-06,
+              "cosine": 1.0000274181365967
+            },
+            {
+              "layer": 20,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.6689300537109375e-05,
+              "relative_l2": 8.469888825857197e-07,
+              "cosine": 0.9999997615814209
+            },
+            {
+              "layer": 20,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 1.0728836059570312e-05,
+              "relative_l2": 1.5953683032421395e-06,
+              "cosine": 1.000020980834961
+            },
+            {
+              "layer": 21,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 2.1457672119140625e-05,
+              "relative_l2": 9.798044402486994e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 21,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 3.635883331298828e-06,
+              "relative_l2": 1.3123720918883919e-06,
+              "cosine": 1.0000362396240234
+            },
+            {
+              "layer": 22,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.52587890625e-05,
+              "relative_l2": 9.865749461823725e-07,
+              "cosine": 1.0000008344650269
+            },
+            {
+              "layer": 22,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.5033950805664062e-06,
+              "relative_l2": 1.251407638847013e-06,
+              "cosine": 1.000030517578125
+            },
+            {
+              "layer": 19,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 1.1079013347625732e-05,
+              "relative_l2": 1.4613654002459953e-06,
+              "cosine": 1.0
+            },
+            {
+              "layer": 19,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 1.1444091796875e-05,
+              "relative_l2": 1.3465443089444307e-06,
+              "cosine": 1.0
+            },
+            {
+              "layer": 23,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 1.33514404296875e-05,
+              "relative_l2": 1.3860548051525257e-06,
+              "cosine": 0.9999999403953552
+            },
+            {
+              "layer": 23,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 7.152557373046875e-06,
+              "relative_l2": 4.875417403127358e-07,
+              "cosine": 0.9999999403953552
+            }
+          ]
+        },
+        {
+          "case": {
+            "text": "nihao",
+            "token_ids": [
+              83095,
+              3331
+            ]
+          },
+          "positions": [
+            {
+              "position": 0,
+              "token_id": 83095,
+              "logits": {
+                "finite": true,
+                "max_abs": 2.002716064453125e-05,
+                "relative_l2": 1.9077110664511565e-06,
+                "cosine": 1.0000011920928955
+              },
+              "reference_top1": 198,
+              "chunk_top1": 198,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 1.1920928955078125e-07,
+                  "relative_l2": 6.14568705259444e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 1.4156103134155273e-07,
+                  "relative_l2": 5.875952524547756e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 7.748603820800781e-07,
+                  "relative_l2": 7.259329777298262e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 3.5762786865234375e-07,
+                  "relative_l2": 7.350326995947398e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 2.1606683731079102e-07,
+                  "relative_l2": 6.65058507820504e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 1.8998980522155762e-07,
+                  "relative_l2": 6.365568765431817e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 1.9073486328125e-06,
+                  "relative_l2": 3.5010316423722543e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 1.6689300537109375e-06,
+                  "relative_l2": 6.766021556359192e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 6.283261768658122e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 6.053811603123904e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 1.1920928955078125e-06,
+                  "relative_l2": 4.906429467155249e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 1.1920928955078125e-06,
+                  "relative_l2": 1.1798382502092863e-06,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 1.1324882507324219e-06,
+                  "relative_l2": 1.3640259339808836e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 9.5367431640625e-07,
+                  "relative_l2": 1.2958328170498135e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 2.384185791015625e-06,
+                  "relative_l2": 5.022001801080478e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 1.9222497940063477e-06,
+                  "relative_l2": 2.5734220798767637e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 1.735985279083252e-06,
+                  "relative_l2": 2.4492105694662314e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 1.430511474609375e-06,
+                  "relative_l2": 2.132783265551552e-06,
+                  "cosine": 0.9999998211860657
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 1.9073486328125e-06,
+                  "relative_l2": 1.6679210830261582e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 2.7418136596679688e-06,
+                  "relative_l2": 1.9152305412717396e-06,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 1.6689300537109375e-06,
+                  "relative_l2": 1.6463910696984385e-06,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 1.3485550880432129e-06,
+                  "relative_l2": 1.5872839185249177e-06,
+                  "cosine": 0.9999998211860657
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 1.55717134475708e-06,
+                  "relative_l2": 1.4434860986511922e-06,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 4.5299530029296875e-06,
+                  "relative_l2": 1.6936269275902305e-06,
+                  "cosine": 1.0000001192092896
+                }
+              ]
+            },
+            {
+              "position": 1,
+              "token_id": 3331,
+              "logits": {
+                "finite": true,
+                "max_abs": 1.049041748046875e-05,
+                "relative_l2": 8.979442895906686e-07,
+                "cosine": 1.000000238418579
+              },
+              "reference_top1": 198,
+              "chunk_top1": 198,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 8.940696716308594e-08,
+                  "relative_l2": 5.608723085970269e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 2.384185791015625e-07,
+                  "relative_l2": 8.255157126768609e-07,
+                  "cosine": 1.000000238418579
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 6.854534149169922e-07,
+                  "relative_l2": 9.70568635239033e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 4.76837158203125e-07,
+                  "relative_l2": 9.977081845136127e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 7.152557373046875e-07,
+                  "relative_l2": 9.07494154489541e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 4.76837158203125e-07,
+                  "relative_l2": 7.551274734396429e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 5.960464477539062e-07,
+                  "relative_l2": 7.640447847734322e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 5.960464477539062e-07,
+                  "relative_l2": 7.919612698970013e-07,
+                  "cosine": 1.000000238418579
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 7.748603820800781e-07,
+                  "relative_l2": 8.564042559555674e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 7.152557373046875e-07,
+                  "relative_l2": 8.896481062947714e-07,
+                  "cosine": 1.000000238418579
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 5.364418029785156e-07,
+                  "relative_l2": 8.39172741962102e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 7.152557373046875e-07,
+                  "relative_l2": 8.345359105987882e-07,
+                  "cosine": 0.9999997019767761
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 7.152557373046875e-07,
+                  "relative_l2": 8.135977509482473e-07,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 4.76837158203125e-07,
+                  "relative_l2": 7.749439987492224e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 7.152557373046875e-07,
+                  "relative_l2": 8.873751085047843e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 5.960464477539062e-07,
+                  "relative_l2": 8.46471323256992e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 8.344650268554688e-07,
+                  "relative_l2": 8.644594799989136e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 7.152557373046875e-07,
+                  "relative_l2": 7.816221341272467e-07,
+                  "cosine": 0.9999999403953552
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 4.76837158203125e-07,
+                  "relative_l2": 6.28214763764845e-07,
+                  "cosine": 0.9999997615814209
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 4.76837158203125e-07,
+                  "relative_l2": 7.136514454941789e-07,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 9.5367431640625e-07,
+                  "relative_l2": 6.11691234553291e-07,
+                  "cosine": 0.9999997615814209
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 9.5367431640625e-07,
+                  "relative_l2": 6.37046809970343e-07,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 8.344650268554688e-07,
+                  "relative_l2": 6.620645649491053e-07,
+                  "cosine": 1.0000001192092896
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 2.384185791015625e-06,
+                  "relative_l2": 6.848557063676708e-07,
+                  "cosine": 1.0
+                }
+              ]
+            }
+          ],
+          "caches": [
+            {
+              "layer": 0,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 2.86102294921875e-06,
+              "relative_l2": 2.034249462212756e-07,
+              "cosine": 0.9999997615814209
+            },
+            {
+              "layer": 0,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.086162567138672e-07,
+              "relative_l2": 3.922112625787122e-07,
+              "cosine": 1.0000410079956055
+            },
+            {
+              "layer": 1,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 4.912337203677453e-07,
+              "cosine": 1.000001072883606
+            },
+            {
+              "layer": 1,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 1.3113021850585938e-06,
+              "relative_l2": 7.858109256630996e-07,
+              "cosine": 1.0000572204589844
+            },
+            {
+              "layer": 2,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 4.291534423828125e-06,
+              "relative_l2": 4.742474573049549e-07,
+              "cosine": 1.0000001192092896
+            },
+            {
+              "layer": 2,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 4.76837158203125e-07,
+              "relative_l2": 5.132679348207603e-07,
+              "cosine": 1.0000290870666504
+            },
+            {
+              "layer": 4,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.52587890625e-05,
+              "relative_l2": 4.1391467675566673e-07,
+              "cosine": 1.0000003576278687
+            },
+            {
+              "layer": 4,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.86102294921875e-06,
+              "relative_l2": 3.482189754322462e-07,
+              "cosine": 1.00003981590271
+            },
+            {
+              "layer": 5,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 4.116509160212445e-07,
+              "cosine": 1.0000004768371582
+            },
+            {
+              "layer": 5,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 1.430511474609375e-06,
+              "relative_l2": 4.326207942995097e-07,
+              "cosine": 1.000044345855713
+            },
+            {
+              "layer": 3,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 3.337860107421875e-06,
+              "relative_l2": 5.018511615162424e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 3,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 2.0265579223632812e-06,
+              "relative_l2": 7.117158702385495e-07,
+              "cosine": 0.9999999403953552
+            },
+            {
+              "layer": 6,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.049041748046875e-05,
+              "relative_l2": 4.3583708020378253e-07,
+              "cosine": 1.0000011920928955
+            },
+            {
+              "layer": 6,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 7.152557373046875e-07,
+              "relative_l2": 7.175232212830451e-07,
+              "cosine": 1.0000483989715576
+            },
+            {
+              "layer": 8,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 3.977086464601598e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 8,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.384185791015625e-06,
+              "relative_l2": 6.597124979634827e-07,
+              "cosine": 1.0000405311584473
+            },
+            {
+              "layer": 9,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 5.7220458984375e-06,
+              "relative_l2": 4.610398605109367e-07,
+              "cosine": 1.0000003576278687
+            },
+            {
+              "layer": 9,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 5.960464477539062e-07,
+              "relative_l2": 4.5794811853738793e-07,
+              "cosine": 1.0000295639038086
+            },
+            {
+              "layer": 10,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 4.76837158203125e-06,
+              "relative_l2": 6.158182941362611e-07,
+              "cosine": 1.000000238418579
+            },
+            {
+              "layer": 10,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 1.4156103134155273e-06,
+              "relative_l2": 1.257215217265184e-06,
+              "cosine": 1.000036358833313
+            },
+            {
+              "layer": 7,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 6.67572021484375e-06,
+              "relative_l2": 5.218792011874029e-07,
+              "cosine": 1.000000238418579
+            },
+            {
+              "layer": 7,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 2.86102294921875e-06,
+              "relative_l2": 2.8310435595813033e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 11,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 5.9604644775390625e-06,
+              "relative_l2": 5.885611358280585e-07,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 11,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 1.9073486328125e-06,
+              "relative_l2": 3.5929005548496207e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 12,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 8.821487426757812e-06,
+              "relative_l2": 5.105292757434654e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 12,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.6226043701171875e-06,
+              "relative_l2": 7.445453888976772e-07,
+              "cosine": 1.000049352645874
+            },
+            {
+              "layer": 13,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 8.58306884765625e-06,
+              "relative_l2": 7.86919940765074e-07,
+              "cosine": 0.999999463558197
+            },
+            {
+              "layer": 13,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 3.427267074584961e-07,
+              "relative_l2": 1.3386284081207123e-06,
+              "cosine": 1.0000396966934204
+            },
+            {
+              "layer": 14,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 8.046627044677734e-06,
+              "relative_l2": 7.046073164929112e-07,
+              "cosine": 1.0000003576278687
+            },
+            {
+              "layer": 14,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 5.960464477539062e-07,
+              "relative_l2": 1.3674327874468872e-06,
+              "cosine": 1.0000593662261963
+            },
+            {
+              "layer": 16,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.811981201171875e-05,
+              "relative_l2": 1.0656235645001289e-06,
+              "cosine": 0.9999997615814209
+            },
+            {
+              "layer": 16,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 3.904104232788086e-06,
+              "relative_l2": 1.922499905049335e-06,
+              "cosine": 1.000047206878662
+            },
+            {
+              "layer": 17,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.4781951904296875e-05,
+              "relative_l2": 1.0098405027747503e-06,
+              "cosine": 1.0000003576278687
+            },
+            {
+              "layer": 17,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.6226043701171875e-06,
+              "relative_l2": 1.281976210520952e-06,
+              "cosine": 1.0000373125076294
+            },
+            {
+              "layer": 15,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 5.4836273193359375e-06,
+              "relative_l2": 6.770805498490517e-07,
+              "cosine": 1.0000001192092896
+            },
+            {
+              "layer": 15,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 7.62939453125e-06,
+              "relative_l2": 3.616812875861797e-07,
+              "cosine": 1.0000001192092896
+            },
+            {
+              "layer": 18,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.52587890625e-05,
+              "relative_l2": 7.892653002272709e-07,
+              "cosine": 0.9999997615814209
+            },
+            {
+              "layer": 18,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 4.887580871582031e-06,
+              "relative_l2": 1.1772195875892066e-06,
+              "cosine": 1.0000320672988892
+            },
+            {
+              "layer": 20,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.52587890625e-05,
+              "relative_l2": 6.874142286505958e-07,
+              "cosine": 1.000000238418579
+            },
+            {
+              "layer": 20,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 3.337860107421875e-06,
+              "relative_l2": 1.2760241361320368e-06,
+              "cosine": 1.000020980834961
+            },
+            {
+              "layer": 21,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.52587890625e-05,
+              "relative_l2": 7.816108791303122e-07,
+              "cosine": 1.000000238418579
+            },
+            {
+              "layer": 21,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.086162567138672e-06,
+              "relative_l2": 1.0458877568453318e-06,
+              "cosine": 1.0000309944152832
+            },
+            {
+              "layer": 22,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 1.33514404296875e-05,
+              "relative_l2": 7.256986123138631e-07,
+              "cosine": 0.9999996423721313
+            },
+            {
+              "layer": 22,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 2.1457672119140625e-06,
+              "relative_l2": 1.1038739557989175e-06,
+              "cosine": 1.0000262260437012
+            },
+            {
+              "layer": 19,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 7.3909759521484375e-06,
+              "relative_l2": 1.1251681826252025e-06,
+              "cosine": 0.9999999403953552
+            },
+            {
+              "layer": 19,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 4.5299530029296875e-06,
+              "relative_l2": 1.0071904625874595e-06,
+              "cosine": 1.0
+            },
+            {
+              "layer": 23,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 6.198883056640625e-06,
+              "relative_l2": 8.790578363004897e-07,
+              "cosine": 1.0
+            },
+            {
+              "layer": 23,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 3.814697265625e-06,
+              "relative_l2": 3.861158006657206e-07,
+              "cosine": 1.0000001192092896
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "phase": "float16_export_and_int8_head",
+      "dtype": "torch.float16",
+      "head": {
+        "scheme": "symmetric_rowwise_int8",
+        "scale_dtype": "float16",
+        "weight_shape": [
+          248320,
+          1024,
+          1,
+          1
+        ],
+        "quant_dequant_stable": true,
+        "additional_max_abs_error": 0.0,
+        "additional_relative_l2_error": 0.0,
+        "additional_changed_values": 0
+      },
+      "cases": [
+        {
+          "case": {
+            "text": "你好，今天",
+            "token_ids": [
+              109266,
+              3709,
+              97375
+            ]
+          },
+          "positions": [
+            {
+              "position": 0,
+              "token_id": 109266,
+              "logits": {
+                "finite": true,
+                "max_abs": 0.03848886489868164,
+                "relative_l2": 0.002209867350757122,
+                "cosine": 0.9999929666519165
+              },
+              "reference_top1": 3709,
+              "chunk_top1": 3709,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 0.00026726722717285156,
+                  "relative_l2": 0.0008420749218203127,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 0.00025175511837005615,
+                  "relative_l2": 0.0009808383183553815,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 0.0007205009460449219,
+                  "relative_l2": 0.0009784807916730642,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 0.0015124082565307617,
+                  "relative_l2": 0.0013754080282524228,
+                  "cosine": 0.9999993443489075
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 0.0011757314205169678,
+                  "relative_l2": 0.0012465574545785785,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 0.000971868634223938,
+                  "relative_l2": 0.0012380261905491352,
+                  "cosine": 0.9999992847442627
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 0.0016486644744873047,
+                  "relative_l2": 0.00042048905743286014,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 0.002207159996032715,
+                  "relative_l2": 0.0009590160916559398,
+                  "cosine": 0.9999995231628418
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 0.001642465591430664,
+                  "relative_l2": 0.00087728351354599,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 0.001682877540588379,
+                  "relative_l2": 0.0008692421251907945,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 0.0011548995971679688,
+                  "relative_l2": 0.000698918360285461,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 0.0011948049068450928,
+                  "relative_l2": 0.0016274931840598583,
+                  "cosine": 0.9999986290931702
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 0.0009327828884124756,
+                  "relative_l2": 0.0019476740853860974,
+                  "cosine": 0.9999982118606567
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 0.0008683204650878906,
+                  "relative_l2": 0.0018636974273249507,
+                  "cosine": 0.9999983310699463
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 0.001669168472290039,
+                  "relative_l2": 0.0005010940949432552,
+                  "cosine": 0.9999997615814209
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 0.0023732781410217285,
+                  "relative_l2": 0.0037746569141745567,
+                  "cosine": 0.999992847442627
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 0.0019054263830184937,
+                  "relative_l2": 0.0036986484192311764,
+                  "cosine": 0.999993085861206
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 0.0020554065704345703,
+                  "relative_l2": 0.0036288269329816103,
+                  "cosine": 0.9999933838844299
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 0.0018618758767843246,
+                  "relative_l2": 0.0031256491784006357,
+                  "cosine": 0.999995231628418
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 0.002208530902862549,
+                  "relative_l2": 0.0032720218878239393,
+                  "cosine": 0.999994695186615
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 0.003294527530670166,
+                  "relative_l2": 0.003223476931452751,
+                  "cosine": 0.9999949932098389
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 0.003502368927001953,
+                  "relative_l2": 0.003488102462142706,
+                  "cosine": 0.9999940395355225
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 0.003705322742462158,
+                  "relative_l2": 0.0031480821780860424,
+                  "cosine": 0.9999949932098389
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 0.005873680114746094,
+                  "relative_l2": 0.0031710166949778795,
+                  "cosine": 0.999995231628418
+                }
+              ]
+            },
+            {
+              "position": 1,
+              "token_id": 3709,
+              "logits": {
+                "finite": true,
+                "max_abs": 0.022317171096801758,
+                "relative_l2": 0.0017484353156760335,
+                "cosine": 0.999994158744812
+              },
+              "reference_top1": 103724,
+              "chunk_top1": 103724,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 0.0002970397472381592,
+                  "relative_l2": 0.0009800498373806477,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 0.0004290342330932617,
+                  "relative_l2": 0.0013733268715441227,
+                  "cosine": 0.9999991059303284
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 0.0005567967891693115,
+                  "relative_l2": 0.0015483847819268703,
+                  "cosine": 0.9999988675117493
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 0.00040352344512939453,
+                  "relative_l2": 0.0016250495100393891,
+                  "cosine": 0.9999986886978149
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 0.0003877878189086914,
+                  "relative_l2": 0.001411852310411632,
+                  "cosine": 0.999998927116394
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 0.00045746564865112305,
+                  "relative_l2": 0.0013353107497096062,
+                  "cosine": 0.9999990463256836
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 0.0003705024719238281,
+                  "relative_l2": 0.001339303213171661,
+                  "cosine": 0.9999990463256836
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 0.0008155107498168945,
+                  "relative_l2": 0.0015864144079387188,
+                  "cosine": 0.9999988079071045
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 0.0006185173988342285,
+                  "relative_l2": 0.0016623891424387693,
+                  "cosine": 0.9999985694885254
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 0.001073002815246582,
+                  "relative_l2": 0.0016862265765666962,
+                  "cosine": 0.9999986290931702
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 0.001109302043914795,
+                  "relative_l2": 0.0016030948609113693,
+                  "cosine": 0.9999986886978149
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 0.0008100271224975586,
+                  "relative_l2": 0.0016406442737206817,
+                  "cosine": 0.9999985694885254
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 0.0008933544158935547,
+                  "relative_l2": 0.0016783962491899729,
+                  "cosine": 0.9999985098838806
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 0.0007583498954772949,
+                  "relative_l2": 0.0016003611963242292,
+                  "cosine": 0.9999988079071045
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 0.001308441162109375,
+                  "relative_l2": 0.0017044901615008712,
+                  "cosine": 0.9999987483024597
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 0.0012845993041992188,
+                  "relative_l2": 0.0016901111230254173,
+                  "cosine": 0.9999985098838806
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 0.0017601251602172852,
+                  "relative_l2": 0.0017886899877339602,
+                  "cosine": 0.9999982714653015
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 0.002431511878967285,
+                  "relative_l2": 0.00182638771366328,
+                  "cosine": 0.9999983310699463
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 0.0028095245361328125,
+                  "relative_l2": 0.0015013747615739703,
+                  "cosine": 0.9999987483024597
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 0.0035588741302490234,
+                  "relative_l2": 0.0016777429264038801,
+                  "cosine": 0.9999986290931702
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 0.0028946399688720703,
+                  "relative_l2": 0.001615337678231299,
+                  "cosine": 0.9999985098838806
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 0.002414226531982422,
+                  "relative_l2": 0.0016915758606046438,
+                  "cosine": 0.9999985694885254
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 0.0030126571655273438,
+                  "relative_l2": 0.0017891086172312498,
+                  "cosine": 0.9999984502792358
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 0.0028510093688964844,
+                  "relative_l2": 0.0017739193281158805,
+                  "cosine": 0.9999983310699463
+                }
+              ]
+            },
+            {
+              "position": 2,
+              "token_id": 97375,
+              "logits": {
+                "finite": true,
+                "max_abs": 0.016709327697753906,
+                "relative_l2": 0.0010825373465195298,
+                "cosine": 0.999996542930603
+              },
+              "reference_top1": 101618,
+              "chunk_top1": 101618,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 0.00025585293769836426,
+                  "relative_l2": 0.0007968206191435456,
+                  "cosine": 0.9999997615814209
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 0.00020544230937957764,
+                  "relative_l2": 0.0008808537968434393,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 0.000187605619430542,
+                  "relative_l2": 0.000783788098488003,
+                  "cosine": 0.9999998807907104
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 0.0005729794502258301,
+                  "relative_l2": 0.0009880973957479,
+                  "cosine": 0.9999995231628418
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 0.0008554458618164062,
+                  "relative_l2": 0.001226229825988412,
+                  "cosine": 0.9999993443489075
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 0.0007334351539611816,
+                  "relative_l2": 0.0012320546666160226,
+                  "cosine": 0.9999991059303284
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 0.0005480051040649414,
+                  "relative_l2": 0.0012406340101733804,
+                  "cosine": 0.9999992251396179
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 0.0004988312721252441,
+                  "relative_l2": 0.0012947629438713193,
+                  "cosine": 0.9999992251396179
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 0.0005539655685424805,
+                  "relative_l2": 0.001266238745301962,
+                  "cosine": 0.9999992847442627
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 0.0007091760635375977,
+                  "relative_l2": 0.0012739720987156034,
+                  "cosine": 0.9999992251396179
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 0.0005576610565185547,
+                  "relative_l2": 0.001149703748524189,
+                  "cosine": 0.9999991655349731
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 0.000529855489730835,
+                  "relative_l2": 0.0011472178157418966,
+                  "cosine": 0.9999991655349731
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 0.0006097853183746338,
+                  "relative_l2": 0.0011200695298612118,
+                  "cosine": 0.9999992251396179
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 0.000598907470703125,
+                  "relative_l2": 0.0011007412103936076,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 0.0005180537700653076,
+                  "relative_l2": 0.001072596525773406,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 0.0010513663291931152,
+                  "relative_l2": 0.0011454010382294655,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 0.001152724027633667,
+                  "relative_l2": 0.001094173640012741,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 0.0017696619033813477,
+                  "relative_l2": 0.0010936290491372347,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 0.0021860599517822266,
+                  "relative_l2": 0.0010239621624350548,
+                  "cosine": 0.999999463558197
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 0.0021593570709228516,
+                  "relative_l2": 0.0010402122279629111,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 0.0019974708557128906,
+                  "relative_l2": 0.000951663067098707,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 0.0033593177795410156,
+                  "relative_l2": 0.0010590923484414816,
+                  "cosine": 0.9999995231628418
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 0.0014424100518226624,
+                  "relative_l2": 0.0011074404465034604,
+                  "cosine": 0.9999992847442627
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 0.0037817955017089844,
+                  "relative_l2": 0.0012375751975923777,
+                  "cosine": 0.9999994039535522
+                }
+              ]
+            }
+          ],
+          "caches": [
+            {
+              "layer": 0,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.005295753479003906,
+              "relative_l2": 0.0003063621115870774,
+              "cosine": 0.9999995827674866
+            },
+            {
+              "layer": 0,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0005234181880950928,
+              "relative_l2": 0.0007304787286557257,
+              "cosine": 1.0000371932983398
+            },
+            {
+              "layer": 1,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.007257938385009766,
+              "relative_l2": 0.0006560671026818454,
+              "cosine": 0.9999994039535522
+            },
+            {
+              "layer": 1,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0014624595642089844,
+              "relative_l2": 0.0009564565843902528,
+              "cosine": 1.0000473260879517
+            },
+            {
+              "layer": 2,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0146636962890625,
+              "relative_l2": 0.0007588661392219365,
+              "cosine": 0.999999463558197
+            },
+            {
+              "layer": 2,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0014095902442932129,
+              "relative_l2": 0.0009632440633140504,
+              "cosine": 1.0000367164611816
+            },
+            {
+              "layer": 4,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0455780029296875,
+              "relative_l2": 0.0007288986234925687,
+              "cosine": 0.9999995231628418
+            },
+            {
+              "layer": 4,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.018736839294433594,
+              "relative_l2": 0.0010510076535865664,
+              "cosine": 1.0000488758087158
+            },
+            {
+              "layer": 5,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.011510848999023438,
+              "relative_l2": 0.0006452762172557414,
+              "cosine": 1.0000001192092896
+            },
+            {
+              "layer": 5,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0016095638275146484,
+              "relative_l2": 0.0008100378327071667,
+              "cosine": 1.0000485181808472
+            },
+            {
+              "layer": 3,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.00539243221282959,
+              "relative_l2": 0.0008463354897685349,
+              "cosine": 0.9999995231628418
+            },
+            {
+              "layer": 3,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.003254830837249756,
+              "relative_l2": 0.0009550336981192231,
+              "cosine": 0.9999995827674866
+            },
+            {
+              "layer": 6,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.015398025512695312,
+              "relative_l2": 0.0007398998131975532,
+              "cosine": 0.9999992251396179
+            },
+            {
+              "layer": 6,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.002288222312927246,
+              "relative_l2": 0.0013270912459120154,
+              "cosine": 1.0000419616699219
+            },
+            {
+              "layer": 8,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0097503662109375,
+              "relative_l2": 0.0007052598521113396,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 8,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0017592906951904297,
+              "relative_l2": 0.0008879973320290446,
+              "cosine": 1.0000306367874146
+            },
+            {
+              "layer": 9,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.02220439910888672,
+              "relative_l2": 0.0008703300845809281,
+              "cosine": 0.999998927116394
+            },
+            {
+              "layer": 9,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0016024112701416016,
+              "relative_l2": 0.0012692889431491494,
+              "cosine": 1.0000394582748413
+            },
+            {
+              "layer": 10,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.01017618179321289,
+              "relative_l2": 0.000976331066340208,
+              "cosine": 0.9999993443489075
+            },
+            {
+              "layer": 10,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.00043720006942749023,
+              "relative_l2": 0.0013958766357973218,
+              "cosine": 1.0000383853912354
+            },
+            {
+              "layer": 7,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.00514984130859375,
+              "relative_l2": 0.0009193311561830342,
+              "cosine": 0.9999995231628418
+            },
+            {
+              "layer": 7,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.00258636474609375,
+              "relative_l2": 0.0005375572363846004,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 11,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.009973526000976562,
+              "relative_l2": 0.0009458796703256667,
+              "cosine": 0.9999996423721313
+            },
+            {
+              "layer": 11,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.0036411285400390625,
+              "relative_l2": 0.0006847548647783697,
+              "cosine": 0.9999997019767761
+            },
+            {
+              "layer": 12,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.009738922119140625,
+              "relative_l2": 0.0007673372747376561,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 12,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0043184757232666016,
+              "relative_l2": 0.001040810253471136,
+              "cosine": 1.0000481605529785
+            },
+            {
+              "layer": 13,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.009393692016601562,
+              "relative_l2": 0.00104386149905622,
+              "cosine": 0.9999986290931702
+            },
+            {
+              "layer": 13,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0006386935710906982,
+              "relative_l2": 0.0015291182789951563,
+              "cosine": 1.0000537633895874
+            },
+            {
+              "layer": 14,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.00831294059753418,
+              "relative_l2": 0.000990265398286283,
+              "cosine": 0.9999988079071045
+            },
+            {
+              "layer": 14,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.001633436419069767,
+              "relative_l2": 0.0020429634023457766,
+              "cosine": 1.0000609159469604
+            },
+            {
+              "layer": 16,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.04353523254394531,
+              "relative_l2": 0.0014191154623404145,
+              "cosine": 0.9999985694885254
+            },
+            {
+              "layer": 16,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0038121938705444336,
+              "relative_l2": 0.002755925292149186,
+              "cosine": 1.0000402927398682
+            },
+            {
+              "layer": 17,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.029470443725585938,
+              "relative_l2": 0.001326258177869022,
+              "cosine": 0.9999984502792358
+            },
+            {
+              "layer": 17,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0063166022300720215,
+              "relative_l2": 0.001880026888102293,
+              "cosine": 1.000038743019104
+            },
+            {
+              "layer": 15,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.008867263793945312,
+              "relative_l2": 0.0009937643771991134,
+              "cosine": 0.9999994039535522
+            },
+            {
+              "layer": 15,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.003306746482849121,
+              "relative_l2": 0.0005609923973679543,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 18,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0561676025390625,
+              "relative_l2": 0.0011580410646274686,
+              "cosine": 0.9999986886978149
+            },
+            {
+              "layer": 18,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.014366626739501953,
+              "relative_l2": 0.0020263497717678547,
+              "cosine": 1.0000255107879639
+            },
+            {
+              "layer": 20,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.028902053833007812,
+              "relative_l2": 0.0010823662159964442,
+              "cosine": 0.9999991059303284
+            },
+            {
+              "layer": 20,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.01046675443649292,
+              "relative_l2": 0.0019513731822371483,
+              "cosine": 1.0000178813934326
+            },
+            {
+              "layer": 21,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0336151123046875,
+              "relative_l2": 0.001189578091725707,
+              "cosine": 0.9999984502792358
+            },
+            {
+              "layer": 21,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0036255717277526855,
+              "relative_l2": 0.0015586268855258822,
+              "cosine": 1.0000340938568115
+            },
+            {
+              "layer": 22,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.02088165283203125,
+              "relative_l2": 0.0011836547637358308,
+              "cosine": 0.9999985694885254
+            },
+            {
+              "layer": 22,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0022493600845336914,
+              "relative_l2": 0.001430382253602147,
+              "cosine": 1.000028133392334
+            },
+            {
+              "layer": 19,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.015008926391601562,
+              "relative_l2": 0.001780088641680777,
+              "cosine": 0.9999984502792358
+            },
+            {
+              "layer": 19,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.0073311179876327515,
+              "relative_l2": 0.0016535199247300625,
+              "cosine": 0.9999986886978149
+            },
+            {
+              "layer": 23,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.015825271606445312,
+              "relative_l2": 0.001723083551041782,
+              "cosine": 0.9999985694885254
+            },
+            {
+              "layer": 23,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.007871627807617188,
+              "relative_l2": 0.0006400100537575781,
+              "cosine": 1.0
+            }
+          ]
+        },
+        {
+          "case": {
+            "text": "nihao",
+            "token_ids": [
+              83095,
+              3331
+            ]
+          },
+          "positions": [
+            {
+              "position": 0,
+              "token_id": 83095,
+              "logits": {
+                "finite": true,
+                "max_abs": 0.022414445877075195,
+                "relative_l2": 0.0025019862223416567,
+                "cosine": 0.9999940395355225
+              },
+              "reference_top1": 198,
+              "chunk_top1": 198,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 0.00026345252990722656,
+                  "relative_l2": 0.001135355094447732,
+                  "cosine": 0.9999993443489075
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 0.000461578369140625,
+                  "relative_l2": 0.0009927952196449041,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 0.00018140673637390137,
+                  "relative_l2": 0.0008508543251082301,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 0.0005379915237426758,
+                  "relative_l2": 0.0009511568932794034,
+                  "cosine": 0.9999998211860657
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 0.0003089010715484619,
+                  "relative_l2": 0.0008685710490681231,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 0.0002669915556907654,
+                  "relative_l2": 0.000848695111926645,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 0.0014872550964355469,
+                  "relative_l2": 0.00038641944411210716,
+                  "cosine": 1.0
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 0.0018907785415649414,
+                  "relative_l2": 0.0009545462089590728,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 0.0019669532775878906,
+                  "relative_l2": 0.0008563041919842362,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 0.0013778209686279297,
+                  "relative_l2": 0.0008389645954594016,
+                  "cosine": 0.9999996423721313
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 0.001100301742553711,
+                  "relative_l2": 0.0007175977807492018,
+                  "cosine": 0.9999997019767761
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 0.0012621879577636719,
+                  "relative_l2": 0.0016685158479958773,
+                  "cosine": 0.9999986290931702
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 0.000993967056274414,
+                  "relative_l2": 0.001976480707526207,
+                  "cosine": 0.9999979734420776
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 0.000989079475402832,
+                  "relative_l2": 0.0018990974640473723,
+                  "cosine": 0.9999982118606567
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 0.0025544166564941406,
+                  "relative_l2": 0.0006321647670120001,
+                  "cosine": 0.9999997615814209
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 0.0017772316932678223,
+                  "relative_l2": 0.0025988933630287647,
+                  "cosine": 0.999996542930603
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 0.001622021198272705,
+                  "relative_l2": 0.002427867613732815,
+                  "cosine": 0.9999969005584717
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 0.001427680253982544,
+                  "relative_l2": 0.0022600109223276377,
+                  "cosine": 0.9999974370002747
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 0.0016636848449707031,
+                  "relative_l2": 0.0017200172878801823,
+                  "cosine": 0.9999983906745911
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 0.001810908317565918,
+                  "relative_l2": 0.0019486910896375775,
+                  "cosine": 0.9999982118606567
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 0.0015592575073242188,
+                  "relative_l2": 0.0017059314996004105,
+                  "cosine": 0.9999985098838806
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 0.0022907257080078125,
+                  "relative_l2": 0.0016802323516458273,
+                  "cosine": 0.9999988079071045
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 0.0023047327995300293,
+                  "relative_l2": 0.001534364651888609,
+                  "cosine": 0.9999988079071045
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 0.005327939987182617,
+                  "relative_l2": 0.0017751939594745636,
+                  "cosine": 0.9999983310699463
+                }
+              ]
+            },
+            {
+              "position": 1,
+              "token_id": 3331,
+              "logits": {
+                "finite": true,
+                "max_abs": 0.01678001880645752,
+                "relative_l2": 0.0013734032399952412,
+                "cosine": 0.9999956488609314
+              },
+              "reference_top1": 198,
+              "chunk_top1": 198,
+              "layers": [
+                {
+                  "layer": 0,
+                  "finite": true,
+                  "max_abs": 0.00027677416801452637,
+                  "relative_l2": 0.0009597185999155045,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 1,
+                  "finite": true,
+                  "max_abs": 0.000402599573135376,
+                  "relative_l2": 0.0013558607315644622,
+                  "cosine": 0.9999991059303284
+                },
+                {
+                  "layer": 2,
+                  "finite": true,
+                  "max_abs": 0.0002519264817237854,
+                  "relative_l2": 0.001500205951742828,
+                  "cosine": 0.999998927116394
+                },
+                {
+                  "layer": 3,
+                  "finite": true,
+                  "max_abs": 0.0013169050216674805,
+                  "relative_l2": 0.0018251319415867329,
+                  "cosine": 0.9999984502792358
+                },
+                {
+                  "layer": 4,
+                  "finite": true,
+                  "max_abs": 0.0002822466194629669,
+                  "relative_l2": 0.001467763097025454,
+                  "cosine": 0.999998927116394
+                },
+                {
+                  "layer": 5,
+                  "finite": true,
+                  "max_abs": 0.0005972385406494141,
+                  "relative_l2": 0.001480373670347035,
+                  "cosine": 0.9999991059303284
+                },
+                {
+                  "layer": 6,
+                  "finite": true,
+                  "max_abs": 0.0005587339401245117,
+                  "relative_l2": 0.0013539743376895785,
+                  "cosine": 0.9999992847442627
+                },
+                {
+                  "layer": 7,
+                  "finite": true,
+                  "max_abs": 0.0007262229919433594,
+                  "relative_l2": 0.0014134127413854003,
+                  "cosine": 0.9999992847442627
+                },
+                {
+                  "layer": 8,
+                  "finite": true,
+                  "max_abs": 0.001152336597442627,
+                  "relative_l2": 0.001444885041564703,
+                  "cosine": 0.9999990463256836
+                },
+                {
+                  "layer": 9,
+                  "finite": true,
+                  "max_abs": 0.000820457935333252,
+                  "relative_l2": 0.0015150385443121195,
+                  "cosine": 0.9999988079071045
+                },
+                {
+                  "layer": 10,
+                  "finite": true,
+                  "max_abs": 0.0009521245956420898,
+                  "relative_l2": 0.0016429376555606723,
+                  "cosine": 0.9999987483024597
+                },
+                {
+                  "layer": 11,
+                  "finite": true,
+                  "max_abs": 0.0006157159805297852,
+                  "relative_l2": 0.0014942156849429011,
+                  "cosine": 0.9999990463256836
+                },
+                {
+                  "layer": 12,
+                  "finite": true,
+                  "max_abs": 0.0007281303405761719,
+                  "relative_l2": 0.0014785373350605369,
+                  "cosine": 0.999998927116394
+                },
+                {
+                  "layer": 13,
+                  "finite": true,
+                  "max_abs": 0.0006896257400512695,
+                  "relative_l2": 0.0014676912687718868,
+                  "cosine": 0.9999988675117493
+                },
+                {
+                  "layer": 14,
+                  "finite": true,
+                  "max_abs": 0.0008801817893981934,
+                  "relative_l2": 0.0015866314060986042,
+                  "cosine": 0.9999988079071045
+                },
+                {
+                  "layer": 15,
+                  "finite": true,
+                  "max_abs": 0.0016366243362426758,
+                  "relative_l2": 0.0015738698421046138,
+                  "cosine": 0.9999988079071045
+                },
+                {
+                  "layer": 16,
+                  "finite": true,
+                  "max_abs": 0.0017944574356079102,
+                  "relative_l2": 0.0015720796072855592,
+                  "cosine": 0.999998927116394
+                },
+                {
+                  "layer": 17,
+                  "finite": true,
+                  "max_abs": 0.0022513866424560547,
+                  "relative_l2": 0.0015724088298156857,
+                  "cosine": 0.999998927116394
+                },
+                {
+                  "layer": 18,
+                  "finite": true,
+                  "max_abs": 0.0028939247131347656,
+                  "relative_l2": 0.0012773224152624607,
+                  "cosine": 0.9999991655349731
+                },
+                {
+                  "layer": 19,
+                  "finite": true,
+                  "max_abs": 0.003331899642944336,
+                  "relative_l2": 0.0014308725949376822,
+                  "cosine": 0.999998927116394
+                },
+                {
+                  "layer": 20,
+                  "finite": true,
+                  "max_abs": 0.00121307373046875,
+                  "relative_l2": 0.0011191628873348236,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 21,
+                  "finite": true,
+                  "max_abs": 0.002696990966796875,
+                  "relative_l2": 0.0011319515760987997,
+                  "cosine": 0.9999994039535522
+                },
+                {
+                  "layer": 22,
+                  "finite": true,
+                  "max_abs": 0.0022673606872558594,
+                  "relative_l2": 0.0011522439308464527,
+                  "cosine": 0.9999995827674866
+                },
+                {
+                  "layer": 23,
+                  "finite": true,
+                  "max_abs": 0.011242866516113281,
+                  "relative_l2": 0.0013023437932133675,
+                  "cosine": 0.9999991655349731
+                }
+              ]
+            }
+          ],
+          "caches": [
+            {
+              "layer": 0,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0063304901123046875,
+              "relative_l2": 0.0003121089830528945,
+              "cosine": 0.9999996423721313
+            },
+            {
+              "layer": 0,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0005163252353668213,
+              "relative_l2": 0.000695672060828656,
+              "cosine": 1.0000401735305786
+            },
+            {
+              "layer": 1,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.017299652099609375,
+              "relative_l2": 0.000873745244462043,
+              "cosine": 0.999999463558197
+            },
+            {
+              "layer": 1,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0036554336547851562,
+              "relative_l2": 0.0015365172876045108,
+              "cosine": 1.0000569820404053
+            },
+            {
+              "layer": 2,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0078277587890625,
+              "relative_l2": 0.0007500580977648497,
+              "cosine": 0.9999991655349731
+            },
+            {
+              "layer": 2,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0014818012714385986,
+              "relative_l2": 0.00105991680175066,
+              "cosine": 1.0000278949737549
+            },
+            {
+              "layer": 4,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.03961181640625,
+              "relative_l2": 0.0006872108788229525,
+              "cosine": 0.999999463558197
+            },
+            {
+              "layer": 4,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.009926319122314453,
+              "relative_l2": 0.0010285270400345325,
+              "cosine": 1.000038743019104
+            },
+            {
+              "layer": 5,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.010790824890136719,
+              "relative_l2": 0.0006208002450875938,
+              "cosine": 0.9999999403953552
+            },
+            {
+              "layer": 5,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.002688884735107422,
+              "relative_l2": 0.000724460172932595,
+              "cosine": 1.0000423192977905
+            },
+            {
+              "layer": 3,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.006181597709655762,
+              "relative_l2": 0.0008639043662697077,
+              "cosine": 0.9999995827674866
+            },
+            {
+              "layer": 3,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.004117369651794434,
+              "relative_l2": 0.001108796801418066,
+              "cosine": 0.9999994039535522
+            },
+            {
+              "layer": 6,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0096893310546875,
+              "relative_l2": 0.0007033009896986187,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 6,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0016640722751617432,
+              "relative_l2": 0.0014092744095250964,
+              "cosine": 1.000048279762268
+            },
+            {
+              "layer": 8,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.01068878173828125,
+              "relative_l2": 0.0006642937660217285,
+              "cosine": 0.9999996423721313
+            },
+            {
+              "layer": 8,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.001234292984008789,
+              "relative_l2": 0.0008871276513673365,
+              "cosine": 1.000040888786316
+            },
+            {
+              "layer": 9,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.006822705268859863,
+              "relative_l2": 0.0006891598459333181,
+              "cosine": 0.9999993443489075
+            },
+            {
+              "layer": 9,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0009686946868896484,
+              "relative_l2": 0.0006602966459468007,
+              "cosine": 1.0000300407409668
+            },
+            {
+              "layer": 10,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.0069236159324646,
+              "relative_l2": 0.0009192027500830591,
+              "cosine": 0.9999988675117493
+            },
+            {
+              "layer": 10,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0005199313163757324,
+              "relative_l2": 0.0012450611684471369,
+              "cosine": 1.0000356435775757
+            },
+            {
+              "layer": 7,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.009105682373046875,
+              "relative_l2": 0.0009592430433258414,
+              "cosine": 0.9999996423721313
+            },
+            {
+              "layer": 7,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.006862640380859375,
+              "relative_l2": 0.0004895496531389654,
+              "cosine": 0.9999998211860657
+            },
+            {
+              "layer": 11,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.014441490173339844,
+              "relative_l2": 0.001046225894242525,
+              "cosine": 0.9999995231628418
+            },
+            {
+              "layer": 11,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.00557708740234375,
+              "relative_l2": 0.0006359553663060069,
+              "cosine": 0.9999998807907104
+            },
+            {
+              "layer": 12,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.014996528625488281,
+              "relative_l2": 0.0008141399011947215,
+              "cosine": 0.9999992251396179
+            },
+            {
+              "layer": 12,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0023183822631835938,
+              "relative_l2": 0.0010372968390583992,
+              "cosine": 1.000048279762268
+            },
+            {
+              "layer": 13,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.011189520359039307,
+              "relative_l2": 0.0012022880837321281,
+              "cosine": 0.9999983906745911
+            },
+            {
+              "layer": 13,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0006385147571563721,
+              "relative_l2": 0.002226820681244135,
+              "cosine": 1.0000377893447876
+            },
+            {
+              "layer": 14,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.009817361831665039,
+              "relative_l2": 0.0010717349359765649,
+              "cosine": 0.9999995231628418
+            },
+            {
+              "layer": 14,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.001295577734708786,
+              "relative_l2": 0.0019434046698734164,
+              "cosine": 1.000057578086853
+            },
+            {
+              "layer": 16,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.01993560791015625,
+              "relative_l2": 0.0011745387455448508,
+              "cosine": 0.999998927116394
+            },
+            {
+              "layer": 16,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.005546748638153076,
+              "relative_l2": 0.002370283007621765,
+              "cosine": 1.0000431537628174
+            },
+            {
+              "layer": 17,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.020071029663085938,
+              "relative_l2": 0.0011082468554377556,
+              "cosine": 0.9999987483024597
+            },
+            {
+              "layer": 17,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0031780004501342773,
+              "relative_l2": 0.0013489372795447707,
+              "cosine": 1.0000373125076294
+            },
+            {
+              "layer": 15,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.010941028594970703,
+              "relative_l2": 0.0010625822469592094,
+              "cosine": 0.9999994039535522
+            },
+            {
+              "layer": 15,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.00547027587890625,
+              "relative_l2": 0.0005135021056048572,
+              "cosine": 0.9999998211860657
+            },
+            {
+              "layer": 18,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.031963348388671875,
+              "relative_l2": 0.0009696896886453032,
+              "cosine": 0.9999991655349731
+            },
+            {
+              "layer": 18,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.008730649948120117,
+              "relative_l2": 0.0016235139919444919,
+              "cosine": 1.000028133392334
+            },
+            {
+              "layer": 20,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.01670658588409424,
+              "relative_l2": 0.0007983336690813303,
+              "cosine": 0.9999995231628418
+            },
+            {
+              "layer": 20,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.002683401107788086,
+              "relative_l2": 0.0013733258238062263,
+              "cosine": 1.000020146369934
+            },
+            {
+              "layer": 21,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.018610715866088867,
+              "relative_l2": 0.0008725129882805049,
+              "cosine": 0.999998927116394
+            },
+            {
+              "layer": 21,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0024002790451049805,
+              "relative_l2": 0.0010630604811012745,
+              "cosine": 1.0000298023223877
+            },
+            {
+              "layer": 22,
+              "kind": "conv",
+              "finite": true,
+              "max_abs": 0.00943756103515625,
+              "relative_l2": 0.000781973241828382,
+              "cosine": 0.9999986886978149
+            },
+            {
+              "layer": 22,
+              "kind": "recurrent",
+              "finite": true,
+              "max_abs": 0.0015325546264648438,
+              "relative_l2": 0.001154466299340129,
+              "cosine": 1.0000247955322266
+            },
+            {
+              "layer": 19,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.008556365966796875,
+              "relative_l2": 0.0013508310075849295,
+              "cosine": 0.9999992251396179
+            },
+            {
+              "layer": 19,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.003998160362243652,
+              "relative_l2": 0.001422146800905466,
+              "cosine": 0.9999990463256836
+            },
+            {
+              "layer": 23,
+              "kind": "keys",
+              "finite": true,
+              "max_abs": 0.007044315338134766,
+              "relative_l2": 0.0013662780402228236,
+              "cosine": 0.9999990463256836
+            },
+            {
+              "layer": 23,
+              "kind": "values",
+              "finite": true,
+              "max_abs": 0.005360603332519531,
+              "relative_l2": 0.0005268490640446544,
+              "cosine": 0.9999999403953552
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -24,10 +24,13 @@ def main():
         return "(" + ", ".join(items) + ("," if items else "") + ")"
     sources = ["ProbeApp/ANEProbeApp.swift", "Sources/QwenANERuntime/QwenANE.swift",
                "Sources/QwenANERuntime/ANEPlan.swift"]
-    resources = ["ProbeApp/fixture.json", "Models/Qwen3.5-0.8B-IME-Q4"]
+    resources = ["ProbeApp/fixture.json", "Models/Qwen3.5-0.8B-IME-Q4",
+                 "THIRD_PARTY_NOTICES.txt", "LICENSE-QWEN.txt"]
     references, source_builds, resource_builds = [], [], []
     for path in sources + resources:
-        kind = "sourcecode.swift" if path.endswith(".swift") else ("folder" if path.startswith("Models/") else "text.json")
+        kind = ("sourcecode.swift" if path.endswith(".swift") else
+                "folder" if path.startswith("Models/") else
+                "text.json" if path.endswith(".json") else "text")
         reference = add("file:" + path, f"isa = PBXFileReference; lastKnownFileType = {kind}; path = {quote(path)}; sourceTree = \"<group>\";")
         references.append(reference)
         build = add("build:" + path, f"isa = PBXBuildFile; fileRef = {reference};")

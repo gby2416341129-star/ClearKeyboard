@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-27",
+  "mainProjectEdited": false,
+  "modelRevision": "2fc06364715b967f1860aea9cf38778875588b17",
+  "upstreamDigestsVerifiedDuringDownload": true,
+  "protobufContractValidation": "passed",
+  "pythonSyntaxValidation": "passed",
+  "xcodeSchemeXMLValidation": "passed",
+  "workflowYAMLValidation": "passed",
+  "swiftAppleSDKCompilation": "not_run",
+  "cloudBuild": "in_progress",
+  "iphoneANEExecution": "not_run",
+  "keyboardExtensionValidation": "not_run",
+  "typingSpeedAndAccuracyAcceptance": "user_will_validate",
+  "xcodeProjectOpenStepValidation": "passed",
+  "precision": "calibrated mixed LUT4 / LUT6 body with rowwise INT8 embedding and head",
+  "old8bitBaselineBytes": 1261991992,
+  "cloudRun": "https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/40381368905",
+  "experimentBranch": "npu/qwen35-08b-calibrated-q4",
+  "pytorchChunkStructureParity": "passed_short_prefix_check",
+  "q4ModelExport": "pending"
+}

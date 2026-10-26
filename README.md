@@ -1,42 +1,35 @@
-# 独立 iPhone Qwen ANE 验证工程
+# Qwen 0.8B iPhone ANE 独立后端
 
-当前工作已切换到**原始 Qwen BF16 → 中文输入 Fisher 校准 → 以 LUT4 为主的混合精度 Core ML**。入口为 `Conversion/build_q4.py`。首尾层保留 LUT6、小型递归门控保留浮点、输出层为 INT8，词嵌入表采用逐行 INT8 + FP16 scale。128 条合成校准输入与 32 条独立留出输入使用当前键盘的提示格式；它们用于检查量化偏差，不代表实际打字准确率。
+本目录只处理 Qwen3.5-0.8B 的 Core ML 后端，未接入或修改 ClearKeyboard 主项目。用户授权的云端实验分支为 `npu/qwen35-08b-calibrated-q4`。
 
-用户已授权在 `npu/qwen35-08b-calibrated-q4` 实验分支运行云端构建；主分支与 ClearKeyboard 本地工程保持独立。量化和可移植模型导出在 Linux runner 完成，再由云端 Mac 编译 iPhone 验证 App。旧 1.26 GB 文件只保留在本地作为比较基线，不进入该 4-bit App 的资源列表。下文记录原始验证基线，4-bit 的实际大小与验证结果以新产物 JSON 为准。
+## 4-bit 方案
 
-只负责 Qwen3.5-0.8B 的 Core ML / ANE 后端。本目录独立于 ClearKeyboard，尚未接入键盘，也未修改主项目。
+从 Qwen 原始 BF16 权重直接校准，主体采用 LUT4；首尾层及需要提升精度的矩阵采用 LUT6，小型递归门控保留浮点。词嵌入和输出层采用逐行 INT8，词嵌入文件为 254,776,320 bytes。这里的“4-bit”指主体混合精度方案，并非每个参数都占 4 bit。
 
-当前准备：锁定并下载 4 块 MLKV 模型及 embedding；全部文件按上游摘要校验；解析 protobuf 核对输入、输出、状态和 2048-token 容量。原型使用公开 iOS 18+ Core ML API，CPU+ANE 配置排除 GPU。**本机是 Windows，Swift 尚未通过 Apple SDK 编译，iPhone ANE 执行也未验证。**
+128 条合成校准样本和 32 条数值验证样本使用当前键盘的 ChatML 提示格式。验证集用于选择混合精度配置，不能作为独立的输入法准确率基准；此过程不属于输入法专项微调。
 
-## 不需要自有 Mac
+最终模型目录为 `Models/Qwen3.5-0.8B-IME-Q4`。只有生成 `model-info.json`、四个 `chunk_*.mlpackage` 和对应验证记录后，才代表转换完成。实际大小见 `model-info.json`。本地旧目录 `qwen3_5_0_8b_decode_chunks_mlkv` 是 1.262 GB 的 8-bit 比较基线，不进入本次 App。
 
-独立仓库中的 `.github/workflows/iphone-ane-probe.yml` 使用 GitHub 的 macOS runner，构建 arm64 验证 App 并输出未签名 IPA 和日志。当前仅准备了流程，**尚未上传仓库或启动云端任务**。未签名 IPA 仍需要有效签名才能安装到 iPhone。
+## 云端构建
 
-本地 Mac 的等效命令是 `bash Scripts/build_probe.sh`。Xcode 工程已经生成，可设置开发团队后直接运行。GitHub 虚拟机和模拟器的结果均不能替代 iPhone ANE 证据。
+`.github/workflows/iphone-ane-probe.yml` 在 Linux 完成校准及可移植模型导出，再由云端 Mac 编译 arm64 iPhone 验证 App。模型、转换记录、未签名 IPA 分别作为 Actions 产物保存。未签名 IPA 需要有效签名后才能安装；云端编译成功不能替代 iPhone 执行。
 
-## 模型大小
+当前转换任务：[GitHub Actions](https://github.com/gby2416341129-star/ClearKeyboard/actions/runs/40381368905)。最新状态以该任务及 `Evidence/preparation-status.json` 为准。
 
-模型文件共 **1,261,991,992 bytes = 1.262 GB = 1.175 GiB**，其中 embedding 508,559,360 bytes，其余主要是四块模型的权重。正式替换旧约 0.53 GB GGUF 后，模型部分净增加约 0.73 GB。App 自身、编译缓存、更新过程占用另计。推理内存不等于模型文件总大小。
+## 接入接口
 
-此版本是独立可行性验证基线，体积不能视作最终上架方案。进一步缩小量化位数或 embedding 会改变数值，需要另行验证。
+`QwenANE.logits(for: [Int32])` 返回完整 248,320 词表的原始分数。主项目提供匹配 tokenizer 和现有候选解码逻辑。连续追加复用 KV/SSM；改写、退格、上下文变化会重置重放。取消在 token/chunk 边界生效。
 
-## 实机验证范围
+采用公开 iOS 18+ Core ML API，配置为 `.cpuAndNeuralEngine`。它允许 CPU 与 ANE，不能据此宣称所有运算都在 NPU。没有重复惩罚或采样修补来掩盖输出偏差。
 
-验证 App 读取设备上的 `MLComputePlan`，执行固定的 18-token 提示和最多 16 个输出 token，并导出设备型号、OS、模型版本、耗时、采样到的内存占用、完整算子分配计划。没有自有 Mac 时，可先导出手机内的计划与成功预测记录。算子计划表示预期分配；如需进一步确认实际硬件执行，可用连接真机的 Mac 在 Instruments 联合查看 Core ML、Neural Engine、GPU 和 signpost 轨迹。云端 Mac 不能直接采集未连接的本地 iPhone USB 轨迹。
+## 独立 iPhone 验证 App
 
-导出的 `hardwareTraceCaptured`、`keyboardExtensionTested` 固定为 false，避免把一次 App 推理误报成硬件轨迹或键盘验收。候选准确性、输入手感、长输入速度由用户后续验收；键盘扩展的内存和生命周期仍需独立实机验证。
+App 首次在手机上编译模型，读取该设备的 `MLComputePlan`，执行固定提示并允许导出设备、耗时、采样内存及算子计划记录。计划表示预期分配，实际 ANE 硬件执行仍需真机证据；`hardwareTraceCaptured` 和 `keyboardExtensionTested` 保持 false。
 
-## 给主项目的接口
+短前缀的 PyTorch 分块结构已与原模型对照；记录在 `Evidence/chunk-parity.json`。这不替代压缩模型检查或真机测试。打字准确率、长输入速度及键盘扩展体验由用户验证。
 
-`QwenANE.logits(for: [Int32])` 返回完整词表原始分数；匹配的 tokenizer 和拼音约束候选解码由主项目负责。相同前缀的追加请求复用 KV/SSM 状态；改写、退格或上下文变化会重置重放。取消发生在 token/chunk 边界，不能中断已经提交的单次 Core ML 同步预测。
+## 固定来源
 
-不自动加重复惩罚。上游 v1.8 报告约 45–50 token/s，但其文档说明使用重复惩罚缓解部分 iPhone 输出偏差，且最初几个 token 仍可能不一致。因此该数字不能作为输入法首候选准确率、iPhone Air 速度或能效结论。正式接入前必须核对短输出和数值偏差，不能通过采样策略掩盖。
-
-## 来源
-
-- [CoreML-LLM 锁定源码](https://github.com/john-rocky/CoreML-LLM/tree/e45a7a61dd7e35ba58dd14aa7a8f843c8caa3f0f)
-- [锁定模型版本](https://huggingface.co/mlboydaisuke/qwen3.5-0.8B-CoreML/tree/82700f499b705c64c594c42deff684ec0321bcce)
-- [上游短输出偏差说明](https://github.com/john-rocky/CoreML-LLM/blob/e45a7a61dd7e35ba58dd14aa7a8f843c8caa3f0f/docs/QWEN35_FULL_VOCAB_REP_PENALTY.md)
-- [Apple MLState 并发约束](https://developer.apple.com/documentation/coreml/mlstate)
-- [Apple Core ML 硬件分析](https://developer.apple.com/videos/play/wwdc2022/10027/)
-- [GitHub macOS runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+- [Qwen3.5-0.8B 原始权重](https://huggingface.co/Qwen/Qwen3.5-0.8B/tree/2fc06364715b967f1860aea9cf38778875588b17)，Apache 2.0，见 `LICENSE-QWEN.txt`。
+- [CoreML-LLM MLKV 图结构](https://github.com/john-rocky/CoreML-LLM/tree/e45a7a61dd7e35ba58dd14aa7a8f843c8caa3f0f)，MIT，见 `THIRD_PARTY_NOTICES.txt`。
+- [Apple MLState](https://developer.apple.com/documentation/coreml/mlstate)、[MLComputePlan](https://developer.apple.com/documentation/coreml/mlcomputeplan-1w21n)。

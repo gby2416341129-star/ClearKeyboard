@@ -27,6 +27,9 @@ SOFTWARE.
 
 Qwen3.5-0.8B model weights originate from Alibaba Cloud / the Qwen team.
 https://huggingface.co/Qwen/Qwen3.5-0.8B
-The Core ML conversion is by mlboydaisuke.
-https://huggingface.co/mlboydaisuke/qwen3.5-0.8B-CoreML
+The calibrated mixed-LUT4 conversion in this package is built directly from
+the original Qwen checkpoint at 2fc06364715b967f1860aea9cf38778875588b17.
+Its MLKV graph structure adapts the MIT-licensed CoreML-LLM source above.
+The older mlboydaisuke 8-bit Core ML files are retained only as a separate
+local comparison baseline and are not bundled in the 4-bit validation App.
 Model weights are Apache License 2.0; see LICENSE-QWEN.txt.

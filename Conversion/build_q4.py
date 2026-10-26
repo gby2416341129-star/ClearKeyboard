@@ -249,8 +249,10 @@ def skm_config(model, samples, overrides=None):
     for name, module in model.named_modules():
         bits = overrides.get(name) if overrides is not None else module_policy(name, module)
         if bits is not None:
+            # A separate palette per output row avoids forcing heterogeneous
+            # rows to share just 16 values. This costs about 15 MB of LUT data.
             modules[name] = {"n_bits": bits, "granularity": "per_grouped_channel",
-                             "group_size": 32, "channel_axis": 0, "cluster_dim": 1,
+                             "group_size": 1, "channel_axis": 0, "cluster_dim": 1,
                              "enable_per_channel_scale": False, "lut_dtype": None}
     if not modules:
         raise RuntimeError("No eligible modules for calibrated quantization")
@@ -328,7 +330,15 @@ def main():
         print("Original checkpoint + actual IME prompt alignment: PASS", flush=True)
         return
     from coremltools.optimize.torch.palettization import SKMPalettizer
+    from skm_unique import install as install_unique_kmeans
+    install_unique_kmeans()
     embedding = export_embedding(model, args.out / "embed_weight.int8.bin")
+    q8_reference = evaluate(model, holdout)
+    q8_comparison = compare(reference, q8_reference)
+    save_json(args.work / "q8-baseline.json", {"comparison": q8_comparison,
+                                             "results": q8_reference})
+    if not q8_comparison["guardPassed"]:
+        raise RuntimeError("Embedding/head INT8 alone failed the original numerical guard")
     for name, parameter in model.named_parameters():
         module_name = name.rsplit(".", 1)[0]
         module = model.get_submodule(module_name)
@@ -367,8 +377,9 @@ def main():
     gc.collect()
     rounds = []
     errors = []
-    for attempt in range(3):
+    for attempt in range(5):
         candidate = evaluate(model, holdout)
+        save_json(args.work / f"candidate-attempt-{attempt}.json", candidate)
         comparison = compare(reference, candidate)
         comparison["attempt"] = attempt
         rounds.append(comparison)
@@ -378,7 +389,7 @@ def main():
         print("QUALITY " + json.dumps({k: v for k, v in comparison.items() if k != "cases"}), flush=True)
         if comparison["guardPassed"]:
             break
-        if attempt == 2:
+        if attempt == 4:
             raise RuntimeError("Calibrated LUT4 mixture failed held-out numerical guard; no release artifact")
         promote = [item["module"] for item in errors if item["bits"] == 4][:12]
         if not promote:
@@ -397,6 +408,8 @@ def main():
     save_json(args.out / "quantization-quality.json", {
         "sourceRevision": REVISION, "syntheticCalibrationSamples": len(calibration),
         "heldoutExamples": len(holdout), "promptSource": "current IME ChatML system/user template",
+        "paletteGrouping": "one independent scalar LUT per output row",
+        "q8OnlyComparison": q8_comparison,
         "corpusSHA256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in [HERE / "calibration.jsonl", HERE / "holdout.jsonl"]},
         "rounds": rounds, "bodyParameterCoverage": coverage,

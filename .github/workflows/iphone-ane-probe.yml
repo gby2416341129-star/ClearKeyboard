@@ -39,6 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work/artifacts
+          python3 -u Conversion/skm_unique.py --self-test 2>&1 | tee work/artifacts/weighted-unique-preflight.log
           python3 -u Conversion/build_q4.py --threads 4 --kmeans-workers 2 2>&1 | tee work/artifacts/quantization.log
       - uses: actions/upload-artifact@v4
         with:
@@ -56,6 +57,8 @@ jobs:
             work/q4/quality.json
             work/q4/reference.json
             work/q4/layer-errors.json
+            work/q4/q8-baseline.json
+            work/q4/candidate-attempt-*.json
           retention-days: 7
   build-iphone:
     needs: convert

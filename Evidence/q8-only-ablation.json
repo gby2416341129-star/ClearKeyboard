@@ -1,0 +1,1048 @@
+{
+  "purpose": "synthetic heldout q8-only ablation, no SKM",
+  "comparison": {
+    "examples": 32,
+    "scoredTokens": 107,
+    "referenceNLL": 6.050511412231129,
+    "quantizedNLL": 6.0504631779557005,
+    "deltaNLL": -4.823427542904827e-05,
+    "teacherForcedTop1Agreement": 0.9813084112149533,
+    "firstTokenAgreement": 1.0,
+    "cases": [
+      {
+        "id": "H001",
+        "category": "全拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.005434630438685417
+      },
+      {
+        "id": "H002",
+        "category": "全拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.0017298062642415364
+      },
+      {
+        "id": "H003",
+        "category": "全拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.006757855415344238
+      },
+      {
+        "id": "H004",
+        "category": "全拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.02651691436767578
+      },
+      {
+        "id": "H005",
+        "category": "简拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.032164931297302246
+      },
+      {
+        "id": "H006",
+        "category": "简拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 0.6666666666666666,
+        "deltaNLL": 0.0012247761090596516
+      },
+      {
+        "id": "H007",
+        "category": "简拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.021694103876749676
+      },
+      {
+        "id": "H008",
+        "category": "混拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.015116512775421143
+      },
+      {
+        "id": "H009",
+        "category": "混拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.013048807779947916
+      },
+      {
+        "id": "H010",
+        "category": "混拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.0007149378458658854
+      },
+      {
+        "id": "H011",
+        "category": "错拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.012747764587402344
+      },
+      {
+        "id": "H012",
+        "category": "错拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.0009235143661499023
+      },
+      {
+        "id": "H013",
+        "category": "错拼",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.012846151987711588
+      },
+      {
+        "id": "H014",
+        "category": "同音歧义",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.04182910919189453
+      },
+      {
+        "id": "H015",
+        "category": "同音歧义",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.024713516235351562
+      },
+      {
+        "id": "H016",
+        "category": "同音歧义",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.012796401977539062
+      },
+      {
+        "id": "H017",
+        "category": "同音歧义",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.02128651738166809
+      },
+      {
+        "id": "H018",
+        "category": "人名地名",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 1.527865727742513e-05
+      },
+      {
+        "id": "H019",
+        "category": "人名地名",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.026469945907592773
+      },
+      {
+        "id": "H020",
+        "category": "人名地名",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.00847159077723821
+      },
+      {
+        "id": "H021",
+        "category": "数字英文混输",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 0.6666666666666666,
+        "deltaNLL": 0.0439143180847168
+      },
+      {
+        "id": "H022",
+        "category": "数字英文混输",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.012970011681318283
+      },
+      {
+        "id": "H023",
+        "category": "数字英文混输",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.012580446898937225
+      },
+      {
+        "id": "H024",
+        "category": "数字英文混输",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.013476073741912842
+      },
+      {
+        "id": "H025",
+        "category": "口语短句",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.008846600850423178
+      },
+      {
+        "id": "H026",
+        "category": "口语短句",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.023467957973480225
+      },
+      {
+        "id": "H027",
+        "category": "叠词重复",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.002297699451446533
+      },
+      {
+        "id": "H028",
+        "category": "叠词重复",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.01968008279800415
+      },
+      {
+        "id": "H029",
+        "category": "标点",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.0024863826110959053
+      },
+      {
+        "id": "H030",
+        "category": "标点",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.0043590247631073
+      },
+      {
+        "id": "H031",
+        "category": "续写",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": 0.02396368980407715
+      },
+      {
+        "id": "H032",
+        "category": "续写",
+        "firstTokenAgreement": true,
+        "tokenAgreement": 1.0,
+        "deltaNLL": -0.004265649616718293
+      }
+    ],
+    "guardThresholds": {
+      "maxDeltaNLL": 0.15,
+      "minTop1Agreement": 0.85,
+      "minFirstTokenAgreement": 0.85
+    },
+    "guardPassed": true
+  },
+  "embedding": {
+    "encoding": "int8_rowwise_fp16_scale",
+    "vocab": 248320,
+    "hidden": 1024,
+    "bytes": 254776320,
+    "normalizedSquaredError": 7.996991674250152e-05,
+    "sha256": "3486df1df0b0be964a59925f8cc44e50b33dc52e6dcb262807e01cca7aad31b3"
+  },
+  "referenceMarginStats": {
+    "count": 107,
+    "min": 0.03331565856933594,
+    "median": 1.00433349609375,
+    "mean": 1.3271883492157839,
+    "max": 6.684440612792969,
+    "lt0.1": 5,
+    "lt0.25": 20
+  },
+  "flippedReferenceMarginStats": {
+    "count": 2,
+    "min": 0.04920005798339844,
+    "median": 0.05677509307861328,
+    "mean": 0.05677509307861328,
+    "max": 0.06435012817382812,
+    "lt0.1": 2,
+    "lt0.25": 2
+  },
+  "firstFlippedReferenceMarginStats": {
+    "count": 0
+  },
+  "flipsToOriginalSecondChoice": 2,
+  "flipCount": 2,
+  "teacherForcedTargetTop1": {
+    "reference": 0.18691588785046728,
+    "q8": 0.17757009345794392
+  },
+  "firstTargetTop1": {
+    "reference": 0.0,
+    "q8": 0.0
+  },
+  "fallbacks": [],
+  "details": [
+    {
+      "id": "H001",
+      "target": "请把门窗关好",
+      "changedPositions": [],
+      "referenceMargins": [
+        1.4997692108154297,
+        1.7231922149658203,
+        0.20601463317871094,
+        5.395054817199707
+      ],
+      "q8Margins": [
+        1.5287914276123047,
+        1.6515007019042969,
+        0.13414573669433594,
+        5.40461540222168
+      ],
+      "referenceFirstTop2": [
+        "清",
+        "这个"
+      ],
+      "q8FirstTop2": [
+        "清",
+        "这个"
+      ]
+    },
+    {
+      "id": "H002",
+      "target": "我们在图书馆见",
+      "changedPositions": [],
+      "referenceMargins": [
+        1.0136070251464844,
+        0.9151144027709961,
+        0.3739652633666992
+      ],
+      "q8Margins": [
+        1.0028705596923828,
+        0.9587287902832031,
+        0.4147453308105469
+      ],
+      "referenceFirstTop2": [
+        "女人",
+        "女"
+      ],
+      "q8FirstTop2": [
+        "女人",
+        "女"
+      ]
+    },
+    {
+      "id": "H003",
+      "target": "我今天想早点回家",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.16593170166015625,
+        0.16014862060546875,
+        0.2048788070678711,
+        0.48929595947265625
+      ],
+      "q8Margins": [
+        0.15483760833740234,
+        0.14322566986083984,
+        0.2097148895263672,
+        0.4617462158203125
+      ],
+      "referenceFirstTop2": [
+        "这个",
+        "老婆"
+      ],
+      "q8FirstTop2": [
+        "这个",
+        "老婆"
+      ]
+    },
+    {
+      "id": "H004",
+      "target": "账单我已经对过了",
+      "changedPositions": [],
+      "referenceMargins": [
+        2.500126838684082,
+        0.03331565856933594,
+        0.13704872131347656,
+        0.14333438873291016
+      ],
+      "q8Margins": [
+        2.499969482421875,
+        0.1240081787109375,
+        0.12108421325683594,
+        0.1925792694091797
+      ],
+      "referenceFirstTop2": [
+        "张",
+        "这"
+      ],
+      "q8FirstTop2": [
+        "张",
+        "这"
+      ]
+    },
+    {
+      "id": "H005",
+      "target": "请把笔借给我",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.5907602310180664,
+        2.733285903930664,
+        1.546452522277832,
+        0.6930751800537109
+      ],
+      "q8Margins": [
+        0.6057214736938477,
+        2.6675567626953125,
+        1.4439315795898438,
+        0.7115058898925781
+      ],
+      "referenceFirstTop2": [
+        "这",
+        "这个"
+      ],
+      "q8FirstTop2": [
+        "这",
+        "这个"
+      ]
+    },
+    {
+      "id": "H006",
+      "target": "我们下期见",
+      "changedPositions": [
+        2
+      ],
+      "referenceMargins": [
+        1.3677539825439453,
+        0.5453948974609375,
+        0.06435012817382812
+      ],
+      "q8Margins": [
+        1.3202476501464844,
+        0.5557966232299805,
+        0.020570755004882812
+      ],
+      "referenceFirstTop2": [
+        "这",
+        "本"
+      ],
+      "q8FirstTop2": [
+        "这",
+        "本"
+      ]
+    },
+    {
+      "id": "H007",
+      "target": "这几天都下雨",
+      "changedPositions": [],
+      "referenceMargins": [
+        2.357572555541992,
+        0.03828239440917969,
+        0.2196493148803711
+      ],
+      "q8Margins": [
+        2.388721466064453,
+        0.12007713317871094,
+        0.2120208740234375
+      ],
+      "referenceFirstTop2": [
+        "看了",
+        "看"
+      ],
+      "q8FirstTop2": [
+        "看了",
+        "看"
+      ]
+    },
+    {
+      "id": "H008",
+      "target": "明早我过去",
+      "changedPositions": [],
+      "referenceMargins": [
+        1.0335073471069336,
+        1.1757965087890625,
+        0.041469573974609375,
+        0.33179569244384766
+      ],
+      "q8Margins": [
+        0.9655923843383789,
+        1.2321901321411133,
+        0.002288818359375,
+        0.2674570083618164
+      ],
+      "referenceFirstTop2": [
+        "今天",
+        "太"
+      ],
+      "q8FirstTop2": [
+        "今天",
+        "太"
+      ]
+    },
+    {
+      "id": "H009",
+      "target": "请你核对金额",
+      "changedPositions": [],
+      "referenceMargins": [
+        1.1775169372558594,
+        0.8779697418212891,
+        3.018505096435547
+      ],
+      "q8Margins": [
+        1.2402153015136719,
+        0.8954620361328125,
+        2.9793014526367188
+      ],
+      "referenceFirstTop2": [
+        "转账",
+        "在"
+      ],
+      "q8FirstTop2": [
+        "转账",
+        "在"
+      ]
+    },
+    {
+      "id": "H010",
+      "target": "下次再聊",
+      "changedPositions": [],
+      "referenceMargins": [
+        1.000772476196289,
+        3.141712188720703,
+        3.9371166229248047
+      ],
+      "q8Margins": [
+        0.9772529602050781,
+        3.213054656982422,
+        3.9657363891601562
+      ],
+      "referenceFirstTop2": [
+        "我现在",
+        "我"
+      ],
+      "q8FirstTop2": [
+        "我现在",
+        "我"
+      ]
+    },
+    {
+      "id": "H011",
+      "target": "请把外套带上",
+      "changedPositions": [],
+      "referenceMargins": [
+        2.141986846923828,
+        0.15956687927246094,
+        0.16867637634277344
+      ],
+      "q8Margins": [
+        2.0908470153808594,
+        0.2092742919921875,
+        0.19200897216796875
+      ],
+      "referenceFirstTop2": [
+        "晚上",
+        "夜晚"
+      ],
+      "q8FirstTop2": [
+        "晚上",
+        "夜晚"
+      ]
+    },
+    {
+      "id": "H012",
+      "target": "我下午有约",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.3800039291381836,
+        0.9701700210571289,
+        1.1187219619750977,
+        1.6356611251831055
+      ],
+      "q8Margins": [
+        0.37744998931884766,
+        1.120431900024414,
+        1.131448745727539,
+        1.6309423446655273
+      ],
+      "referenceFirstTop2": [
+        "老婆",
+        "老"
+      ],
+      "q8FirstTop2": [
+        "老婆",
+        "老"
+      ]
+    },
+    {
+      "id": "H013",
+      "target": "你的快递到了",
+      "changedPositions": [],
+      "referenceMargins": [
+        3.2123546600341797,
+        0.8285865783691406,
+        1.2416276931762695
+      ],
+      "q8Margins": [
+        3.1909303665161133,
+        0.8633861541748047,
+        1.1951360702514648
+      ],
+      "referenceFirstTop2": [
+        "前台",
+        "前"
+      ],
+      "q8FirstTop2": [
+        "前台",
+        "前"
+      ]
+    },
+    {
+      "id": "H014",
+      "target": "实际",
+      "changedPositions": [],
+      "referenceMargins": [
+        3.3042049407958984
+      ],
+      "q8Margins": [
+        3.2683753967285156
+      ],
+      "referenceFirstTop2": [
+        "别",
+        "不要"
+      ],
+      "q8FirstTop2": [
+        "别",
+        "不要"
+      ]
+    },
+    {
+      "id": "H015",
+      "target": "时机",
+      "changedPositions": [],
+      "referenceMargins": [
+        2.260631561279297
+      ],
+      "q8Margins": [
+        2.222597122192383
+      ],
+      "referenceFirstTop2": [
+        "现在",
+        "还不"
+      ],
+      "q8FirstTop2": [
+        "现在",
+        "还不"
+      ]
+    },
+    {
+      "id": "H016",
+      "target": "有误",
+      "changedPositions": [],
+      "referenceMargins": [
+        5.536952972412109
+      ],
+      "q8Margins": [
+        5.554433822631836
+      ],
+      "referenceFirstTop2": [
+        "这份",
+        "这"
+      ],
+      "q8FirstTop2": [
+        "这份",
+        "该"
+      ]
+    },
+    {
+      "id": "H017",
+      "target": "邮务",
+      "changedPositions": [],
+      "referenceMargins": [
+        2.3783493041992188,
+        2.2007856369018555
+      ],
+      "q8Margins": [
+        2.484943389892578,
+        2.2575817108154297
+      ],
+      "referenceFirstTop2": [
+        "他",
+        "负责"
+      ],
+      "q8FirstTop2": [
+        "他",
+        "负责"
+      ]
+    },
+    {
+      "id": "H018",
+      "target": "周子涵",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.6029624938964844,
+        0.8948869705200195,
+        2.455921173095703
+      ],
+      "q8Margins": [
+        0.5424690246582031,
+        0.8797445297241211,
+        2.3761844635009766
+      ],
+      "referenceFirstTop2": [
+        "姓",
+        "周"
+      ],
+      "q8FirstTop2": [
+        "姓",
+        "周"
+      ]
+    },
+    {
+      "id": "H019",
+      "target": "青岛站",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.8665380477905273,
+        0.6354951858520508
+      ],
+      "q8Margins": [
+        0.7834262847900391,
+        0.6304159164428711
+      ],
+      "referenceFirstTop2": [
+        "车票",
+        "车站"
+      ],
+      "q8FirstTop2": [
+        "车票",
+        "车站"
+      ]
+    },
+    {
+      "id": "H020",
+      "target": "重庆解放碑",
+      "changedPositions": [],
+      "referenceMargins": [
+        2.479909896850586,
+        2.054013252258301,
+        3.388197898864746
+      ],
+      "q8Margins": [
+        2.5066051483154297,
+        2.047149658203125,
+        3.3464603424072266
+      ],
+      "referenceFirstTop2": [
+        "目的地",
+        "重庆"
+      ],
+      "q8FirstTop2": [
+        "目的地",
+        "重庆"
+      ]
+    },
+    {
+      "id": "H021",
+      "target": "请打开GPS",
+      "changedPositions": [
+        2
+      ],
+      "referenceMargins": [
+        1.00433349609375,
+        2.0070676803588867,
+        0.04920005798339844
+      ],
+      "q8Margins": [
+        1.051091194152832,
+        2.05859375,
+        0.012589454650878906
+      ],
+      "referenceFirstTop2": [
+        "清",
+        "高德"
+      ],
+      "q8FirstTop2": [
+        "清",
+        "高德"
+      ]
+    },
+    {
+      "id": "H022",
+      "target": "我在C5入口",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.61865234375,
+        0.22267436981201172,
+        2.2092742919921875,
+        1.0464601516723633
+      ],
+      "q8Margins": [
+        0.6184320449829102,
+        0.11971569061279297,
+        2.117298126220703,
+        1.010300636291504
+      ],
+      "referenceFirstTop2": [
+        "老婆",
+        "窝"
+      ],
+      "q8FirstTop2": [
+        "老婆",
+        "窝"
+      ]
+    },
+    {
+      "id": "H023",
+      "target": "本周5天全勤",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.7127752304077148,
+        1.4856300354003906,
+        2.043741226196289,
+        1.290522575378418
+      ],
+      "q8Margins": [
+        0.6960248947143555,
+        1.4912347793579102,
+        2.0219860076904297,
+        1.2966537475585938
+      ],
+      "referenceFirstTop2": [
+        "北京",
+        "本"
+      ],
+      "q8FirstTop2": [
+        "北京",
+        "本"
+      ]
+    },
+    {
+      "id": "H024",
+      "target": "把Excel表发来",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.6545858383178711,
+        2.271556854248047,
+        1.5911598205566406,
+        1.6440544128417969
+      ],
+      "q8Margins": [
+        0.7289495468139648,
+        2.2520437240600586,
+        1.5331478118896484,
+        1.634115219116211
+      ],
+      "referenceFirstTop2": [
+        "巴",
+        "百"
+      ],
+      "q8FirstTop2": [
+        "巴",
+        "把"
+      ]
+    },
+    {
+      "id": "H025",
+      "target": "这事真没办法",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.5053176879882812,
+        0.36168670654296875,
+        1.3001375198364258
+      ],
+      "q8Margins": [
+        0.46922969818115234,
+        0.32979679107666016,
+        1.2932758331298828
+      ],
+      "referenceFirstTop2": [
+        "这",
+        "这个"
+      ],
+      "q8FirstTop2": [
+        "这",
+        "这个"
+      ]
+    },
+    {
+      "id": "H026",
+      "target": "你有空再找我",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.4783153533935547,
+        0.7147855758666992,
+        0.9227848052978516,
+        0.4198427200317383
+      ],
+      "q8Margins": [
+        0.4408102035522461,
+        0.6276950836181641,
+        0.9727630615234375,
+        0.4033679962158203
+      ],
+      "referenceFirstTop2": [
+        "你",
+        "您"
+      ],
+      "q8FirstTop2": [
+        "你",
+        "您"
+      ]
+    },
+    {
+      "id": "H027",
+      "target": "一天一天好起来",
+      "changedPositions": [],
+      "referenceMargins": [
+        1.1919078826904297,
+        0.5254955291748047,
+        0.12847137451171875,
+        0.18304061889648438
+      ],
+      "q8Margins": [
+        1.23443603515625,
+        0.5342626571655273,
+        0.11227035522460938,
+        0.11308097839355469
+      ],
+      "referenceFirstTop2": [
+        "希望",
+        "日子"
+      ],
+      "q8FirstTop2": [
+        "希望",
+        "日子"
+      ]
+    },
+    {
+      "id": "H028",
+      "target": "大家再检查检查",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.5268869400024414,
+        0.20763301849365234,
+        0.18634414672851562,
+        1.1910724639892578
+      ],
+      "q8Margins": [
+        0.6121397018432617,
+        0.1851959228515625,
+        0.24786949157714844,
+        1.2398338317871094
+      ],
+      "referenceFirstTop2": [
+        "打",
+        "大"
+      ],
+      "q8FirstTop2": [
+        "打",
+        "大"
+      ]
+    },
+    {
+      "id": "H029",
+      "target": "坐标（3，5）",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.2792510986328125,
+        1.1475944519042969,
+        2.6371850967407227,
+        1.0698528289794922,
+        6.684440612792969,
+        0.7281856536865234
+      ],
+      "q8Margins": [
+        0.2677001953125,
+        1.169118881225586,
+        2.6544361114501953,
+        0.9570636749267578,
+        6.692039489746094,
+        0.7338371276855469
+      ],
+      "referenceFirstTop2": [
+        "这个",
+        "这"
+      ],
+      "q8FirstTop2": [
+        "这个",
+        "这"
+      ]
+    },
+    {
+      "id": "H030",
+      "target": "请选择A或B。",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.1518077850341797,
+        0.9820032119750977,
+        2.592864990234375,
+        2.888559341430664,
+        1.2394084930419922
+      ],
+      "q8Margins": [
+        0.21318435668945312,
+        0.9287996292114258,
+        2.569253921508789,
+        2.7856197357177734,
+        1.2241992950439453
+      ],
+      "referenceFirstTop2": [
+        "清",
+        "青"
+      ],
+      "q8FirstTop2": [
+        "清",
+        "青"
+      ]
+    },
+    {
+      "id": "H031",
+      "target": "今晚可能会降温",
+      "changedPositions": [],
+      "referenceMargins": [
+        2.3863773345947266,
+        1.1694068908691406,
+        0.4923286437988281
+      ],
+      "q8Margins": [
+        2.3701820373535156,
+        1.2589292526245117,
+        0.4375133514404297
+      ],
+      "referenceFirstTop2": [
+        "刚刚",
+        "刚"
+      ],
+      "q8FirstTop2": [
+        "刚刚",
+        "刚"
+      ]
+    },
+    {
+      "id": "H032",
+      "target": "拍得很有生活气息",
+      "changedPositions": [],
+      "referenceMargins": [
+        0.9758358001708984,
+        1.3956871032714844,
+        1.5815515518188477,
+        0.3688507080078125,
+        3.772808074951172
+      ],
+      "q8Margins": [
+        0.9732627868652344,
+        1.3402690887451172,
+        1.5476760864257812,
+        0.3540477752685547,
+        3.7644786834716797
+      ],
+      "referenceFirstTop2": [
+        "你",
+        "我"
+      ],
+      "q8FirstTop2": [
+        "你",
+        "我"
+      ]
+    }
+  ]
+}
