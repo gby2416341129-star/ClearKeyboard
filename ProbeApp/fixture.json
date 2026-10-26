@@ -1,0 +1,26 @@
+{
+  "prompt": "<|im_start|>user\n请只回答：你好。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+  "tokenIDs": [
+    248045,
+    846,
+    198,
+    96220,
+    96227,
+    97913,
+    4960,
+    109266,
+    1710,
+    248046,
+    198,
+    248045,
+    74455,
+    198,
+    248068,
+    271,
+    248069,
+    271
+  ],
+  "tokenizerRepo": "Qwen/Qwen3.5-0.8B",
+  "tokenizerRevision": "2fc06364715b967f1860aea9cf38778875588b17",
+  "tokenizerSHA256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+}

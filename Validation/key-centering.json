@@ -1,9 +1,0 @@
-{
-  "status": "passed",
-  "method": "independent screenshot pixel bounds of dark glyph ink versus visible key face",
-  "keysMeasured": 116,
-  "tolerancePx": 1.25,
-  "maxHorizontalErrorPx": 0.906,
-  "maxVerticalErrorPx": 1.0,
-  "failures": []
-}

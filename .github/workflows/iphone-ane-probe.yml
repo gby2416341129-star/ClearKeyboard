@@ -1,0 +1,98 @@
+name: Calibrated Qwen 0.8B LUT4 for iPhone ANE
+on:
+  workflow_dispatch:
+  push:
+    branches: [npu/qwen35-08b-calibrated-q4]
+permissions:
+  contents: read
+concurrency:
+  group: qwen-ane-q4-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  convert:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '2'
+      HF_HUB_DISABLE_XET: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reuse identical reviewed conversion
+        id: model-cache
+        uses: actions/cache@v4
+        with:
+          path: Models/Qwen3.5-0.8B-IME-Q4
+          key: qwen-ime-lut4-${{ hashFiles('Conversion/**') }}
+      - name: Install pinned conversion dependencies
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          python3 -m pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+          python3 -m pip install coremltools==9.0 transformers==5.5.0 safetensors==0.7.0 numpy==2.4.4 scikit-learn==1.7.2
+      - name: Calibrate, validate numerical drift and export LUT4
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/artifacts
+          python3 -u Conversion/build_q4.py --threads 4 --kmeans-workers 2 2>&1 | tee work/artifacts/quantization.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Qwen35-IME-Q4-model
+          path: Models/Qwen3.5-0.8B-IME-Q4/
+          compression-level: 0
+          retention-days: 7
+      - name: Save conversion diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Qwen35-IME-Q4-diagnostics
+          path: |
+            work/artifacts/
+            work/q4/quality.json
+            work/q4/reference.json
+            work/q4/layer-errors.json
+          retention-days: 7
+  build-iphone:
+    needs: convert
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Qwen35-IME-Q4-model
+          path: Models/Qwen3.5-0.8B-IME-Q4
+      - name: Build iPhone arm64 validation app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/artifacts
+          xcodebuild -version > work/artifacts/apple-toolchain.txt
+          xcrun swift --version >> work/artifacts/apple-toolchain.txt
+          bash Scripts/build_probe.sh 2>&1 | tee work/artifacts/xcodebuild.log
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/ipa/Payload
+          ditto work/build/Build/Products/Release-iphoneos/ANEProbe.app work/ipa/Payload/ANEProbe.app
+          cd work/ipa
+          ditto -c -k --keepParent Payload ../artifacts/ANEProbe-Q4-unsigned.ipa
+          cd ../artifacts
+          shasum -a 256 ANEProbe-Q4-unsigned.ipa > ANEProbe-Q4-unsigned.ipa.sha256
+          printf '%s\n' 'Unsigned build only. iPhone execution and keyboard extension validation are pending.' > STATUS.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ANEProbe-Q4-unsigned-IPA
+          path: work/artifacts/
+          retention-days: 7
+          compression-level: 0

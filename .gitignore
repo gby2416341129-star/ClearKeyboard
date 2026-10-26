@@ -1,14 +1,6 @@
 .DS_Store
 .build/
-.swiftpm/
-DerivedData/
+work/
+Models/
 *.xcuserstate
 xcuserdata/
-.dictionary-cache/
-__pycache__/
-dist/
-pending-feedback.json
-
-.rime-cache/
-Core/Resources/Rime/
-Core/Resources/associations.clx

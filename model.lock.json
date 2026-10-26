@@ -1,0 +1,86 @@
+{
+  "repo": "mlboydaisuke/qwen3.5-0.8B-CoreML",
+  "revision": "82700f499b705c64c594c42deff684ec0321bcce",
+  "bundle": "qwen3_5_0_8b_decode_chunks_mlkv",
+  "upstream_runtime_commit": "e45a7a61dd7e35ba58dd14aa7a8f843c8caa3f0f",
+  "files": [
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_a.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "size": 205360,
+      "digest": "a056cae81009bb18841aab7167790cb969e00e56fe2f29c5e4aaaf6723eae35a",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_a.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "size": 126178560,
+      "digest": "9eb275a882a565eb9b1f270f380d6b9f7e60e51f813c515ffab6a7c94f2ce415",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_a.mlpackage/Manifest.json",
+      "size": 617,
+      "digest": "b384e6041cc1a32f0cbff4529608a072f123a3b8",
+      "algorithm": "git-blob-sha1"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_b.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "size": 213237,
+      "digest": "71f14a02694c1350201b6e4ec715358e763c62ce3f5b6919228a29aec1065d72",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_b.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "size": 122974784,
+      "digest": "fd3bb35fb307cc30379d9f3756b9f501b9aaeae0d568c80efae6c5035d2d6d31",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_b.mlpackage/Manifest.json",
+      "size": 617,
+      "digest": "9b5365ca87238a4bb2fb183bd451ea2888181431",
+      "algorithm": "git-blob-sha1"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_c.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "size": 205430,
+      "digest": "1dab5eb1b29920e6f5946e05d00d14d9dc771061862999ed61d1d31ec42fe07d",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_c.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "size": 126178560,
+      "digest": "fb6d202a14511a3c430c9e2f87ff8de21ca7529aebc8b44d1f75eb5be01cd974",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_c.mlpackage/Manifest.json",
+      "size": 617,
+      "digest": "258cb930894e803e5b085965da419a39c63f1aeb",
+      "algorithm": "git-blob-sha1"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_d.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "size": 217017,
+      "digest": "98b58e1d378713a23d8d5dc86ec07af491689134c4fe4b0e058bfd776b1d3689",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_d.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "size": 377257216,
+      "digest": "498ce84015afdbbd01758756d9eefec5dc65f01a87a56df414f447f12db66887",
+      "algorithm": "sha256"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/chunk_d.mlpackage/Manifest.json",
+      "size": 617,
+      "digest": "ef71938df73407ce144be70829fcebda1d9094b4",
+      "algorithm": "git-blob-sha1"
+    },
+    {
+      "path": "qwen3_5_0_8b_decode_chunks_mlkv/embed_weight.bin",
+      "size": 508559360,
+      "digest": "24375b3c4ceac14cb5a66efa63545eae9ca0f37a6b57ea7a713797784249771b",
+      "algorithm": "sha256"
+    }
+  ]
+}
