@@ -149,17 +149,36 @@ import CoreImage
         cache[key] = value; return value
     }
     static func shift(active _: Bool, capsLocked: Bool, ink _: UIColor) -> UIImage {
-        let source = image(symbol: "shift", size: 28)
-        // Keep the same blue facets as Delete. The key face indicates a single
-        // capital; Caps Lock adds its own bar without cropping or tinting ink.
+        let key = "shift.delete-matched-palette"
+        let source: UIImage
+        if let cached = cache[key] { source = cached }
+        else {
+            let original = image(symbol: "shift", size: 28)
+            let format = UIGraphicsImageRendererFormat(); format.opaque = false
+            source = UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28), format: format).image { renderer in
+                let rect = CGRect(x: (28 - original.size.width) / 2, y: (28 - original.size.height) / 2,
+                                  width: original.size.width, height: original.size.height)
+                original.draw(in: rect)
+                renderer.cgContext.setBlendMode(.sourceIn)
+                UIColor(red: 49.0/255, green: 139.0/255, blue: 247.0/255, alpha: 1).setFill()
+                renderer.cgContext.fill(CGRect(x: 0, y: 0, width: 28, height: 28))
+                renderer.cgContext.setBlendMode(.sourceAtop)
+                UIColor(red: 105.0/255, green: 204.0/255, blue: 247.0/255, alpha: 1).setFill()
+                let facet = UIBezierPath(); facet.move(to: .zero)
+                facet.addLine(to: CGPoint(x: 28, y: 0)); facet.addLine(to: CGPoint(x: 28, y: 12))
+                facet.addLine(to: CGPoint(x: 0, y: 22)); facet.close(); facet.fill()
+            }.withRenderingMode(.alwaysOriginal)
+            cache[key] = source
+        }
         guard capsLocked else { return source }
         let format = UIGraphicsImageRendererFormat(); format.opaque = false
-        return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28), format: format).image { renderer in
+        return UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28), format: format).image { _ in
             source.draw(in: CGRect(x: 1.4, y: 0, width: 25.2, height: 25.2))
             UIColor(red: 105.0/255, green: 204.0/255, blue: 247.0/255, alpha: 1).setFill()
             UIBezierPath(roundedRect: CGRect(x: 8.75, y: 24, width: 10.5, height: 1.8), cornerRadius: 0.9).fill()
         }.withRenderingMode(.alwaysOriginal)
     }
+
 }
 
 @MainActor final class ToolIconView: UIView {
@@ -245,6 +264,7 @@ struct ToolIcon: UIViewRepresentable {
     var expectedContentWidth: CGFloat = 0 { didSet { if expectedContentWidth != oldValue { setNeedsLayout() } } }
     var edgeIcons: [ToolIconView] = []
     private let edgeMask = CAGradientLayer()
+    private let verticalMask = CAGradientLayer()
     override func layoutSubviews() {
         super.layoutSubviews()
         if abs(contentSize.width - expectedContentWidth) > 0.5 || contentSize.height != bounds.height {
@@ -267,6 +287,12 @@ struct ToolIcon: UIViewRepresentable {
         if bounds.width > 0 {
             if layer.mask !== edgeMask { layer.mask = edgeMask }
             edgeMask.frame = bounds
+            verticalMask.frame = edgeMask.bounds
+            verticalMask.startPoint = CGPoint(x: 0.5, y: 0); verticalMask.endPoint = CGPoint(x: 0.5, y: 1)
+            let margin = min(0.15, 3 / max(1, bounds.height))
+            verticalMask.colors = [UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+            verticalMask.locations = [0, NSNumber(value: Double(margin)), NSNumber(value: Double(1 - margin)), 1]
+            edgeMask.mask = verticalMask
             edgeMask.startPoint = CGPoint(x: 0, y: 0.5); edgeMask.endPoint = CGPoint(x: 1, y: 0.5)
             edgeMask.colors = [UIColor.black.withAlphaComponent(left ? 0 : 1).cgColor, UIColor.black.cgColor,
                                UIColor.black.cgColor, UIColor.black.withAlphaComponent(right ? 0 : 1).cgColor]
@@ -330,18 +356,27 @@ struct ToolIcon: UIViewRepresentable {
 
 @MainActor final class ToolTileButton: FeedbackButton {
     private let lens = LiquidGlassView(radius: 16, keycap: true, clear: true)
+    private let pressWash = UIView()
     private let artwork: ToolIconView
     private let caption = UILabel()
     private let badge = UILabel()
     init(title: String, symbol: String, action: @escaping () -> Void) {
         artwork = ToolIconView(symbol: symbol)
         super.init(frame: .zero)
-        addSubview(lens); addSubview(artwork); addSubview(caption)
+        addSubview(lens); addSubview(pressWash); addSubview(artwork); addSubview(caption)
+        pressWash.isUserInteractionEnabled = false; pressWash.alpha = 0
+        pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.10)
+        pressWash.layer.cornerRadius = 16; pressWash.layer.cornerCurve = .continuous
         caption.text = title; caption.textColor = .label; caption.font = .systemFont(ofSize: 12,weight: .medium)
         caption.textAlignment = .center; caption.adjustsFontSizeToFitWidth = true; caption.minimumScaleFactor = 0.9
         for view in [artwork,caption] { view.isUserInteractionEnabled = false }
         isAccessibilityElement = true; accessibilityLabel = title
-        addAction(UIAction { _ in action() }, for: .touchUpInside)
+        addAction(UIAction { [weak self] _ in
+            self?.playActivationFeedback()
+            self?.pressWash.alpha = 1
+            UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { self?.pressWash.alpha = 0 }
+            action()
+        }, for: .touchUpInside)
         badge.textAlignment = .center; badge.font = .systemFont(ofSize: 13, weight: .semibold)
         badge.textColor = .label; badge.backgroundColor = .tertiarySystemFill
         badge.layer.cornerRadius = 8; badge.clipsToBounds = true; badge.isHidden = true
@@ -351,7 +386,7 @@ struct ToolIcon: UIViewRepresentable {
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        lens.frame = bounds
+        lens.frame = bounds; pressWash.frame = bounds
         artwork.frame = CGRect(x: bounds.midX-14,y: 7,width: 28,height: 28)
         caption.frame = CGRect(x: 5,y: 40,width: max(0,bounds.width-10),height: 16)
         badge.frame = CGRect(x: bounds.midX + 7, y: 4, width: 16, height: 16)
@@ -366,6 +401,10 @@ struct ToolIcon: UIViewRepresentable {
     }
     func updateCaption(_ title: String) { caption.text = title; accessibilityLabel = title }
     override var isHighlighted: Bool {
-        didSet { lens.alpha = isHighlighted ? 0.72 : 1 }
+        didSet {
+            lens.alpha = isHighlighted ? 0.72 : 1
+            UIView.animate(withDuration: isHighlighted ? 0.06 : 0.18, delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction]) { self.pressWash.alpha = self.isHighlighted ? 1 : 0 }
+        }
     }
 }

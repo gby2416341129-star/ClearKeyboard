@@ -19,6 +19,10 @@ import os
     private let frameLog = OSLog(subsystem: "app.clear.keyboard", category: .pointsOfInterest)
     private var ink: UIColor = .systemTeal
     private let strip = UIView()
+    private let inkBlur = UIVisualEffectView(effect: nil)
+    private var inkAnimator: UIViewPropertyAnimator?
+    private var outgoingInk: UIView?
+    private var managementActive = false
     private let selectionTap = UITapGestureRecognizer()
     private var tapStoppedScrolling = false
     private var buttons: [CandidateButton] = []
@@ -37,7 +41,8 @@ import os
     private var idleScheduled = false
     private var browsed: Presentation?
     private var fingerActive: Bool { isTracking || isDragging || panGestureRecognizer.state == .began || panGestureRecognizer.state == .changed }
-    var holdsCandidateUpdates: Bool { fingerActive || isDecelerating }
+    var holdsCandidateUpdates: Bool { fingerActive || isDecelerating || managementActive }
+    var onManage: ((Candidate, KeyboardModel.CandidateContext, CGRect) -> Void)?
     var onInteractionChanged: ((Bool) -> Void)?
     var onLoadMore: ((KeyboardModel.CandidateContext?) -> Void)?
     var onSelect: ((Candidate, KeyboardModel.CandidateContext?, Bool) -> Void)?
@@ -49,6 +54,8 @@ import os
         super.init(frame: .zero)
         delegate = self
         addSubview(strip)
+        inkBlur.isUserInteractionEnabled = false; inkBlur.accessibilityElementsHidden = true; inkBlur.alpha = 0
+        addSubview(inkBlur)
         strip.isOpaque = false
         // Word faces and their spacing are presentation only. Every contact,
         // including one in a gap, reaches this same scroll view and native pan.
@@ -78,6 +85,9 @@ import os
         addGestureRecognizer(selectionTap)
         // Only selection waits for the native pan; dragging never waits for a tap.
         selectionTap.require(toFail: panGestureRecognizer)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(candidateHeld(_:)))
+        hold.minimumPressDuration = 0.36; hold.allowableMovement = 9; hold.delegate = self
+        addGestureRecognizer(hold)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
@@ -133,6 +143,58 @@ import os
             } else { self.apply(next, accent: color) }
         }
     }
+    private func transitionInk(disappearing: Bool, appearing: Bool) {
+        guard window != nil, !UIAccessibility.isReduceMotionEnabled, !UIAccessibility.isVoiceOverRunning else { return }
+        if disappearing, let host = superview, bounds.height > 0,
+           let old = resizableSnapshotView(from: bounds, afterScreenUpdates: false, withCapInsets: .zero) {
+            outgoingInk?.removeFromSuperview(); outgoingInk = old
+            old.frame = convert(bounds, to: host); old.isUserInteractionEnabled = false; old.accessibilityElementsHidden = true
+            let blur = UIVisualEffectView(effect: nil); blur.frame = old.bounds; blur.isUserInteractionEnabled = false
+            old.addSubview(blur); host.addSubview(old)
+            UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: {
+                old.alpha = 0; blur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            }, completion: { [weak self, weak old] _ in
+                old?.removeFromSuperview()
+                if self?.outgoingInk === old { self?.outgoingInk = nil }
+            })
+        }
+        guard appearing, inkAnimator?.isRunning != true else { return }
+        inkBlur.frame = bounds; inkBlur.alpha = 0.38
+        inkBlur.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+        let animator = UIViewPropertyAnimator(duration: 0.16, curve: .easeOut) { [weak self] in self?.inkBlur.effect = nil; self?.inkBlur.alpha = 0 }
+        inkAnimator = animator; animator.startAnimation()
+    }
+    func prepareToDisappear() {
+        guard presentation?.items.isEmpty == false else { return }
+        transitionInk(disappearing: true, appearing: false)
+        displayFrame.cancel(); frameValue.discard(); pending = nil
+        presentation = nil; geometry.reset(); visibleRange = 0..<0
+        buttons.forEach { $0.finishTransition(); $0.isHidden = true; $0.tag = -1 }
+    }
+    func dismissManagement() { managementActive = false; scheduleIdle() }
+    @objc private func candidateHeld(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, let current = presentation, !current.arithmetic, let context = current.context else { return }
+        let point = strip.convert(gesture.location(in: self), from: self)
+        let index = firstIndex(at: point.x)
+        guard current.items.indices.contains(index), frames.indices.contains(index), frames[index].contains(point) else { return }
+        beginBrowsing(); managementActive = true
+        KeyboardVibration.shared.pulseInterface()
+        onManage?(current.items[index], context, convert(frames[index], from: strip))
+    }
+    private func selectionFeedback(_ index: Int) {
+        guard let host = superview, frames.indices.contains(index) else { return }
+        let flash = LiquidGlassView(radius: 8, clear: true)
+        let rect = strip.convert(frames[index], to: host).insetBy(dx: 1, dy: 6)
+        flash.frame = rect
+        flash.configure(tint: ink, strength: 0.65, fallback: ink.withAlphaComponent(0.18))
+        host.addSubview(flash)
+        flash.transform = CGAffineTransform(scaleX: 0.98, y: 0.96)
+        KeyboardVibration.shared.pulseInterface()
+        UIView.animate(withDuration: 0.22, delay: 0.025, usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
+                       options: [.allowUserInteraction, .beginFromCurrentState], animations: {
+            flash.transform = .identity; flash.alpha = 0
+        }, completion: { _ in flash.removeFromSuperview() })
+    }
     func inputChanged() {
         // Only an actual edit may interrupt a coasting row. A decoder result
         // arriving after finger-up is never a reason to stop native momentum.
@@ -168,6 +230,10 @@ import os
         let appendOnly = next.items.count >= previous.count &&
             zip(previous, next.items).allSatisfy { $0.text == $1.text }
         if changedQuery { browsed = nil; requestedCount = -1 }
+        if changedItems, !holdsCandidateUpdates {
+            let deleting = next.items.isEmpty || (next.context?.raw.count ?? 0) < (presentation?.context?.raw.count ?? 0)
+            transitionInk(disappearing: deleting && !previous.isEmpty, appearing: !next.items.isEmpty)
+        }
         presentation = next; ink = accent
         if changedItems || changedFont {
             if !appendOnly || changedFont { geometry.reset() }
@@ -186,6 +252,7 @@ import os
     }
     override func layoutSubviews() {
         super.layoutSubviews()
+        inkBlur.frame = bounds
         if viewportSize != bounds.size {
             viewportSize = bounds.size
             geometry.resize(height: bounds.height)
@@ -336,6 +403,7 @@ import os
     fileprivate func activate(_ index: Int) {
         guard let current = presentation, current.items.indices.contains(index) else { return }
         buttons.forEach { $0.finishTransition() }
+        selectionFeedback(index)
         onSelect?(current.items[index], current.context, current.arithmetic)
     }
     private func setInteraction(_ active: Bool) {
@@ -346,6 +414,8 @@ import os
         // Touches select the latest actual row. End any visual blend at contact
         // down; native scrolling and selection never chase an animated target.
         buttons.forEach { $0.finishTransition() }
+        inkAnimator?.stopAnimation(true); inkAnimator = nil
+        inkBlur.effect = nil; inkBlur.alpha = 0; outgoingInk?.removeFromSuperview(); outgoingInk = nil
         browsed = presentation
         setInteraction(true)
         if let (next, color) = pending, sameQuery(browsed, next) {
@@ -455,7 +525,8 @@ import os
         // no old bitmap, opacity dip or delayed cleanup competes with later keys.
         let now = CACurrentMediaTime()
         let current = label.layer.presentation()?.transform ?? CATransform3DIdentity
-        let y = firstAppearance ? 4 : (abs(current.m42) > 0.01 ? current.m42 : 1.25)
+        let room = max(0, (bounds.height - font.lineHeight) / 2 - 1)
+        let y = min(room, firstAppearance ? 3 : (abs(current.m42) > 0.01 ? current.m42 : 1.25))
         let scale = firstAppearance ? 0.965 : (abs(current.m11 - 1) > 0.001 ? current.m11 : 0.985)
         transitionDeadline = now + Self.transitionDuration
         label.layer.add(spring("transform.translation.y", from: y, to: CGFloat.zero, layer: label.layer, now: now),
@@ -477,7 +548,9 @@ import os
     func move(to target: CGRect, animated: Bool) {
         let position = layer.presentation()?.position ?? layer.position
         let previous = frame
+        let leading = position.x - bounds.width / 2
         frame = target
+        if tag == 0 { layer.removeAnimation(forKey: "candidateCellPosition"); return }
         guard animated, !isHidden,
               !UIAccessibility.isReduceMotionEnabled, !UIAccessibility.isVoiceOverRunning else {
             layer.removeAnimation(forKey: "candidateCellPosition")
@@ -486,7 +559,7 @@ import os
         guard previous != target else { return }
         // The latest layout and hit targets are authoritative. Core Animation
         // only carries the visible cell from its current position to that layout.
-        let offset = max(-18, min(18, position.x - layer.position.x))
+        let offset = max(-min(18, target.minX), min(18, leading - target.minX))
         let start = CGPoint(x: layer.position.x + offset, y: layer.position.y)
         layer.add(spring("position", from: NSValue(cgPoint: start), to: NSValue(cgPoint: layer.position),
                          layer: layer, now: CACurrentMediaTime()), forKey: "candidateCellPosition")

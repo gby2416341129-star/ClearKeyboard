@@ -1,4 +1,4 @@
-name: Repair 69 typing response and candidate spring animation IPA
+name: Repair 70 keyboard motion and recorded feedback IPA
 on:
   push:
     branches: [codex/repair67-20261026]

@@ -22,12 +22,16 @@ import SwiftUI
     private var draggedTool: ToolbarTool?
     private var dragIcon: UIImageView?
     private var dragPoint = CGPoint.zero
-    private var toolbarEdgeTimer: Timer?
+    private var toolbarDragUpdates: UIUpdateLink?
+    private var toolbarDragOrder: [ToolbarTool]?
+    private var toolbarDragTimestamp: CFTimeInterval = 0
+    private var toolbarDragGeneration = 0
     private var appearancePanelCache: KeyboardAppearancePanelView?
     private let clipboardText = ClipboardInlinePreview()
     private var toolbarDragActive = false
     private var toolbarTapBlockedUntil: CFTimeInterval = 0
     private let candidateScroll = CandidateScrollView()
+    private var candidateActions: CandidateActionsOverlay?
     private let localPreedit = UILabel()
     private let hint = UILabel()
     private let keyGlassGroup = UIView()
@@ -77,7 +81,7 @@ import SwiftUI
         var released: Bool?
     }
     private var keyContacts: [KeyContact] = []
-    var isInteractingWithCandidates: Bool { candidateScroll.holdsCandidateUpdates }
+    var isInteractingWithCandidates: Bool { candidateScroll.holdsCandidateUpdates || (panel as? ClipboardPanel)?.isChoosing == true }
     private var candidateHeight: CGFloat { movingCursor || !model.composition.isEmpty || !model.candidates.isEmpty || model.arithmetic != nil ? 44 : 0 }
     private var headerHeight: CGFloat { KeyboardGeometry.headerHeight }
     private var metrics: KeyboardGeometry.Metrics { KeyboardGeometry.Metrics(keyHeight: model.settings.keyHeight) }
@@ -127,6 +131,9 @@ import SwiftUI
         selectionDone.addAction(UIAction { [weak self] _ in
             self?.toolbarPulse(); (self?.panel as? ClipboardPanel)?.finishSelection()
         }, for: .touchUpInside)
+        candidateScroll.onManage = { [weak self] candidate, context, rect in
+            self?.showCandidateActions(candidate, context: context, rect: rect)
+        }
         addSubview(candidateScroll)
         localPreedit.font = .systemFont(ofSize: 12); localPreedit.textColor = .secondaryLabel
         localPreedit.numberOfLines = 1; localPreedit.lineBreakMode = .byTruncatingMiddle
@@ -192,7 +199,7 @@ import SwiftUI
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil { KeyboardVibration.shared.attach(to: self) }
-        else { stopInteractions() }
+        else { stopInteractions(preservePanel: true) }
     }
     private func compositionChanged() {
         let raw = model.composition.raw
@@ -373,6 +380,7 @@ import SwiftUI
         guard initialized else { return }
         let panelOpen = panel != nil
         let height = candidateHeight
+        if !panelOpen, height == 0, !candidateScroll.isHidden { candidateScroll.prepareToDisappear() }
         if presentedHeaderHeight != height {
             presentedHeaderHeight = height
             setNeedsLayout()
@@ -426,6 +434,14 @@ import SwiftUI
         if width > 0 { header.origin.x += width + 8; header.size.width -= width + 8 }
         if candidateScroll.frame != header { candidateScroll.frame = header }
         hint.frame = header
+    }
+    private func showCandidateActions(_ candidate: Candidate, context: KeyboardModel.CandidateContext, rect: CGRect) {
+        candidateActions?.close()
+        let overlay = CandidateActionsOverlay(anchor: candidateScroll.convert(rect, to: self), in: self,
+            pin: { [weak self] in self?.model.manageCandidate(candidate, context: context, pinned: true) },
+            remove: { [weak self] in self?.model.manageCandidate(candidate, context: context, pinned: false) })
+        overlay.onDismiss = { [weak self] in self?.candidateActions = nil; self?.candidateScroll.dismissManagement() }
+        addSubview(overlay); candidateActions = overlay
     }
     private func beginContact(_ button: KeyButton, action: KeyAction) {
         let key = ObjectIdentifier(button)
@@ -486,7 +502,7 @@ import SwiftUI
             let spacer = UIView(); spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             toolbar.addArrangedSubview(spacer); toolbar.addArrangedSubview(toolbarScroll); toolbar.addArrangedSubview(selectionDone)
         }
-        let tools = model.settings.toolbar.filter { $0 != .language }
+        let tools = (toolbarDragOrder ?? model.settings.toolbar).filter { $0 != .language }
         let animate = window != nil && !UIAccessibility.isReduceMotionEnabled
         for tool in Array(toolbarButtons.keys) where !tools.contains(tool) {
             guard let button = toolbarButtons.removeValue(forKey: tool) else { continue }
@@ -537,11 +553,11 @@ import SwiftUI
         if state != toolbarNavigationState, let brand = toolbarBrand {
             toolbarNavigationState = state
             var config = UIButton.Configuration.plain()
-            if #available(iOS 26.0, *), panel != nil { config = .glass() }
             config.contentInsets = .zero
-            config.image = toolbarEditing ? ToolArtwork.image(symbol: "checkmark", size: 24)
-                : panel != nil ? ToolArtwork.image(symbol: "chevron.down", size: 24) : ToolArtwork.brand(size: 32)
+            config.background = .clear()
+            config.image = ToolArtwork.brand(size: 32)
             brand.configuration = config
+            brand.accessibilityTraits = panel != nil ? [.button, .selected] : .button
             brand.accessibilityLabel = toolbarEditing ? "完成工具栏编辑" : panel != nil ? "返回键盘" : "键盘工具"
         }
         for (tool, button) in toolbarButtons {
@@ -554,7 +570,7 @@ import SwiftUI
                 badge.layer.cornerRadius = 6.5; badge.clipsToBounds = true; badge.isUserInteractionEnabled = false
                 button.addSubview(badge)
             } else if !toolbarEditing { button.viewWithTag(badgeTag)?.removeFromSuperview() }
-            button.setEditingMotion(toolbarEditing && draggedTool != tool)
+            button.setEditingMotion(toolbarEditing && !toolbarDragActive)
             button.accessibilityLabel = toolbarEditing ? "移除" + tool.title + "，长按拖动排序" : tool.title
             button.accessibilityTraits = activeTool == tool ? [.button, .selected] : .button
             if tool == .compatibility {
@@ -595,7 +611,7 @@ import SwiftUI
         guard tool != .language else { return }
         var tools = model.settings.toolbar
         if pinned { guard !tools.contains(tool) else { return }; tools.append(tool) }
-        else { guard tools.contains(tool) else { return }; tools.removeAll { $0 == tool }; editorPulse() }
+        else { guard tools.contains(tool) else { return }; tools.removeAll { $0 == tool } }
         model.settings.toolbar = tools
         render(); updateToolbarState()
     }
@@ -613,16 +629,34 @@ import SwiftUI
     }
     @discardableResult func beginToolbarDrag(_ tool: ToolbarTool) -> Bool {
         guard tool != .language, model.settings.toolbar.contains(tool) else { return false }
-        toolbarDragActive = true; toolbarTapBlockedUntil = .infinity; return true
+        if toolbarDragActive { finishToolbarDrag() }
+        toolbarDragGeneration += 1
+        toolbarDragOrder = model.settings.toolbar
+        draggedTool = tool
+        toolbarDragActive = true; toolbarTapBlockedUntil = .infinity
+        toolbarScroll.pendingOffset = nil
+        toolbarScroll.setContentOffset(toolbarScroll.contentOffset, animated: false)
+        updateToolbarState()
+        return true
+    }
+    private func stopToolbarDragUpdates() {
+        toolbarDragUpdates?.requiresContinuousUpdates = false
+        toolbarDragUpdates?.isEnabled = false; toolbarDragUpdates = nil
+        toolbarDragTimestamp = 0
     }
     func finishToolbarDrag() {
         let wasDragging = toolbarDragActive || draggedTool != nil
-        toolbarEdgeTimer?.invalidate(); toolbarEdgeTimer = nil
+        stopToolbarDragUpdates()
+        guard wasDragging else { return }
+        toolbarDragGeneration += 1
+        let order = toolbarDragOrder; toolbarDragOrder = nil
         if let tool = draggedTool { toolbarButtons[tool]?.alpha = 1 }
         dragIcon?.removeFromSuperview(); dragIcon = nil; draggedTool = nil
         toolbarDragActive = false; toolbarTapBlockedUntil = CACurrentMediaTime() + 0.18
+        // Persist and broadcast once, outside the frame-by-frame drag work.
+        if let order, order != model.settings.toolbar { model.settings.toolbar = order }
         toolbarSignature = ""; render()
-        if wasDragging { rememberToolbarOffset() }
+        rememberToolbarOffset()
     }
     @objc private func toolbarHold(_ gesture: UILongPressGestureRecognizer) {
         guard let identifier = gesture.view?.accessibilityIdentifier,
@@ -632,40 +666,77 @@ import SwiftUI
         case .began:
             if !toolbarEditing { showToolbarEditor() } else { editorPulse() }
             guard beginToolbarDrag(tool) else { return }
-            draggedTool = tool
-            let image = toolbarPreviewView(tool); image.center = dragPoint; image.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
+            let image = toolbarPreviewView(tool); image.center = dragPoint
+            image.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
             addSubview(image); dragIcon = image; toolbarButtons[tool]?.alpha = 0.25
-            toolbarButtons[tool]?.setEditingMotion(false)
-            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.toolbarDragTick() }
-            }
-            toolbarEdgeTimer = timer; RunLoop.main.add(timer, forMode: .common)
-        case .changed: toolbarDragTick()
+            let updates = UIUpdateLink(view: self)
+            updates.addAction(to: .beforeCATransactionCommit) { [weak self] _, _ in self?.toolbarDragTick() }
+            let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
+            updates.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
+            updates.requiresContinuousUpdates = true; updates.isEnabled = true
+            toolbarDragTimestamp = CACurrentMediaTime(); toolbarDragUpdates = updates
+        case .changed:
+            // Follow the finger directly; reorder and edge scrolling run once
+            // per display opportunity, not again for every touch sample.
+            dragIcon?.center = dragPoint
         case .ended, .cancelled, .failed:
-            toolbarEdgeTimer?.invalidate(); toolbarEdgeTimer = nil
-            if let image = dragIcon, let button = toolbarButtons[tool] {
+            toolbarDragTick(); stopToolbarDragUpdates()
+            let generation = toolbarDragGeneration
+            if let image = dragIcon, let button = toolbarButtons[tool], !UIAccessibility.isReduceMotionEnabled {
                 let target = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: self)
-                UIView.animate(withDuration: 0.16, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState], animations: {
+                UIView.animate(withDuration: 0.20, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
+                               options: [.allowUserInteraction, .beginFromCurrentState], animations: {
                     image.center = target; image.transform = .identity; image.alpha = 0
-                }, completion: { [weak self] _ in self?.finishToolbarDrag() })
+                }, completion: { [weak self] _ in
+                    guard let self, self.toolbarDragGeneration == generation else { return }
+                    self.finishToolbarDrag()
+                })
             } else { finishToolbarDrag() }
         default: break
         }
     }
     private func toolbarDragTick() {
-        guard let tool = draggedTool else { return }
+        guard let tool = draggedTool, toolbarDragActive else { return }
         dragIcon?.center = dragPoint
+        let now = CACurrentMediaTime()
+        let elapsed = min(1.0 / 30, max(0, now - toolbarDragTimestamp))
+        toolbarDragTimestamp = now
         let point = toolbarScroll.convert(dragPoint, from: self)
+        guard abs(point.y - toolbarScroll.bounds.midY) < 42 else { return }
         let viewportX = point.x - toolbarScroll.contentOffset.x
-        let velocity: CGFloat = viewportX < 24 ? -3.5 : viewportX > toolbarScroll.bounds.width - 24 ? 3.5 : 0
-        let x = min(max(0, toolbarScroll.contentOffset.x + velocity), max(0, toolbarScroll.contentSize.width - toolbarScroll.bounds.width))
-        toolbarOffset = x; toolbarScroll.contentOffset.x = x
-        let targetPoint = toolbarShortcuts.convert(dragPoint, from: self)
-        guard abs(targetPoint.y - toolbarShortcuts.bounds.midY) < 42,
-              let target = toolbarButtons.filter({ $0.key != tool }).min(by: { abs($0.value.frame.midX - targetPoint.x) < abs($1.value.frame.midX - targetPoint.x) }),
-              abs(target.value.frame.midX - targetPoint.x) < 13 else { return }
+        let edge: CGFloat = 30
+        let left = max(0, min(1, (edge - viewportX) / edge))
+        let right = max(0, min(1, (viewportX - (toolbarScroll.bounds.width - edge)) / edge))
+        let movement = (right - left) * 210 * CGFloat(elapsed)
+        if abs(movement) > 0.001 {
+            let x = toolbarScroll.clampedOffset(toolbarScroll.contentOffset.x + movement)
+            if abs(x - toolbarScroll.contentOffset.x) > 0.001 {
+                toolbarOffset = x; toolbarScroll.contentOffset.x = x
+            }
+        }
         performToolbarDrop(tool, at: dragPoint)
-        rememberToolbarOffset()
+    }
+    private func presentToolbarDragOrder(_ tools: [ToolbarTool]) {
+        let previous = toolbarButtons.mapValues { $0.layer.presentation()?.position ?? $0.layer.position }
+        UIView.performWithoutAnimation {
+            for (index, tool) in tools.filter({ $0 != .language }).enumerated() {
+                guard let button = toolbarButtons[tool], toolbarShortcuts.arrangedSubviews.firstIndex(of: button) != index else { continue }
+                toolbarShortcuts.removeArrangedSubview(button)
+                toolbarShortcuts.insertArrangedSubview(button, at: index)
+            }
+            toolbarShortcuts.layoutIfNeeded()
+        }
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
+        for (tool, button) in toolbarButtons where tool != draggedTool {
+            guard let position = previous[tool], position != button.layer.position else { continue }
+            let motion = CASpringAnimation(keyPath: "position")
+            motion.fromValue = NSValue(cgPoint: position); motion.toValue = NSValue(cgPoint: button.layer.position)
+            motion.mass = 1; motion.stiffness = 520; motion.damping = 34
+            motion.duration = 0.24
+            motion.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
+            button.layer.add(motion, forKey: "toolbar.reorder")
+        }
     }
     private func toolbarButton(_ tool: ToolbarTool) -> UIButton? {
         toolbarShortcuts.arrangedSubviews.compactMap { $0 as? UIButton }
@@ -698,10 +769,18 @@ import SwiftUI
         guard let closest = buttons.min(by: { abs($0.frame.midX - location.x) < abs($1.frame.midX - location.x) }),
               let identifier = closest.accessibilityIdentifier,
               let target = ToolbarTool(rawValue: String(identifier.dropFirst("toolbar.".count))) else { return }
-        var tools = model.settings.toolbar
+        var tools = toolbarDragOrder ?? model.settings.toolbar
         guard tool != target, let from = tools.firstIndex(of: tool), let to = tools.firstIndex(of: target) else { return }
+        if toolbarDragActive, let source = toolbarButtons[tool] {
+            // Cross the slot midpoint plus a small dead band before swapping.
+            // A finger resting near a boundary must not exchange slots repeatedly.
+            let threshold = abs(closest.frame.midX - source.frame.midX) / 2 + 3
+            guard abs(location.x - source.frame.midX) > threshold else { return }
+        }
         tools.remove(at: from); tools.insert(tool, at: min(to, tools.count))
-        model.settings.toolbar = tools
+        if toolbarDragActive {
+            toolbarDragOrder = tools; presentToolbarDragOrder(tools)
+        } else { model.settings.toolbar = tools }
     }
     private func rebuildRail() {
         sideRail.arrangedSubviews.forEach { sideRail.removeArrangedSubview($0); $0.removeFromSuperview() }
@@ -734,6 +813,7 @@ import SwiftUI
         deleteHint.isHidden = false; bringSubviewToFront(deleteHint)
     }
     private func preparePanelTransition(animated: Bool = true) {
+        candidateActions?.close()
         (panel as? ClipboardPanel)?.endSelection()
         let region = keyGlassGroup.frame.union(panel?.frame ?? keyGlassGroup.frame).intersection(bounds)
         panelTransition.begin(in: self, region: region, animated: animated)
@@ -773,7 +853,7 @@ import SwiftUI
         default: return nil
         }
     }
-    func stopInteractions() { rememberToolbarOffset(); keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); closePanel(animated: false); panelTransition.cancel() }
+    func stopInteractions(preservePanel: Bool = false) { rememberToolbarOffset(); keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); if !preservePanel { candidateActions?.close(); closePanel(animated: false) }; panelTransition.cancel() }
     private func announce(_ text: String) {
         guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)
@@ -920,6 +1000,7 @@ import SwiftUI
                 let tool = tools[index]
                 let tile = ToolTileButton(title: tool.title, symbol: tool.symbol) { [weak self] in
                     guard let self else { return }
+                    self.editorPulse()
                     self.setToolPinned(tool, pinned: !self.model.settings.toolbar.contains(tool))
                 }
                 tile.accessibilityIdentifier = "toolbar.editor." + tool.rawValue
@@ -953,7 +1034,7 @@ import SwiftUI
         }
         preparePanelTransition(); panelKind = kind; activeTool = kind
         if kind == .clipboard || kind == .phrases {
-            model.startClipboardCapture()
+            model.startClipboardCapture(retryPermission: true)
             let content = ClipboardPanel(model: model, showPhrases: kind == .phrases, completionInToolbar: true)
             content.onClose = { [weak self] in self?.closePanel() }
             content.onSelectionStateChanged = { [weak self] in self?.updateToolbarState(); self?.setNeedsLayout() }

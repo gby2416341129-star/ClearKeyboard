@@ -25,6 +25,11 @@ import ImageIO
     private var dragBaseline = Set<Int>()
     private var dragStart: Int?
     private var dragAdds = true
+    private var dragVisited = Set<Int>()
+    private var selectionUpdates: UIUpdateLink?
+    private var selectionPoint: CGPoint?
+    private var selectionTimestamp: CFTimeInterval = 0
+    private var pendingHostSelection: Set<Int>?
     var onClose: (() -> Void)?
     var onSelectionStateChanged: (() -> Void)?
     var isChoosing: Bool { selectionSource != nil }
@@ -61,45 +66,50 @@ import ImageIO
         words.accessibilityIdentifier = "clipboard.selection.words"
         words.prepareForKeyboardPanel(); words.dataSource = self; words.delegate = self
         words.register(ClipboardTokenCell.self, forCellWithReuseIdentifier: "token")
+        words.allowsSelection = false
+        words.delaysContentTouches = false
         if let layout = words.collectionViewLayout as? ClipboardTokenLayout {
             layout.widthForToken = { [weak self] index in
                 guard let self, self.tokens.indices.contains(index) else { return 28 }
                 return (self.tokens[index].text as NSString).size(withAttributes: [.font: UIFont.systemFont(ofSize: 18)]).width + 12
             }
         }
-        let drag = UIPanGestureRecognizer(target: self, action: #selector(selectWords(_:))); drag.delegate = self
+        let drag = UIPanGestureRecognizer(target: self, action: #selector(selectWords(_:))); drag.delegate = self; drag.cancelsTouchesInView = false
         words.addGestureRecognizer(drag); words.panGestureRecognizer.require(toFail: drag)
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapWord(_:)))
-        tap.require(toFail: drag); words.addGestureRecognizer(tap)
+        tap.require(toFail: drag); tap.cancelsTouchesInView = false; tap.delaysTouchesBegan = false; tap.delaysTouchesEnded = false; words.addGestureRecognizer(tap)
         reload()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
         more.frame = CGRect(x: bounds.width - 34, y: 5, width: 34, height: 34)
-        tabs.frame = CGRect(x: max(40, (bounds.width - 164) / 2), y: 7, width: min(164, max(0, bounds.width - 80)), height: 31)
+        let showPaste = !isChoosing && tabs.selectedSegmentIndex == 0 && model.document?.fullAccess == true
+        tabs.frame = CGRect(x: showPaste ? 8 : max(8, (bounds.width - 164) / 2), y: 7,
+                            width: min(164, max(0, bounds.width - (showPaste ? 174 : 80))), height: 31)
         send.frame = CGRect(x: bounds.width - 56, y: 5, width: 56, height: 34)
         let top: CGFloat = isChoosing && completionInToolbar ? 4 : 51
         let content = CGRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
-        let recoveryFooter = manualReadFailed && !items.isEmpty && tabs.selectedSegmentIndex == 0 && selectionSource == nil
+        let recoveryFooter = false
         table.frame = CGRect(x: content.minX, y: content.minY, width: content.width, height: max(0, content.height - (recoveryFooter ? 82 : 0)))
         words.frame = content
         let recoveryY = recoveryFooter ? content.maxY - 82 : content.midY - 44
         empty.frame = CGRect(x: 8, y: recoveryY, width: max(0, bounds.width - 16), height: 34)
-        pasteControl.frame = CGRect(x: (bounds.width - 114) / 2, y: recoveryY + 40, width: 114, height: 38)
+        pasteControl.frame = CGRect(x: max(0, bounds.width - 158), y: 3, width: 114, height: 38)
     }
     func reloadFromDisk(clearRecovery: Bool = true) {
         if clearRecovery { manualReadFailed = false }
-        store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL); reload()
+        store = ClipboardStore(url: url); phrases = ClipboardStore(url: phrasesURL)
+        if !isChoosing { reload() }
     }
     private func reload() {
         store.prune(lifetime: model.settings.clipboardLifetimeHours * 3_600)
         let choosing = selectionSource != nil
         tabs.isHidden = choosing; more.isHidden = choosing; send.isHidden = !choosing || completionInToolbar
         send.isEnabled = !selectedTokens.isEmpty; words.isHidden = !choosing; table.isHidden = choosing
-        empty.isHidden = choosing || (!items.isEmpty && !manualReadFailed)
-        empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : manualReadFailed ? "本次未读到内容，可点下方粘贴收录" : "暂无复制内容，可粘贴收录"
-        pasteControl.isHidden = choosing || tabs.selectedSegmentIndex == 1 || (!items.isEmpty && !manualReadFailed) || model.document?.fullAccess != true
+        empty.isHidden = choosing || !items.isEmpty
+        empty.text = tabs.selectedSegmentIndex == 1 ? "暂无常用语" : model.document?.fullAccess != true ? "请先开启键盘完全访问" : "暂无复制内容，可粘贴收录"
+        pasteControl.isHidden = choosing || tabs.selectedSegmentIndex == 1 || model.document?.fullAccess != true
         more.menu = overflowMenu()
         table.reloadData(); words.reloadData(); setNeedsLayout(); onSelectionStateChanged?()
     }
@@ -186,7 +196,9 @@ import ImageIO
         endSelection(); onClose?()
     }
     func endSelection() {
+        flushHostSelection(); stopSelectionUpdates()
         selectionSession?.finish(); selectionSession = nil
+        model.refreshCandidates()
     }
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int { tokens.count }
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -206,16 +218,24 @@ import ImageIO
             .min(by: { hypot($0.center.x - point.x, $0.center.y - point.y) < hypot($1.center.x - point.x, $1.center.y - point.y) })?.indexPath.item
     }
     @discardableResult func setSelection(_ indices: Set<Int>) -> Bool {
-        guard let source = selectionSource, indices != selectedTokens else { return true }
-        guard let session = selectionSession,
-              model.updateClipboardSelection(session, text: ClipboardSelection.text(source, tokens: tokens, selected: indices)) else {
-            return false
-        }
-        selectedTokens = indices
+        guard selectionSource != nil, indices != selectedTokens else { return true }
+        let changed = selectedTokens.symmetricDifference(indices)
+        let wasEmpty = selectedTokens.isEmpty
+        selectedTokens = indices; pendingHostSelection = indices
         for case let cell as ClipboardTokenCell in words.visibleCells {
-            if let index = words.indexPath(for: cell)?.item { configure(cell, at: index) }
+            if let index = words.indexPath(for: cell)?.item, changed.contains(index) { configure(cell, at: index) }
         }
-        send.isEnabled = !selectedTokens.isEmpty; onSelectionStateChanged?(); return true
+        send.isEnabled = !selectedTokens.isEmpty
+        if wasEmpty != selectedTokens.isEmpty { onSelectionStateChanged?() }
+        if dragStart == nil { return flushHostSelection() }
+        return true
+    }
+    @discardableResult private func flushHostSelection() -> Bool {
+        guard let indices = pendingHostSelection, let source = selectionSource, let session = selectionSession else { return true }
+        let text = ClipboardSelection.text(source, tokens: tokens, selected: indices)
+        guard model.updateClipboardSelection(session, text: text) else { return false }
+        pendingHostSelection = nil
+        return true
     }
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         var next = selectedTokens
@@ -227,22 +247,57 @@ import ImageIO
         collectionView(words, didSelectItemAt: IndexPath(item: index, section: 0))
     }
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
-        let velocity = pan.velocity(in: words)
-        return abs(velocity.x) >= abs(velocity.y) * 0.65
+        guard gestureRecognizer is UIPanGestureRecognizer else { return true }
+        return index(at: gestureRecognizer.location(in: words)) != nil
+    }
+    private func stopSelectionUpdates() {
+        selectionUpdates?.requiresContinuousUpdates = false; selectionUpdates?.isEnabled = false
+        selectionUpdates = nil; selectionPoint = nil; dragStart = nil
     }
     @objc private func selectWords(_ gesture: UIPanGestureRecognizer) {
         let point = gesture.location(in: words)
-        guard let index = index(at: point) else { return }
         if gesture.state == .began {
-            dragStart = index; dragBaseline = selectedTokens; dragAdds = !selectedTokens.contains(index)
+            let translation = gesture.translation(in: words)
+            let origin = CGPoint(x: point.x - translation.x, y: point.y - translation.y)
+            guard let start = index(at: origin) else { return }
+            dragStart = start; dragBaseline = selectedTokens; dragVisited = []
+            dragAdds = !selectedTokens.contains(start)
+            selectionTimestamp = CACurrentMediaTime()
+            let updates = UIUpdateLink(view: words)
+            updates.addAction(to: .beforeCATransactionCommit) { [weak self] _, _ in self?.selectionTick() }
+            let maximum = Float(window?.screen.maximumFramesPerSecond ?? 60)
+            updates.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
+            updates.requiresContinuousUpdates = true; updates.isEnabled = true; selectionUpdates = updates
         }
-        if let start = dragStart, gesture.state == .began || gesture.state == .changed || gesture.state == .ended {
-            let range = Set(min(start, index)...max(start, index))
-            _ = setSelection(dragAdds ? dragBaseline.union(range) : dragBaseline.subtracting(range))
+        selectionPoint = CGPoint(x: point.x, y: point.y - words.contentOffset.y)
+        if gesture.state == .began || gesture.state == .changed || gesture.state == .ended { updateDrag(at: point) }
+        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            flushHostSelection(); stopSelectionUpdates()
         }
-        if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed { dragStart = nil }
     }
+    private func updateDrag(at point: CGPoint) {
+        guard let start = dragStart, let index = index(at: point) else { return }
+        let range = Set(min(start, index)...max(start, index))
+        dragVisited.formUnion(range)
+        let next = dragAdds ? dragBaseline.union(range).subtracting(dragVisited.subtracting(range))
+            : dragBaseline.subtracting(dragVisited)
+        _ = setSelection(next)
+    }
+    private func selectionTick() {
+        guard let point = selectionPoint, dragStart != nil else { return }
+        let now = CACurrentMediaTime(), dt = min(1.0 / 30, max(0, now - selectionTimestamp))
+        selectionTimestamp = now
+        let edge: CGFloat = 28
+        let direction = point.y < edge ? -min(1, (edge - point.y) / edge)
+            : point.y > words.bounds.height - edge ? min(1, (point.y - words.bounds.height + edge) / edge) : 0
+        let maximum = max(0, words.contentSize.height - words.bounds.height)
+        let offset = min(maximum, max(0, words.contentOffset.y + direction * 180 * CGFloat(dt)))
+        if offset != words.contentOffset.y { words.contentOffset.y = offset }
+        updateDrag(at: CGPoint(x: min(max(2, point.x), words.bounds.width - 2),
+                               y: min(max(2, point.y), words.bounds.height - 2) + words.contentOffset.y))
+        flushHostSelection()
+    }
+
 }
 
 @MainActor private final class ClipboardCardCell: UITableViewCell {

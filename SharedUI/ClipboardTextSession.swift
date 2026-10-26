@@ -13,7 +13,7 @@ import UIKit
         before = document.contextBefore; after = document.contextAfter
     }
     @discardableResult func apply(_ text: String) -> Bool {
-        guard let document, document.validateCandidate(before: before, after: after, identity: identity) else { return false }
+        guard let document, document.validateClipboardSelection(before: before, after: after, identity: identity) else { return false }
         guard text != value else { return true }
         let old = Array(value), next = Array(text)
         var prefix = 0, suffix = 0

@@ -14,8 +14,7 @@ struct ClipboardObservation {
         key = "clear.clipboard.observedChangeCount.v2." + owner.rawValue
     }
     func shouldRead(changeCount: Int, hasContent: Bool) -> Bool {
-        hasContent && (defaults.object(forKey: "clear.clipboard.capturedChangeCount.v3") as? Int) != changeCount &&
-            (defaults.object(forKey: key) == nil || defaults.integer(forKey: key) != changeCount)
+        hasContent && (defaults.object(forKey: key) == nil || defaults.integer(forKey: key) != changeCount)
     }
     func didAttempt(changeCount: Int) { defaults.set(changeCount, forKey: key) }
     func didCapture(changeCount: Int) { defaults.set(changeCount, forKey: "clear.clipboard.capturedChangeCount.v3") }

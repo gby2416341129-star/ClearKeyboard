@@ -25,10 +25,12 @@ public enum ClipboardSelection {
             else { parts.append(text(source, tokens: tokens, from: start, through: end)); start = index; end = index }
         }
         parts.append(text(source, tokens: tokens, from: start, through: end))
-        return parts.reduce("") { result, part in
+        var result = ""
+        for part in parts {
             let separator = result.last?.isASCII == true && result.last?.isLetterOrNumber == true && part.first?.isASCII == true && part.first?.isLetterOrNumber == true ? " " : ""
-            return result + separator + part
+            result.append(separator); result.append(part)
         }
+        return result
     }
     public static func text(_ source: String, tokens: [Token], from: Int, through: Int) -> String {
         let low = min(from, through), high = max(from, through)

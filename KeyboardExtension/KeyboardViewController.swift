@@ -446,8 +446,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         guard hostWriteDepth == 0 else { return false }
         let read = readHostSnapshot()
         let expected = HostTextSnapshot(before: before, after: after, document: identity)
-        let ledger = clipboardSelectionActive ? hostState : HostTextState(expected)
-        return read.connected && ledger.accepts(expected, actual: read.snapshot)
+        return read.connected && hostState.accepts(expected, actual: read.snapshot)
     }
     func replaceClipboardSelection(_ text: String, previous: String) -> Bool {
         guard previous.isEmpty || clipboardSelectionActive,
@@ -685,7 +684,31 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         return snapshot
     }
     func clearInput(completion: @escaping (DeletedInput?) -> Void) {
-        completion(clearInput())
+        let identity = documentIdentity
+        guard identity != "disconnected" else { completion(nil); return }
+        let before = contextBefore, selected = selectedText, after = contextAfter
+        let text = before + selected + after
+        guard !text.isEmpty, text.count <= 4096 else { completion(nil); return }
+        let deleted = DeletedInput(text: text, selection: NSRange(location: before.utf16.count, length: selected.utf16.count))
+        if !selected.isEmpty { insert("") }
+        if !after.isEmpty { moveCursor(after.count) }
+        var remaining = before.count + after.count
+        func step() {
+            guard hostActive else { completion(nil); return }
+            if let current = connectedDocumentIdentifier()?.uuidString, current != identity { completion(nil); return }
+            let start = CACurrentMediaTime()
+            beginHostWrite()
+            var count = 0
+            while remaining > 0, count < 8 {
+                hostState.deleteBackward(); textDocumentProxy.deleteBackward()
+                remaining -= 1; count += 1
+                if CACurrentMediaTime() - start >= 0.004 { break }
+            }
+            endHostWrite()
+            if remaining > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) { step() } }
+            else { completion(deleted) }
+        }
+        step()
     }
     private func finishRestoredSelection() {
         guard let identity = restoredSelectionIdentity else { return }
@@ -699,9 +722,12 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     func restoreInput(_ value: DeletedInput) -> Bool {
         guard hostState.snapshot.document != "disconnected" else { return false }
-        insert(value.text)
         let prefix = (value.text as NSString).substring(to: min(value.selection.location, value.text.utf16.count))
-        moveCursor(prefix.count - value.text.count)
+        let offset = prefix.count - value.text.count
+        performHostEdit {
+            hostState.insert(value.text); textDocumentProxy.insertText(value.text)
+            if offset != 0 { hostState.moveCursor(offset); textDocumentProxy.adjustTextPosition(byCharacterOffset: offset) }
+        }
         return true
     }
 }
