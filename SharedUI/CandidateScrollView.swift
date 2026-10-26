@@ -478,11 +478,12 @@ import os
         let position = layer.presentation()?.position ?? layer.position
         let previous = frame
         frame = target
-        guard animated, previous != target, !isHidden,
+        guard animated, !isHidden,
               !UIAccessibility.isReduceMotionEnabled, !UIAccessibility.isVoiceOverRunning else {
             layer.removeAnimation(forKey: "candidateCellPosition")
             return
         }
+        guard previous != target else { return }
         // The latest layout and hit targets are authoritative. Core Animation
         // only carries the visible cell from its current position to that layout.
         let offset = max(-18, min(18, position.x - layer.position.x))
