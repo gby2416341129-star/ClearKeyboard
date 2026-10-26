@@ -23,7 +23,8 @@ public final class InputEngine {
         let valid = (preferred + (correction ? recentCorrections : [])).filter {
             !$0.text.isEmpty && $0.consumed > 0 && $0.consumed <= normalized.count
         }
-        var generated = decoder.candidates(raw, context: context, fuzzy: fuzzy, correction: correction,
+        let query = Composition.queryPrefix(raw, normalized: normalized)
+        var generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
                                            limit: limit, cancelled: cancelled)
         guard !cancelled() else { return [] }
         if !learned.isEmpty {
@@ -42,7 +43,8 @@ public final class InputEngine {
         return Array(output.prefix(max(1, limit)))
     }
     public func characterCandidates(_ raw: String, fuzzy: Set<String> = [], cancelled: () -> Bool = { false }) -> [Candidate] {
-        decoder.candidates(raw, fuzzy: fuzzy, characterOnly: true, limit: 4096, cancelled: cancelled)
+        let query = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
+        return decoder.candidates(query, fuzzy: fuzzy, characterOnly: true, limit: 4096, cancelled: cancelled)
     }
     public func predictions(after context: String, cancelled: () -> Bool = { false }) -> [Candidate] {
         decoder.candidates("", context: context, correction: false, limit: 12, cancelled: cancelled)

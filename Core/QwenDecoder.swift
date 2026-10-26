@@ -77,7 +77,13 @@ final class QwenDecoder {
             }
             if !raw.isEmpty, !characterOnly, !callback() {
                 cacheLock.lock()
-                immediate[raw] = Array(output.prefix(8))
+                // A later request may have different fuzzy settings or context.
+                // The context-free hot row reuses exact aligned readings only.
+                let spelling = FuzzyPinyin.normalize(raw)
+                immediate[raw] = Array(output.filter { candidate in
+                    let reading = FuzzyPinyin.normalize(candidate.reading)
+                    return !reading.isEmpty && reading.count == candidate.consumed && spelling.hasPrefix(reading)
+                }.prefix(8))
                 immediateOrder.removeAll { $0 == raw }; immediateOrder.append(raw)
                 while immediateOrder.count > 128 { immediate.removeValue(forKey: immediateOrder.removeFirst()) }
                 cacheLock.unlock()
