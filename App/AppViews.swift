@@ -121,7 +121,6 @@ struct RootView: View {
             NavigationStack { InputSettingsView() }
                 .tabItem { Label { Text("输入") } icon: { Image(uiImage: ToolArtwork.image(symbol: AppTab.input.symbol,style: colorScheme == .dark ? .dark : .light)).renderingMode(.original) } }.tag(AppTab.input)
         }.tint(AppPalette.accent)
-            .background(AppRefreshPreference().allowsHitTesting(false))
             .onAppear { preferences.activate() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in preferences.reload(); preferences.activate() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in preferences.deactivate() }

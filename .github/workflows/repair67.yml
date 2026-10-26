@@ -1,4 +1,4 @@
-name: Repair 75 responsive caret, centered workspace and motion IPA
+name: Repair 76 App startup regression and verified cold launch IPA
 on:
   push:
     branches: [codex/repair67-20261026]
@@ -41,6 +41,15 @@ jobs:
         run: |
           swiftc Core/ProxyTrackpad.swift Scripts/check_trackpad_repair.swift -o "$RUNNER_TEMP/trackpad-repair"
           "$RUNNER_TEMP/trackpad-repair"
+      - name: Check App cold launch, tabs and foreground recovery
+        run: python3 Scripts/check_app_startup.py
+      - name: Preserve startup diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClearKeyboard-startup-diagnostics
+          path: .build/StartupDiagnostics
+          retention-days: 7
       - name: Compile the repaired App and extension for iPhone and package IPA
         run: bash Scripts/build-ipa.sh dist
       - name: Return IPA
