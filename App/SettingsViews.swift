@@ -232,8 +232,8 @@ struct ClipboardSettingsView: View {
             .onReceive(NotificationCenter.default.publisher(for: ClipboardStore.changed)) { _ in
                 if accessMessage == "正在收录复制内容…" { accessMessage = "复制内容已收录。" }
             }
-            .onReceive(NotificationCenter.default.publisher(for: ClipboardCapture.failure)) { event in
-                accessMessage = event.object as? String ?? "未能收录，请重试。"
+            .onReceive(NotificationCenter.default.publisher(for: ClipboardCapture.failure)) { _ in
+                accessMessage = ""
             }
     }
 }

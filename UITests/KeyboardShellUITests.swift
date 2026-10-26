@@ -623,6 +623,21 @@ import UIKit
         eraseCenter.press(forDuration: 0.05, thenDragTo: eraseCenter.withOffset(CGVector(dx: 0, dy: 42)))
         expectHost(original + "#E3AC72", "Delete swipe down must undo the clear")
         screen("repair67-clear-undo-restored")
+        eraseCenter.press(forDuration: 0.05, thenDragTo: eraseCenter.withOffset(CGVector(dx: 0, dy: -42)))
+        expectHost("", "Start repeated Chinese typing from an empty field")
+        var repeated = ""
+        for round in 0..<8 {
+            for letter in "bbmmcfl" { key(safari, String(letter)).tap() }
+            let family = control(safari, "candidate.爸爸妈妈")
+            XCTAssertTrue(family.waitForExistence(timeout: 8), "Missing exact prefix at installed-extension round \(round)")
+            family.tap()
+            expectHost(repeated + "爸爸妈妈cfl", "Prefix selection must preserve cfl at round \(round)")
+            let dinner = control(safari, "candidate.吃饭了")
+            XCTAssertTrue(dinner.waitForExistence(timeout: 8), "Missing remaining candidate at round \(round)")
+            dinner.tap(); repeated += "爸爸妈妈吃饭了"
+            expectHost(repeated, "Repeated installed-extension typing must not lose text at round \(round)")
+        }
+        screen("repair67-installed-eight-repeated-selections")
         let report = try JSONSerialization.data(withJSONObject: evidence(), options: [.prettyPrinted, .sortedKeys])
         let result = XCTAttachment(data: report, uniformTypeIdentifier: "public.json")
         result.name = "round62-production-extension-evidence.json"; result.lifetime = .keepAlways; add(result)

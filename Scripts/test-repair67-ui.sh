@@ -23,7 +23,7 @@ set +e
 xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardUI \
   -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" \
   -derivedDataPath .build/KeyMaterial -resultBundlePath .build/CurrentRoundUIResults.xcresult \
-  -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 360 \
+  -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 600 \
   -only-testing:ClearKeyboardUITests/KeyboardShellUITests/testCurrentRoundProductionSettingsClipboardAndLongPressInInstalledExtension \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test-without-building \
   2>&1 | tee .build/CurrentRoundUI/test.log

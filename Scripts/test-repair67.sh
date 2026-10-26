@@ -13,6 +13,8 @@ xcodebuild -quiet -project ClearKeyboard.xcodeproj -scheme ClearKeyboardRuntime 
   -derivedDataPath .build/KeyMaterial -resultBundlePath .build/Repair67Results.xcresult \
   -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180 \
   -only-testing:ClearKeyboardRuntimeTests/Repair67Tests \
+  -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testOneHandIconImmediatelyChangesSideWithoutAnExtraPanel \
+  -only-testing:ClearKeyboardRuntimeTests/KeyboardRuntimeTests/testClearAndRestoreNeverCoverNewCandidatesWithAStatusBanner \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testClipboardMarkedSelectionReplacesOnlyItsOwnedRangeInRealUIKit \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testRejectedClipboardSelectionCannotDeleteOriginalText \
   -only-testing:ClearKeyboardRuntimeTests/RemoteProxyPerformanceTests/testClipboardKeepsItsMarkedBoundaryAcrossDelayedHostAcknowledgements \

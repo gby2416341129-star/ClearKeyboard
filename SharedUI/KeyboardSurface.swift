@@ -11,6 +11,7 @@ import SwiftUI
     private let toolbarScroll = ToolbarScrollView()
     private let toolbarShortcuts = UIStackView()
     private var toolbarWidth: NSLayoutConstraint?
+    private var toolbarLeading: NSLayoutConstraint?
     private var toolbarButtons: [ToolbarTool: FeedbackButton] = [:]
     private var toolbarBrand: UIButton?
     private let selectionDone = FeedbackButton(type: .system)
@@ -102,8 +103,10 @@ import SwiftUI
         toolbarShortcuts.axis = .horizontal; toolbarShortcuts.alignment = .center; toolbarShortcuts.spacing = 10
         toolbarShortcuts.translatesAutoresizingMaskIntoConstraints = false
         toolbarScroll.addSubview(toolbarShortcuts)
+        let leading = toolbarShortcuts.leadingAnchor.constraint(equalTo: toolbarScroll.contentLayoutGuide.leadingAnchor, constant: 4)
+        toolbarLeading = leading
         NSLayoutConstraint.activate([
-            toolbarShortcuts.leadingAnchor.constraint(equalTo: toolbarScroll.contentLayoutGuide.leadingAnchor, constant: 4),
+            leading,
             toolbarShortcuts.trailingAnchor.constraint(equalTo: toolbarScroll.contentLayoutGuide.trailingAnchor, constant: -7),
             toolbarShortcuts.topAnchor.constraint(equalTo: toolbarScroll.contentLayoutGuide.topAnchor),
             toolbarShortcuts.bottomAnchor.constraint(equalTo: toolbarScroll.contentLayoutGuide.bottomAnchor),
@@ -232,11 +235,12 @@ import SwiftUI
         layoutCandidateHeader()
         panel?.frame = layout.panel
         let contentWidth = CGFloat(toolbarButtons.count * 34 + max(0, toolbarButtons.count - 1) * 10 + 11)
-        toolbarScroll.expectedContentWidth = contentWidth
         // The completion action shares the existing header. The words start
         // directly below it; no second empty header is reserved by the panel.
         let available = max(0, layout.header.width - (selectionDone.isHidden ? 54 : 108))
         let width = available
+        toolbarScroll.expectedContentWidth = max(contentWidth, width)
+        toolbarLeading?.constant = 4 + max(0, width - contentWidth)
         if toolbarWidth?.constant != width { toolbarWidth?.constant = width }
         toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
     }
@@ -746,7 +750,7 @@ import SwiftUI
         if activeTool == tool, panel != nil { closePanel(); return }
         if tool == .oneHand {
             closePanel()
-            model.settings.hand = model.settings.hand == .full ? (model.settings.resolvedPreferredHand == .full ? .right : model.settings.resolvedPreferredHand) : .full
+            model.settings.hand = model.settings.hand == .full ? (model.settings.resolvedPreferredHand == .full ? .right : model.settings.resolvedPreferredHand) : (model.settings.hand == .right ? .left : .right)
         } else if tool == .language { closePanel(); model.toggleLanguage() }
         else if tool == .compatibility { toggleLocalPinyinComposition() }
         else if let item = appearanceItem(for: tool) {
