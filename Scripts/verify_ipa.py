@@ -30,9 +30,10 @@ def verify(path):
         for resource in ['Phonetics/unicode-pinyin.tsv', 'english.clx']:
             assert base + resource in names, resource
             assert extension + resource not in names, 'Duplicate input resource'
+        assert base + 'default.metallib' in names and extension + 'default.metallib' in names
         for prefix in [base, extension]:
             info = plistlib.loads(ipa.read(prefix + 'Info.plist'))
-            assert str(info['CFBundleVersion']) == '78'
+            assert str(info['CFBundleVersion']) == '79'
             assert 'iPhoneOS' in info['CFBundleSupportedPlatforms']
         info = plistlib.loads(ipa.read(extension + 'Info.plist'))
         assert info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.keyboard-service'

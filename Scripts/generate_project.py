@@ -26,7 +26,7 @@ def phase(target, name, isa, files, **fields):
 
 if __name__ == "__main__":
     sources = sorted(p.relative_to(ROOT).as_posix() for directory in ["App", "Core", "SharedUI", "KeyboardExtension"] for p in (ROOT / directory).glob("*.swift"))
-    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Core/Resources/Models", "Core/Resources/Phonetics", "Core/Resources/english.clx", "Config/PrivacyInfo.xcprivacy"]
+    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Core/Resources/Models", "Core/Resources/Phonetics", "Core/Resources/GPU/default.metallib", "Core/Resources/english.clx", "Config/PrivacyInfo.xcprivacy"]
     licenses = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Licenses").glob("*.txt"))
     config = ["Config/Project.xcconfig", "Config/App-Info.plist", "Config/Keyboard-Info.plist", "Config/App.entitlements", "Config/Keyboard.entitlements"]
     asset = "App/Assets.xcassets"
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     ui_product = obj("product:ui-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardUITests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product, ui_product]) + "; name = Products; sourceTree = \"<group>\"; }"
     group = obj("group:main", "PBXGroup", children=arr(list(refs.values()) + [products]), sourceTree=q("<group>"))
-    common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0", "SWIFT_OBJC_BRIDGING_HEADER": "CQwen/include/ClearQwen.h", "CLANG_CXX_LANGUAGE_STANDARD": "c++17", "HEADER_SEARCH_PATHS": "$(inherited) $(SRCROOT)/.build/qwen-runtime/install/include", "LIBRARY_SEARCH_PATHS": "$(inherited) $(SRCROOT)/.build/qwen-runtime/install/lib", "OTHER_LDFLAGS": "$(inherited) -lllama -lggml -lggml-base -lggml-cpu -lc++ -framework Accelerate"}
+    common_settings = {"SDKROOT": "iphoneos", "CLANG_ENABLE_OBJC_ARC": "YES", "GCC_C_LANGUAGE_STANDARD": "gnu17", "SWIFT_VERSION": "5.0", "SWIFT_OBJC_BRIDGING_HEADER": "CQwen/include/ClearQwen.h", "CLANG_CXX_LANGUAGE_STANDARD": "c++17", "HEADER_SEARCH_PATHS": "$(inherited) $(SRCROOT)/.build/qwen-runtime/install/include", "LIBRARY_SEARCH_PATHS": "$(inherited) $(SRCROOT)/.build/qwen-runtime/install/lib", "OTHER_LDFLAGS": "$(inherited) -lllama -lggml -lggml-base -lggml-cpu -lggml-metal -lc++ -framework Accelerate -framework Metal -framework MetalKit"}
     def configurations(target, extra):
         values = []
         for mode in ["Debug", "Release"]:
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     app_configs = configurations("app", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER)", "PRODUCT_NAME": "ClearKeyboard", "INFOPLIST_FILE": "Config/App-Info.plist", "CODE_SIGN_ENTITLEMENTS": "Config/App.entitlements", "ASSETCATALOG_COMPILER_APPICON_NAME": "ClearAppIcon", "GENERATE_INFOPLIST_FILE": "NO", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks", "SWIFT_EMIT_LOC_STRINGS": "YES"})
     ext_configs = configurations("ext", {"PRODUCT_BUNDLE_IDENTIFIER": "$(CLEAR_BASE_BUNDLE_IDENTIFIER).Keyboard", "PRODUCT_NAME": "ClearKeyboardExtension", "INFOPLIST_FILE": "Config/Keyboard-Info.plist", "CODE_SIGN_ENTITLEMENTS": "Config/Keyboard.entitlements", "GENERATE_INFOPLIST_FILE": "NO", "APPLICATION_EXTENSION_API_ONLY": "YES", "SKIP_INSTALL": "YES", "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"})
     shared = [path for path in sources if path.startswith(("Core/", "SharedUI/"))]
-    ext_phases = [phase("ext", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("KeyboardExtension/")]), obj("phase:ext:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files="()", runOnlyForDeploymentPostprocessing="0"), phase("ext", "Resources", "PBXResourcesBuildPhase", [p for p in resources if not p.startswith("Core/Resources/")] + licenses)]
+    ext_phases = [phase("ext", "Sources", "PBXSourcesBuildPhase", shared + [bridge] + [p for p in sources if p.startswith("KeyboardExtension/")]), obj("phase:ext:Frameworks", "PBXFrameworksBuildPhase", buildActionMask="2147483647", files="()", runOnlyForDeploymentPostprocessing="0"), phase("ext", "Resources", "PBXResourcesBuildPhase", [p for p in resources if not p.startswith("Core/Resources/") or p.endswith(".metallib")] + licenses)]
     ext = obj("target:extension", "PBXNativeTarget", buildConfigurationList=ext_configs, buildPhases=arr(ext_phases), buildRules="()", dependencies="()", name=q("ClearKeyboardExtension"), productName=q("ClearKeyboardExtension"), productReference=ext_product, productType=q("com.apple.product-type.app-extension"))
     proxy = obj("proxy:extension", "PBXContainerItemProxy", containerPortal=uid("project"), proxyType="1", remoteGlobalIDString=ext, remoteInfo=q("ClearKeyboardExtension"))
     dependency = obj("dependency:extension", "PBXTargetDependency", target=ext, targetProxy=proxy)

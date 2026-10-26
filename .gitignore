@@ -14,3 +14,4 @@ pending-feedback.json
 App/ClearAppIcon.icon/Assets/
 Core/Resources/Models/*.gguf
 Core/Resources/Phonetics/
+Core/Resources/GPU/

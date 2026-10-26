@@ -367,7 +367,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
             // A single constrained Qwen request handles the active spelling.
             let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
-                correction: correction, context: query.preceding, cancelled: cancelled)
+                correction: correction, context: query.preceding, cancelled: cancelled, updated: { items, more in
+                    guard !cancelled() else { return }
+                    query.publish(Array(items.prefix(limit)), stage: stage, limit: limit,
+                                  hasMore: more || items.count > limit, correction: correction)
+                    DispatchQueue.main.async {
+                        guard let self, self.activeCandidates === query, !cancelled() else { return }
+                        self.loadingMoreCandidates = false; self.presentCandidates(query)
+                    }
+                })
             guard !cancelled() else { return }
             query.publish(Array(result.prefix(limit)), stage: stage, limit: limit,
                           hasMore: result.count > limit && limit < 4095,

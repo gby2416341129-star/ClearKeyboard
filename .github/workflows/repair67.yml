@@ -1,4 +1,4 @@
-name: Build 78 local Qwen Chinese input IPA
+name: Build 79 responsive low-duty Qwen IPA
 on:
   push:
     branches: [codex/repair67-20261026]

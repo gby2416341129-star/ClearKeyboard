@@ -35,7 +35,8 @@ def main():
             '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_SYSTEM_NAME=iOS', '-DCMAKE_OSX_SYSROOT=iphoneos',
             '-DCMAKE_SYSTEM_PROCESSOR=arm64', '-DCMAKE_OSX_ARCHITECTURES=arm64',
             '-DCMAKE_OSX_DEPLOYMENT_TARGET=18.0', '-DCMAKE_INSTALL_PREFIX=' + str(output),
-            '-DBUILD_SHARED_LIBS=OFF', '-DGGML_NATIVE=OFF', '-DGGML_METAL=OFF',
+            '-DBUILD_SHARED_LIBS=OFF', '-DGGML_NATIVE=OFF', '-DGGML_METAL=ON',
+            '-DGGML_METAL_EMBED_LIBRARY=OFF', '-DGGML_METAL_TARGET_OS=ios',
             '-DGGML_BLAS=OFF', '-DGGML_ACCELERATE=ON', '-DGGML_OPENMP=OFF',
             '-DGGML_BACKEND_DL=OFF', '-DGGML_CPU_ALL_VARIANTS=OFF',
             '-DLLAMA_BUILD_COMMON=OFF', '-DLLAMA_BUILD_TESTS=OFF', '-DLLAMA_BUILD_EXAMPLES=OFF',
@@ -45,12 +46,17 @@ def main():
     subprocess.run(args, check=True)
     subprocess.run(['cmake', '--build', str(build), '--config', 'Release', '--parallel', str(min(6, os.cpu_count() or 2))], check=True)
     subprocess.run(['cmake', '--install', str(build), '--config', 'Release'], check=True)
-    for library in ['llama', 'ggml', 'ggml-base', 'ggml-cpu']:
+    libraries = ['llama', 'ggml', 'ggml-base', 'ggml-cpu', 'ggml-metal']
+    for library in libraries:
         assert (output / 'lib' / ('lib' + library + '.a')).is_file(), library
+    gpu = ROOT / 'Core/Resources/GPU'
+    gpu.mkdir(parents=True, exist_ok=True)
+    # Ship the precompiled shader so keyboard startup never compiles Metal source.
+    shutil.copyfile(output / 'bin/default.metallib', gpu / 'default.metallib')
     # A matching local binary target keeps Package.swift on this same runtime.
     combined = base / 'libLlamaRuntime.a'
     subprocess.run(['xcrun', 'libtool', '-static', '-o', str(combined)] +
-                   [str(output / 'lib' / ('lib' + name + '.a')) for name in ['llama', 'ggml', 'ggml-base', 'ggml-cpu']], check=True)
+                   [str(output / 'lib' / ('lib' + name + '.a')) for name in libraries], check=True)
     framework = base / 'llama.xcframework'
     if framework.exists(): shutil.rmtree(framework)
     subprocess.run(['xcodebuild', '-create-xcframework', '-library', str(combined),

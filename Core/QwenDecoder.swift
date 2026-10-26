@@ -5,7 +5,29 @@ import CQwen
 
 private final class QwenCancellation {
     let cancelled: () -> Bool
-    init(_ cancelled: @escaping () -> Bool) { self.cancelled = cancelled }
+    let maximum: Int
+    let updated: (([Candidate], Bool) -> Void)?
+    init(_ cancelled: @escaping () -> Bool, raw: String, updated: (([Candidate], Bool) -> Void)?) {
+        self.cancelled = cancelled; self.maximum = FuzzyPinyin.normalize(raw).count; self.updated = updated
+    }
+    func snapshot(_ handle: OpaquePointer, count: Int32) -> [Candidate] {
+        guard count > 0 else { return [] }
+        return (0..<count).compactMap { index in
+            let text = String(cString: ck_qwen_text(handle, index))
+            let consumed = Int(ck_qwen_consumed(handle, index))
+            guard !text.isEmpty, consumed >= 0, consumed <= maximum,
+                  maximum == 0 || consumed > 0 else { return nil }
+            return Candidate(text: text, reading: String(cString: ck_qwen_reading(handle, index)),
+                             consumed: consumed, score: ck_qwen_score(handle, index))
+        }
+    }
+}
+private let qwenUpdated: @convention(c) (UnsafeMutableRawPointer?, OpaquePointer?, Int32, Int32) -> Void = { opaque, handle, count, more in
+    guard let opaque, let handle else { return }
+    let request = Unmanaged<QwenCancellation>.fromOpaque(opaque).takeUnretainedValue()
+    guard !request.cancelled(), let updated = request.updated else { return }
+    let snapshot = request.snapshot(handle, count: count)
+    if !snapshot.isEmpty, !request.cancelled() { updated(snapshot, more != 0) }
 }
 private let qwenCancelled: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { opaque in
     guard let opaque else { return 0 }
@@ -29,7 +51,7 @@ final class QwenDecoder {
     private var immediate: [String: [Candidate]] = [:]
     private var immediateOrder: [String] = []
     private let cacheLock = NSLock()
-    static let revision = 78
+    static let revision = 79
 
     static func bundled() throws -> QwenDecoder {
         ownerLock.lock(); defer { ownerLock.unlock() }
@@ -52,7 +74,8 @@ final class QwenDecoder {
     }
     func candidates(_ raw: String, context: String = "", fuzzy: Set<String> = [],
                     correction: Bool = true, characterOnly: Bool = false,
-                    limit: Int = 24, cancelled: () -> Bool = { false }) -> [Candidate] {
+                    limit: Int = 24, cancelled: () -> Bool = { false },
+                    updated: (([Candidate], Bool) -> Void)? = nil) -> [Candidate] {
         guard !cancelled() else { return [] }
         lock.lock(); defer { lock.unlock() }
         guard !cancelled() else { return [] }
@@ -60,21 +83,12 @@ final class QwenDecoder {
             fuzzy.contains(pair.element) ? value | (UInt32(1) << UInt32(pair.offset)) : value
         }
         return withoutActuallyEscaping(cancelled) { callback in
-            let cancellation = QwenCancellation(callback)
+            let cancellation = QwenCancellation(callback, raw: raw, updated: updated)
             let opaque = Unmanaged.passUnretained(cancellation).toOpaque()
             let count = ck_qwen_query(handle, raw, context, mask, correction ? 1 : 0,
-                                     characterOnly ? 1 : 0, Int32(clamping: max(1, min(4096, limit))), qwenCancelled, opaque)
+                                     characterOnly ? 1 : 0, Int32(clamping: max(1, min(4096, limit))), qwenCancelled, qwenUpdated, opaque)
             guard !callback(), count > 0 else { return [] }
-            let maximum = FuzzyPinyin.normalize(raw).count
-            var output: [Candidate] = []
-            for index in 0..<count {
-                let text = String(cString: ck_qwen_text(handle, index))
-                let consumed = Int(ck_qwen_consumed(handle, index))
-                guard !text.isEmpty, consumed >= 0, consumed <= maximum,
-                      raw.isEmpty || consumed > 0 else { continue }
-                output.append(Candidate(text: text, reading: String(cString: ck_qwen_reading(handle, index)),
-                                        consumed: consumed, score: ck_qwen_score(handle, index)))
-            }
+            let output = cancellation.snapshot(handle, count: count)
             if !raw.isEmpty, !characterOnly, !callback() {
                 cacheLock.lock()
                 // A later request may have different fuzzy settings or context.

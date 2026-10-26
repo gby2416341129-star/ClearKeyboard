@@ -17,7 +17,8 @@ public final class InputEngine {
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:],
                            preferred: [Candidate] = [], recentCorrections: [Candidate] = [],
                            limit: Int = 24, compose: Bool = true, correction: Bool = true,
-                           context: String = "", cancelled: () -> Bool = { false }) -> [Candidate] {
+                           context: String = "", cancelled: () -> Bool = { false },
+                           updated: (([Candidate], Bool) -> Void)? = nil) -> [Candidate] {
         guard !raw.isEmpty, !cancelled() else { return [] }
         let normalized = FuzzyPinyin.normalize(raw)
         let valid = (preferred + (correction ? recentCorrections : [])).filter {
@@ -25,7 +26,9 @@ public final class InputEngine {
         }
         let query = Composition.queryPrefix(raw, normalized: normalized)
         var generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
-                                           limit: limit, cancelled: cancelled)
+                                           limit: limit, cancelled: cancelled, updated: { items, more in
+            updated?(PersonalLexicon.merging(valid, into: items, limit: max(1, limit)), more)
+        })
         guard !cancelled() else { return [] }
         if !learned.isEmpty {
             generated = generated.enumerated().sorted { a, b in
