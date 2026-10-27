@@ -3,23 +3,20 @@ on:
   workflow_dispatch:
   push:
     branches: [npu/qwen35-08b-calibrated-q4]
-    paths-ignore:
-      - '.github/workflows/artifact-delivery.yml'
-      - '.github/workflows/ane-repair.yml'
-      - 'Conversion/repair_tail.py'
-      - 'Conversion/optimize_body.py'
-      - 'Conversion/resident_states.py'
-      - 'Conversion/packed_states.py'
-      - 'Scripts/native_coreml_verify.py'
-      - 'README.md'
-      - 'Evidence/**'
+    paths: ['.github/workflows/iphone-ane-probe.yml']
 permissions:
   contents: read
 concurrency:
   group: qwen-ane-q4-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
+  runtime-only:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'Runtime source updates use ane-repair.yml. Full conversion is manual-only; superseded conversion runs are cancelled.'
   convert:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
