@@ -122,6 +122,10 @@ private struct PrefixReplayRound: Codable, Sendable {
 private struct ProbeCase: Codable, Sendable {
     let computeUnits: String
     let title: String
+    var effectiveComputeUnits: String?
+    var loadRecoveryUsed = false
+    var loadAttempts: [QwenANE.LoadAttempt] = []
+    var planComputeUnits: String?
     var executionStatus = "pending"
     var planStatus = "pending"
     var startedAt: Date?
@@ -138,7 +142,7 @@ private struct ProbeCase: Codable, Sendable {
 }
 
 private struct ProbeEvidence: Codable, Sendable {
-    let schemaVersion = 5
+    let schemaVersion = 6
     let suiteID: String
     let startedAt: Date
     let device: String
@@ -147,9 +151,10 @@ private struct ProbeEvidence: Codable, Sendable {
     let appBuild: String
     let physicalMemoryBytes: UInt64
     let executionOrder = ProbeBackend.executionOrder.map(\.rawValue)
-    let uniqueConfigurationNote = "CPU+NPU and NPU+CPU are the same cpuAndNeuralEngine configuration; they are run once. No automatic backend fallback."
+    let uniqueConfigurationNote = "CPU+NPU and NPU+CPU are the same configuration. Only the automatic (.all) case may recover from load-time execution-plan error -14 by rebuilding all eight models with cpuAndNeuralEngine. Recovered results are labelled and are NOT successful all-backend measurements. Explicit CPU+GPU and CPU+ANE cases never switch compute units."
+    let runtimeDefaultComputeUnits = "cpuAndNeuralEngine"
     let cachePolicy = [
-        "modelInstance": "Fresh QwenANE and MLModel instances for each backend; no instance is shared across backend cases.",
+        "modelInstance": "Fresh QwenANE and MLModel instances for each backend; no instance is shared across backend cases. Automatic-case load recovery releases its failed group, then creates a new complete cpuAndNeuralEngine group; load attempts, native errors and effective compute units are recorded.",
         "recurrentState": "reset() before every round clears KV/recurrent state, prompt history and last logits; the model instance stays loaded within its backend.",
         "systemCache": "Core ML device compilation/specialization caches are NOT cleared. First round means first call of this instance, not guaranteed system-cold execution.",
         "orderEffect": "Backends execute in the recorded fixed order. System caches, temperature and memory pressure can influence cross-backend comparisons.",
@@ -284,7 +289,8 @@ private final class ProbeSession: ObservableObject {
                 self.status = "测试已停止：\(reason)。已保存完成阶段，可导出记录。"
             } else if self.evidence?.status == "completed" {
                 let count = self.cases.filter { $0.executionStatus == "succeeded" }.count
-                self.status = "自动测试完成：\(count)/3 种配置完成基线短推理。缓存改写对照、失败和计算计划也已保存在同一份记录中。"
+                let recovered = self.cases.filter { $0.executionStatus == "recovered" }.count
+                self.status = "自动测试完成：原配置完成 \(count)/3，切换配置后恢复 \(recovered) 项。实际配置、原始错误和缓存对照已保存，可导出记录。"
             } else {
                 self.status = "自动测试未完成，已保存已有结果和错误，可导出记录。"
             }
@@ -424,6 +430,16 @@ struct ProbeView: View {
                         Text(result.title).font(.headline)
                         Text("执行：\(statusLabel(result.executionStatus)) · 计划：\(statusLabel(result.planStatus))")
                             .font(.caption)
+                        if result.loadRecoveryUsed, let effective = result.effectiveComputeUnits {
+                            Text("自动模式加载失败，已整套切换为 \(ProbeBackend(rawValue: effective)?.title ?? effective)。以下耗时属于恢复后的配置。")
+                                .foregroundStyle(.orange)
+                        }
+                        ForEach(Array(result.loadAttempts.enumerated()), id: \.offset) { _, attempt in
+                            if let error = attempt.error {
+                                Text("保留原始错误：\(attempt.computeUnits) · \(attempt.failedModel ?? "") · \(error.description)")
+                                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                            }
+                        }
                         if let load = result.loadMilliseconds {
                             Text(String(format: "加载：%.2f 秒", load / 1000))
                         }
@@ -449,7 +465,7 @@ struct ProbeView: View {
                 ForEach(Array(session.recentEvents.enumerated()), id: \.offset) { _, line in
                     Text(line).font(.caption.monospaced()).textSelection(.enabled)
                 }
-                Text("每种配置自动跑首次计算、1 轮预热、3 轮正式测量、3 轮前缀缓存改写对照，然后统一诊断计算计划。一种配置失败会继续下一种。CPU + NPU 与 NPU + CPU 是同一配置，合并测试。")
+                Text("每种配置自动跑首次计算、1 轮预热、3 轮正式测量、3 轮前缀缓存改写对照，然后统一诊断实际配置的计算计划。自动模式加载遇到 -14 时，整套切换 CPU + ANE 并单独标明；另外两项保持各自配置。CPU + NPU 与 NPU + CPU 是同一配置。")
                     .font(.caption).foregroundStyle(.secondary)
                 Text("每轮清空上下文状态，固定相同输入。系统 Core ML 缓存不会清除；首次调用不代表系统完全冷启动。9 个单步样本的 P95 仅供本次观察。总耗时含加载与诊断，不等于打字延迟。测试期间请保持前台，App 会暂时关闭自动锁屏；进入后台后停止后续测试。")
                     .font(.caption).foregroundStyle(.secondary)
@@ -466,7 +482,7 @@ struct ProbeView: View {
 private func statusLabel(_ status: String) -> String {
     ["pending": "等待", "running": "进行中", "succeeded": "完成",
      "failed": "失败", "partial": "部分失败", "cancelled": "已停止",
-     "completed": "完成"][status] ?? status
+     "completed": "完成", "recovered": "已切换配置恢复", "notRun": "未执行"][status] ?? status
 }
 
 private func performAutomaticSuite(initial: ProbeEvidence,
@@ -531,12 +547,17 @@ private func performAutomaticSuite(initial: ProbeEvidence,
             report.currentBackend = backend.rawValue
             report.currentModel = nil
             report.cases[index].planStatus = "running"
+            // A recovered .all run is a CPU+ANE measurement. Diagnose the
+            // effective configuration rather than attaching an unrelated all
+            // allocation plan to its timings.
+            let planBackend = ProbeBackend(rawValue: report.cases[index].effectiveComputeUnits ?? "") ?? backend
+            report.cases[index].planComputeUnits = planBackend.rawValue
             updates.yield(.snapshot(report))
-            updates.yield(.stage("plan", backend.rawValue, "\(backend.title) · 自动读取计算计划……"))
+            updates.yield(.stage("plan", backend.rawValue, "\(backend.title) · 读取实际配置 \(planBackend.title) 的计算计划……"))
             let buffer = ProbeTraceBuffer()
             do {
                 let plans = try await ANEPlan.inspect(directory: compiled, modelNames: info.modelNames,
-                    computeUnits: backend.computeUnits, continueOnFailure: true) { event in
+                    computeUnits: planBackend.computeUnits, continueOnFailure: true) { event in
                     buffer.append(event)
                     updates.yield(.plan(backend.rawValue, event))
                 }
@@ -587,6 +608,7 @@ private func runExecutionCase(backend: ProbeBackend, compiled: URL, directory: U
     result.startedAt = Date()
     result.executionStatus = "running"
     let buffer = ProbeTraceBuffer()
+    var loadStart: TimeInterval?
     var currentStage = "load"
     var currentRound: Int?
     func publish() {
@@ -605,16 +627,26 @@ private func runExecutionCase(backend: ProbeBackend, compiled: URL, directory: U
             throw ANEError.invalid("Unknown embedding encoding: \(info.embeddingEncoding)")
         }
         let start = ProcessInfo.processInfo.systemUptime
+        loadStart = start
         let engine = try QwenANE(compiledDirectory: compiled,
             embeddingURL: directory.appendingPathComponent(info.embeddingFile), embeddingEncoding: encoding,
             headModels: info.headModels ?? [], bodyOutput: info.bodyOutput,
             headInput: info.headInput ?? "normed_hidden", computeUnits: backend.computeUnits,
+            loadPolicy: backend == .all ? .recoverAllOnPlanFailure : .strict,
             progress: { message in
                 let event = runtimeEvent(message)
                 buffer.append(event)
                 if event.phase == "load" { updates.yield(.load(backend.rawValue, event)) }
+                if message == "recovery:start:cpuAndNeuralEngine" {
+                    updates.yield(.stage("loadRecovery", backend.rawValue,
+                        "自动模式遇到 -14，释放失败实例，整套改用 CPU + ANE 重新加载……"))
+                }
             })
         result.loadMilliseconds = milliseconds(since: start)
+        let loadReport = await engine.loadReport
+        result.effectiveComputeUnits = loadReport.effectiveComputeUnits
+        result.loadRecoveryUsed = loadReport.recovered
+        result.loadAttempts = loadReport.attempts
         result.traces += buffer.drain().map { ProbeTrace(stage: "load", round: nil, event: $0) }
         publish()
         await acknowledgeUpdates(updates)
@@ -683,7 +715,7 @@ private func runExecutionCase(backend: ProbeBackend, compiled: URL, directory: U
             }
         }
         try Task.checkCancellation()
-        result.executionStatus = "succeeded"
+        result.executionStatus = result.loadRecoveryUsed ? "recovered" : "succeeded"
         currentStage = "prefixReplay"
         result.prefixReplayStatus = "running"
         publish()
@@ -718,6 +750,15 @@ private func runExecutionCase(backend: ProbeBackend, compiled: URL, directory: U
         result.traces += events.map { ProbeTrace(stage: currentStage, round: currentRound, event: $0) }
         let cancelled = error is CancellationError || Task.isCancelled
         result.executionStatus = cancelled ? "cancelled" : "failed"
+        if let loadError = error as? QwenANE.LoadError {
+            result.loadAttempts = loadError.attempts
+        }
+        if currentStage == "load", let loadStart {
+            result.loadMilliseconds = milliseconds(since: loadStart)
+        }
+        if result.prefixReplayStatus == "pending" {
+            result.prefixReplayStatus = cancelled ? "cancelled" : "notRun"
+        }
         let last = events.last ?? result.traces.last?.event
         result.failures.append(ProbeIncident(timestamp: Date(), stage: currentStage,
             model: last?.model, cancelled: cancelled, error: ANEFailure.capture(error)))

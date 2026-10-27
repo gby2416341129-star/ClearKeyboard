@@ -22,6 +22,10 @@
 
 采用公开 iOS 18+ Core ML API，配置为 `.cpuAndNeuralEngine`。它允许 CPU 与 ANE，不能据此宣称所有运算都在 NPU。没有重复惩罚或采样修补来掩盖输出偏差。
 
+Build 8 的运行库默认采用 `.cpuAndNeuralEngine`。显式请求 `.all` 且加载返回 Core ML 执行计划错误 `-14` 时，默认加载策略释放失败尝试中的整套实例，再完整创建 CPU+ANE 实例；不会混用两套状态，不重试取消或其他类型错误，不切换到 GPU。需要严格比较时传入 `loadPolicy: .strict`。`loadReport` 保留请求配置、实际配置、各次加载耗时、失败模型和完整原始错误。
+
+自动验证 App 的 `.all` 项启用上述恢复，成功恢复后状态为 `recovered`，不计为 `.all` 成功；CPU+GPU 和 CPU+ANE 两项使用严格策略。导出的 schema 6 单独记录 `effectiveComputeUnits`、`loadAttempts` 和 `planComputeUnits`，恢复后的耗时与算子计划均属于实际配置。Build 7 已由用户验证的前缀检查点保留；Build 8 只编译打包，所有执行测试由用户完成。
+
 ## 独立 iPhone 验证 App
 
 App 首次在手机上编译模型，读取该设备的 `MLComputePlan`，执行固定提示并允许导出设备、耗时、采样内存及算子计划记录。计划表示预期分配，实际 ANE 硬件执行仍需真机证据；`hardwareTraceCaptured` 和 `keyboardExtensionTested` 保持 false。

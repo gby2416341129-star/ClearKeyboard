@@ -74,8 +74,8 @@ def main():
             "GENERATE_INFOPLIST_FILE": "YES", "CODE_SIGN_STYLE": "Automatic",
             "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "7",
-            "MARKETING_VERSION": "0.7", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
+            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "8",
+            "MARKETING_VERSION": "0.8", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
         }
         body = " ".join(f"{key} = {quote(value)};" for key, value in settings.items())
         configurations.append(add("config:" + mode, f"isa = XCBuildConfiguration; buildSettings = {{ {body} }}; name = {mode};"))

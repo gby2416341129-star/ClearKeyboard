@@ -14,9 +14,41 @@ public enum ANEError: Error, LocalizedError {
 /// Serialized token-to-logits backend. The host supplies the matching Qwen
 /// tokenizer and its existing constrained candidate decoder. No chat sampling,
 /// repetition penalty, private ANE API, polling loop, or automatic GPU fallback.
+/// Automatic (.all) loading can explicitly recover from execution-plan error
+/// -14 by rebuilding the entire model group with CPU + Neural Engine.
 /// Synchronous prediction keeps each state mutation atomic on this actor.
 @available(iOS 18.0, macOS 15.0, *)
 public actor QwenANE {
+    public enum LoadPolicy: Sendable, Equatable {
+        case strict
+        case recoverAllOnPlanFailure
+    }
+    public struct LoadAttempt: Codable, Sendable {
+        public let computeUnits: String
+        public let elapsedMilliseconds: Double
+        public let failedModel: String?
+        public let error: ANEFailure?
+    }
+    public struct LoadReport: Codable, Sendable {
+        public let requestedComputeUnits: String
+        public let effectiveComputeUnits: String
+        public let recovered: Bool
+        public let attempts: [LoadAttempt]
+    }
+    public struct LoadError: Error, LocalizedError, Sendable {
+        public let requestedComputeUnits: String
+        public let attempts: [LoadAttempt]
+        public var errorDescription: String? {
+            attempts.compactMap { attempt in
+                attempt.error.map { "\(attempt.computeUnits) / \(attempt.failedModel ?? "unknown"): \($0.description)" }
+            }.joined(separator: "\n")
+        }
+    }
+    public let loadReport: LoadReport
+    private struct LoadedGroup {
+        let body: [MLModel]
+        let heads: [(model: MLModel, layout: HeadModel)]
+    }
     public enum EmbeddingEncoding: String, Sendable {
         case fp16
         case int8Rowwise = "int8_rowwise_fp16_scale"
@@ -77,32 +109,80 @@ public actor QwenANE {
                 embeddingEncoding: EmbeddingEncoding = .fp16,
                 headModels: [HeadModel] = [], bodyOutput: String? = nil,
                 headInput: String = "normed_hidden",
-                computeUnits: MLComputeUnits = .all,
+                computeUnits: MLComputeUnits = .cpuAndNeuralEngine,
+                loadPolicy: LoadPolicy = .recoverAllOnPlanFailure,
                 progress: (@Sendable (String) -> Void)? = nil) throws {
         try Self.validateLayout(headModels)
-        let configuration = MLModelConfiguration()
-        configuration.computeUnits = computeUnits
-        func load(_ name: String) throws -> MLModel {
-            progress?("load:start:\(name)")
-            let start = ProcessInfo.processInfo.systemUptime
-            let model = try MLModel(contentsOf: compiledDirectory.appendingPathComponent(name + ".mlmodelc"),
-                                    configuration: configuration)
-            let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
-            progress?("load:complete:\(name):\(ms)")
-            return model
-        }
-        var loaded: [MLModel] = []
-        for suffix in ["a", "b", "c", "d"] {
-            loaded.append(try load("chunk_\(suffix)"))
-        }
         let outputName = bodyOutput ?? (headModels.isEmpty ? "logits" : "normed_hidden")
-        try Self.validate(loaded, outputName: outputName, splitHead: !headModels.isEmpty)
-        var loadedHeads: [(model: MLModel, layout: HeadModel)] = []
-        for layout in headModels {
-            let model = try load(layout.name)
-            try Self.validateHead(model, layout: layout, inputName: headInput)
-            loadedHeads.append((model, layout))
+        let requested = ANEPlan.computeUnitsLabel(computeUnits)
+        var attempts: [LoadAttempt] = []
+        func attempt(_ units: MLComputeUnits) throws -> LoadedGroup {
+            let attemptStart = ProcessInfo.processInfo.systemUptime
+            let configuration = MLModelConfiguration()
+            configuration.computeUnits = units
+            var currentModel: String?
+            func load(_ name: String) throws -> MLModel {
+                try Task.checkCancellation()
+                currentModel = name
+                progress?("load:start:\(name)")
+                let start = ProcessInfo.processInfo.systemUptime
+                let model = try MLModel(contentsOf: compiledDirectory.appendingPathComponent(name + ".mlmodelc"),
+                                        configuration: configuration)
+                let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+                progress?("load:complete:\(name):\(ms)")
+                return model
+            }
+            do {
+                // A failed attempt releases its whole group before recovery;
+                // never mix states or models from two compute configurations.
+                let group = try autoreleasepool { () throws -> LoadedGroup in
+                    var body: [MLModel] = []
+                    for suffix in ["a", "b", "c", "d"] { body.append(try load("chunk_\(suffix)")) }
+                    try Self.validate(body, outputName: outputName, splitHead: !headModels.isEmpty)
+                    var heads: [(model: MLModel, layout: HeadModel)] = []
+                    for layout in headModels {
+                        let model = try load(layout.name)
+                        try Self.validateHead(model, layout: layout, inputName: headInput)
+                        heads.append((model, layout))
+                    }
+                    try Task.checkCancellation()
+                    return LoadedGroup(body: body, heads: heads)
+                }
+                attempts.append(LoadAttempt(computeUnits: ANEPlan.computeUnitsLabel(units),
+                    elapsedMilliseconds: (ProcessInfo.processInfo.systemUptime - attemptStart) * 1000,
+                    failedModel: nil, error: nil))
+                return group
+            } catch {
+                attempts.append(LoadAttempt(computeUnits: ANEPlan.computeUnitsLabel(units),
+                    elapsedMilliseconds: (ProcessInfo.processInfo.systemUptime - attemptStart) * 1000,
+                    failedModel: currentModel, error: ANEFailure.capture(error)))
+                throw error
+            }
         }
+        let group: LoadedGroup
+        var effective = requested
+        var recovered = false
+        do {
+            group = try attempt(computeUnits)
+        } catch {
+            if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            guard computeUnits == .all, loadPolicy == .recoverAllOnPlanFailure,
+                  Self.isExecutionPlanFailure(error) else {
+                throw LoadError(requestedComputeUnits: requested, attempts: attempts)
+            }
+            progress?("recovery:start:cpuAndNeuralEngine")
+            do {
+                group = try attempt(.cpuAndNeuralEngine)
+                effective = "cpuAndNeuralEngine"
+                recovered = true
+                progress?("recovery:complete:cpuAndNeuralEngine")
+            } catch {
+                if error is CancellationError || Task.isCancelled { throw CancellationError() }
+                throw LoadError(requestedComputeUnits: requested, attempts: attempts)
+            }
+        }
+        let loaded = group.body
+        let loadedHeads = group.heads
         let mapped = try Data(contentsOf: embeddingURL, options: .alwaysMapped)
         let expected = embeddingEncoding == .fp16
             ? Self.vocabularySize * Self.hiddenSize * 2
@@ -115,6 +195,8 @@ public actor QwenANE {
         self.bodyOutput = outputName
         self.headInput = headInput
         self.progress = progress
+        loadReport = LoadReport(requestedComputeUnits: requested, effectiveComputeUnits: effective,
+                                recovered: recovered, attempts: attempts)
         kvStates = loaded.map { $0.makeState() }
         recurrent = try Self.zeroRecurrent(loaded)
         embedding = mapped
@@ -126,6 +208,15 @@ public actor QwenANE {
         mask.dataPointer.assumingMemoryBound(to: Float16.self)
             .initialize(repeating: Float16(-10_000), count: Self.contextLength)
         position = try MLMultiArray(shape: [1], dataType: .int32)
+    }
+
+    private static func isExecutionPlanFailure(_ error: Error) -> Bool {
+        let native = error as NSError
+        // Core ML's public error code is 0 here; -14 is in its native message.
+        // Do not retry cancellations, missing files, bad layouts or other errors.
+        return native.domain == "com.apple.CoreML"
+            && native.localizedDescription.contains("Failed to build the model execution plan")
+            && native.localizedDescription.contains("-14")
     }
 
     public func reset() throws {
