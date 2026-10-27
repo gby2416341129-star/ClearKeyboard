@@ -141,6 +141,7 @@ public actor QwenANE {
             guard let result = lastLogits else {
                 throw ANEError.invalid("No logits produced")
             }
+            try Task.checkCancellation()
             return result
         } catch {
             // A cancelled/failed call can have partially mutated a chunk's
