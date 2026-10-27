@@ -93,7 +93,7 @@ def resident_spec(original):
     return spec, records
 
 
-def main():
+def main(transform=resident_spec, layout=LAYOUT, audit_file="resident-state-audit.json"):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
@@ -107,7 +107,7 @@ def main():
     for suffix in "abcd":
         name = "chunk_" + suffix
         original, _ = read_package(source / (name + ".mlpackage"))
-        spec, records = resident_spec(original)
+        spec, records = transform(original)
         package = destination / (name + ".mlpackage")
         manifest = json.loads((package / "Manifest.json").read_text(encoding="utf-8"))
         relative = manifest["itemInfoEntries"][manifest["rootModelIdentifier"]]["path"]
@@ -118,19 +118,19 @@ def main():
                         "stateBytes": sum(row["bytes"] for row in records)}
         print(name + ": moved " + str(len(records)) + " recurrent tensors to MLState", flush=True)
     source_fingerprint = info["fingerprint"]
-    fingerprint = hashlib.sha256(json.dumps({"layout": LAYOUT, "source": source_fingerprint,
+    fingerprint = hashlib.sha256(json.dumps({"layout": layout, "source": source_fingerprint,
                                               "bodies": bodies}, sort_keys=True).encode()).hexdigest()
     state_bytes = sum(chunk["stateBytes"] for chunk in chunks.values())
-    audit = {"layout": LAYOUT, "fingerprint": fingerprint, "sourceFingerprint": source_fingerprint,
+    audit = {"layout": layout, "fingerprint": fingerprint, "sourceFingerprint": source_fingerprint,
              "chunks": chunks, "residentRecurrentBytes": state_bytes,
              "explicitRecurrentIOBytesRemovedPerToken": state_bytes * 2,
              "bodyProtobufSHA256": bodies, "weights": "Copied unchanged; no weight operations performed",
              "numericalTestsRun": False, "nativeCoreMLPredictValidated": False,
              "iphoneExecutionValidated": False, "latency": "Requires user device measurement"}
-    save_json(destination / "resident-state-audit.json", audit)
-    info.update({"name": info["name"] + " resident recurrent states", "layout": LAYOUT,
+    save_json(destination / audit_file, audit)
+    info.update({"name": info["name"] + " resident recurrent states", "layout": layout,
                  "fingerprint": fingerprint, "residentStateInputFingerprint": source_fingerprint,
-                 "residentStateAudit": "resident-state-audit.json", "nativeCoreMLPredictValidated": False,
+                 "residentStateAudit": audit_file, "nativeCoreMLPredictValidated": False,
                  "iphoneANEExecutionValidated": False})
     for _ in range(2):
         info["bytes"] = sum(path.stat().st_size for path in destination.rglob("*") if path.is_file())

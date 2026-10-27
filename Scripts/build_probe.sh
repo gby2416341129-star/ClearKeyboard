@@ -2,7 +2,7 @@
 set -euo pipefail
 TASK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$TASK_ROOT"
-MODEL_DIRECTORY="${MODEL_DIRECTORY:-Models/Qwen3.5-0.8B-IME-Q4-Resident}"
+MODEL_DIRECTORY="${MODEL_DIRECTORY:-Models/Qwen3.5-0.8B-IME-Q4-Packed}"
 test -f "$MODEL_DIRECTORY/model-info.json"
 # The large packages are individual Core ML SOURCES, compiled by Xcode for
 # iphoneos. Only sidecars go into the blue data folder, never a second copy of

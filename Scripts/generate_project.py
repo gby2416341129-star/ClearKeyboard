@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-directory", type=Path)
     args = parser.parse_args()
-    model_directory = args.model_directory or ROOT / "Models/Qwen3.5-0.8B-IME-Q4-Resident"
+    model_directory = args.model_directory or ROOT / "Models/Qwen3.5-0.8B-IME-Q4-Packed"
     if args.model_directory is None and not model_directory.exists():
         model_directory = ROOT / "Models/Qwen3.5-0.8B-IME-Q4-Optimized"
     if args.model_directory is None and not model_directory.exists():
@@ -71,8 +71,8 @@ def main():
             "GENERATE_INFOPLIST_FILE": "YES", "CODE_SIGN_STYLE": "Automatic",
             "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "5",
-            "MARKETING_VERSION": "0.5", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
+            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "6",
+            "MARKETING_VERSION": "0.6", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
         }
         body = " ".join(f"{key} = {quote(value)};" for key, value in settings.items())
         configurations.append(add("config:" + mode, f"isa = XCBuildConfiguration; buildSettings = {{ {body} }}; name = {mode};"))
