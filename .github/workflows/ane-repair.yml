@@ -1,4 +1,4 @@
-name: Build iPhone runtime with unchanged known-working v4 models
+name: Build iPhone runtime load recovery with unchanged v4 models
 on:
   workflow_dispatch:
   push:
@@ -17,7 +17,7 @@ jobs:
     env:
       MODEL_DIRECTORY: work/baseline/Payload/ANEProbe.app/Qwen3.5-0.8B-IME-Q4
       COMPILED_MODEL_DIRECTORY: work/baseline/Payload/ANEProbe.app
-      BUILD_REVISION: '9-v4-models-runtime-prefix-checkpoint'
+      BUILD_REVISION: '10-v4-models-explicit-all-load-recovery'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -59,58 +59,57 @@ jobs:
           mkdir -p work/ipa/Payload
           ditto work/build/Build/Products/Release-iphoneos/ANEProbe.app work/ipa/Payload/ANEProbe.app
           cd work/ipa
-          ditto -c -k --keepParent Payload ../artifacts/ANEProbe-Q4-v7-unsigned.ipa
+          ditto -c -k --keepParent Payload ../artifacts/ANEProbe-Q4-v8-unsigned.ipa
       - name: Package delivery pieces
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import hashlib, json
           root = Path('work/artifacts')
-          ipa = root / 'ANEProbe-Q4-v7-unsigned.ipa'
+          ipa = root / 'ANEProbe-Q4-v8-unsigned.ipa'
           parts = []
           with ipa.open('rb') as handle:
               for index in range(4):
                   data = handle.read(200 * 1024 * 1024)
-                  part = root / f'ANEProbe-Q4-v7-unsigned.ipa.part{index:02d}'
+                  part = root / f'ANEProbe-Q4-v8-unsigned.ipa.part{index:02d}'
                   part.write_bytes(data)
                   parts.append({'file': part.name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
               assert not handle.read(1), 'IPA exceeds delivery capacity'
           with ipa.open('rb') as handle:
               sha = hashlib.file_digest(handle, 'sha256').hexdigest()
           (root / 'ipa-delivery.json').write_text(json.dumps({'parts': parts, 'ipaSHA256': sha}, indent=2))
-          (root / 'STATUS.txt').write_text('Uses exact compiled model resources from device-working Build 4. Runtime changed. No inference, performance, accuracy or regression tests executed. User performs all execution tests.')
+          (root / 'STATUS.txt').write_text('Exact Build 4 compiled models, Build 7 prefix checkpoints, Build 8 whole-group all-to-CPU+ANE load recovery. Requested/effective configurations and native attempt errors are recorded separately. No inference, performance, accuracy or regression tests executed. User performs all execution tests.')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: ANEProbe-Q4-v7-IPA-part00
-          path: work/artifacts/ANEProbe-Q4-v7-unsigned.ipa.part00
+          name: ANEProbe-Q4-v8-IPA-part00
+          path: work/artifacts/ANEProbe-Q4-v8-unsigned.ipa.part00
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
-          name: ANEProbe-Q4-v7-IPA-part01
-          path: work/artifacts/ANEProbe-Q4-v7-unsigned.ipa.part01
+          name: ANEProbe-Q4-v8-IPA-part01
+          path: work/artifacts/ANEProbe-Q4-v8-unsigned.ipa.part01
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
-          name: ANEProbe-Q4-v7-IPA-part02
-          path: work/artifacts/ANEProbe-Q4-v7-unsigned.ipa.part02
+          name: ANEProbe-Q4-v8-IPA-part02
+          path: work/artifacts/ANEProbe-Q4-v8-unsigned.ipa.part02
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
-          name: ANEProbe-Q4-v7-IPA-part03
-          path: work/artifacts/ANEProbe-Q4-v7-unsigned.ipa.part03
+          name: ANEProbe-Q4-v8-IPA-part03
+          path: work/artifacts/ANEProbe-Q4-v8-unsigned.ipa.part03
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ANEProbe-Q4-v7-diagnostics
+          name: ANEProbe-Q4-v8-diagnostics
           path: |
             work/artifacts/*.log
             work/artifacts/*.json
             work/artifacts/*.txt
           retention-days: 7
-
