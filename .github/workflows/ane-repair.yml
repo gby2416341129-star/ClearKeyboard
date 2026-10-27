@@ -8,7 +8,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: iphone-ane-repair-${{ github.ref }}
+  group: iphone-ane-direct-ipa-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   repair-verify-build:
