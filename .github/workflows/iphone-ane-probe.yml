@@ -7,6 +7,7 @@ on:
       - '.github/workflows/artifact-delivery.yml'
       - '.github/workflows/ane-repair.yml'
       - 'Conversion/repair_tail.py'
+      - 'Conversion/optimize_body.py'
       - 'Scripts/native_coreml_verify.py'
       - 'README.md'
       - 'Evidence/**'

@@ -39,6 +39,9 @@ public actor QwenANE {
     public static let contextLength = 2048
     public static let vocabularySize = 248_320
     public static let hiddenSize = 1024
+    private static let inverseFrequencies: [Float] = (0..<32).map {
+        powf(10_000_000, -Float(2 * $0) / 64)
+    }
     private let models: [MLModel]
     private let headModels: [(model: MLModel, layout: HeadModel)]
     private let bodyOutput: String
@@ -106,6 +109,8 @@ public actor QwenANE {
         cosine = try MLMultiArray(shape: [1, 1, 64], dataType: .float16)
         sine = try MLMultiArray(shape: [1, 1, 64], dataType: .float16)
         mask = try MLMultiArray(shape: [1, 1, 1, 2048], dataType: .float16)
+        mask.dataPointer.assumingMemoryBound(to: Float16.self)
+            .initialize(repeating: Float16(-10_000), count: Self.contextLength)
         position = try MLMultiArray(shape: [1], dataType: .int32)
     }
 
@@ -115,6 +120,8 @@ public actor QwenANE {
         recurrent = fresh
         tokens.removeAll(keepingCapacity: true)
         lastLogits = nil
+        mask.dataPointer.assumingMemoryBound(to: Float16.self)
+            .update(repeating: Float16(-10_000), count: Self.contextLength)
     }
 
     /// Exact extension reuses the entire cached prefix. Any rewrite, deletion,
@@ -174,16 +181,16 @@ public actor QwenANE {
             }
         }
         for index in 0..<32 {
-            let angle = Float(offset) * powf(10_000_000, -Float(2 * index) / 64)
+            let angle = Float(offset) * Self.inverseFrequencies[index]
             for destination in [index, index + 32] {
                 cosine.dataPointer.assumingMemoryBound(to: Float16.self)[destination] = Float16(cosf(angle))
                 sine.dataPointer.assumingMemoryBound(to: Float16.self)[destination] = Float16(sinf(angle))
             }
         }
         let maskPointer = mask.dataPointer.assumingMemoryBound(to: Float16.self)
-        for index in 0..<Self.contextLength {
-            maskPointer[index] = index <= offset ? 0 : -10_000
-        }
+        // Tokens are evaluated in order; reset() clears the mask on a rewrite.
+        // Earlier positions already contain zero, and later positions stay masked.
+        maskPointer[offset] = 0
         position.dataPointer.assumingMemoryBound(to: Int32.self)[0] = Int32(offset)
         var currentHidden = MLFeatureValue(multiArray: hidden)
         var finalOutput: MLFeatureProvider?
@@ -242,10 +249,14 @@ public actor QwenANE {
                 guard let scores = prediction.featureValue(for: tile.name)?.multiArrayValue else {
                     throw ANEError.invalid("Missing \(head.layout.name).\(tile.name)")
                 }
-                let values = try Self.floatValues(scores, count: tile.length)
-                logits.replaceSubrange(tile.offset..<(tile.offset + tile.length), with: values)
+                try logits.withUnsafeMutableBufferPointer { destination in
+                    let tileBuffer = UnsafeMutableBufferPointer(
+                        start: destination.baseAddress!.advanced(by: tile.offset), count: tile.length)
+                    try Self.writeFloatValues(scores, into: tileBuffer)
+                }
             }
         }
+        guard logits.allSatisfy(\.isFinite) else { throw ANEError.invalid("Non-finite model output") }
         return logits
     }
 
@@ -266,8 +277,18 @@ public actor QwenANE {
     }
 
     private static func floatValues(_ scores: MLMultiArray, count: Int) throws -> [Float] {
-        guard scores.count == count else {
-            throw ANEError.invalid("Output count \(scores.count), expected \(count)")
+        var values = [Float](repeating: 0, count: count)
+        try values.withUnsafeMutableBufferPointer { try writeFloatValues(scores, into: $0) }
+        guard values.allSatisfy(\.isFinite) else { throw ANEError.invalid("Non-finite model output") }
+        return values
+    }
+
+    /// Write tiles directly into the destination; no intermediate 31 tile arrays.
+    /// The caller checks finiteness once after assembling the complete vector.
+    private static func writeFloatValues(_ scores: MLMultiArray,
+                                         into buffer: UnsafeMutableBufferPointer<Float>) throws {
+        guard scores.count == buffer.count else {
+            throw ANEError.invalid("Output count \(scores.count), expected \(buffer.count)")
         }
         // Use Accelerate for the 248K-element transfer. Respect strides before
         // using the contiguous path; never assume an arbitrary array is dense.
@@ -280,21 +301,19 @@ public actor QwenANE {
             }
             contiguousStride *= length
         }
-        var values = [Float](repeating: 0, count: count)
         if contiguous && scores.dataType == .float16 {
             var source = vImage_Buffer(data: scores.dataPointer, height: 1,
-                width: vImagePixelCount(values.count), rowBytes: values.count * 2)
-            let code = values.withUnsafeMutableBufferPointer { buffer in
-                var destination = vImage_Buffer(data: buffer.baseAddress, height: 1,
-                    width: vImagePixelCount(buffer.count), rowBytes: buffer.count * 4)
-                return vImageConvert_Planar16FtoPlanarF(&source, &destination, 0)
-            }
+                width: vImagePixelCount(buffer.count), rowBytes: buffer.count * 2)
+            var destination = vImage_Buffer(data: buffer.baseAddress, height: 1,
+                width: vImagePixelCount(buffer.count), rowBytes: buffer.count * 4)
+            let code = vImageConvert_Planar16FtoPlanarF(&source, &destination, 0)
             guard code == kvImageNoError else { throw ANEError.invalid("Logits conversion failed") }
+        } else if contiguous && scores.dataType == .float32 {
+            buffer.baseAddress!.update(from: scores.dataPointer.assumingMemoryBound(to: Float.self),
+                                       count: buffer.count)
         } else {
-            for index in values.indices { values[index] = scores[index].floatValue }
+            for index in buffer.indices { buffer[index] = scores[index].floatValue }
         }
-        guard values.allSatisfy(\.isFinite) else { throw ANEError.invalid("Non-finite model output") }
-        return values
     }
 
     private static func zeroRecurrent(_ models: [MLModel]) throws -> [[String: MLMultiArray]] {
