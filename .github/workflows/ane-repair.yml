@@ -15,8 +15,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      MODEL_DIRECTORY: Models/Qwen3.5-0.8B-IME-Q4-Resident
-      REPAIR_REVISION: '6-resident-recurrent-no-tests'
+      MODEL_DIRECTORY: Models/Qwen3.5-0.8B-IME-Q4-Packed
+      REPAIR_REVISION: '7-single-packed-state-no-tests'
       OPENBLAS_NUM_THREADS: '2'
       OMP_NUM_THREADS: '2'
     steps:
@@ -47,7 +47,7 @@ jobs:
           PY
           python3 -u Conversion/repair_tail.py --source Models/Qwen3.5-0.8B-IME-Q4 --out Models/Qwen3.5-0.8B-IME-Q4-SplitHead-Rank4 --skip-numerical-tests 2>&1 | tee work/artifacts/tail-repair.log
           python3 -u Conversion/optimize_body.py --source Models/Qwen3.5-0.8B-IME-Q4-SplitHead-Rank4 --out Models/Qwen3.5-0.8B-IME-Q4-Optimized --skip-numerical-tests 2>&1 | tee work/artifacts/body-optimization.log
-          python3 -u Conversion/resident_states.py --source Models/Qwen3.5-0.8B-IME-Q4-Optimized --out "$MODEL_DIRECTORY" 2>&1 | tee work/artifacts/resident-states.log
+          python3 -u Conversion/packed_states.py --source Models/Qwen3.5-0.8B-IME-Q4-Optimized --out "$MODEL_DIRECTORY" 2>&1 | tee work/artifacts/packed-states.log
       - name: Compile every model for iphoneos and build the independent probe
         shell: bash
         run: |
@@ -55,16 +55,16 @@ jobs:
           xcodebuild -version > work/artifacts/apple-toolchain.txt
           xcrun swift --version >> work/artifacts/apple-toolchain.txt
           bash Scripts/build_probe.sh 2>&1 | tee work/artifacts/xcodebuild.log
-      - name: Package unsigned v5 IPA
+      - name: Package unsigned v6 IPA
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p work/ipa/Payload
           ditto work/build/Build/Products/Release-iphoneos/ANEProbe.app work/ipa/Payload/ANEProbe.app
           cd work/ipa
-          ditto -c -k --keepParent Payload ../artifacts/ANEProbe-Q4-v5-unsigned.ipa
+          ditto -c -k --keepParent Payload ../artifacts/ANEProbe-Q4-v6-unsigned.ipa
           cd ../artifacts
-          shasum -a 256 ANEProbe-Q4-v5-unsigned.ipa > ANEProbe-Q4-v5-unsigned.ipa.sha256
+          shasum -a 256 ANEProbe-Q4-v6-unsigned.ipa > ANEProbe-Q4-v6-unsigned.ipa.sha256
           printf '%s\n' 'iphoneos build checked. Per user request, native execution, iPhone ANE behavior and speed are left to physical-device validation by the user.' > STATUS.txt
       - name: Split IPA into downloadable bounded parts
         shell: bash
@@ -72,37 +72,49 @@ jobs:
           python3 - <<'PY'
           import hashlib, json, pathlib
           root = pathlib.Path('work/artifacts')
-          source = root / 'ANEProbe-Q4-v5-unsigned.ipa'
+          source = root / 'ANEProbe-Q4-v6-unsigned.ipa'
           parts = []
           with source.open('rb') as handle:
-              for index in range(2):
-                  data = handle.read(400 * 1024 * 1024)
-                  path = root / f'ANEProbe-Q4-v5-unsigned.ipa.part{index:02d}'
+              for index in range(4):
+                  data = handle.read(200 * 1024 * 1024)
+                  path = root / f'ANEProbe-Q4-v6-unsigned.ipa.part{index:02d}'
                   path.write_bytes(data)
                   parts.append({'file': path.name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
-              assert not handle.read(1), 'IPA exceeds two delivery parts'
+              assert not handle.read(1), 'IPA exceeds four delivery parts'
           (root / 'ipa-delivery.json').write_text(json.dumps({'parts': parts, 'ipaSHA256': hashlib.file_digest(source.open('rb'), 'sha256').hexdigest()}, indent=2) + '\n')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: ANEProbe-Q4-v5-IPA-part00
-          path: work/artifacts/ANEProbe-Q4-v5-unsigned.ipa.part00
+          name: ANEProbe-Q4-v6-IPA-part00
+          path: work/artifacts/ANEProbe-Q4-v6-unsigned.ipa.part00
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
-          name: ANEProbe-Q4-v5-IPA-part01
-          path: work/artifacts/ANEProbe-Q4-v5-unsigned.ipa.part01
+          name: ANEProbe-Q4-v6-IPA-part01
+          path: work/artifacts/ANEProbe-Q4-v6-unsigned.ipa.part01
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ANEProbe-Q4-v6-IPA-part02
+          path: work/artifacts/ANEProbe-Q4-v6-unsigned.ipa.part02
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ANEProbe-Q4-v6-IPA-part03
+          path: work/artifacts/ANEProbe-Q4-v6-unsigned.ipa.part03
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ANEProbe-Q4-v5-diagnostics
+          name: ANEProbe-Q4-v6-diagnostics
           path: |
             work/artifacts/*.log
             work/artifacts/*.json
             work/artifacts/*.txt
-            Models/Qwen3.5-0.8B-IME-Q4-Resident/*audit.json
+            Models/Qwen3.5-0.8B-IME-Q4-Packed/*audit.json
           retention-days: 7
 
