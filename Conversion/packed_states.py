@@ -154,11 +154,22 @@ def packed_spec(original):
     tensor_shape(axis.outputs[0].type, [])
     axis.attributes["val"].type.CopyFrom(axis.outputs[0].type)
     append(axis)
+    interleave_name = fresh("interleave")
+    interleave = MIL_pb2.Operation(type="const")
+    flag = interleave.outputs.add()
+    flag.name = interleave_name
+    flag.type.tensorType.dataType = MIL_pb2.BOOL
+    tensor_shape(flag.type, [])
+    interleave.attributes["val"].type.CopyFrom(flag.type)
+    interleave.attributes["val"].immediateValue.tensor.bools.values.append(False)
+    set_name(interleave, interleave_name)
+    append(interleave)
     result_name = fresh("next_buffer")
     concat = MIL_pb2.Operation(type="concat")
     for value in pieces:
         concat.inputs["values"].arguments.add().name = value
     concat.inputs["axis"].arguments.add().name = axis.outputs[0].name
+    concat.inputs["interleave"].arguments.add().name = interleave_name
     out = concat.outputs.add()
     out.name = result_name
     out.type.CopyFrom(packed_type)
