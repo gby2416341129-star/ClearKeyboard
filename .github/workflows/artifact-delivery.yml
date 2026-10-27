@@ -1,4 +1,4 @@
-name: Deliver validated Q4 artifacts in bounded parts
+name: Deliver existing v5 IPA in smaller parts
 on:
   workflow_dispatch:
   push:
@@ -8,84 +8,35 @@ permissions:
   contents: read
   actions: read
 jobs:
-  split-validated-artifacts:
+  repackage-existing-ipa:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    env:
-      GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN: '40387279417'
+    timeout-minutes: 10
     steps:
-      - name: Verify and split the existing successful model and IPA archives
-        shell: bash
+      - uses: actions/download-artifact@v4
+        with:
+          name: ANEProbe-Q4-v5-IPA-part00
+          path: delivery
+          run-id: 40451611063
+          github-token: ${{ github.token }}
+      - name: Split the existing IPA part without rebuilding
         run: |
-          set -euo pipefail
           python3 - <<'PY'
-          import hashlib, json, os, pathlib, subprocess
-          repo, run = os.environ['GITHUB_REPOSITORY'], os.environ['SOURCE_RUN']
-          root = pathlib.Path('work/delivery')
-          root.mkdir(parents=True, exist_ok=True)
-          def api(path):
-              return json.loads(subprocess.check_output(['gh', 'api', path]))
-          status = api(f'repos/{repo}/actions/runs/{run}')
-          assert status['conclusion'] == 'success', 'Source run must have passed'
-          assert status['head_sha'] == '5e2c851a3185e89fecb08709eabd35f03cee5a5e'
-          artifacts = api(f'repos/{repo}/actions/runs/{run}/artifacts')['artifacts']
-          manifest = {'sourceRun': run, 'sourceCommit': status['head_sha'], 'archives': []}
-          for prefix, name in [('model', 'Qwen35-IME-Q4-model'), ('app', 'ANEProbe-Q4-unsigned-IPA')]:
-              artifact = next(item for item in artifacts if item['name'] == name and not item['expired'])
-              archive = root / (prefix + '.zip')
-              with archive.open('wb') as handle:
-                  subprocess.run(['gh', 'api', f"repos/{repo}/actions/artifacts/{artifact['id']}/zip"],
-                                 stdout=handle, check=True)
-              with archive.open('rb') as handle:
-                  actual = hashlib.file_digest(handle, 'sha256').hexdigest()
-              assert 'sha256:' + actual == artifact['digest'], 'Source archive digest mismatch'
-              parts = []
-              with archive.open('rb') as source:
-                  for index in range(2):
-                      part = root / f'{prefix}.zip.part{index:02d}'
-                      digest, count = hashlib.sha256(), 0
-                      with part.open('wb') as output:
-                          while count < 400 * 1024 * 1024:
-                              block = source.read(min(8 * 1024 * 1024, 400 * 1024 * 1024 - count))
-                              if not block:
-                                  break
-                              output.write(block)
-                              digest.update(block)
-                              count += len(block)
-                      parts.append({'file': part.name, 'bytes': count, 'sha256': digest.hexdigest()})
-                  assert not source.read(1), 'Archive exceeds the two bounded delivery parts'
-              manifest['archives'].append({'name': name, 'prefix': prefix, 'artifactId': artifact['id'],
-                  'bytes': archive.stat().st_size, 'sha256': actual, 'parts': parts})
-              print(f"Verified {name}: {archive.stat().st_size} bytes; split into two parts")
-          (root / 'delivery-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          from pathlib import Path
+          source = Path('delivery/ANEProbe-Q4-v5-unsigned.ipa.part00')
+          with source.open('rb') as handle:
+              for suffix in ['a', 'b']:
+                  Path(str(source) + suffix).write_bytes(handle.read(200 * 1024 * 1024))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: Q4-model-part-00
-          path: work/delivery/model.zip.part00
+          name: ANEProbe-Q4-v5-IPA-part00a
+          path: delivery/ANEProbe-Q4-v5-unsigned.ipa.part00a
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
-          name: Q4-model-part-01
-          path: work/delivery/model.zip.part01
+          name: ANEProbe-Q4-v5-IPA-part00b
+          path: delivery/ANEProbe-Q4-v5-unsigned.ipa.part00b
           compression-level: 0
           retention-days: 7
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Q4-app-part-00
-          path: work/delivery/app.zip.part00
-          compression-level: 0
-          retention-days: 7
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Q4-app-part-01
-          path: work/delivery/app.zip.part01
-          compression-level: 0
-          retention-days: 7
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Q4-delivery-manifest
-          path: work/delivery/delivery-manifest.json
-          retention-days: 7
+
