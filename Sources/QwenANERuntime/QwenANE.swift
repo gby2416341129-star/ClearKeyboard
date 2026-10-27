@@ -43,6 +43,7 @@ public actor QwenANE {
     private let headModels: [(model: MLModel, layout: HeadModel)]
     private let bodyOutput: String
     private let headInput: String
+    private let progress: (@Sendable (String) -> Void)?
     private var kvStates: [MLState]
     private var recurrent: [[String: MLMultiArray]]
     private let embedding: Data
@@ -59,10 +60,11 @@ public actor QwenANE {
                 embeddingEncoding: EmbeddingEncoding = .fp16,
                 headModels: [HeadModel] = [], bodyOutput: String? = nil,
                 headInput: String = "normed_hidden",
+                computeUnits: MLComputeUnits = .cpuAndNeuralEngine,
                 progress: (@Sendable (String) -> Void)? = nil) throws {
         try Self.validateLayout(headModels)
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .cpuAndNeuralEngine
+        configuration.computeUnits = computeUnits
         func load(_ name: String) throws -> MLModel {
             progress?("load:start:\(name)")
             let start = ProcessInfo.processInfo.systemUptime
@@ -95,6 +97,7 @@ public actor QwenANE {
         self.headModels = loadedHeads
         self.bodyOutput = outputName
         self.headInput = headInput
+        self.progress = progress
         kvStates = loaded.map { $0.makeState() }
         recurrent = try Self.zeroRecurrent(loaded)
         embedding = mapped
@@ -196,9 +199,11 @@ public actor QwenANE {
             for (name, array) in recurrent[chunk] {
                 inputs[name] = MLFeatureValue(multiArray: array)
             }
-            let output = try models[chunk].prediction(
-                from: MLDictionaryFeatureProvider(dictionary: inputs),
-                using: kvStates[chunk], options: MLPredictionOptions())
+            let provider = try MLDictionaryFeatureProvider(dictionary: inputs)
+            let output = try measuredPrediction(name: "chunk_\(["a", "b", "c", "d"][chunk])", offset: offset) {
+                try models[chunk].prediction(from: provider,
+                    using: kvStates[chunk], options: MLPredictionOptions())
+            }
             for name in Array(recurrent[chunk].keys) {
                 guard let value = output.featureValue(for: "new_" + name)?.multiArrayValue else {
                     throw ANEError.invalid("Missing state output new_\(name)")
@@ -230,7 +235,9 @@ public actor QwenANE {
         var logits = [Float](repeating: 0, count: Self.vocabularySize)
         for head in headModels {
             try Task.checkCancellation()
-            let prediction = try head.model.prediction(from: input)
+            let prediction = try measuredPrediction(name: head.layout.name, offset: offset) {
+                try head.model.prediction(from: input)
+            }
             for tile in head.layout.outputs {
                 guard let scores = prediction.featureValue(for: tile.name)?.multiArrayValue else {
                     throw ANEError.invalid("Missing \(head.layout.name).\(tile.name)")
@@ -240,6 +247,22 @@ public actor QwenANE {
             }
         }
         return logits
+    }
+
+    private func measuredPrediction(name: String, offset: Int,
+                                    operation: () throws -> MLFeatureProvider) throws -> MLFeatureProvider {
+        let start = ProcessInfo.processInfo.systemUptime
+        progress?("inference:start:\(name):\(offset)")
+        do {
+            let output = try operation()
+            let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+            progress?("inference:complete:\(name):\(offset):\(ms)")
+            return output
+        } catch {
+            let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+            progress?("inference:failed:\(name):\(offset):\(ms)")
+            throw error
+        }
     }
 
     private static func floatValues(_ scores: MLMultiArray, count: Int) throws -> [Float] {

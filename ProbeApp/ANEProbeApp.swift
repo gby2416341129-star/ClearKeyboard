@@ -33,9 +33,11 @@ struct ProbeResult: Codable, Sendable {
     let modelRevision: String
     let computeUnits: String
     let promptTokens: Int
+    let loadMilliseconds: Double
     let firstTokenMilliseconds: Double
     let decodeSteps: Int
     let decodeMilliseconds: Double
+    let decodeStepMilliseconds: [Double]
     let outputTokenIDs: [Int32]
     let peakSampledPhysicalFootprintBytes: UInt64
     let thermalState: Int
@@ -51,7 +53,7 @@ private struct ProbeIncident: Codable, Sendable {
 }
 
 private struct ProbeEvidence: Codable, Sendable {
-    let schemaVersion = 2
+    let schemaVersion = 3
     let runID: String
     let startedAt: Date
     let device: String
@@ -59,7 +61,7 @@ private struct ProbeEvidence: Codable, Sendable {
     let appVersion: String
     let appBuild: String
     let physicalMemoryBytes: UInt64
-    let computeUnits = "cpuAndNeuralEngine"
+    let computeUnits: String
     let hardwareTraceCaptured = false
     let keyboardExtensionTested = false
     var updatedAt: Date
@@ -83,6 +85,26 @@ private struct ProbeEvidence: Codable, Sendable {
 
 private enum ProbeMode: String, Sendable { case execution, plan }
 
+private enum ProbeBackend: String, CaseIterable, Identifiable, Sendable {
+    case all, cpuAndNeuralEngine, cpuAndGPU
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return "自动：CPU + GPU + ANE"
+        case .cpuAndNeuralEngine: return "CPU + ANE"
+        case .cpuAndGPU: return "CPU + GPU"
+        }
+    }
+    var computeUnits: MLComputeUnits {
+        switch self {
+        case .all: return .all
+        case .cpuAndNeuralEngine: return .cpuAndNeuralEngine
+        case .cpuAndGPU: return .cpuAndGPU
+        }
+    }
+}
+
 private enum ProbeUpdate: Sendable {
     case metadata(ProbeModelInfo, String)
     case progress(ANEProgress)
@@ -97,6 +119,7 @@ private final class ProbeSession: ObservableObject {
     @Published private(set) var status = "独立设备验证：先加载模型并执行短推理，可另行读取算子分配计划。"
     @Published private(set) var isRunning = false
     @Published private(set) var reportURL: URL?
+    @Published private(set) var executionReportURL: URL?
     @Published private(set) var operationStartedAt: Date?
     @Published private(set) var stageStartedAt: Date?
     @Published private(set) var finishedAt: Date?
@@ -104,25 +127,47 @@ private final class ProbeSession: ObservableObject {
     @Published private(set) var planStatus = "尚未诊断"
     @Published private(set) var recentEvents: [String] = []
     @Published private(set) var saveError: String?
+    @Published private(set) var loadMilliseconds: Double?
+    @Published private(set) var firstTokenMilliseconds: Double?
+    @Published private(set) var decodeStepMilliseconds: [Double] = []
     private var evidence: ProbeEvidence?
     private var worker: Task<Void, Never>?
     private var currentMode = ProbeMode.execution
+    private var currentBackend = ProbeBackend.all
     private var failuresAtStart = 0
 
-    func start(_ mode: ProbeMode) {
+    init() {
+        let previous = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("latest-execution/ane-execution-evidence.json")
+        if FileManager.default.fileExists(atPath: previous.path) {
+            executionReportURL = previous
+        }
+    }
+
+    func start(_ mode: ProbeMode, backend: ProbeBackend) {
         guard !isRunning else { return }
         let now = Date()
         currentMode = mode
-        if evidence == nil {
-            evidence = ProbeEvidence(runID: UUID().uuidString, startedAt: now,
+        currentBackend = backend
+        // Each operation owns its backend, plans, failures and file. The latest
+        // execution file survives a later plan-only operation.
+        evidence = ProbeEvidence(runID: UUID().uuidString, startedAt: now,
                 device: machineIdentifier(),
                 os: ProcessInfo.processInfo.operatingSystemVersionString,
                 appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
                 appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
                 physicalMemoryBytes: ProcessInfo.processInfo.physicalMemory,
+                computeUnits: backend.rawValue,
                 updatedAt: now, operationStartedAt: now,
                 operation: mode.rawValue, phase: "prepare")
-        }
+        recentEvents = []
+        loadMilliseconds = nil
+        firstTokenMilliseconds = nil
+        decodeStepMilliseconds = []
+        executionStatus = mode == .execution ? "准备加载和实际推理" : "本轮未执行；最近推理记录单独保留"
+        planStatus = mode == .plan ? "正在独立诊断；此步骤不执行模型推理" : "本轮未诊断"
+        evidence?.executionStatus = executionStatus
+        evidence?.planStatus = planStatus
         operationStartedAt = now
         stageStartedAt = now
         finishedAt = nil
@@ -144,7 +189,7 @@ private final class ProbeSession: ObservableObject {
         persist()
         let (updates, continuation) = AsyncStream<ProbeUpdate>.makeStream()
         worker = Task.detached(priority: .userInitiated) {
-            await performProbe(mode: mode, updates: continuation)
+            await performProbe(mode: mode, backend: backend, updates: continuation)
         }
         Task { [weak self] in
             for await update in updates {
@@ -188,6 +233,13 @@ private final class ProbeSession: ObservableObject {
                     index: position, total: names.count,
                     state: fields[1] == "start" ? "started" : "succeeded",
                     timestamp: timestamp, elapsedMilliseconds: duration, detail: message))
+            } else if fields.count >= 4, fields[0] == "inference",
+                      ["start", "complete", "failed"].contains(fields[1]) {
+                let duration = fields.count > 4 ? Double(fields[4]) ?? 0 : 0
+                let state = ["start": "started", "complete": "succeeded", "failed": "failed"][fields[1]]!
+                record(ANEProgress(phase: "inference", model: fields[2],
+                    tokenOffset: Int(fields[3]), state: state,
+                    timestamp: timestamp, elapsedMilliseconds: duration, detail: message))
             } else {
                 record(ANEProgress(phase: evidence?.phase ?? "load",
                     model: evidence?.currentModel, state: "message",
@@ -195,6 +247,9 @@ private final class ProbeSession: ObservableObject {
             }
         case .inference(let result):
             evidence?.result = result
+            loadMilliseconds = result.loadMilliseconds
+            firstTokenMilliseconds = result.firstTokenMilliseconds
+            decodeStepMilliseconds = result.decodeStepMilliseconds
             persist()
         case .failed(let error, let cancelled):
             let phase = evidence?.phase ?? "prepare"
@@ -218,12 +273,12 @@ private final class ProbeSession: ObservableObject {
             if mode == .execution {
                 executionStatus = "实际短推理已完成"
                 evidence?.executionStatus = executionStatus
-                status = "模型已在 cpuAndNeuralEngine 配置下完成短推理。硬件是否实际执行于 ANE，需结合 Instruments 轨迹确认。"
+                status = "已在\(currentBackend.title)配置下完成短推理。所选配置允许系统分配计算，不代表每种硬件都参与执行。"
             } else {
                 let failures = (evidence?.failures.count ?? 0) - failuresAtStart
                 planStatus = failures == 0 ? "计算计划读取完成" : "计算计划读取结束，\(failures) 个模型失败"
                 evidence?.planStatus = planStatus
-                status = "计算计划诊断结束，已有计划和全部错误已保存。计划只反映编译器分配，不代表 ANE 执行成功。"
+                status = "计算计划诊断结束，计划和错误已保存。CPU 规划也是正常结果；计划不代表实际推理已成功。"
             }
             persist()
         }
@@ -246,15 +301,24 @@ private final class ProbeSession: ObservableObject {
                 cancelled: error.domain == NSCocoaErrorDomain && error.code == NSUserCancelledError)
         }
         evidence?.events.append(event)
+        if event.phase == "initialize", event.state == "succeeded" {
+            loadMilliseconds = event.elapsedMilliseconds
+        } else if event.phase == "prefill", event.state == "succeeded" {
+            firstTokenMilliseconds = event.elapsedMilliseconds
+        } else if event.phase == "decode", event.state == "succeeded" {
+            decodeStepMilliseconds.append(event.elapsedMilliseconds)
+        }
         let model = event.model.map { " · \($0)" } ?? ""
         let position: String
         if let index = event.index, let total = event.total { position = " [\(index)/\(total)]" }
+        else if let token = event.tokenOffset { position = " · token \(token)" }
         else { position = "" }
         let duration = event.elapsedMilliseconds > 0
             ? String(format: " · %.2f 秒", event.elapsedMilliseconds / 1000) : ""
         let state = ["started": "开始", "succeeded": "完成", "cached": "已缓存",
                      "failed": "失败", "message": "状态"][event.state] ?? event.state
-        let line = "\(stageLabel(event.phase))\(model)\(position) · \(state)\(duration)"
+        var line = "\(stageLabel(event.phase))\(model)\(position) · \(state)\(duration)"
+        if event.phase == "plan", let detail = event.detail { line += "\n" + detail }
         recentEvents.append(line)
         if recentEvents.count > 10 { recentEvents.removeFirst(recentEvents.count - 10) }
         status = event.state == "message" ? event.detail ?? line : line
@@ -281,13 +345,16 @@ private final class ProbeSession: ObservableObject {
             (snapshot.operationFinishedAt ?? now).timeIntervalSince(snapshot.operationStartedAt) * 1000)
         evidence = snapshot
         do {
-            let output = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("ane-device-evidence.json")
+            let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("latest-" + snapshot.operation)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let output = directory.appendingPathComponent("ane-\(snapshot.operation)-evidence.json")
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             encoder.dateEncodingStrategy = .iso8601
             try encoder.encode(snapshot).write(to: output, options: .atomic)
             reportURL = output
+            if currentMode == .execution { executionReportURL = output }
             saveError = nil
         } catch {
             saveError = "设备记录保存失败：\(error.localizedDescription)"
@@ -298,11 +365,17 @@ private final class ProbeSession: ObservableObject {
 @MainActor
 struct ProbeView: View {
     @StateObject private var session = ProbeSession()
+    @State private var backend = ProbeBackend.all
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Qwen 0.8B · iPhone ANE").font(.title2)
+                Picker("计算配置", selection: $backend) {
+                    ForEach(ProbeBackend.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }.pickerStyle(.menu).disabled(session.isRunning)
                 Text(session.status).textSelection(.enabled)
                 if let started = session.operationStartedAt {
                     TimelineView(.periodic(from: .now, by: 1)) { timeline in
@@ -322,15 +395,34 @@ struct ProbeView: View {
                     Text("实际执行：\(session.executionStatus)")
                     Text("计划诊断：\(session.planStatus)")
                 }.font(.callout)
-                Button("加载模型并执行短推理") { session.start(.execution) }
+                if let load = session.loadMilliseconds {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(String(format: "加载与初始化：%.2f 秒", load / 1000))
+                        if let first = session.firstTokenMilliseconds {
+                            Text(String(format: "首个输出（含提示词处理）：%.1f 毫秒", first))
+                        } else {
+                            Text("首个输出：尚未完成")
+                        }
+                        ForEach(Array(session.decodeStepMilliseconds.enumerated()), id: \.offset) { index, milliseconds in
+                            Text(String(format: "后续第 %d 步：%.1f 毫秒", index + 1, milliseconds))
+                        }
+                    }.font(.callout.monospacedDigit())
+                    Text("加载时间不等于打字延迟。首个输出和后续步骤才是本次短推理耗时；尚未验证输入法候选响应。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Button("加载模型并执行短推理") { session.start(.execution, backend: backend) }
                     .buttonStyle(.borderedProminent).disabled(session.isRunning)
-                Button("单独诊断算子分配计划") { session.start(.plan) }
+                Button("单独诊断算子分配计划") { session.start(.plan, backend: backend) }
                     .buttonStyle(.bordered).disabled(session.isRunning)
                 if session.isRunning {
                     Button("当前原生调用结束后停止", role: .destructive) { session.requestStop() }
                 }
                 if let report = session.reportURL {
-                    ShareLink("导出设备记录（失败也可导出）", item: report)
+                    ShareLink("导出本轮记录（失败也可导出）", item: report)
+                }
+                if let executionReport = session.executionReportURL,
+                   executionReport != session.reportURL {
+                    ShareLink("导出最近推理记录", item: executionReport)
                 }
                 if let error = session.saveError {
                     Text(error).foregroundStyle(.red).textSelection(.enabled)
@@ -338,7 +430,7 @@ struct ProbeView: View {
                 ForEach(Array(session.recentEvents.enumerated()), id: \.offset) { _, event in
                     Text(event).font(.caption.monospaced()).textSelection(.enabled)
                 }
-                Text("固定使用 CPU + Neural Engine，不切换 GPU。计划、实际推理和硬件轨迹是独立证据；本工具不验证键盘扩展。")
+                Text("自动配置允许 CPU、GPU、ANE 参与调度，不代表三者同时计算；本工具不会自动切换配置。计划、实际推理和硬件轨迹是独立证据；本工具不验证键盘扩展。")
                     .font(.caption).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading).padding()
         }
@@ -348,12 +440,13 @@ struct ProbeView: View {
 private func stageLabel(_ phase: String) -> String {
     ["prepare": "准备资源", "compile": "编译模型", "load": "加载模型",
      "initialize": "初始化状态", "plan": "读取计算计划",
+     "inference": "执行模型",
      "prefill": "执行提示词推理", "decode": "执行后续短推理"][phase] ?? phase
 }
 
 /// Runs outside MainActor. A single ordered stream carries progress and failures.
 private func performProbe(
-    mode: ProbeMode, updates: AsyncStream<ProbeUpdate>.Continuation
+    mode: ProbeMode, backend: ProbeBackend, updates: AsyncStream<ProbeUpdate>.Continuation
 ) async {
     defer { updates.finish() }
     do {
@@ -387,6 +480,7 @@ private func performProbe(
         try Task.checkCancellation()
         if mode == .plan {
             _ = try await ANEPlan.inspect(directory: compiled, modelNames: names,
+                computeUnits: backend.computeUnits,
                 continueOnFailure: true) { updates.yield(.progress($0)) }
             try Task.checkCancellation()
             updates.yield(.completed(.plan))
@@ -401,11 +495,16 @@ private func performProbe(
         }
         let fixture = try JSONDecoder().decode(ProbeFixture.self, from: Data(contentsOf: fixtureURL))
         updates.yield(.progress(ANEProgress(phase: "initialize", state: "started")))
+        let loadStart = ProcessInfo.processInfo.systemUptime
         let engine = try QwenANE(compiledDirectory: compiled,
             embeddingURL: directory.appendingPathComponent(info.embeddingFile),
             embeddingEncoding: encoding, headModels: info.headModels ?? [],
             bodyOutput: info.bodyOutput, headInput: info.headInput ?? "normed_hidden",
+            computeUnits: backend.computeUnits,
             progress: { updates.yield(.runtime($0, Date())) })
+        let loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000
+        updates.yield(.progress(ANEProgress(phase: "initialize", state: "succeeded",
+            elapsedMilliseconds: loadMs)))
         try Task.checkCancellation()
         let log = OSLog(subsystem: "local.QwenANEProbe", category: .pointsOfInterest)
         var sequence = fixture.tokenIDs
@@ -428,6 +527,7 @@ private func performProbe(
             elapsedMilliseconds: firstTokenMs)))
         var emitted: [Int32] = []
         var decodeSteps = 0
+        var decodeStepMs: [Double] = []
         let decodeStart = ProcessInfo.processInfo.systemUptime
         // Four output tokens are sufficient to exercise state reuse; this is not a typing benchmark.
         for index in 0..<4 {
@@ -452,17 +552,20 @@ private func performProbe(
             }
             os_signpost(.end, log: log, name: "QwenANEDecode")
             decodeSteps += 1
+            let stepMs = (ProcessInfo.processInfo.systemUptime - stepStart) * 1000
+            decodeStepMs.append(stepMs)
             footprint = max(footprint, physicalFootprint())
             updates.yield(.progress(ANEProgress(phase: "decode", index: index + 1,
                 total: 3, state: "succeeded",
-                elapsedMilliseconds: (ProcessInfo.processInfo.systemUptime - stepStart) * 1000)))
+                elapsedMilliseconds: stepMs)))
         }
         try Task.checkCancellation()
         updates.yield(.inference(ProbeResult(
             modelRevision: info.sourceRevision + "/" + info.fingerprint,
-            computeUnits: "cpuAndNeuralEngine", promptTokens: fixture.tokenIDs.count,
-            firstTokenMilliseconds: firstTokenMs, decodeSteps: decodeSteps,
+            computeUnits: backend.rawValue, promptTokens: fixture.tokenIDs.count,
+            loadMilliseconds: loadMs, firstTokenMilliseconds: firstTokenMs, decodeSteps: decodeSteps,
             decodeMilliseconds: (ProcessInfo.processInfo.systemUptime - decodeStart) * 1000,
+            decodeStepMilliseconds: decodeStepMs,
             outputTokenIDs: emitted,
             peakSampledPhysicalFootprintBytes: max(footprint, physicalFootprint()),
             thermalState: ProcessInfo.processInfo.thermalState.rawValue)))

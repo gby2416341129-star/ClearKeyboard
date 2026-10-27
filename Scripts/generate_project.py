@@ -17,9 +17,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-directory", type=Path)
     args = parser.parse_args()
-    model_directory = args.model_directory or ROOT / "Models/Qwen3.5-0.8B-IME-Q4-SplitHead"
+    model_directory = args.model_directory or ROOT / "Models/Qwen3.5-0.8B-IME-Q4-SplitHead-Rank4"
     if args.model_directory is None and not model_directory.exists():
-        model_directory = ROOT / "Models/Qwen3.5-0.8B-IME-Q4"
+        model_directory = ROOT / "Models/Qwen3.5-0.8B-IME-Q4-SplitHead"
+        if not model_directory.exists():
+            model_directory = ROOT / "Models/Qwen3.5-0.8B-IME-Q4"
     model_directory = model_directory.resolve()
     info = json.loads((model_directory / "model-info.json").read_text(encoding="utf-8"))
     names = ["chunk_" + suffix for suffix in "abcd"] + [head["name"] for head in info.get("headModels", [])]
@@ -65,8 +67,8 @@ def main():
             "GENERATE_INFOPLIST_FILE": "YES", "CODE_SIGN_STYLE": "Automatic",
             "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "2",
-            "MARKETING_VERSION": "0.2", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
+            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "3",
+            "MARKETING_VERSION": "0.3", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
         }
         body = " ".join(f"{key} = {quote(value)};" for key, value in settings.items())
         configurations.append(add("config:" + mode, f"isa = XCBuildConfiguration; buildSettings = {{ {body} }}; name = {mode};"))

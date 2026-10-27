@@ -12,11 +12,18 @@ public struct ANEOperation: Codable, Sendable {
 
 public struct ANEChunkPlan: Codable, Sendable {
     public let chunk: String
+    public let computeUnits: String
     public let operations: [ANEOperation]
     public var plannedANEOperations: Int {
         operations.filter { !$0.constant && $0.preferred == "ANE" }.count
     }
     public var computeOperations: Int { operations.filter { !$0.constant }.count }
+    public var plannedCPUOperations: Int {
+        operations.filter { !$0.constant && $0.preferred == "CPU" }.count
+    }
+    public var plannedGPUOperations: Int {
+        operations.filter { !$0.constant && $0.preferred == "GPU" }.count
+    }
 }
 
 /// A JSON-safe NSError graph, including the native error domains/codes and userInfo.
@@ -73,6 +80,7 @@ public struct ANEProgress: Codable, Sendable {
     public let model: String?
     public let index: Int?
     public let total: Int?
+    public let tokenOffset: Int?
     public let state: String
     public let timestamp: Date
     public let elapsedMilliseconds: Double
@@ -81,13 +89,15 @@ public struct ANEProgress: Codable, Sendable {
     public let error: ANEFailure?
 
     public init(phase: String, model: String? = nil, index: Int? = nil,
-                total: Int? = nil, state: String, timestamp: Date = Date(),
+                total: Int? = nil, tokenOffset: Int? = nil,
+                state: String, timestamp: Date = Date(),
                 elapsedMilliseconds: Double = 0, detail: String? = nil,
                 plan: ANEChunkPlan? = nil, error: ANEFailure? = nil) {
         self.phase = phase
         self.model = model
         self.index = index
         self.total = total
+        self.tokenOffset = tokenOffset
         self.state = state
         self.timestamp = timestamp
         self.elapsedMilliseconds = elapsedMilliseconds
@@ -106,12 +116,13 @@ public enum ANEPlan {
     /// Progress preserves completed plans even when a later model fails.
     public static func inspect(
         directory: URL, modelNames: [String] = bodyModelNames,
+        computeUnits: MLComputeUnits = .all,
         continueOnFailure: Bool = false,
         onProgress: (@Sendable (ANEProgress) async -> Void)? = nil
     ) async throws -> [ANEChunkPlan] {
         try validate(modelNames)
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .cpuAndNeuralEngine
+        configuration.computeUnits = computeUnits
         var results: [ANEChunkPlan] = []
         for (index, name) in modelNames.enumerated() {
             try Task.checkCancellation()
@@ -144,15 +155,15 @@ public enum ANEPlan {
                 for (functionName, function) in program.functions {
                     walk(function.block, function: functionName)
                 }
-                let result = ANEChunkPlan(chunk: name, operations: operations)
+                let result = ANEChunkPlan(chunk: name,
+                    computeUnits: computeUnitsLabel(computeUnits), operations: operations)
                 extracted = result
                 results.append(result)
-                guard result.computeOperations > 0, result.plannedANEOperations > 0 else {
-                    throw ANEError.invalid("\(name): no compute operation planned for ANE")
-                }
                 await onProgress?(ANEProgress(phase: "plan", model: name,
                     index: index + 1, total: modelNames.count, state: "succeeded",
-                    elapsedMilliseconds: elapsed(since: start), plan: result))
+                    elapsedMilliseconds: elapsed(since: start),
+                    detail: "CPU \(result.plannedCPUOperations) / GPU \(result.plannedGPUOperations) / ANE \(result.plannedANEOperations)（编译器计划）",
+                    plan: result))
             } catch {
                 await onProgress?(ANEProgress(phase: "plan", model: name,
                     index: index + 1, total: modelNames.count, state: "failed",
@@ -232,6 +243,16 @@ public enum ANEPlan {
 
     private static func elapsed(since start: TimeInterval) -> Double {
         (ProcessInfo.processInfo.systemUptime - start) * 1000
+    }
+
+    public static func computeUnitsLabel(_ units: MLComputeUnits) -> String {
+        switch units {
+        case .all: return "all"
+        case .cpuOnly: return "cpuOnly"
+        case .cpuAndGPU: return "cpuAndGPU"
+        case .cpuAndNeuralEngine: return "cpuAndNeuralEngine"
+        @unknown default: return "unknown"
+        }
     }
 
     private static func label(_ device: MLComputeDevice) -> String {

@@ -27,7 +27,7 @@ from coremltools.proto import MIL_pb2, Model_pb2
 HEADER = struct.Struct("<II7Q")
 SENTINEL = 0xDEADBEEF
 ALIGNMENT = 64
-LAYOUT = "mlkv-q4-split-head-v1"
+LAYOUT = "mlkv-q4-split-head-rank4-v2"
 
 
 def save_json(path, value):
@@ -372,6 +372,76 @@ def resize_vocab(message, length):
                     dimension.constant.size = length
 
 
+def tensor_shape(value_type, dimensions):
+    tensor = value_type.tensorType
+    tensor.rank = len(dimensions)
+    del tensor.dimensions[:]
+    for size in dimensions:
+        tensor.dimensions.add().constant.size = size
+
+
+def set_int_vector(op, values):
+    if op.type != "const" or op.attributes["val"].type.tensorType.dataType != MIL_pb2.INT32:
+        raise ValueError("Expected a named INT32 vector constant")
+    value = op.attributes["val"]
+    tensor_shape(value.type, [len(values)])
+    value.immediateValue.tensor.ints.values[:] = values
+    tensor_shape(op.outputs[0].type, [len(values)])
+
+
+def rank4_head_ops(operations, output_name, length):
+    """Use an actual 2D 1x1 Conv without altering any compressed weights.
+
+    The original export lowered Linear to rank-3 conv (Conv1D). Four-dimensional
+    1x1 Conv is the layout used by Apple's ANE transformer reference. This is a
+    targeted layout experiment, not evidence that Core ML will choose ANE.
+    The two reshape operations only add/remove singleton dimensions, so the
+    original FP16 tensor order and all dot products remain identical.
+    """
+    by_output = {output.name: op for op in operations for output in op.outputs}
+    final = by_output[output_name]
+    conv = by_output[input_name(final, "x")]
+    layout_in = by_output[input_name(conv, "x")]
+    squeeze = by_output[input_name(conv, "weight")]
+    if final.type != "transpose" or layout_in.type != "transpose" or squeeze.type != "squeeze":
+        raise ValueError("Unexpected original Conv1D head layout")
+    if shape(conv.outputs[0].type) != [1, length, 1]:
+        raise ValueError("Unexpected Conv1D head output shape")
+    dequant = by_output[input_name(squeeze, "x")]
+    if dequant.type != "constexpr_blockwise_shift_scale" or shape(dequant.outputs[0].type) != [length, 1024, 1, 1]:
+        raise ValueError("Expected the original rank-4 compressed head weight")
+    conv.inputs["weight"].arguments[0].name = dequant.outputs[0].name
+    for layout, dimensions in ((layout_in, [1, 1024, 1, 1]), (final, [1, 1, length])):
+        constant = by_output[input_name(layout, "perm")]
+        set_int_vector(constant, dimensions)
+        layout.type = "reshape"
+        layout.inputs["shape"].CopyFrom(layout.inputs["perm"])
+        del layout.inputs["perm"]
+        tensor_shape(layout.outputs[0].type, dimensions)
+    tensor_shape(conv.outputs[0].type, [1, length, 1, 1])
+    for name, values in (("strides", [1, 1]), ("dilations", [1, 1]), ("pad", [0, 0, 0, 0])):
+        set_int_vector(by_output[input_name(conv, name)], values)
+    # Drop the unused weight squeeze and its now-unused axes constant. Pruning
+    # from the declared output also protects against stray stale shape nodes.
+    required = set()
+    def visit(name):
+        if name not in by_output:
+            if name != "normed_hidden":
+                raise ValueError(f"Unexpected external head input {name}")
+            return
+        op = by_output[name]
+        key = op.outputs[0].name
+        if key in required:
+            return
+        required.add(key)
+        for argument in op.inputs.values():
+            for binding in argument.arguments:
+                if binding.WhichOneof("binding") == "name":
+                    visit(binding.name)
+    visit(output_name)
+    return [op for op in operations if op.outputs[0].name in required]
+
+
 def make_head(original, tail, weights_dir, package, tiles):
     result = copy.deepcopy(original)
     function = result.mlProgram.functions["main"]
@@ -402,6 +472,7 @@ def make_head(original, tail, weights_dir, package, tiles):
         names = {output.name: output.name + suffix for op in head_ops for output in op.outputs}
         names["logits"] = tile["name"]
         names[tail["boundary"]] = "normed_hidden"
+        tile_operations = []
         for original_op in head_ops:
             op = copy.deepcopy(original_op)
             for output in op.outputs:
@@ -426,7 +497,8 @@ def make_head(original, tail, weights_dir, package, tiles):
                 source = storage_path(weights_dir, value)
                 value.blobFileValue.offset = writer.append(source, value.blobFileValue.offset, start, length)
                 value.blobFileValue.fileName = "@model_path/weights/weight.bin"
-            block.operations.add().CopyFrom(op)
+            tile_operations.append(op)
+        block.operations.extend(rank4_head_ops(tile_operations, tile["name"], tile["length"]))
         block.outputs.append(tile["name"])
         feature = result.description.output.add()
         feature.CopyFrom(original.description.output[0])
@@ -443,7 +515,11 @@ def make_head(original, tail, weights_dir, package, tiles):
     result.description.metadata.userDefined["tail_repair_layout"] = LAYOUT
     result.description.metadata.userDefined["tail_repair_tiles"] = json.dumps(tiles, sort_keys=True)
     model_path.write_bytes(result.SerializeToString())
+    for op in block.operations:
+        if op.type == "conv" and shape(op.outputs[0].type) != [1, shape(op.outputs[0].type)[1], 1, 1]:
+            raise RuntimeError("Head Conv must retain rank-4 singleton-spatial layout")
     return {"outputs": tiles, "operations": len(block.operations), "conv_operators": sum(op.type == "conv" for op in block.operations),
+        "conv_layout": "NCHW rank-4 1x1 Conv; compressed weights unchanged",
         "no_in_model_concat": True, "weight_payload_identity_verified": True, "weight_payloads": writer.records}
 
 
@@ -574,7 +650,7 @@ def main():
         "sourceFingerprint": source_info["fingerprint"], "unchanged_a_b_c_verified": True,
         "body": body_audit, "heads": head_audits, "full_vocabulary_coverage": True,
         "cpu_equivalence": equivalence, "filesSHA256": inventory,
-        "root_cause": "Suspected oversized output projection; native/device validation still required"})
+        "root_cause": "Original full output projection split into tiles; rank-3 Conv1D head replaced by rank-4 Conv2D as an ANE layout experiment. Native/device validation is still required."})
     if (source / "coreml-export.json").is_file():
         export = json.loads((source / "coreml-export.json").read_text(encoding="utf-8"))
         for chunk in export.get("chunks", []):
