@@ -1,4 +1,4 @@
-name: Build 81 cached Qwen candidate pipeline IPA
+name: Build 82 native pinyin decoder and Qwen scoring IPA
 on:
   push:
     branches: [codex/repair67-20261026]

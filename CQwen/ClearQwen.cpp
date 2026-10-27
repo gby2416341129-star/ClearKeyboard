@@ -1,626 +1,421 @@
 #include "include/ClearQwen.h"
-#include "llama.h"
+#include "ScoringBackend.h"
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <cstdlib>
-#include <fstream>
-#include <limits>
+#include <cstring>
+#include <fcntl.h>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <set>
-#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <thread>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace {
-#if defined(CLEAR_KEYBOARD_EXTENSION) && CLEAR_KEYBOARD_EXTENSION
-constexpr bool keyboardExtension=true;
-#else
-constexpr bool keyboardExtension=false;
-#endif
-constexpr size_t decodeBatch=keyboardExtension?32:64;
-constexpr size_t matchCacheLimit=keyboardExtension?4096:16384;
-constexpr size_t frontierLimit=keyboardExtension?2048:8192;
-constexpr size_t queryCacheLimit=keyboardExtension?1:4;
 thread_local std::string lastError;
-struct Rune { uint32_t value; std::string bytes; };
-std::vector<Rune> runes(const std::string &s) {
-    std::vector<Rune> out;
-    for (size_t i = 0; i < s.size();) {
-        size_t start = i; unsigned char c = s[i++]; uint32_t cp = c;
-        int extra = 0;
-        if (c >= 0xc2 && c <= 0xdf) { cp = c & 31; extra = 1; }
-        else if (c >= 0xe0 && c <= 0xef) { cp = c & 15; extra = 2; }
-        else if (c >= 0xf0 && c <= 0xf4) { cp = c & 7; extra = 3; }
-        else if (c >= 0x80) return {};
-        if (i + extra > s.size()) return {};
-        for (int j = 0; j < extra; ++j) {
-            unsigned char d = s[i++]; if ((d & 0xc0) != 0x80) return {};
-            cp = (cp << 6) | (d & 63);
+enum MatchKind {Exact=0, Fuzzy=1, Unfinished=2, Initials=3, Corrected=4, Literal=5};
+struct Item {std::string text,reading; int consumed=0,kind=Exact,characters=0; double score=0;};
+struct Header {
+    char magic[8];
+    uint32_t version,syllableCount,nodeCount,edgeCount,wordCount,poolBytes;
+    uint32_t syllableOffset,nodeOffset,edgeOffset,wordOffset,poolOffset,textIndexOffset;
+    uint64_t fingerprint;
+};
+struct Node {uint32_t firstEdge,edgeCount,firstWord,wordCount; float maximum;};
+struct Edge {uint16_t syllable,reserved; uint32_t child;};
+struct Word {uint32_t offset,bytes; float logFrequency; uint16_t characters,flags;};
+static_assert(sizeof(Header)==64 && sizeof(Node)==20 && sizeof(Edge)==8 && sizeof(Word)==16,"Lexicon ABI");
+struct Lexicon {
+    void *mapping=MAP_FAILED; size_t bytes=0;
+    const Header *header=nullptr; const Node *nodes=nullptr; const Edge *edges=nullptr;
+    const Word *words=nullptr; const char *pool=nullptr; const uint32_t *textOrder=nullptr;
+    std::vector<std::string> syllables;
+    std::unordered_set<std::string> completeSyllables;
+    std::vector<uint32_t> frequent;
+    ~Lexicon() {if(mapping!=MAP_FAILED) munmap(mapping,bytes);}
+    void load(const char *path) {
+        int fd=open(path,O_RDONLY); if(fd<0) throw std::runtime_error("Missing native pinyin index");
+        struct Close {int fd; ~Close(){close(fd);}} closeFile{fd};
+        struct stat status{};
+        if(fstat(fd,&status)!=0 || status.st_size<64 || status.st_size>128*1024*1024)
+            throw std::runtime_error("Invalid native pinyin index size");
+        bytes=size_t(status.st_size); mapping=mmap(nullptr,bytes,PROT_READ,MAP_PRIVATE,fd,0);
+        if(mapping==MAP_FAILED) throw std::runtime_error("Cannot map native pinyin index");
+        header=static_cast<const Header *>(mapping);
+        if(std::memcmp(header->magic,"CKLX82\0\0",8)!=0 || header->version!=1 || header->syllableCount>65535 || !header->nodeCount || !header->wordCount)
+            throw std::runtime_error("Incompatible native pinyin index");
+        auto section=[&](uint32_t offset,uint32_t count,size_t stride) {
+            if(offset<64 || offset%4 || offset>bytes || count>(bytes-offset)/stride)
+                throw std::runtime_error("Invalid native pinyin index offsets");
+            return static_cast<const char *>(mapping)+offset;
+        };
+        const char *symbols=section(header->syllableOffset,header->syllableCount,8);
+        nodes=reinterpret_cast<const Node *>(section(header->nodeOffset,header->nodeCount,sizeof(Node)));
+        edges=reinterpret_cast<const Edge *>(section(header->edgeOffset,header->edgeCount,sizeof(Edge)));
+        words=reinterpret_cast<const Word *>(section(header->wordOffset,header->wordCount,sizeof(Word)));
+        pool=section(header->poolOffset,header->poolBytes,1);
+        textOrder=reinterpret_cast<const uint32_t *>(section(header->textIndexOffset,header->wordCount,4));
+        for(uint32_t i=0;i<header->syllableCount;++i) {
+            size_t length=strnlen(symbols+i*8,8);
+            if(!length || length==8) throw std::runtime_error("Invalid pinyin symbol");
+            syllables.emplace_back(symbols+i*8,length);
+            if(syllables.back()[0]!='@' && syllables.back().find_first_of("aeiouv")!=std::string::npos)
+                completeSyllables.insert(syllables.back());
         }
-        if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return {};
-        out.push_back({cp, s.substr(start, i - start)});
+        // Large trie/string tables stay file-backed. Only this small frequency
+        // list is retained separately for next-word prediction.
+        frequent.reserve(128);
+        for(uint32_t i=0;i<header->wordCount;++i) {
+            if(words[i].characters>6) continue;
+            frequent.push_back(i);
+            if(frequent.size()>128) {
+                std::partial_sort(frequent.begin(),frequent.begin()+64,frequent.end(),[&](uint32_t a,uint32_t b){return words[a].logFrequency>words[b].logFrequency;});
+                frequent.resize(64);
+            }
+        }
+        std::sort(frequent.begin(),frequent.end(),[&](uint32_t a,uint32_t b){return words[a].logFrequency>words[b].logFrequency;});
+        if(frequent.size()>64) frequent.resize(64);
     }
-    return out;
-}
-bool han(uint32_t cp) {
-    return (cp >= 0x3400 && cp <= 0x9fff) || (cp >= 0x20000 && cp <= 0x3347f) ||
-           (cp >= 0xf900 && cp <= 0xfaff);
-}
-std::string suffixText(const std::string &s, size_t limit) {
-    const auto chars = runes(s); std::string out;
-    for (size_t i = chars.size() > limit ? chars.size() - limit : 0; i < chars.size(); ++i) out += chars[i].bytes;
-    return out;
-}
-bool starts(const std::string &s, const std::string &p) { return s.compare(0, p.size(), p) == 0; }
-bool ends(const std::string &s, const std::string &p) { return s.size() >= p.size() && s.compare(s.size()-p.size(),p.size(),p)==0; }
-std::string initial(const std::string &s) {
-    if (starts(s,"zh") || starts(s,"ch") || starts(s,"sh")) return s.substr(0,2);
-    return s.substr(0,1);
-}
-bool adjacent(char a, char b) {
-    static const std::string rows[] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
-    for (const auto &row : rows) {
-        auto x=row.find(a),y=row.find(b);
-        if (x!=std::string::npos && y!=std::string::npos && (x+1==y || y+1==x)) return true;
+    const Node &node(uint32_t id) const {
+        if(id>=header->nodeCount) throw std::runtime_error("Invalid trie node");
+        const auto &n=nodes[id];
+        if(n.firstEdge>header->edgeCount || n.edgeCount>header->edgeCount-n.firstEdge || n.firstWord>header->wordCount || n.wordCount>header->wordCount-n.firstWord)
+            throw std::runtime_error("Invalid trie range");
+        return n;
     }
+    uint32_t child(uint32_t id,uint16_t sid) const {
+        const auto &n=node(id);const Edge *first=edges+n.firstEdge,*end=first+n.edgeCount;
+        auto it=std::lower_bound(first,end,sid,[](const Edge &edge,uint16_t value){return edge.syllable<value;});
+        return it!=end && it->syllable==sid?it->child:UINT32_MAX;
+    }
+    std::string text(uint32_t id) const {
+        if(id>=header->wordCount) throw std::runtime_error("Invalid word entry");
+        const auto &w=words[id];
+        if(w.offset>header->poolBytes || w.bytes>header->poolBytes-w.offset) throw std::runtime_error("Invalid word text");
+        return {pool+w.offset,w.bytes};
+    }
+};
+bool starts(const std::string &s,const std::string &p) {return s.compare(0,p.size(),p)==0;}
+bool ends(const std::string &s,const std::string &p) {return s.size()>=p.size() && s.compare(s.size()-p.size(),p.size(),p)==0;}
+std::string initial(const std::string &s) {return starts(s,"zh") || starts(s,"ch") || starts(s,"sh")?s.substr(0,2):s.substr(0,1);}
+bool adjacent(char a,char b) {
+    static const std::string rows[]={"qwertyuiop","asdfghjkl","zxcvbnm"};
+    for(const auto &row:rows) {auto x=row.find(a),y=row.find(b);if(x!=std::string::npos && y!=std::string::npos && (x+1==y || y+1==x)) return true;}
     return false;
 }
-bool singleTypo(const std::string &typed, const std::string &actual) {
-    if (typed == actual || typed.empty() || actual.empty()) return false;
-    if (typed.size() == actual.size()) {
-        std::vector<size_t> mismatch;
-        for (size_t i=0;i<typed.size();++i) if (typed[i]!=actual[i]) mismatch.push_back(i);
-        if (mismatch.size()==1) return adjacent(typed[mismatch[0]],actual[mismatch[0]]);
-        return mismatch.size()==2 && mismatch[0]+1==mismatch[1] &&
-            typed[mismatch[0]]==actual[mismatch[1]] && typed[mismatch[1]]==actual[mismatch[0]];
+bool singleTypo(const std::string &typed,const std::string &actual) {
+    if(typed==actual || typed.empty() || actual.empty()) return false;
+    if(typed.size()==actual.size()) {
+        std::vector<size_t> different;
+        for(size_t i=0;i<typed.size();++i) if(typed[i]!=actual[i]) different.push_back(i);
+        if(different.size()==1) return adjacent(typed[different[0]],actual[different[0]]);
+        return different.size()==2 && different[0]+1==different[1] && typed[different[0]]==actual[different[1]] && typed[different[1]]==actual[different[0]];
     }
-    const std::string &small = typed.size()<actual.size()?typed:actual;
-    const std::string &large = typed.size()<actual.size()?actual:typed;
-    if (large.size()!=small.size()+1) return false;
-    size_t i=0; while (i<small.size() && small[i]==large[i]) ++i;
+    const auto &small=typed.size()<actual.size()?typed:actual;const auto &large=typed.size()<actual.size()?actual:typed;
+    if(large.size()!=small.size()+1) return false;
+    size_t i=0;while(i<small.size() && small[i]==large[i]) ++i;
     return large.substr(i+1)==small.substr(i);
 }
-struct Alignment { int end=0; int edits=0; double penalty=0; std::string reading; };
-struct Match { llama_token token; Alignment alignment; double logp; };
-struct Item { std::string text,reading; int consumed=0; double score=0; };
-struct Branch {
-    std::vector<llama_token> tokens; std::string text,reading;
-    int consumed=0,edits=0,characterCount=0; double logp=0,penalty=0;
-    double priority() const {
-        const double length=double(std::max(1,characterCount));
-        return logp/length-penalty/std::sqrt(length);
-    }
-};
-struct BranchLess { bool operator()(const Branch &a,const Branch &b)const {return a.priority()<b.priority();} };
-struct Query {
-    std::string key,letters; std::set<int> boundaries; uint32_t fuzzy=0;
-    bool corrections=false,character=false,prediction=false,started=false,refined=false;
-    CKQwenCancelled cancelled=nullptr; void *cancelData=nullptr;
-    bool stop() const {return cancelled && cancelled(cancelData);}
-    std::vector<llama_token> prompt;
-    std::vector<Item> items; std::unordered_set<std::string> seen;
-    std::priority_queue<Branch,std::vector<Branch>,BranchLess> frontier;
-    std::unordered_map<uint64_t,std::vector<Alignment>> matches;
-    std::unordered_map<std::string,std::vector<std::pair<std::string,double>>> spellings;
-    std::unordered_map<std::string,std::vector<Alignment>> syllables;
-    Branch initial;
-};
-struct Scores { std::vector<float> logp; };
-struct ScoredPrefix { std::vector<llama_token> tokens; std::shared_ptr<const Scores> scores; };
-struct TokenCharacters { uint32_t offset=0,count=0; };
-struct CharacterSpan {
-    const uint32_t *data; size_t count;
-    const uint32_t *begin() const {return data;}
-    const uint32_t *end() const {return count?data+count:data;}
-    bool empty() const {return count==0;}
-    size_t size() const {return count;}
-    uint32_t operator[](size_t i) const {return data[i];}
-};
-void appendUTF8(std::string &text,uint32_t cp) {
-    if(cp<0x80) text+=char(cp);
-    else if(cp<0x800) {text+=char(0xc0|(cp>>6));text+=char(0x80|(cp&63));}
-    else if(cp<0x10000) {text+=char(0xe0|(cp>>12));text+=char(0x80|((cp>>6)&63));text+=char(0x80|(cp&63));}
-    else {text+=char(0xf0|(cp>>18));text+=char(0x80|((cp>>12)&63));text+=char(0x80|((cp>>6)&63));text+=char(0x80|(cp&63));}
+std::vector<size_t> utf8Offsets(const std::string &text) {
+    std::vector<size_t> offsets;
+    for(size_t i=0;i<text.size();++i) if((uint8_t(text[i])&0xc0)!=0x80) offsets.push_back(i);
+    offsets.push_back(text.size());return offsets;
 }
+std::string suffixText(const std::string &text,size_t count) {
+    const auto offsets=utf8Offsets(text);return offsets.size()>count+1?text.substr(offsets[offsets.size()-count-1]):text;
 }
-
-struct CKQwenPreview { std::vector<Item> items; };
-
-struct CKQwen {
-    llama_model *model=nullptr; llama_context *context=nullptr; const llama_vocab *vocab=nullptr;
-    std::unordered_map<uint32_t,std::vector<std::string>> phonetics;
-    // The model already owns its vocabulary. Keep one compact scalar index,
-    // rather than a second string and individually allocated Rune vector for
-    // every token in the 248K vocabulary.
-    std::vector<TokenCharacters> tokenCharacters; std::vector<uint32_t> scalars;
-    std::vector<llama_token> usable;
-    std::vector<int32_t> scoreIndex;
-    std::array<std::vector<llama_token>,26> leading;
-    std::vector<std::shared_ptr<Query>> cache; std::shared_ptr<Query> current;
-    std::vector<llama_token> basePrompt;
-    std::vector<llama_token> liveTokens;
-    std::vector<ScoredPrefix> scoredPrefixes;
-    // Immutable Qwen logits can be filtered on the word worker while the
-    // single inference worker is busy. No recurrent-state copy is retained.
-    std::mutex priorLock;
-    std::string priorContext;
-    std::vector<llama_token> priorTokens;
-    std::shared_ptr<const Scores> prior,emptyPrior;
-    CKQwenCancelled cancelled=nullptr; CKQwenUpdated updated=nullptr; void *cancelData=nullptr;
-    ~CKQwen() { if(context)llama_free(context); if(model)llama_model_free(model); }
-    bool stop() const { return cancelled && cancelled(cancelData); }
-    static bool abort(void *p) { return static_cast<CKQwen *>(p)->stop(); }
-    CharacterSpan characters(llama_token token) const {
-        const auto &range=tokenCharacters[token];
-        return {range.count?scalars.data()+range.offset:nullptr,range.count};
-    }
-    std::string piece(llama_token token) const {
-        std::string text; for(auto cp:characters(token)) appendUTF8(text,cp); return text;
-    }
-    std::vector<llama_token> tokenize(const std::string &text,bool addSpecial=true) {
-        int n=llama_tokenize(vocab,text.data(),int(text.size()),nullptr,0,addSpecial,true);
-        if(n>=0) return {};
-        std::vector<llama_token> tokens(-n);
-        n=llama_tokenize(vocab,text.data(),int(text.size()),tokens.data(),int(tokens.size()),addSpecial,true);
-        if(n<0) throw std::runtime_error("Qwen tokenizer rejected the input");
-        tokens.resize(n); return tokens;
-    }
-    bool evaluate(const std::vector<llama_token> &tokens) {
-        for(size_t i=0;i<tokens.size();) {
-            if(stop()) return false;
-            int n=int(std::min(decodeBatch,tokens.size()-i));
-            auto batch=llama_batch_get_one(const_cast<llama_token *>(tokens.data()+i),n);
-            if(llama_decode(context,batch)!=0) {
-                // An aborted hybrid decode can leave processed microbatches
-                // behind; never reuse that partly advanced recurrent state.
-                liveTokens.clear(); llama_memory_clear(llama_get_memory(context),false); return false;
-            }
-            liveTokens.insert(liveTokens.end(),tokens.begin()+i,tokens.begin()+i+n);
-            i+=n;
-        }
-        return !stop();
-    }
-    const std::vector<std::pair<std::string,double>> &spellings(Query &q,const std::string &reading) {
-        if(auto it=q.spellings.find(reading);it!=q.spellings.end()) return it->second;
-        static const std::pair<std::string,std::string> pairs[]={
-            {"z","zh"},{"c","ch"},{"s","sh"},{"n","l"},{"f","h"},
-            {"an","ang"},{"en","eng"},{"in","ing"}};
-        std::vector<std::pair<std::string,double>> out={{reading,0}};
-        for(unsigned bit=0;bit<8;++bit) if(q.fuzzy&(1u<<bit)) {
-            size_t size=out.size();
-            for(size_t j=0;j<size;++j) {
-                const auto s=out[j].first;
-                for(int reverse=0;reverse<2;++reverse) {
-                    const auto &a=reverse?pairs[bit].second:pairs[bit].first;
-                    const auto &b=reverse?pairs[bit].first:pairs[bit].second;
-                    bool match=bit<5?initial(s)==a:ends(s,a);
-                    if(match) {
-                        auto next=bit<5?b+s.substr(a.size()):s.substr(0,s.size()-a.size())+b;
-                        out.push_back({next,out[j].second+0.65});
-                    }
-                }
+struct Segment {uint16_t sid;int end,kind,edits,splits;double cost;};
+struct WordMatch {uint32_t word;int end,kind,edits,splits;double cost;std::string reading;};
+struct Path {
+    std::string text,reading;int consumed=0,kind=Exact,edits=0,characters=0,splits=0;double frequency=0,cost=0;
+    double priority() const {return frequency/double(std::max(1,characters))-cost-3.5*splits;}
+};
+struct Request {
+    std::string typed,letters,context,key;std::set<int> boundaries;
+    uint32_t fuzzy=0;bool corrections=false,character=false,full=false,truncated=false;
+    clear::Cancellation cancel;
+    std::vector<int> remaining;std::vector<std::vector<Segment>> graph;
+    std::map<int,std::vector<WordMatch>> matches;std::vector<Item> items;
+    bool stopped() const {return cancel.stopped();}
+};
+std::vector<std::pair<std::string,double>> spellings(const std::string &reading,uint32_t mask) {
+    static const std::pair<std::string,std::string> pairs[]={{"z","zh"},{"c","ch"},{"s","sh"},{"n","l"},{"f","h"},{"an","ang"},{"en","eng"},{"in","ing"}};
+    std::vector<std::pair<std::string,double>> result={{reading,0}};
+    for(unsigned bit=0;bit<8;++bit) if(mask&(1u<<bit)) {
+        size_t count=result.size();
+        for(size_t j=0;j<count;++j) for(int reverse=0;reverse<2;++reverse) {
+            const auto &a=reverse?pairs[bit].second:pairs[bit].first;const auto &b=reverse?pairs[bit].first:pairs[bit].second;
+            const auto value=result[j];
+            if(bit<5?initial(value.first)==a:ends(value.first,a)) {
+                auto next=bit<5?b+value.first.substr(a.size()):value.first.substr(0,value.first.size()-a.size())+b;
+                if(std::none_of(result.begin(),result.end(),[&](const auto &x){return x.first==next;})) result.push_back({next,value.second+.45});
             }
         }
-        return q.spellings.emplace(reading,std::move(out)).first->second;
     }
-    bool boundaryAllows(const Query &q,int start,int end)const {
-        auto next=q.boundaries.upper_bound(start);
-        return next==q.boundaries.end() || *next>=end;
+    return result;
+}
+bool boundaryAllows(const Request &q,int start,int end) {auto next=q.boundaries.upper_bound(start);return next==q.boundaries.end() || *next>=end;}
+void prepareGraph(const Lexicon &lex,Request &q) {
+    const int n=int(q.letters.size()),unreachable=1000000;
+    q.remaining.assign(n+1,unreachable);q.remaining[n]=0;
+    for(int start=n-1;start>=0;--start) for(int end=start+1;end<=std::min(n,start+6);++end) {
+        if(!boundaryAllows(q,start,end)) break;
+        if(lex.completeSyllables.count(q.letters.substr(start,end-start))) q.remaining[start]=std::min(q.remaining[start],1+q.remaining[end]);
     }
-    const std::vector<Alignment> &syllableMatches(Query &q,int start,const std::string &reading) {
-        std::string key=std::to_string(start)+'\t'+reading;
-        if(auto it=q.syllables.find(key);it!=q.syllables.end()) return it->second;
-        std::vector<Alignment> out; int remaining=int(q.letters.size())-start;
-        auto add=[&](int length,double penalty,int edits=0) {
-            if(length<=0 || length>remaining || !boundaryAllows(q,start,start+length)) return;
-            out.push_back({start+length,edits,penalty,reading});
-        };
-        for(const auto &variant:spellings(q,reading)) {
-            const auto &s=variant.first;
-            if(remaining>=int(s.size()) && q.letters.compare(start,s.size(),s)==0) add(int(s.size()),variant.second);
-            else if(remaining<int(s.size()) && s.compare(0,remaining,q.letters,start,remaining)==0)
-                add(remaining,variant.second+0.9);
+    q.full=n>0 && q.remaining[0]<unreachable;q.graph.resize(n);
+    // Parse spelling once, independently of words/model vocabulary. Each edge
+    // carries a real input span; explicit apostrophes are hard boundaries.
+    for(uint16_t sid=0;sid<lex.syllables.size();++sid) {
+        if(q.stopped()) return;const auto &reading=lex.syllables[sid];
+        if(reading[0]=='@') {
+            if(q.full) continue;
+            for(int pos=0;pos<n;++pos) if(q.letters[pos]==reading[1]) q.graph[pos].push_back({sid,pos+1,Literal,0,0,2.8});
+            continue;
+        }
+        for(const auto &variant:spellings(reading,q.fuzzy)) for(int pos=0;pos<n;++pos) {
+            const auto &s=variant.first;const int remaining=n-pos;
+            auto add=[&](int length,int kind,double cost,int edits=0) {
+                if(length<=0 || length>remaining || !boundaryAllows(q,pos,pos+length)) return;
+                if(q.full && kind>Fuzzy) return;
+                if(q.full && (q.remaining[pos]>=unreachable || q.remaining[pos+length]>=unreachable || !lex.completeSyllables.count(q.letters.substr(pos,length)))) return;
+                int splits=q.full?1+q.remaining[pos+length]-q.remaining[pos]:0;
+                q.graph[pos].push_back({sid,pos+length,kind,edits,splits,cost+variant.second});
+            };
+            if(remaining>=int(s.size()) && q.letters.compare(pos,s.size(),s)==0) add(int(s.size()),lex.completeSyllables.count(s)?(variant.second==0?Exact:Fuzzy):Initials,0);
+            else if(remaining<int(s.size()) && s.compare(0,remaining,q.letters,pos,remaining)==0) add(remaining,Unfinished,.8);
             auto head=initial(s);
-            if(q.letters[start]==head[0] && std::string("bpmfdtnlgkhjqxrzcsyw").find(head[0])!=std::string::npos) {
-                // Initials remain a separate alignment; an exact full syllable
-                // pays no abbreviation cost and is therefore preferred.
-                add(1,variant.second+1.55);
-                if(head.size()==2 && remaining>=2 && q.letters.compare(start,2,head)==0) add(2,variant.second+1.4);
+            if(q.letters[pos]==head[0] && std::string("bpmfdtnlgkhjqxrzcsyw").find(head[0])!=std::string::npos) {
+                add(1,Initials,1.65);if(head.size()==2 && remaining>=2 && q.letters.compare(pos,2,head)==0) add(2,Initials,1.5);
             }
-            if(q.corrections && s.size()>=2 && q.letters.size()>=4) {
-                for(int n=std::max(2,int(s.size())-1);n<=std::min(remaining,int(s.size())+1);++n)
-                    if(singleTypo(q.letters.substr(start,n),s)) add(n,variant.second+3.5,1);
+            if(q.corrections && n>=4 && s.size()>=2) {
+                for(int length=std::max(2,int(s.size())-1);length<=std::min(remaining,int(s.size())+1);++length)
+                    if(singleTypo(q.letters.substr(pos,length),s)) add(length,Corrected,3.5,1);
             }
         }
-        std::sort(out.begin(),out.end(),[](const Alignment &a,const Alignment &b){return a.penalty<b.penalty;});
-        std::vector<Alignment> unique;
-        for(auto &a:out) if(std::none_of(unique.begin(),unique.end(),[&](const Alignment &b){return a.end==b.end && a.edits==b.edits;})) unique.push_back(std::move(a));
-        if(q.syllables.size()>=4096) q.syllables.clear();
-        return q.syllables.emplace(std::move(key),std::move(unique)).first->second;
     }
-    std::vector<Alignment> syllable(Query &q,const Alignment &base,const std::string &reading) {
-        if(base.end>=int(q.letters.size())) return {};
-        std::vector<Alignment> out;
-        for(const auto &match:syllableMatches(q,base.end,reading)) if(base.edits+match.edits<=2) {
-            Alignment next=match; next.edits+=base.edits; next.penalty+=base.penalty;
-            if(!base.reading.empty()) next.reading=base.reading+' '+next.reading;
-            out.push_back(std::move(next));
+    for(auto &edges:q.graph) {
+        std::sort(edges.begin(),edges.end(),[](const Segment &a,const Segment &b){if(a.sid!=b.sid)return a.sid<b.sid;if(a.end!=b.end)return a.end<b.end;return a.kind==b.kind?a.cost<b.cost:a.kind<b.kind;});
+        edges.erase(std::unique(edges.begin(),edges.end(),[](const Segment &a,const Segment &b){return a.sid==b.sid && a.end==b.end;}),edges.end());
+    }
+}
+const std::vector<WordMatch> &wordMatches(const Lexicon &lex,Request &q,int start) {
+    auto found=q.matches.find(start);if(found!=q.matches.end()) return found->second;
+    struct State {uint32_t node;int position,kind,edits,splits,depth;double cost,bound;std::string reading;};
+    struct Lower {bool operator()(const State &a,const State &b)const{return a.bound<b.bound;}};
+    std::priority_queue<State,std::vector<State>,Lower> queue;queue.push({0,start,Exact,0,0,0,0,0,""});
+    std::vector<WordMatch> result;std::unordered_map<uint64_t,double> visited;size_t work=0;
+    while(!queue.empty() && !q.stopped()) {
+        auto state=queue.top();queue.pop();if(++work>12288){q.truncated=true;break;}
+        const auto &node=lex.node(state.node);
+        if(state.depth && (!q.character || state.depth==1)) for(uint32_t i=0;i<node.wordCount;++i) {
+            uint32_t word=node.firstWord+i;if(q.character && lex.words[word].characters!=1)continue;
+            result.push_back({word,state.position,state.kind,state.edits,state.splits,state.cost,state.reading});
         }
-        return out;
+        if(state.position==int(q.letters.size()) || (q.character && state.depth==1) || state.depth>=12)continue;
+        for(const auto &edge:q.graph[state.position]) {
+            if(state.edits+edge.edits>2)continue;auto child=lex.child(state.node,edge.sid);if(child==UINT32_MAX)continue;
+            double cost=state.cost+edge.cost;int kind=std::max(state.kind,edge.kind);
+            uint64_t key=(uint64_t(child)<<32)|(uint64_t(uint16_t(edge.end))<<16)|uint16_t(state.edits+edge.edits);
+            double rank=cost+10*kind;auto old=visited.find(key);if(old!=visited.end() && old->second<=rank)continue;visited[key]=rank;
+            const auto &reading=lex.syllables[edge.sid];std::string next=state.reading;if(!next.empty())next+=' ';next+=reading[0]=='@'?reading.substr(1):reading;
+            queue.push({child,edge.end,kind,state.edits+edge.edits,state.splits+edge.splits,state.depth+1,cost,lex.node(child).maximum-cost-10*kind,std::move(next)});
+        }
     }
-    const std::vector<Alignment> &align(Query &q,llama_token token,int position) {
-        uint64_t key=(uint64_t(uint32_t(position))<<32)|uint32_t(token);
-        if(auto it=q.matches.find(key);it!=q.matches.end()) return it->second;
-        std::vector<Alignment> paths={{position,0,0,""}};
-        const auto chars=characters(token);
-        if(chars.empty() || (q.character && (chars.size()!=1 || !han(chars[0])))) paths.clear();
-        for(const auto &ch:chars) {
-            if(q.stop()) {paths.clear();break;}
-            std::vector<Alignment> next;
-            if(auto it=phonetics.find(ch);it!=phonetics.end()) {
-                for(const auto &path:paths) for(const auto &reading:it->second) {
-                    auto more=syllable(q,path,reading); next.insert(next.end(),more.begin(),more.end());
+    std::stable_sort(result.begin(),result.end(),[&](const WordMatch &a,const WordMatch &b){
+        if(a.kind!=b.kind)return a.kind<b.kind;
+        auto score=[&](const WordMatch &w){return lex.words[w.word].logFrequency/std::max(1,int(lex.words[w.word].characters))-w.cost-3.5*w.splits;};return score(a)>score(b);
+    });
+    return q.matches.emplace(start,std::move(result)).first->second;
+}
+void sortItems(Request &q) {
+    std::stable_sort(q.items.begin(),q.items.end(),[&](const Item &a,const Item &b){
+        if((a.kind==Literal)!=(b.kind==Literal))return a.kind!=Literal;
+        const bool x=a.consumed==int(q.letters.size()),y=b.consumed==int(q.letters.size());if(x!=y)return x;
+        if(a.kind!=b.kind)return a.kind<b.kind;if(a.score!=b.score)return a.score>b.score;
+        if(a.consumed!=b.consumed)return a.consumed>b.consumed;return a.text<b.text;
+    });
+    std::unordered_set<std::string> seen;
+    q.items.erase(std::remove_if(q.items.begin(),q.items.end(),[&](const Item &item){return !seen.insert(item.text+'\t'+std::to_string(item.consumed)).second;}),q.items.end());
+}
+void predictions(const Lexicon &lex,Request &q) {
+    if(q.context.empty())return;const auto offsets=utf8Offsets(q.context);std::unordered_set<std::string> seen;
+    for(size_t length=std::min(size_t(6),offsets.size()-1);length>0;--length) {
+        std::string prefix=q.context.substr(offsets[offsets.size()-length-1]);uint32_t lo=0,hi=lex.header->wordCount;
+        while(lo<hi){uint32_t mid=lo+(hi-lo)/2;if(lex.text(lex.textOrder[mid])<prefix)lo=mid+1;else hi=mid;}
+        for(uint32_t i=lo;i<lex.header->wordCount && !q.stopped();++i) {
+            auto id=lex.textOrder[i];auto text=lex.text(id);if(!starts(text,prefix))break;if(text.size()==prefix.size())continue;
+            text.erase(0,prefix.size());if(!seen.insert(text).second)continue;
+            q.items.push_back({text,"",0,Exact,int(utf8Offsets(text).size())-1,lex.words[id].logFrequency+double(length)*2});if(q.items.size()>=256)break;
+        }
+        if(q.items.size()>=256)break;
+    }
+    for(auto id:lex.frequent){auto text=lex.text(id);if(seen.insert(text).second)q.items.push_back({text,"",0,Exact,int(lex.words[id].characters),lex.words[id].logFrequency-12});}
+    sortItems(q);
+}
+void decode(const Lexicon &lex,Request &q,int capacity) {
+    if(q.letters.empty()){predictions(lex,q);return;}prepareGraph(lex,q);if(q.stopped())return;
+    const auto &heads=wordMatches(lex,q,0);
+    auto append=[&](const Path &path){if(!path.text.empty())q.items.push_back({path.text,path.reading,path.consumed,path.kind,path.characters,path.priority()});};
+    auto extend=[&](const Path &base,const WordMatch &match){
+        Path next=base;auto text=lex.text(match.word);
+        // A full pinyin path cannot contain literal spelling, regardless of the
+        // language model's preference. Mixed input preserves the user's case.
+        if(match.kind==Literal && std::all_of(text.begin(),text.end(),[](unsigned char c){return c<128;}))text=q.typed.substr(base.consumed,match.end-base.consumed);
+        next.text+=text;if(!next.reading.empty())next.reading+=' ';next.reading+=match.reading;
+        next.consumed=match.end;next.kind=std::max(base.kind,match.kind);next.edits+=match.edits;next.splits+=match.splits;
+        next.characters+=lex.words[match.word].characters;next.frequency+=lex.words[match.word].logFrequency;next.cost+=match.cost;return next;
+    };
+    // Direct words remain separately selectable with their own consumed range;
+    // rare-character coverage does not depend on a single-token BPE encoding.
+    for(const auto &head:heads)append(extend({},head));
+    if(!q.character) {
+        const size_t beam=size_t(std::max(12,std::min(64,capacity/8)));
+        std::vector<std::vector<Path>> states(q.letters.size()+1);states[0].push_back({});
+        auto better=[](const Path &a,const Path &b){return a.kind==b.kind?a.priority()>b.priority():a.kind<b.kind;};
+        for(int pos=0;pos<int(q.letters.size()) && !q.stopped();++pos) {
+            auto &at=states[pos];if(at.empty())continue;std::stable_sort(at.begin(),at.end(),better);
+            std::unordered_set<std::string> distinct;
+            at.erase(std::remove_if(at.begin(),at.end(),[&](const Path &p){return !distinct.insert(p.text).second;}),at.end());if(at.size()>beam)at.resize(beam);
+            const auto &matches=wordMatches(lex,q,pos);std::map<std::pair<int,int>,int> counts;std::vector<const WordMatch *> choices;
+            for(const auto &match:matches)if(counts[{match.end,match.kind}]++<int(beam))choices.push_back(&match);
+            for(const auto &base:at) {
+                for(const auto *match:choices)if(base.edits+match->edits<=2) {
+                    auto next=extend(base,*match);auto &target=states[next.consumed];target.push_back(std::move(next));
+                    if(target.size()>beam*8){std::partial_sort(target.begin(),target.begin()+beam*2,target.end(),better);target.resize(beam*2);}
                 }
-            } else if(ch<128 && ((ch>='a' && ch<='z') || (ch>='A' && ch<='Z'))) {
-                for(auto path:paths) if(path.end<int(q.letters.size()) && q.letters[path.end]==char(ch|32)) {
-                    ++path.end; path.penalty+=1.1;
-                    if(!path.reading.empty()) path.reading+=' '; path.reading+=char(ch|32); next.push_back(std::move(path));
+                // Explicitly carry unknown English runs through mixed input;
+                // never invent casing, consume a suffix, or skip a character.
+                if(!q.full) {
+                    Path next=base;next.text+=q.typed[pos];if(!next.reading.empty())next.reading+=' ';next.reading+=q.letters[pos];
+                    next.consumed=pos+1;next.characters++;next.kind=Literal;next.frequency-=18;next.cost+=2.8;states[pos+1].push_back(std::move(next));
                 }
             }
-            std::sort(next.begin(),next.end(),[](const Alignment &a,const Alignment &b){return a.penalty<b.penalty;});
-            paths.clear();
-            for(auto &a:next) {
-                if(std::none_of(paths.begin(),paths.end(),[&](const Alignment &b){return a.end==b.end && a.edits==b.edits;})) paths.push_back(std::move(a));
-                if(paths.size()==16) break;
-            }
-            if(paths.empty()) break;
         }
-        static const std::vector<Alignment> empty;
-        if(paths.empty()) return empty;
-        if(q.matches.size()>matchCacheLimit) q.matches.clear();
-        return q.matches.emplace(key,std::move(paths)).first->second;
+        for(auto &bucket:states){std::stable_sort(bucket.begin(),bucket.end(),better);for(size_t i=0;i<std::min(beam,bucket.size());++i)append(bucket[i]);}
     }
-    std::shared_ptr<const Scores> readScores() {
-        const float *logits=llama_get_logits_ith(context,-1);
-        if(!logits) throw std::runtime_error("Qwen produced no token scores");
-        float largest=-std::numeric_limits<float>::infinity();
-        for(int i=0;i<int(tokenCharacters.size());++i) largest=std::max(largest,logits[i]);
-        double sum=0; for(int i=0;i<int(tokenCharacters.size());++i) sum+=std::exp(double(logits[i]-largest));
-        double logZ=largest+std::log(sum);
-        auto scores=std::make_shared<Scores>(); scores->logp.reserve(usable.size());
-        for(auto token:usable) scores->logp.push_back(float(logits[token]-logZ));
-        return scores;
+    sortItems(q);if(q.items.size()>size_t(capacity)){q.items.resize(capacity);q.truncated=true;}
+}
+struct CachedRow {std::string key;int capacity;bool truncated;std::vector<Item> items;};
+struct PrefixScores {std::vector<clear::Token> prefix;std::shared_ptr<const std::vector<float>> values;};
+}
+struct CKQwenPreview {std::vector<Item> items;};
+struct CKQwen {
+    Lexicon lexicon;clear::ScoringBackend backend;std::string identity;
+    std::mutex rowLock;std::vector<CachedRow> fastRows,rankedRows;std::vector<PrefixScores> scoreCache;
+    std::unique_ptr<Request> current;int requested=0;
+    void configure(Request &q,const char *raw,const char *context,uint32_t fuzzy,int corrections,int character,CKQwenCancelled cancelled,void *opaque)const {
+        q.fuzzy=fuzzy;q.corrections=corrections!=0;q.character=character!=0;q.cancel={cancelled,opaque};q.context=suffixText(context?context:"",96);
+        const std::string input=raw?raw:"";
+        for(unsigned char c:input){
+            if((c>='A' && c<='Z') || (c>='a' && c<='z'))q.typed+=char(c);
+            if(c>='A' && c<='Z')c+=32;
+            if(c>='a' && c<='z')q.letters+=char(c);else if(c=='\'')q.boundaries.insert(int(q.letters.size()));
+        }
+        // No row can cross model/lexicon versions, real context, raw spelling
+        // (apostrophes and case included), fuzzy settings or correction modes.
+        q.key=identity+'\x1f'+input+'\x1f'+q.context+'\x1f'+std::to_string(fuzzy)+':'+std::to_string(corrections)+':'+std::to_string(character);
     }
-    std::shared_ptr<const Scores> scoresFor(Query &q,const std::vector<llama_token> &prefix) {
-        std::vector<llama_token> wanted=q.prompt; wanted.insert(wanted.end(),prefix.begin(),prefix.end());
-        if(prefix.empty()) {
-            std::lock_guard<std::mutex> lock(priorLock);
-            if(wanted==basePrompt && emptyPrior) return emptyPrior;
-            if(wanted==priorTokens && prior) return prior;
-        }
-        for(auto it=scoredPrefixes.begin();it!=scoredPrefixes.end();++it) if(it->tokens==wanted) {
-            auto hit=*it; scoredPrefixes.erase(it); scoredPrefixes.push_back(hit); return hit.scores;
-        }
-        const bool append=liveTokens.size()<=wanted.size() && std::equal(liveTokens.begin(),liveTokens.end(),wanted.begin());
-        if(!append) {liveTokens.clear();llama_memory_clear(llama_get_memory(context),false);}
-        const std::vector<llama_token> suffix(wanted.begin()+liveTokens.size(),wanted.end());
-        if(!suffix.empty() && !evaluate(suffix)) return {};
-        if(stop()) return {};
-        auto scores=readScores(); scoredPrefixes.push_back({std::move(wanted),scores});
-        if(scoredPrefixes.size()>(keyboardExtension?8:24)) scoredPrefixes.erase(scoredPrefixes.begin());
-        return scores;
+    bool cached(const std::vector<CachedRow> &rows,Request &q,int capacity) {
+        for(auto it=rows.rbegin();it!=rows.rend();++it)if(it->key==q.key && (it->capacity>=capacity || !it->truncated)){q.items=it->items;q.truncated=it->truncated;return true;}return false;
     }
-    std::vector<Match> options(Query &q,int position,int usedEdits,const Scores &scores) {
-        std::vector<Match> best;
-        // Index the first output character once at model load. Avoid running a
-        // phonetic lattice over the entire 248K-token vocabulary at every step.
-        std::vector<llama_token> narrowed;
-        const std::vector<llama_token> *pool=&usable;
-        if(!q.prediction && position<int(q.letters.size())) {
-            std::set<char> letters={q.letters[position]};
-            if(q.corrections) {
-                if(position+1<int(q.letters.size())) letters.insert(q.letters[position+1]);
-                for(char c='a';c<='z';++c) if(adjacent(c,q.letters[position])) letters.insert(c);
+    void save(std::vector<CachedRow> &rows,const Request &q,int capacity,size_t maximum) {
+        rows.erase(std::remove_if(rows.begin(),rows.end(),[&](const auto &row){return row.key==q.key;}),rows.end());
+        rows.push_back({q.key,capacity,q.truncated,q.items});if(rows.size()>maximum)rows.erase(rows.begin());
+    }
+    bool fast(Request &q,int capacity) {
+        {std::lock_guard<std::mutex> lock(rowLock);if(cached(rankedRows,q,capacity))return true;if(cached(fastRows,q,capacity))return false;}
+        decode(lexicon,q,capacity);if(!q.stopped()){std::lock_guard<std::mutex> lock(rowLock);save(fastRows,q,capacity,32);}return false;
+    }
+    std::shared_ptr<const std::vector<float>> logits(const std::vector<clear::Token> &prefix,clear::Cancellation cancel) {
+        if(cancel.stopped())return {};
+        for(auto it=scoreCache.begin();it!=scoreCache.end();++it)if(it->prefix==prefix){auto hit=*it;scoreCache.erase(it);scoreCache.push_back(hit);return hit.values;}
+        auto raw=backend.scorer->logits(prefix,cancel);if(raw.empty() || cancel.stopped())return {};
+        auto result=std::make_shared<const std::vector<float>>(std::move(raw));scoreCache.push_back({prefix,result});if(scoreCache.size()>4)scoreCache.erase(scoreCache.begin());return result;
+    }
+    // Constraints, prefix scheduling and final merging belong to this engine.
+    // The backend sees no pinyin and never rewrites or generates a candidate.
+    bool rerank(Request &q) {
+        if(q.items.empty() || q.stopped())return false;
+        auto prompt=backend.codec->encode("<|im_start|>system\n续写中文，只输出正文。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",true,q.cancel);
+        if(q.stopped() || prompt.empty())return false;
+        auto preceding=backend.codec->encode(q.context,false,q.cancel);prompt.insert(prompt.end(),preceding.begin(),preceding.end());if(prompt.size()>480 || q.stopped())return false;
+        size_t count=std::min(size_t(32),q.items.size());
+        struct Scored {std::vector<clear::Token> tokens;double sum=0;int observed=0;};std::vector<Scored> scored(count);
+        for(size_t i=0;i<count && !q.stopped();++i)scored[i].tokens=backend.codec->encode(q.items[i].text,false,q.cancel);
+        auto root=logits(prompt,q.cancel);if(!root || q.stopped())return false;
+        auto assign=[&](const std::vector<float> &raw,const std::vector<clear::Token> &prefix){
+            float largest=*std::max_element(raw.begin(),raw.end());double sum=0;for(float x:raw)sum+=std::exp(double(x-largest));
+            double logZ=largest+std::log(sum);if(!std::isfinite(logZ))return;
+            for(auto &entry:scored)if(entry.tokens.size()>prefix.size() && std::equal(prefix.begin(),prefix.end(),entry.tokens.begin())) {
+                auto token=entry.tokens[prefix.size()];if(token>=0 && size_t(token)<raw.size()){entry.sum+=raw[token]-logZ;entry.observed++;}
             }
-            if(q.fuzzy&(1u<<3)) {if(letters.count('n'))letters.insert('l');if(letters.count('l'))letters.insert('n');}
-            if(q.fuzzy&(1u<<4)) {if(letters.count('f'))letters.insert('h');if(letters.count('h'))letters.insert('f');}
-            for(char c:letters) if(c>='a' && c<='z') narrowed.insert(narrowed.end(),leading[c-'a'].begin(),leading[c-'a'].end());
-            std::sort(narrowed.begin(),narrowed.end()); narrowed.erase(std::unique(narrowed.begin(),narrowed.end()),narrowed.end());
-            pool=&narrowed;
-        }
-        for(size_t i=0;i<pool->size();++i) {
-            if((i&63)==0 && q.stop()) return {};
-            auto token=(*pool)[i];
-            if(q.prediction) {
-                const auto chars=characters(token);
-                if(chars.empty() || chars.size()>6 || !std::all_of(chars.begin(),chars.end(),[](uint32_t cp){return han(cp);})) continue;
-                best.push_back({token,{0,0,0,""},scores.logp[scoreIndex[token]]});
-            } else {
-                for(const auto &a:align(q,token,position)) if(usedEdits+a.edits<=2)
-                    best.push_back({token,a,scores.logp[scoreIndex[token]]});
-            }
-        }
-        auto rank=[&](const Match &a,const Match &b) {
-            auto score=[&](const Match &m) {double n=std::max(size_t(1),characters(m.token).size());return m.logp/n-m.alignment.penalty/std::sqrt(n);};
-            return score(a)>score(b);
         };
-        size_t count=std::min(size_t(q.character?4096:24),best.size());
-        std::partial_sort(best.begin(),best.begin()+count,best.end(),rank); best.resize(count);
-        return best;
-    }
-    void add(Query &q,const Branch &b,bool complete) {
-        if(b.text.empty() || (!q.prediction && b.consumed<=0)) return;
-        std::string key=b.text+'\t'+std::to_string(b.consumed);
-        if(!q.seen.insert(key).second) return;
-        double score=b.priority()+(complete?20:0);
-        q.items.push_back({b.text,b.reading,b.consumed,score});
-    }
-    void sortInitial(Query &q) {
-        std::stable_sort(q.items.begin(),q.items.end(),[&](const Item &a,const Item &b) {
-            const bool ac=q.prediction || a.consumed==int(q.letters.size());
-            const bool bc=q.prediction || b.consumed==int(q.letters.size());
-            if(ac!=bc)return ac;
-            return a.score>b.score;
-        });
-    }
-    void publish(Query &q,int limit) {
-        const int flags=(!q.frontier.empty()?CK_QWEN_MORE:0)|(!q.refined?CK_QWEN_REFINING:0);
-        if(updated && !stop()) updated(cancelData,this,std::min(limit,int(q.items.size())),flags);
-    }
-    Branch extending(const Branch &base,const Match &choice) const {
-        Branch b=base; b.tokens.push_back(choice.token); b.text+=piece(choice.token);
-        b.characterCount+=int(characters(choice.token).size());
-        if(!b.reading.empty() && !choice.alignment.reading.empty()) b.reading+=' ';
-        b.reading+=choice.alignment.reading; b.consumed=choice.alignment.end;
-        b.edits+=choice.alignment.edits; b.penalty+=choice.alignment.penalty; b.logp+=choice.logp;
-        return b;
-    }
-    bool expand(Query &q,Branch branch,bool first) {
-        std::vector<Branch> prefixes;
-        for(int step=0;step<256;++step) {
-            if(stop()) return false;
-            if((!q.prediction && branch.consumed==int(q.letters.size())) || q.character || (q.prediction && !branch.text.empty())) {
-                add(q,branch,true); break;
-            }
-            auto scores=scoresFor(q,branch.tokens); if(!scores) return false;
-            auto choices=options(q,branch.consumed,branch.edits,*scores);
-            if(choices.empty()) { add(q,branch,false); break; }
-            for(size_t i=1;i<choices.size();++i) {
-                Branch alternate=extending(branch,choices[i]);
-                if(q.frontier.size()<frontierLimit) q.frontier.push(std::move(alternate));
-            }
-            branch=extending(branch,choices.front());
-            prefixes.push_back(branch);
-            if(q.character || q.prediction || branch.consumed==int(q.letters.size())) { add(q,branch,true); break; }
-            if(q.prompt.size()+branch.tokens.size()>=740) { add(q,branch,false); break; }
+        assign(*root,{});
+        // Only two shared candidate prefixes get further neural evaluation per
+        // request. This avoids a full sentence-generation loop for every key.
+        std::vector<std::vector<clear::Token>> scheduled;
+        for(size_t i=0;i<count && scheduled.size()<2 && !q.stopped();++i)if(scored[i].tokens.size()>1) {
+            std::vector<clear::Token> prefix={scored[i].tokens.front()};if(std::find(scheduled.begin(),scheduled.end(),prefix)!=scheduled.end())continue;
+            scheduled.push_back(prefix);auto wanted=prompt;wanted.insert(wanted.end(),prefix.begin(),prefix.end());
+            auto values=logits(wanted,q.cancel);if(!values || q.stopped())return false;assign(*values,prefix);
         }
-        // Prefixes are real model paths with their own consumption spans. Keep
-        // the first complete sentence ahead of them; never fabricate a reading.
-        if(first) for(auto it=prefixes.rbegin();it!=prefixes.rend();++it) add(q,*it,false);
-        return !stop();
+        if(q.stopped())return false;double mean=0;size_t measured=0;
+        for(const auto &entry:scored)if(entry.observed){mean+=entry.sum/entry.observed;++measured;}if(!measured)return false;mean/=measured;
+        for(size_t i=0;i<count;++i)if(scored[i].observed){double contextual=scored[i].sum/scored[i].observed;q.items[i].score+=.7*std::max(-2.5,std::min(2.5,contextual-mean));}
+        sortItems(q);return true;
     }
 };
-
-extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *phoneticPath) {
+extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *indexPath) {
     try {
-        lastError.clear(); static std::once_flag once;
-        std::call_once(once,[]{
-            if constexpr(!keyboardExtension) {
-                setenv("GGML_METAL_NO_RESIDENCY","1",1);
-                setenv("GGML_METAL_TENSOR_DISABLE","1",1);
-            }
-            llama_backend_init();
-        });
-        auto engine=std::make_unique<CKQwen>();
-        std::ifstream input(phoneticPath); if(!input) throw std::runtime_error("Missing Unicode pinyin table");
-        std::string line;
-        while(std::getline(input,line)) {
-            if(!line.empty() && line.back()=='\r') line.pop_back();
-            auto tab=line.find('\t'); if(tab==std::string::npos) continue;
-            auto chars=runes(line.substr(0,tab)); if(chars.size()!=1) continue;
-            std::istringstream readings(line.substr(tab+1)); std::string reading;
-            while(std::getline(readings,reading,',')) if(!reading.empty()) engine->phonetics[chars[0].value].push_back(reading);
-        }
-        if(engine->phonetics.size()<20000) throw std::runtime_error("Incomplete Unicode pinyin table");
-        auto modelParams=llama_model_default_params();
-        // A GPU allocation can kill an extension before a fallback can run.
-        // The keyboard links a CPU-only runtime and maps the same GGUF file;
-        // it never attempts a full-model GPU allocation during startup.
-        modelParams.n_gpu_layers=keyboardExtension?0:-1; modelParams.load_mode=LLAMA_LOAD_MODE_MMAP;
-        modelParams.use_extra_bufts=false;
-        engine->model=llama_model_load_from_file(modelPath,modelParams);
-        bool gpu=!keyboardExtension && engine->model!=nullptr;
-        if(!engine->model && !keyboardExtension) {
-            modelParams.n_gpu_layers=0;
-            engine->model=llama_model_load_from_file(modelPath,modelParams);
-        }
-        if(!engine->model) throw std::runtime_error("Cannot load the pinned Qwen3.5 GGUF");
-        char architecture[64]={};
-        llama_model_meta_val_str(engine->model,"general.architecture",architecture,sizeof(architecture));
-        if(std::string(architecture)!="qwen35") throw std::runtime_error("Unexpected GGUF architecture");
-        engine->vocab=llama_model_get_vocab(engine->model);
-        auto params=llama_context_default_params(); params.n_ctx=768; params.n_batch=uint32_t(decodeBatch); params.n_ubatch=keyboardExtension?4:16;
-        params.n_seq_max=1; params.n_rs_seq=0; params.offload_kqv=gpu; params.op_offload=gpu; params.no_perf=true;
-        params.n_threads=params.n_threads_batch=std::max(1,std::min(2,int(std::thread::hardware_concurrency())));
-        params.abort_callback=CKQwen::abort; params.abort_callback_data=engine.get();
-        engine->context=llama_init_from_model(engine->model,params);
-        if(!engine->context && gpu) {
-            // Allocation failure switches hardware, never the model or its
-            // quantization, and never restores a legacy input engine.
-            llama_model_free(engine->model); engine->model=nullptr;
-            modelParams.n_gpu_layers=0;
-            engine->model=llama_model_load_from_file(modelPath,modelParams);
-            if(engine->model) {
-                engine->vocab=llama_model_get_vocab(engine->model);
-                params.offload_kqv=false; params.op_offload=false;
-                engine->context=llama_init_from_model(engine->model,params);
-            }
-        }
-        if(!engine->context) throw std::runtime_error("Cannot create the Qwen3.5 hybrid context");
-        int count=llama_vocab_n_tokens(engine->vocab); engine->tokenCharacters.resize(count); engine->scoreIndex.assign(count,-1);
-        for(int token=0;token<count;++token) {
-            if(llama_vocab_is_control(engine->vocab,token) || llama_vocab_is_eog(engine->vocab,token)) continue;
-            char small[512]; int n=llama_token_to_piece(engine->vocab,token,small,sizeof(small),0,false);
-            std::string piece;
-            if(n>0) piece.assign(small,n);
-            else if(n<0 && n>-65536) {
-                piece.resize(-n); n=llama_token_to_piece(engine->vocab,token,piece.data(),int(piece.size()),0,false);
-                if(n<=0) continue; piece.resize(n);
-            }
-            auto offset=piece.find_first_not_of(" \t\r\n"); if(offset==std::string::npos) continue; piece.erase(0,offset);
-            auto chars=runes(piece); if(chars.empty() || chars.size()>32) continue;
-            if(!std::all_of(chars.begin(),chars.end(),[&](const Rune &r){return engine->phonetics.count(r.value) || (r.value<128 && ((r.value>='a' && r.value<='z') || (r.value>='A' && r.value<='Z')));})) continue;
-            std::set<char> heads;
-            if(auto found=engine->phonetics.find(chars.front().value);found!=engine->phonetics.end()) {
-                for(const auto &reading:found->second) {
-                    heads.insert(reading[0]);
-                    if(reading.size()>1) heads.insert(reading[1]);
-                }
-            } else {
-                heads.insert(char(chars.front().value|32));
-                if(chars.size()>1 && chars[1].value<128) heads.insert(char(chars[1].value|32));
-            }
-            for(char c:heads) if(c>='a' && c<='z') engine->leading[c-'a'].push_back(token);
-            engine->tokenCharacters[token]={uint32_t(engine->scalars.size()),uint32_t(chars.size())};
-            for(const auto &ch:chars) engine->scalars.push_back(ch.value);
-            engine->scoreIndex[token]=int32_t(engine->usable.size()); engine->usable.push_back(token);
-        }
-        engine->scalars.shrink_to_fit();
-        // Qwen supplies the Chinese language probabilities; the phonetic
-        // decoder enforces the typed input. Changing pinyin does not change
-        // this language prefix, so its logits can serve every key immediately.
-        engine->basePrompt=engine->tokenize("<|im_start|>system\n续写中文，只输出正文。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n");
-        Query warm; warm.prompt=engine->basePrompt;
-        engine->emptyPrior=engine->scoresFor(warm,{}); engine->prior=engine->emptyPrior; engine->priorTokens=engine->basePrompt;
-        if(!engine->emptyPrior) throw std::runtime_error("Cannot prepare Qwen language scores");
+        lastError.clear();auto engine=std::make_unique<CKQwen>();engine->lexicon.load(indexPath);engine->backend=clear::makeQwenBackend(modelPath?modelPath:"");
+        engine->identity="native82:"+std::to_string(engine->lexicon.header->fingerprint)+':'+engine->backend.scorer->version();
+        // No tokenizer, GGUF vocabulary, weights or neural prefill is required
+        // for a cold first row. Only the independent lexical index is mapped.
         return engine.release();
-    } catch(const std::exception &e) { lastError=e.what(); return nullptr; }
-    catch(...) { lastError="Qwen initialization failed"; return nullptr; }
+    }catch(const std::exception &error){lastError=error.what();return nullptr;}catch(...){lastError="Native input initialization failed";return nullptr;}
 }
-extern "C" void ck_qwen_destroy(CKQwen *engine) { delete engine; }
-extern "C" const char *ck_qwen_error() { return lastError.c_str(); }
-static void configureQuery(Query &q,const std::string &input,uint32_t fuzzy,int corrections,int characterOnly,
-                           CKQwenCancelled cancelled,void *opaque) {
-    q.fuzzy=fuzzy; q.corrections=corrections!=0; q.character=characterOnly!=0;
-    q.cancelled=cancelled; q.cancelData=opaque;
-    for(unsigned char c:input) {
-        if(c>='A' && c<='Z') c+=32;
-        if(c>='a' && c<='z') q.letters+=char(c);
-        else if(c=='\'') q.boundaries.insert(int(q.letters.size()));
-    }
-    q.prediction=q.letters.empty();
-}
+extern "C" void ck_qwen_destroy(CKQwen *engine){delete engine;}
+extern "C" const char *ck_qwen_error(){return lastError.c_str();}
 extern "C" CKQwenPreview *ck_qwen_preview(CKQwen *engine,const char *raw,const char *context,uint32_t fuzzy,int corrections,int limit,CKQwenCancelled cancelled,void *opaque) {
-    if(!engine || !raw || !*raw) return nullptr;
+    if(!engine || !raw || !*raw)return nullptr;
     try {
-        Query q; configureQuery(q,raw,fuzzy,corrections,0,cancelled,opaque);
-        if(q.prediction || q.stop()) return nullptr;
-        const std::string preceding=suffixText(context?context:"",96);
-        std::shared_ptr<const Scores> scores;
-        {
-            std::lock_guard<std::mutex> lock(engine->priorLock);
-            scores=engine->priorContext==preceding?engine->prior:engine->emptyPrior;
-        }
-        if(!scores) return nullptr;
-        for(const auto &choice:engine->options(q,0,0,*scores)) {
-            auto branch=engine->extending({},choice); engine->add(q,branch,branch.consumed==int(q.letters.size()));
-        }
-        if(q.stop()) return nullptr;
-        engine->sortInitial(q); q.items.resize(std::min(q.items.size(),size_t(std::max(1,std::min(24,limit)))));
-        auto page=std::make_unique<CKQwenPreview>();page->items=std::move(q.items);return page.release();
-    } catch(...) {return nullptr;}
+        Request q;engine->configure(q,raw,context,fuzzy,corrections,0,cancelled,opaque);engine->fast(q,256);if(q.stopped())return nullptr;
+        auto page=std::make_unique<CKQwenPreview>();q.items.resize(std::min(q.items.size(),size_t(std::max(1,std::min(24,limit)))));page->items=std::move(q.items);return page.release();
+    }catch(...){return nullptr;}
 }
-extern "C" void ck_qwen_preview_destroy(CKQwenPreview *page) {delete page;}
-extern "C" int ck_qwen_preview_count(const CKQwenPreview *page) {return page?int(page->items.size()):0;}
-static const Item *previewItem(const CKQwenPreview *page,int index) {
-    return page && index>=0 && index<int(page->items.size())?&page->items[index]:nullptr;
-}
-extern "C" const char *ck_qwen_preview_text(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->text.c_str():"";}
-extern "C" const char *ck_qwen_preview_reading(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->reading.c_str():"";}
-extern "C" int ck_qwen_preview_consumed(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->consumed:0;}
-extern "C" double ck_qwen_preview_score(const CKQwenPreview *page,int index) {auto p=previewItem(page,index);return p?p->score:0;}
+extern "C" void ck_qwen_preview_destroy(CKQwenPreview *page){delete page;}
+extern "C" int ck_qwen_preview_count(const CKQwenPreview *page){return page?int(page->items.size()):0;}
+static const Item *previewItem(const CKQwenPreview *page,int index){return page && index>=0 && index<int(page->items.size())?&page->items[index]:nullptr;}
+extern "C" const char *ck_qwen_preview_text(const CKQwenPreview *page,int index){auto p=previewItem(page,index);return p?p->text.c_str():"";}
+extern "C" const char *ck_qwen_preview_reading(const CKQwenPreview *page,int index){auto p=previewItem(page,index);return p?p->reading.c_str():"";}
+extern "C" int ck_qwen_preview_consumed(const CKQwenPreview *page,int index){auto p=previewItem(page,index);return p?p->consumed:0;}
+extern "C" double ck_qwen_preview_score(const CKQwenPreview *page,int index){auto p=previewItem(page,index);return p?p->score:0;}
 extern "C" int ck_qwen_query(CKQwen *engine,const char *raw,const char *context,uint32_t fuzzy,int corrections,int characterOnly,int limit,CKQwenCancelled cancelled,CKQwenUpdated updated,void *opaque) {
-    if(!engine) return 0;
-    engine->cancelled=cancelled; engine->updated=updated; engine->cancelData=opaque;
-    struct Reset { CKQwen *e; ~Reset(){e->cancelled=nullptr;e->updated=nullptr;e->cancelData=nullptr;} } reset{engine};
+    if(!engine)return 0;
     try {
-        std::string input=raw?raw:"", preceding=suffixText(context?context:"",96);
-        std::string key=input+'\n'+preceding+'\n'+std::to_string(fuzzy)+':'+std::to_string(corrections)+':'+std::to_string(characterOnly);
-        std::shared_ptr<Query> query;
-        for(auto it=engine->cache.begin();it!=engine->cache.end();++it) if((*it)->key==key) {
-            query=*it; engine->cache.erase(it); break;
+        auto q=std::make_unique<Request>();engine->configure(*q,raw,context,fuzzy,corrections,characterOnly,cancelled,opaque);limit=std::max(1,std::min(4096,limit));engine->requested=limit;
+        bool ranked=engine->fast(*q,std::max(256,limit));if(q->stopped())return 0;engine->current=std::move(q);auto &request=*engine->current;
+        auto publish=[&](bool refining){if(updated && !request.stopped())updated(opaque,engine,std::min(limit,int(request.items.size())),(request.items.size()>size_t(limit) || request.truncated?CK_QWEN_MORE:0)|(refining?CK_QWEN_REFINING:0));};
+        publish(!ranked);
+        if(!ranked && !request.items.empty() && !request.stopped()) {
+            // A cancelled/unavailable scorer never removes valid indexed rows.
+            try {if(engine->rerank(request) && !request.stopped()){std::lock_guard<std::mutex> lock(engine->rowLock);engine->save(engine->rankedRows,request,std::max(256,limit),16);}}
+            catch(const std::exception &error){lastError=error.what();engine->backend.scorer->reset();}
         }
-        if(!query) {
-            query=std::make_shared<Query>(); query->key=key;
-            configureQuery(*query,input,fuzzy,corrections,characterOnly,cancelled,opaque);
-            if(query->prediction && preceding.empty()) return 0;
-            query->prompt=engine->basePrompt;
-            const auto prefix=engine->tokenize(preceding,false); query->prompt.insert(query->prompt.end(),prefix.begin(),prefix.end());
-            if(query->prompt.empty() || query->prompt.size()>480) throw std::runtime_error("Input exceeds the Qwen context window");
-        }
-        query->cancelled=cancelled;query->cancelData=opaque;
-        engine->cache.insert(engine->cache.begin(),query); if(engine->cache.size()>queryCacheLimit) engine->cache.pop_back();
-        engine->current=query; limit=std::max(1,std::min(4096,limit));
-        if(query->character) {
-            const auto scores=engine->scoresFor(*query,{});
-            if(query->items.empty() && scores) {
-                for(const auto &option:engine->options(*query,0,0,*scores)) {
-                    Branch b; b.text=engine->piece(option.token); b.reading=option.alignment.reading;
-                    b.characterCount=int(engine->characters(option.token).size());
-                    b.consumed=option.alignment.end; b.penalty=option.alignment.penalty; b.logp=option.logp;
-                    engine->add(*query,b,true);
-                }
-            }
-        } else {
-            if(!query->started) {
-                const auto scores=engine->scoresFor(*query,{}); if(!scores) return 0;
-                {
-                    std::lock_guard<std::mutex> lock(engine->priorLock);
-                    engine->prior=scores; engine->priorContext=preceding; engine->priorTokens=query->prompt;
-                }
-                const auto choices=engine->options(*query,0,0,*scores);
-                if(engine->stop()) return 0;
-                for(const auto &choice:choices) {
-                    auto branch=engine->extending({},choice);
-                    engine->add(*query,branch,query->prediction || branch.consumed==int(query->letters.size()));
-                    query->frontier.push(branch);
-                }
-                if(!choices.empty()) query->initial=engine->extending({},choices.front());
-                engine->sortInitial(*query);
-                query->refined=query->prediction || choices.empty() || (!query->items.empty() && query->items.front().consumed==int(query->letters.size()));
-                query->started=true;
-                engine->publish(*query,limit);
-            }
-            if(!query->refined) {
-                if(!engine->expand(*query,query->initial,true)) return 0;
-                query->refined=true; engine->sortInitial(*query); engine->publish(*query,limit);
-            }
-            while(int(query->items.size())<limit && !query->frontier.empty() && !engine->stop()) {
-                Branch branch=query->frontier.top(); query->frontier.pop();
-                if((!query->prediction && branch.consumed==int(query->letters.size())) || query->prediction) engine->add(*query,branch,true);
-                else if(!engine->expand(*query,branch,false)) { query->frontier.push(std::move(branch)); break; }
-                engine->publish(*query,limit);
-            }
-        }
-        query->refined=true; engine->publish(*query,limit);
-        return engine->stop()?0:std::min(limit,int(query->items.size()));
-    } catch(const std::exception &e) {lastError=e.what();return 0;}
-    catch(...) {lastError="Qwen candidate generation failed";return 0;}
+        if(request.stopped())return 0;publish(false);return std::min(limit,int(request.items.size()));
+    }catch(const std::exception &error){lastError=error.what();return 0;}catch(...){lastError="Native candidate lookup failed";return 0;}
 }
-extern "C" int ck_qwen_has_more(CKQwen *engine) {return engine && engine->current && !engine->current->frontier.empty();}
-static const Item *item(CKQwen *engine,int index) {
-    if(!engine || !engine->current || index<0 || index>=int(engine->current->items.size())) return nullptr;
-    return &engine->current->items[index];
-}
-extern "C" const char *ck_qwen_text(CKQwen *engine,int index) {auto p=item(engine,index);return p?p->text.c_str():"";}
-extern "C" const char *ck_qwen_reading(CKQwen *engine,int index) {auto p=item(engine,index);return p?p->reading.c_str():"";}
-extern "C" int ck_qwen_consumed(CKQwen *engine,int index) {auto p=item(engine,index);return p?p->consumed:0;}
-extern "C" double ck_qwen_score(CKQwen *engine,int index) {auto p=item(engine,index);return p?p->score:0;}
+extern "C" int ck_qwen_has_more(CKQwen *engine){return engine && engine->current && (engine->current->items.size()>size_t(engine->requested) || engine->current->truncated);}
+static const Item *item(CKQwen *engine,int index){return engine && engine->current && index>=0 && index<int(engine->current->items.size())?&engine->current->items[index]:nullptr;}
+extern "C" const char *ck_qwen_text(CKQwen *engine,int index){auto p=item(engine,index);return p?p->text.c_str():"";}
+extern "C" const char *ck_qwen_reading(CKQwen *engine,int index){auto p=item(engine,index);return p?p->reading.c_str():"";}
+extern "C" int ck_qwen_consumed(CKQwen *engine,int index){auto p=item(engine,index);return p?p->consumed:0;}
+extern "C" double ck_qwen_score(CKQwen *engine,int index){auto p=item(engine,index);return p?p->score:0;}

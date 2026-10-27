@@ -7,6 +7,6 @@ let package = Package(
     targets: [
         .binaryTarget(name: "LlamaRuntime", path: ".build/qwen-runtime/llama.xcframework"),
         .target(name: "CQwen", dependencies: ["LlamaRuntime"], path: "CQwen", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("c++"), .linkedFramework("Accelerate"), .linkedFramework("Metal"), .linkedFramework("MetalKit")]),
-        .target(name: "ClearCore", dependencies: ["CQwen"], path: "Core", resources: [.process("Resources/english.clx"), .copy("Resources/Models"), .copy("Resources/Phonetics"), .process("Resources/GPU/default.metallib")])
+        .target(name: "ClearCore", dependencies: ["CQwen"], path: "Core", resources: [.process("Resources/english.clx"), .copy("Resources/Models"), .copy("Resources/Pinyin"), .process("Resources/GPU/default.metallib")])
     ], cxxLanguageStandard: .cxx17
 )

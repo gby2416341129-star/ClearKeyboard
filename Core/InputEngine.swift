@@ -1,6 +1,7 @@
 import Foundation
 
-/// Chinese paths use the local Qwen model and phonetic consumption constraints.
+/// Chinese decoding uses our phonetic graph, lexical index and personal data.
+/// The local Qwen backend supplies only subsequent contextual token scores.
 /// English completion retains its separate dictionary and case-handling API.
 public final class InputEngine {
     public let english: Lexicon

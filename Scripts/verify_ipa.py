@@ -27,7 +27,7 @@ def verify(path):
             lower = name.lower()
             assert not any(word in lower for word in ['rime', 'wanxiang', '.gram', 'clear-sentence', 'clearsentence25m', 'mmproj']), name
             assert not lower.endswith(('.clm', '.mlmodelc', '.mlpackage', '.part', '.tar.gz', '.dSYM'.lower())), name
-        for resource in ['Phonetics/unicode-pinyin.tsv', 'english.clx']:
+        for resource in ['Pinyin/native.cklx', 'english.clx']:
             assert base + resource in names, resource
             assert extension + resource not in names, 'Duplicate input resource'
         assert base + 'default.metallib' in names and extension + 'default.metallib' not in names
@@ -40,7 +40,7 @@ def verify(path):
         assert b'ck_qwen_preview' in keyboard_binary, 'Qwen immediate candidate path missing'
         for prefix in [base, extension]:
             info = plistlib.loads(ipa.read(prefix + 'Info.plist'))
-            assert str(info['CFBundleVersion']) == '81'
+            assert str(info['CFBundleVersion']) == '82'
             assert 'iPhoneOS' in info['CFBundleSupportedPlatforms']
         info = plistlib.loads(ipa.read(extension + 'Info.plist'))
         assert info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.keyboard-service'

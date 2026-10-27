@@ -39,7 +39,7 @@ final class QwenDecoder {
         case missingResources, runtime(String)
         var errorDescription: String? {
             switch self {
-            case .missingResources: return "缺少 Qwen 模型或拼音约束数据"
+            case .missingResources: return "缺少 Qwen 模型或自研拼音索引"
             case .runtime(let message): return message
             }
         }
@@ -51,7 +51,7 @@ final class QwenDecoder {
     private var immediate: [String: [Candidate]] = [:]
     private var immediateOrder: [String] = []
     private let cacheLock = NSLock()
-    static let revision = 81
+    static let revision = 82
 
     static func bundled() throws -> QwenDecoder {
         ownerLock.lock(); defer { ownerLock.unlock() }
@@ -60,8 +60,8 @@ final class QwenDecoder {
     }
     private init() throws {
         guard let model = InputResources.url("Qwen3.5-0.8B-Q4_K_M", extension: "gguf", directory: "Models"),
-              let phonetics = InputResources.url("unicode-pinyin", extension: "tsv", directory: "Phonetics") else { throw LoadError.missingResources }
-        guard let value = ck_qwen_create(model.path, phonetics.path) else {
+              let index = InputResources.url("native", extension: "cklx", directory: "Pinyin") else { throw LoadError.missingResources }
+        guard let value = ck_qwen_create(model.path, index.path) else {
             throw LoadError.runtime(String(cString: ck_qwen_error()))
         }
         handle = value
@@ -73,10 +73,10 @@ final class QwenDecoder {
         }
     }
     private func key(_ raw: String, _ context: String, _ fuzzy: UInt32, _ correction: Bool) -> String {
-        raw + "\u{1f}" + context + "\u{1f}" + String(fuzzy) + (correction ? "t" : "f")
+        "native82:qwen35-q4_k_m:" + raw + "\u{1f}" + context + "\u{1f}" + String(fuzzy) + (correction ? "t" : "f")
     }
-    // This path only filters immutable Qwen logits. It never takes the
-    // generation lock or waits for a sentence request to finish.
+    // This path uses the native lexical index. It never takes the generation
+    // lock, loads the model/tokenizer, or waits for contextual ranking.
     func preview(_ raw: String, context: String, fuzzy: Set<String>, correction: Bool,
                  cancelled: () -> Bool) -> [Candidate] {
         guard !cancelled() else { return [] }

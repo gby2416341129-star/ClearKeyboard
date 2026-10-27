@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 [[ "$(uname -s)" == Darwin ]] || { echo 'macOS and Xcode are required.' >&2; exit 1; }
 python3 Scripts/prepare_qwen.py
+python3 Scripts/prepare_pinyin_index.py
 python3 Scripts/prepare_qwen_runtime.py
 mkdir -p .build
 swiftc SharedUI/BrandMaterial.swift Scripts/prepare_app_icon.swift -o .build/prepare-app-icon

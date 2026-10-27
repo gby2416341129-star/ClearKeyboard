@@ -130,18 +130,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
     var canUndoClearInput: Bool { deletionUndo != nil }
     var candidatesAreCurrent: Bool { candidateGeneration == generation }
     private var automaticChoiceIsReady: Bool {
-        guard candidatesAreCurrent else { return false }
-        guard activeCandidates?.result?.refining != true else { return false }
-        let raw = composition.normalized
-        guard raw.utf8.count >= 3, raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) }),
-              (activeCandidates?.result?.stage ?? 1) == 0 else { return true }
-        // A deliberate longer dictionary completion remains usable immediately.
-        // Otherwise Space awaits the semantic row; a provisional frequency row
-        // must not win merely because it arrived first.
-        let syllables = candidates.first?.reading.split(separator: " ").count ?? 0
-        return syllables > raw.utf8.count || (settings.learnChoices && personal.candidates(for: composition.raw).contains { $0.score >= 3 })
+        // Indexed candidates already have validated phonetic spans. Background
+        // model ranking must never hold Space/Return hostage, including initials
+        // and partial selections. Consumption preserves the unselected suffix.
+        candidatesAreCurrent && candidates.first.map { $0.consumed > 0 && $0.consumed <= composition.normalized.count } == true
     }
-    private(set) var engineState = "本地 Qwen 加载中…"
+    private(set) var engineState = "本地拼音索引加载中…"
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
     var onInputChange: (() -> Void)?
@@ -291,7 +285,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
         let preferred = settings.learnChoices ? personal.candidates(for: raw) : []
         let lookup = wordLookup, cache = hotWords, warm = warmsWords, fuzzy = settings.fuzzyPairs
-        let wordKey = raw + "\u{1f}" + preceding + "\u{1f}" + fuzzy.sorted().joined(separator: ",")
+        let wordKey = String(backend) + "\u{1f}" + raw + "\u{1f}" + preceding + "\u{1f}" + fuzzy.sorted().joined(separator: ",")
         let cachedWords = warm ? cache.value(wordKey) : nil
         let window = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
         let expectedConsumption = FuzzyPinyin.normalize(window).count
@@ -370,7 +364,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             let cancelled = { query.token.isCancelled || token.isCancelled }
             guard !cancelled() else { return }
-            // A single constrained Qwen request handles the active spelling.
+            // The native decoder publishes its indexed row before Qwen ranking.
             let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
                 correction: correction, context: query.preceding, cancelled: cancelled, updated: { items, more, settled in
@@ -483,7 +477,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     }
                     self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
                     self.resumeDeferredActions()
-                case .failure: self.finishCompositionAsTyped(); self.engineState = "Qwen 加载失败 · 可继续输入英文"; self.onChange?()
+                case .failure: self.finishCompositionAsTyped(); self.engineState = "拼音索引加载失败 · 可继续输入英文"; self.onChange?()
                 }
             }
         }
