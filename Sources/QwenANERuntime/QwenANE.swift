@@ -63,7 +63,7 @@ public actor QwenANE {
                 embeddingEncoding: EmbeddingEncoding = .fp16,
                 headModels: [HeadModel] = [], bodyOutput: String? = nil,
                 headInput: String = "normed_hidden",
-                computeUnits: MLComputeUnits = .cpuAndNeuralEngine,
+                computeUnits: MLComputeUnits = .all,
                 progress: (@Sendable (String) -> Void)? = nil) throws {
         try Self.validateLayout(headModels)
         let configuration = MLModelConfiguration()
@@ -348,8 +348,9 @@ public actor QwenANE {
                 }
             }
             let states = description.stateDescriptionsByName
-            guard Set(states.keys) == ["kv_cache"] else {
-                throw ANEError.invalid("Chunk \(index) requires one kv_cache MLState")
+            guard states["kv_cache"] != nil,
+                  states.keys.allSatisfy({ $0 == "kv_cache" || $0.hasPrefix("conv_state_") || $0.hasPrefix("rec_state_") }) else {
+                throw ANEError.invalid("Chunk \(index) has an unsupported MLState contract")
             }
             let name = index < models.count - 1 ? "hidden" : outputName
             let shape = index < models.count - 1 || splitHead

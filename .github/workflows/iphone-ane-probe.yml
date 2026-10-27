@@ -8,6 +8,7 @@ on:
       - '.github/workflows/ane-repair.yml'
       - 'Conversion/repair_tail.py'
       - 'Conversion/optimize_body.py'
+      - 'Conversion/resident_states.py'
       - 'Scripts/native_coreml_verify.py'
       - 'README.md'
       - 'Evidence/**'

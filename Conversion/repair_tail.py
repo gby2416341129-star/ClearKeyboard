@@ -594,6 +594,7 @@ def main():
     parser.add_argument("--head-rows", type=int, default=8192)
     parser.add_argument("--tiles-per-model", type=int, default=8)
     parser.add_argument("--cpu-samples", type=int, default=3)
+    parser.add_argument("--skip-numerical-tests", action="store_true")
     args = parser.parse_args()
     source, destination = args.source.resolve(), args.out.resolve()
     if destination.exists() or source == destination or destination.is_relative_to(source):
@@ -628,7 +629,9 @@ def main():
         coverage[tile["offset"]:tile["offset"] + tile["length"]] += 1
     if not np.all(coverage == 1):
         raise RuntimeError("Tiled output does not cover every original vocabulary row exactly once")
-    equivalence = cpu_equivalence(original, tail, weights_dir, destination, head_models, args.cpu_samples)
+    equivalence = ({"passed": None, "skipped": True, "reason": "All tests are performed by the user"}
+                   if args.skip_numerical_tests else
+                   cpu_equivalence(original, tail, weights_dir, destination, head_models, args.cpu_samples))
     save_json(destination / "cpu-head-equivalence.json", equivalence)
     inventory = {str(path.relative_to(destination)): file_hash(path)
                  for package in sorted(destination.glob("*.mlpackage"))

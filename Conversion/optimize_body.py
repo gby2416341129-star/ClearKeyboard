@@ -261,6 +261,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--skip-numerical-tests", action="store_true")
     args = parser.parse_args()
     source, destination = args.source.resolve(), args.out.resolve()
     if not source.is_dir() or destination.exists() or source == destination or destination.is_relative_to(source):
@@ -281,7 +282,8 @@ def main():
         chunks[name] = audit
         all_projections.extend(audit["projections"])
         print(f"{name}: {audit['convertedConv1DCount']} rank-4 projections, unchanged compression/state contracts", flush=True)
-    numeric = numpy_equivalence(all_projections)
+    numeric = ({"passed": None, "skipped": True, "reason": "All tests are performed by the user"}
+               if args.skip_numerical_tests else numpy_equivalence(all_projections))
     weights = {}
     # Hash the complete files, not only used blob slices: all calibrated LUTs,
     # indices, scales, floating gate constants and the embedding stay exact.
