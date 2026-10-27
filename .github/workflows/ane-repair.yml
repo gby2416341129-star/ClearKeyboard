@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
     env:
       MODEL_DIRECTORY: Models/Qwen3.5-0.8B-IME-Q4-SplitHead
-      REPAIR_REVISION: '2-device-validation-by-user'
+      REPAIR_REVISION: '3-direct-ipa-delivery'
       OPENBLAS_NUM_THREADS: '2'
       OMP_NUM_THREADS: '2'
     steps:
@@ -64,10 +64,33 @@ jobs:
           cd ../artifacts
           shasum -a 256 ANEProbe-Q4-v2-unsigned.ipa > ANEProbe-Q4-v2-unsigned.ipa.sha256
           printf '%s\n' 'iphoneos build checked. Per user request, native execution, iPhone ANE behavior and speed are left to physical-device validation by the user.' > STATUS.txt
+      - name: Split IPA into downloadable bounded parts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          root = pathlib.Path('work/artifacts')
+          source = root / 'ANEProbe-Q4-v2-unsigned.ipa'
+          parts = []
+          with source.open('rb') as handle:
+              for index in range(2):
+                  data = handle.read(400 * 1024 * 1024)
+                  path = root / f'ANEProbe-Q4-v2-unsigned.ipa.part{index:02d}'
+                  path.write_bytes(data)
+                  parts.append({'file': path.name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+              assert not handle.read(1), 'IPA exceeds two delivery parts'
+          (root / 'ipa-delivery.json').write_text(json.dumps({'parts': parts}, indent=2) + '\n')
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: Qwen35-IME-Q4-SplitHead-model
-          path: Models/Qwen3.5-0.8B-IME-Q4-SplitHead/
+          name: ANEProbe-Q4-v2-IPA-part00
+          path: work/artifacts/ANEProbe-Q4-v2-unsigned.ipa.part00
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ANEProbe-Q4-v2-IPA-part01
+          path: work/artifacts/ANEProbe-Q4-v2-unsigned.ipa.part01
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
@@ -80,14 +103,4 @@ jobs:
             work/artifacts/*.txt
             Models/Qwen3.5-0.8B-IME-Q4-SplitHead/*audit.json
             Models/Qwen3.5-0.8B-IME-Q4-SplitHead/*equivalence.json
-          retention-days: 7
-      - uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: ANEProbe-Q4-v2-unsigned-IPA
-          path: |
-            work/artifacts/ANEProbe-Q4-v2-unsigned.ipa
-            work/artifacts/ANEProbe-Q4-v2-unsigned.ipa.sha256
-            work/artifacts/STATUS.txt
-          compression-level: 0
           retention-days: 7
