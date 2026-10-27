@@ -9,14 +9,14 @@ permissions:
   actions: read
 concurrency:
   group: iphone-ane-repair-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   repair-verify-build:
     runs-on: macos-15
     timeout-minutes: 45
     env:
       MODEL_DIRECTORY: Models/Qwen3.5-0.8B-IME-Q4-SplitHead
-      REPAIR_REVISION: '1'
+      REPAIR_REVISION: '2-device-validation-by-user'
       OPENBLAS_NUM_THREADS: '2'
       OMP_NUM_THREADS: '2'
     steps:
@@ -46,11 +46,6 @@ jobs:
               assert hashlib.file_digest(handle, 'sha256').hexdigest() == '3486df1df0b0be964a59925f8cc44e50b33dc52e6dcb262807e01cca7aad31b3'
           PY
           python3 -u Conversion/repair_tail.py --source Models/Qwen3.5-0.8B-IME-Q4 --out "$MODEL_DIRECTORY" 2>&1 | tee work/artifacts/tail-repair.log
-      - name: Require real native Core ML load and predict
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -u Scripts/native_coreml_verify.py --model-directory "$MODEL_DIRECTORY" --report work/artifacts/native-coreml.json 2>&1 | tee work/artifacts/native-coreml.log
       - name: Compile every model for iphoneos and build the independent probe
         shell: bash
         run: |
@@ -68,7 +63,7 @@ jobs:
           ditto -c -k --keepParent Payload ../artifacts/ANEProbe-Q4-v2-unsigned.ipa
           cd ../artifacts
           shasum -a 256 ANEProbe-Q4-v2-unsigned.ipa > ANEProbe-Q4-v2-unsigned.ipa.sha256
-          printf '%s\n' 'Native macOS CPU prediction and iphoneos build checked. iPhone ANE execution pending physical-device validation.' > STATUS.txt
+          printf '%s\n' 'iphoneos build checked. Per user request, native execution, iPhone ANE behavior and speed are left to physical-device validation by the user.' > STATUS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: Qwen35-IME-Q4-SplitHead-model
