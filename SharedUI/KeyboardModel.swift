@@ -532,6 +532,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
         beginDocumentEdit(); defer { endDocumentEdit() }
         let pending = awaitingCommit ? deferredActions : []
         let identity = document?.documentIdentity
+        // Invalidate conversion callbacks before the proxy can service a focus
+        // change. No late candidate may restart/clear this literal on re-entry.
+        cancellation.cancel(); work?.cancel(); refinementCancellation.cancel(); refinementWork?.cancel()
+        discardPreparedCandidates(); activeCandidates = nil
+        generation += 1; candidates = []; candidateContext = nil; requestedContext = nil
         if awaitingCommit { document?.setMarkedText(composition.raw) }
         cancelDeferredActions()
         phraseLearning.reset()
@@ -1093,7 +1098,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
         }
         LearningStore.save(LearningMemory(learned: learned, personal: personal, numbers: numbers), defaults: store.defaults, epoch: learningEpoch)
     }
-    func suspend() { appearanceLink?.deactivate(); finishNumericRun(); phraseLearning.reset(); pendingDocumentKeys.removeAll(); stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil; refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning() }
+    func suspend() {
+        if isMovingCursor { document?.endTrackpad(); isMovingCursor = false }
+        appearanceLink?.deactivate(); finishNumericRun(); phraseLearning.reset(); pendingDocumentKeys.removeAll()
+        stopClipboardCapture(); work?.cancel(); cancellation.cancel(); discardPreparedCandidates(); activeCandidates = nil
+        refinementWork?.cancel(); refinementCancellation.cancel(); generation += 1; cancelDeferredActions(); flushLearning()
+    }
 }
 
 /// Workers publish immutable results without waiting for UIKit's event loop.

@@ -5,6 +5,7 @@ Only word frequencies and pronunciations are imported; no external decoder,
 segmentation implementation, language model, or runtime is used.
 """
 from pathlib import Path
+from collections import Counter
 import hashlib
 import math
 import struct
@@ -15,7 +16,7 @@ WORD_COMMIT = '67fa2e36e72f69d9134b8a1037b83fbb070b9775'
 WORD_SHA256 = '7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8'
 PHRASE_COMMIT = '195893902791321fe38ae7b4ebdd9905389cfd41'
 PHRASE_SHA256 = '5eff64ffd4de072b7e7f96baec560c3366887f93e762cc35ef0a8f62a7259b73'
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 def normalize(value):
@@ -54,6 +55,16 @@ def main():
         if all(ch in phonetics for ch in text): frequencies.setdefault(text, 1)
     for ch in phonetics: frequencies.setdefault(ch, 1)
     total = float(sum(frequencies.values()))
+    # Frequency backoff comes from the same lexical data, not another engine
+    # or neural model. Keep character evidence and adjacent-character evidence
+    # separate so a rare long place name is not rewarded just for being long.
+    characters, pairs, pair_totals = Counter(), Counter(), Counter()
+    for text, frequency in frequencies.items():
+        for ch in text: characters[ord(ch)] += frequency
+        for left, right in zip(text, text[1:]):
+            pairs[ord(left), ord(right)] += frequency
+            pair_totals[ord(left)] += frequency
+    character_total = sum(characters.values()) + .1 * len(characters)
 
     def readings_for(text):
         if len(text) == 1: return [(value,) for value in phonetics[text]]
@@ -77,12 +88,16 @@ def main():
     for text in sorted(frequencies):
         for number, reading in enumerate(readings_for(text)):
             if not all(0 < len(x) < 8 and x.isascii() for x in reading): continue
-            entries.append((text, reading, math.log((frequencies[text] + .25) / total) - .35 * number))
+            # Unicode lists include historical/dialect readings, not measured
+            # pronunciation frequencies. Preserve them for explicit selection
+            # without inheriting the primary reading's common-word probability.
+            pronunciation_cost = (3.25 + number if len(text) == 1 else .9 * number) if number else 0
+            entries.append((text, reading, math.log((frequencies[text] + .25) / total), pronunciation_cost))
             symbols.update(reading)
     symbols = sorted(symbols)
     ids = {s: i for i, s in enumerate(symbols)}
     children, terminals, maxima = [{}], [[]], [-1e30]
-    for text, reading, score in entries:
+    for text, reading, score, pronunciation_cost in entries:
         node = 0
         maxima[node] = max(maxima[node], score)
         for syllable in reading:
@@ -92,17 +107,17 @@ def main():
                 children.append({}); terminals.append([]); maxima.append(-1e30)
             node = children[node][sid]
             maxima[node] = max(maxima[node], score)
-        terminals[node].append((text, score))
+        terminals[node].append((text, score, pronunciation_cost))
     nodes, edges, words, pool = bytearray(), bytearray(), bytearray(), bytearray()
     text_offsets, texts = {}, []
     for node, outgoing in enumerate(children):
         first_edge, first_word = len(edges) // 8, len(words) // 16
         for sid, child in sorted(outgoing.items()): edges.extend(struct.pack('<HHI', sid, 0, child))
-        for text, score in sorted(terminals[node], key=lambda x: (-x[1], x[0])):
+        for text, score, pronunciation_cost in sorted(terminals[node], key=lambda x: (-x[1] + x[2], x[0])):
             if text not in text_offsets:
                 value = text.encode('utf-8'); text_offsets[text] = (len(pool), len(value)); pool.extend(value)
             offset, length = text_offsets[text]
-            words.extend(struct.pack('<IIfHH', offset, length, score, len(text), 0))
+            words.extend(struct.pack('<IIfHH', offset, length, score, len(text), min(65535, round(pronunciation_cost * 256))))
             texts.append(text)
         nodes.extend(struct.pack('<IIIIf', first_edge, len(outgoing), first_word, len(terminals[node]), maxima[node]))
     # The secondary text ordering serves next-word prediction without another
@@ -115,8 +130,14 @@ def main():
     for section in sections:
         padding = (-cursor) % 8; payload.extend(b'\0' * padding); cursor += padding
         offsets.append(cursor); payload.extend(section); cursor += len(section)
+    padding = (-cursor) % 8; payload.extend(b'\0' * padding)
+    payload.extend(struct.pack('<8sII', b'CKFRQ83\0', len(characters), len(pairs)))
+    for cp, count in sorted(characters.items()):
+        payload.extend(struct.pack('<If', cp, math.log((count + .1) / character_total)))
+    for (left, right), count in sorted(pairs.items()):
+        payload.extend(struct.pack('<IIf', left, right, math.log(count / pair_totals[left])))
     fingerprint = int.from_bytes(hashlib.sha256(payload).digest()[:8], 'little')
-    header = struct.pack('<8s12IQ', b'CKLX82\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
+    header = struct.pack('<8s12IQ', b'CKLX83\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
                          len(edges) // 8, len(words) // 16, len(pool), *offsets, fingerprint)
     path = ROOT / 'Core/Resources/Pinyin/native.cklx'; path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(header + payload)

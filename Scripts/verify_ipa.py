@@ -30,6 +30,8 @@ def verify(path):
         for resource in ['Pinyin/native.cklx', 'english.clx']:
             assert base + resource in names, resource
             assert extension + resource not in names, 'Duplicate input resource'
+        with ipa.open(base + 'Pinyin/native.cklx') as stream: index_header = stream.read(64)
+        assert index_header[:8] == b'CKLX83\0\0' and struct.unpack_from('<I', index_header, 8)[0] == 2, 'Native pinyin index format mismatch'
         assert base + 'default.metallib' in names and extension + 'default.metallib' not in names
         # Inspect link output only; never initialize the model or simulate input.
         app_binary = ipa.read(base + 'ClearKeyboard')
@@ -40,7 +42,7 @@ def verify(path):
         assert b'ck_qwen_preview' in keyboard_binary, 'Qwen immediate candidate path missing'
         for prefix in [base, extension]:
             info = plistlib.loads(ipa.read(prefix + 'Info.plist'))
-            assert str(info['CFBundleVersion']) == '82'
+            assert str(info['CFBundleVersion']) == '83'
             assert 'iPhoneOS' in info['CFBundleSupportedPlatforms']
         info = plistlib.loads(ipa.read(extension + 'Info.plist'))
         assert info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.keyboard-service'

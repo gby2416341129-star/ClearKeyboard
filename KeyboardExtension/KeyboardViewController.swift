@@ -32,6 +32,11 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     // explicitly enabled compatibility option keeps spelling inside the keyboard.
     private var markedTransport = MarkedTransport.none
     private var markedDraft = ""
+    private struct DeferredLiteral {
+        let text: String
+        let boundary: HostTextSnapshot
+    }
+    private var deferredLiteral: DeferredLiteral?
     private var readableHostContext = false
     private var hostRefreshGeneration = 0
     private var activeKeys = 0
@@ -208,17 +213,24 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     override func viewWillDisappear(_ animated: Bool) {
         finishRestoredSelection()
+        surface?.stopInteractions()
+        // Finish the spelling while this input session is still connected.
+        // Calling super/marking the host inactive first can detach its marked
+        // range before the last queued spelling and unmark have been delivered.
+        if connectedDocumentIdentifier()?.uuidString == documentIdentity {
+            model?.finishCompositionAsTyped()
+        } else {
+            rememberDeferredLiteral(markedDraft)
+            abandonDraftWithoutHostWrite()
+        }
+        discardMarkedDelivery(); hostState.unmark()
+        model?.suspend()
         hostActive = false
 #if DEBUG
         runtimeTimer?.invalidate(); runtimeTimer = nil
 #endif
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
-        super.viewWillDisappear(animated); surface?.stopInteractions()
-        // Dismissing the keyboard is not an explicit request to send a local
-        // spelling to an unreadable remote editor.
-        if markedTransport == .local { abandonDraftWithoutHostWrite() }
-        else { model?.finishCompositionAsTyped() }
-        model?.suspend()
+        super.viewWillDisappear(animated)
     }
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
@@ -289,6 +301,9 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         // or another notification in that interval invalidates this read; it
         // cannot cancel a newer spelling or unmark its first letter.
         guard revision == hostRefreshGeneration else {
+            needsHostRefresh = true; scheduleHostRefresh(); return
+        }
+        if restoreDeferredLiteral(on: actual, connected: read.connected) {
             needsHostRefresh = true; scheduleHostRefresh(); return
         }
         let now = ProcessInfo.processInfo.systemUptime
@@ -430,6 +445,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         if needsHostRefresh { scheduleHostRefresh() }
     }
     private func performHostEdit(_ edit: () -> Void) {
+        guard hostActive else { return }
         // A key arriving before the idle timer fires must cancel that read even
         // if its own textDidChange acknowledgement has not arrived yet.
         beginHostWrite(); defer { endHostWrite() }
@@ -506,6 +522,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         commitMarkedText(text, remaining: "")
     }
     @discardableResult func commitMarkedText(_ text: String, remaining: String) -> Bool {
+        guard hostActive, connectedDocumentIdentifier()?.uuidString == documentIdentity else { return false }
         // Space, punctuation and mode changes can commit without a ribbon tap.
         // Give those entry points the same unresolved-selection protection.
         if candidateSelectionNeedsValidation,
@@ -570,6 +587,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         return selected.isEmpty && (!actual.available || !expected.snapshot.available || expected.accepts(expected.snapshot, actual: actual))
     }
     func setMarkedText(_ text: String) {
+        guard hostActive else { return }
         restoredSelectionIdentity = nil
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
         if markedTransport == .none, !text.isEmpty {
@@ -596,6 +614,33 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         discardMarkedDelivery()
         hostState.setMarked(""); hostState.unmark()
         model?.cursorChanged(unmarkDraft: false)
+    }
+    private func rememberDeferredLiteral(_ text: String) {
+        guard !text.isEmpty, documentIdentity != "disconnected" else { return }
+        var boundary = hostState.snapshot
+        if boundary.before.hasSuffix(text) { boundary.before.removeLast(text.count) }
+        deferredLiteral = DeferredLiteral(text: text, boundary: boundary)
+    }
+    private func restoreDeferredLiteral(on actual: HostTextSnapshot, connected: Bool) -> Bool {
+        guard hostActive, connected, actual.available, let saved = deferredLiteral,
+              actual.document == saved.boundary.document else { return false }
+        // Never replay an old draft into a different field, selection, or edit.
+        // The exact original boundary or an already-present literal is required.
+        guard actual.selected.isEmpty, actual.after == saved.boundary.after else {
+            deferredLiteral = nil; return false
+        }
+        if actual.before == saved.boundary.before + saved.text {
+            deferredLiteral = nil; hostState = HostTextState(actual)
+            beginHostWrite(); defer { endHostWrite() }
+            textDocumentProxy.unmarkText(); return true
+        }
+        guard actual.before == saved.boundary.before else { deferredLiteral = nil; return false }
+        deferredLiteral = nil; hostState = HostTextState(actual)
+        performHostEdit {
+            hostState.insert(saved.text); textDocumentProxy.insertText(saved.text)
+            textDocumentProxy.unmarkText()
+        }
+        return true
     }
     private func rebaseDraft(on actual: HostTextSnapshot) {
         var boundary = actual
@@ -631,6 +676,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         }
     }
     private func flushMarkedText(insideWrite: Bool = false) {
+        guard hostActive else { cancelQueuedMarkedWrites(); return }
         if hostWriteDepth > 0, !insideWrite { deferredMarkedFlush = true; return }
         // Commit, deletion, cursor movement and unmark are ordered barriers.
         // No pending spelling frame may run after those edits.
@@ -647,8 +693,14 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     }
     func unmarkText() {
         if restoredSelectionIdentity != nil { return }
+        guard hostActive, connectedDocumentIdentifier()?.uuidString == documentIdentity else {
+            rememberDeferredLiteral(markedDraft); discardMarkedDelivery(); return
+        }
         if markedTransport == .local {
-            if !markedDraft.isEmpty { commitMarkedText(markedDraft, remaining: "") }
+            if !markedDraft.isEmpty {
+                let spelling = markedDraft
+                if !commitMarkedText(spelling, remaining: "") { rememberDeferredLiteral(spelling) }
+            }
             else { hostState.unmark(); discardMarkedDelivery() }
             return
         }
@@ -683,6 +735,14 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     func beginTrackpad() {
         finishRestoredSelection(); flushMarkedText()
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
+        // One fresh read at entry fixes a stale/empty text plane after a keyboard
+        // dismissal. A temporarily unavailable proxy keeps the known boundary;
+        // movement samples still require no synchronous context reads.
+        let actual = readHostSnapshot()
+        if actual.connected, actual.snapshot.available {
+            hostState = HostTextState(actual.snapshot)
+            readableHostContext = true; candidateSelectionNeedsValidation = false
+        }
         trackpad = ProxyTrackpad(before: contextBefore, after: contextAfter)
         trackpadSelectionUnits = selectedText.utf16.count; trackpadMoved = false
     }

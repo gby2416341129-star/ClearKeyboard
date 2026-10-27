@@ -1,4 +1,4 @@
-name: Build 82 native pinyin decoder and Qwen scoring IPA
+name: Build 83 native Chinese candidate and editing repairs IPA
 on:
   push:
     branches: [codex/repair67-20261026]

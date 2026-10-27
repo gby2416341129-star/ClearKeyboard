@@ -32,11 +32,15 @@ struct Header {
 struct Node {uint32_t firstEdge,edgeCount,firstWord,wordCount; float maximum;};
 struct Edge {uint16_t syllable,reserved; uint32_t child;};
 struct Word {uint32_t offset,bytes; float logFrequency; uint16_t characters,flags;};
+struct CharacterFrequency {uint32_t codepoint;float logp;};
+struct PairFrequency {uint32_t left,right;float logp;};
 static_assert(sizeof(Header)==64 && sizeof(Node)==20 && sizeof(Edge)==8 && sizeof(Word)==16,"Lexicon ABI");
 struct Lexicon {
     void *mapping=MAP_FAILED; size_t bytes=0;
     const Header *header=nullptr; const Node *nodes=nullptr; const Edge *edges=nullptr;
     const Word *words=nullptr; const char *pool=nullptr; const uint32_t *textOrder=nullptr;
+    const CharacterFrequency *characterFrequencies=nullptr;uint32_t characterCount=0;
+    const PairFrequency *pairFrequencies=nullptr;uint32_t pairCount=0;
     std::vector<std::string> syllables;
     std::unordered_set<std::string> completeSyllables;
     std::vector<uint32_t> frequent;
@@ -50,7 +54,7 @@ struct Lexicon {
         bytes=size_t(status.st_size); mapping=mmap(nullptr,bytes,PROT_READ,MAP_PRIVATE,fd,0);
         if(mapping==MAP_FAILED) throw std::runtime_error("Cannot map native pinyin index");
         header=static_cast<const Header *>(mapping);
-        if(std::memcmp(header->magic,"CKLX82\0\0",8)!=0 || header->version!=1 || header->syllableCount>65535 || !header->nodeCount || !header->wordCount)
+        if(std::memcmp(header->magic,"CKLX83\0\0",8)!=0 || header->version!=2 || header->syllableCount>65535 || !header->nodeCount || !header->wordCount)
             throw std::runtime_error("Incompatible native pinyin index");
         auto section=[&](uint32_t offset,uint32_t count,size_t stride) {
             if(offset<64 || offset%4 || offset>bytes || count>(bytes-offset)/stride)
@@ -63,6 +67,13 @@ struct Lexicon {
         words=reinterpret_cast<const Word *>(section(header->wordOffset,header->wordCount,sizeof(Word)));
         pool=section(header->poolOffset,header->poolBytes,1);
         textOrder=reinterpret_cast<const uint32_t *>(section(header->textIndexOffset,header->wordCount,4));
+        uint64_t statistics=(uint64_t(header->textIndexOffset)+uint64_t(header->wordCount)*4+7)&~uint64_t(7);
+        if(statistics+16>bytes || std::memcmp(static_cast<const char *>(mapping)+statistics,"CKFRQ83\0",8)!=0)
+            throw std::runtime_error("Missing lexical backoff frequencies");
+        std::memcpy(&characterCount,static_cast<const char *>(mapping)+statistics+8,4);
+        std::memcpy(&pairCount,static_cast<const char *>(mapping)+statistics+12,4);
+        characterFrequencies=reinterpret_cast<const CharacterFrequency *>(section(uint32_t(statistics+16),characterCount,8));
+        pairFrequencies=reinterpret_cast<const PairFrequency *>(section(uint32_t(statistics+16+uint64_t(characterCount)*8),pairCount,12));
         for(uint32_t i=0;i<header->syllableCount;++i) {
             size_t length=strnlen(symbols+i*8,8);
             if(!length || length==8) throw std::runtime_error("Invalid pinyin symbol");
@@ -102,6 +113,18 @@ struct Lexicon {
         if(w.offset>header->poolBytes || w.bytes>header->poolBytes-w.offset) throw std::runtime_error("Invalid word text");
         return {pool+w.offset,w.bytes};
     }
+    double characterScore(uint32_t previous,uint32_t next)const {
+        const auto end=characterFrequencies+characterCount;
+        auto character=std::lower_bound(characterFrequencies,end,next,[](const CharacterFrequency &a,uint32_t b){return a.codepoint<b;});
+        double unigram=character!=end && character->codepoint==next?character->logp:-20;
+        if(!previous)return unigram;
+        auto key=std::make_pair(previous,next);const auto pairEnd=pairFrequencies+pairCount;
+        auto pair=std::lower_bound(pairFrequencies,pairEnd,key,[](const PairFrequency &a,const auto &b){return std::make_pair(a.left,a.right)<b;});
+        // Interpolate in probability space, with unigram backoff for unseen
+        // pairs; never pretend a context-free word score is a live LM result.
+        return pair!=pairEnd && pair->left==previous && pair->right==next?
+            std::log(.65*std::exp(double(pair->logp))+.35*std::exp(unigram)):unigram;
+    }
 };
 bool starts(const std::string &s,const std::string &p) {return s.compare(0,p.size(),p)==0;}
 bool ends(const std::string &s,const std::string &p) {return s.size()>=p.size() && s.compare(s.size()-p.size(),p.size(),p)==0;}
@@ -132,11 +155,25 @@ std::vector<size_t> utf8Offsets(const std::string &text) {
 std::string suffixText(const std::string &text,size_t count) {
     const auto offsets=utf8Offsets(text);return offsets.size()>count+1?text.substr(offsets[offsets.size()-count-1]):text;
 }
+std::vector<uint32_t> codepoints(const std::string &text) {
+    std::vector<uint32_t> result;
+    for(size_t i=0;i<text.size();) {
+        uint8_t first=uint8_t(text[i++]);uint32_t cp=first;int extra=0;
+        if(first>=0xc2 && first<=0xdf){cp=first&31;extra=1;}
+        else if(first>=0xe0 && first<=0xef){cp=first&15;extra=2;}
+        else if(first>=0xf0 && first<=0xf4){cp=first&7;extra=3;}
+        else if(first>=0x80)return {};
+        if(i+extra>text.size())return {};
+        while(extra--){uint8_t c=uint8_t(text[i++]);if((c&0xc0)!=0x80)return {};cp=(cp<<6)|(c&63);}
+        result.push_back(cp);
+    }
+    return result;
+}
 struct Segment {uint16_t sid;int end,kind,edits,splits;double cost;};
 struct WordMatch {uint32_t word;int end,kind,edits,splits;double cost;std::string reading;};
 struct Path {
-    std::string text,reading;int consumed=0,kind=Exact,edits=0,characters=0,splits=0;double frequency=0,cost=0;
-    double priority() const {return frequency/double(std::max(1,characters))-cost-3.5*splits;}
+    std::string text,reading;int consumed=0,kind=Exact,edits=0,characters=0,splits=0;uint32_t previous=0;double frequency=0,cost=0;
+    double priority() const {return frequency-cost-3.5*splits;}
 };
 struct Request {
     std::string typed,letters,context,key;std::set<int> boundaries;
@@ -217,7 +254,7 @@ const std::vector<WordMatch> &wordMatches(const Lexicon &lex,Request &q,int star
         const auto &node=lex.node(state.node);
         if(state.depth && (!q.character || state.depth==1)) for(uint32_t i=0;i<node.wordCount;++i) {
             uint32_t word=node.firstWord+i;if(q.character && lex.words[word].characters!=1)continue;
-            result.push_back({word,state.position,state.kind,state.edits,state.splits,state.cost,state.reading});
+            result.push_back({word,state.position,state.kind,state.edits,state.splits,state.cost+double(lex.words[word].flags)/256,state.reading});
         }
         if(state.position==int(q.letters.size()) || (q.character && state.depth==1) || state.depth>=12)continue;
         for(const auto &edge:q.graph[state.position]) {
@@ -231,7 +268,10 @@ const std::vector<WordMatch> &wordMatches(const Lexicon &lex,Request &q,int star
     }
     std::stable_sort(result.begin(),result.end(),[&](const WordMatch &a,const WordMatch &b){
         if(a.kind!=b.kind)return a.kind<b.kind;
-        auto score=[&](const WordMatch &w){return lex.words[w.word].logFrequency/std::max(1,int(lex.words[w.word].characters))-w.cost-3.5*w.splits;};return score(a)>score(b);
+        // Choices competing for the same input span use word probability, not
+        // probability divided by word length. The latter promotes obscure long
+        // dictionary entries ahead of ordinary words before the lattice runs.
+        auto score=[&](const WordMatch &w){return lex.words[w.word].logFrequency-w.cost-3.5*w.splits;};return score(a)>score(b);
     });
     return q.matches.emplace(start,std::move(result)).first->second;
 }
@@ -269,9 +309,13 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
         // A full pinyin path cannot contain literal spelling, regardless of the
         // language model's preference. Mixed input preserves the user's case.
         if(match.kind==Literal && std::all_of(text.begin(),text.end(),[](unsigned char c){return c<128;}))text=q.typed.substr(base.consumed,match.end-base.consumed);
+        double sequenceScore=0;
+        if(base.text.empty()) {const auto preceding=codepoints(q.context);next.previous=preceding.empty()?0:preceding.back();}
+        for(uint32_t ch:codepoints(text)){sequenceScore+=lex.characterScore(next.previous,ch);next.previous=ch;}
         next.text+=text;if(!next.reading.empty())next.reading+=' ';next.reading+=match.reading;
         next.consumed=match.end;next.kind=std::max(base.kind,match.kind);next.edits+=match.edits;next.splits+=match.splits;
-        next.characters+=lex.words[match.word].characters;next.frequency+=lex.words[match.word].logFrequency;next.cost+=match.cost;return next;
+        next.characters+=lex.words[match.word].characters;
+        next.frequency+=.55*lex.words[match.word].logFrequency+.45*sequenceScore;next.cost+=match.cost;return next;
     };
     // Direct words remain separately selectable with their own consumed range;
     // rare-character coverage does not depend on a single-token BPE encoding.
@@ -295,7 +339,7 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
                 // never invent casing, consume a suffix, or skip a character.
                 if(!q.full) {
                     Path next=base;next.text+=q.typed[pos];if(!next.reading.empty())next.reading+=' ';next.reading+=q.letters[pos];
-                    next.consumed=pos+1;next.characters++;next.kind=Literal;next.frequency-=18;next.cost+=2.8;states[pos+1].push_back(std::move(next));
+                    next.consumed=pos+1;next.characters++;next.kind=Literal;next.previous=uint8_t(q.typed[pos]);next.frequency-=18;next.cost+=2.8;states[pos+1].push_back(std::move(next));
                 }
             }
         }
@@ -376,7 +420,7 @@ struct CKQwen {
 extern "C" CKQwen *ck_qwen_create(const char *modelPath,const char *indexPath) {
     try {
         lastError.clear();auto engine=std::make_unique<CKQwen>();engine->lexicon.load(indexPath);engine->backend=clear::makeQwenBackend(modelPath?modelPath:"");
-        engine->identity="native82:"+std::to_string(engine->lexicon.header->fingerprint)+':'+engine->backend.scorer->version();
+        engine->identity="native83:"+std::to_string(engine->lexicon.header->fingerprint)+':'+engine->backend.scorer->version();
         // No tokenizer, GGUF vocabulary, weights or neural prefill is required
         // for a cold first row. Only the independent lexical index is mapped.
         return engine.release();

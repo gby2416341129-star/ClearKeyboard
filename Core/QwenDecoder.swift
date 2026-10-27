@@ -51,7 +51,7 @@ final class QwenDecoder {
     private var immediate: [String: [Candidate]] = [:]
     private var immediateOrder: [String] = []
     private let cacheLock = NSLock()
-    static let revision = 82
+    static let revision = 83
 
     static func bundled() throws -> QwenDecoder {
         ownerLock.lock(); defer { ownerLock.unlock() }
@@ -73,7 +73,7 @@ final class QwenDecoder {
         }
     }
     private func key(_ raw: String, _ context: String, _ fuzzy: UInt32, _ correction: Bool) -> String {
-        "native82:qwen35-q4_k_m:" + raw + "\u{1f}" + context + "\u{1f}" + String(fuzzy) + (correction ? "t" : "f")
+        "native83:qwen35-q4_k_m:" + raw + "\u{1f}" + context + "\u{1f}" + String(fuzzy) + (correction ? "t" : "f")
     }
     // This path uses the native lexical index. It never takes the generation
     // lock, loads the model/tokenizer, or waits for contextual ranking.
