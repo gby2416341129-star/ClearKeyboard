@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
     env:
       MODEL_DIRECTORY: Models/Qwen3.5-0.8B-IME-Q4-Packed
-      REPAIR_REVISION: '7-single-packed-state-no-tests'
+      REPAIR_REVISION: '8-single-packed-state-explicit-concat-no-tests'
       OPENBLAS_NUM_THREADS: '2'
       OMP_NUM_THREADS: '2'
     steps:
