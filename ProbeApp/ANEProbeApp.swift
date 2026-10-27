@@ -100,6 +100,25 @@ private struct ProbeRound: Codable, Sendable {
     let thermalStateAfter: Int
 }
 
+private struct PrefixReplayRound: Codable, Sendable {
+    let index: Int
+    let prefixTokenCount: Int
+    let tailTokenCount: Int
+    let fullReplayMilliseconds: Double
+    let snapshotSetupMilliseconds: Double
+    let branchAdvanceMilliseconds: Double
+    let restoreAndTailMilliseconds: Double
+    let checkpointBytes: Int
+    let restoreCount: Int
+    let fullReplayModelCalls: Int
+    let restoredTailModelCalls: Int
+    let expectedFullReplayModelCalls: Int
+    let expectedRestoredTailModelCalls: Int
+    let fullReplayBestToken: Int32
+    let restoredTailBestToken: Int32
+    let maximumAbsoluteLogitDifference: Float
+}
+
 private struct ProbeCase: Codable, Sendable {
     let computeUnits: String
     let title: String
@@ -114,10 +133,12 @@ private struct ProbeCase: Codable, Sendable {
     var failures: [ProbeIncident] = []
     var measuredDecodeSummary: ProbeSummary?
     var measuredPrefillSummary: ProbeSummary?
+    var prefixReplayStatus = "pending"
+    var prefixReplayRounds: [PrefixReplayRound] = []
 }
 
 private struct ProbeEvidence: Codable, Sendable {
-    let schemaVersion = 4
+    let schemaVersion = 5
     let suiteID: String
     let startedAt: Date
     let device: String
@@ -133,7 +154,8 @@ private struct ProbeEvidence: Codable, Sendable {
         "systemCache": "Core ML device compilation/specialization caches are NOT cleared. First round means first call of this instance, not guaranteed system-cold execution.",
         "orderEffect": "Backends execute in the recorded fixed order. System caches, temperature and memory pressure can influence cross-backend comparisons.",
         "telemetry": "Per-model callback data is buffered in memory. UI updates and JSON writes occur outside timed inference, after each round.",
-        "plans": "All placement-plan diagnostics run after all execution cases, so this suite does not inspect a backend plan before its execution benchmark."
+        "plans": "All placement-plan diagnostics run after all execution cases, so this suite does not inspect a backend plan before its execution benchmark.",
+        "prefixReplay": "After the unchanged baseline, compare full replay with an explicit 18-token stable-prefix checkpoint and a one-token rewritten tail. Snapshot setup and tail advance are recorded separately. No automatic text truncation. Each timed restored-tail call must execute 8 real model predictions."
     ]
     let methodology = "Same bundled prompt plus fixed teacher-forced continuation for every backend. One first-call round, one warm-up round, then three measured rounds. Each round resets model state and performs a full prompt plus exactly three incremental calls, regardless of predicted EOS. Raw full-vocabulary logits are validated, argmax is recorded outside timed calls. This is a short model benchmark, not keyboard latency or accuracy."
     let fixedContinuationTokenIDs: [Int32] = [109266, 1710, 248046]
@@ -262,7 +284,7 @@ private final class ProbeSession: ObservableObject {
                 self.status = "测试已停止：\(reason)。已保存完成阶段，可导出记录。"
             } else if self.evidence?.status == "completed" {
                 let count = self.cases.filter { $0.executionStatus == "succeeded" }.count
-                self.status = "自动测试完成：\(count)/3 种配置完成全部短推理。失败和计算计划也已保存在同一份记录中。"
+                self.status = "自动测试完成：\(count)/3 种配置完成基线短推理。缓存改写对照、失败和计算计划也已保存在同一份记录中。"
             } else {
                 self.status = "自动测试未完成，已保存已有结果和错误，可导出记录。"
             }
@@ -412,6 +434,11 @@ struct ProbeView: View {
                             Text(String(format: "正式单步：中位数 %.2f ms · 经验 P95 %.2f ms（%d 个样本）",
                                 summary.medianMilliseconds, summary.empiricalP95Milliseconds, summary.sampleCount))
                         }
+                        if let full = ProbeSummary(result.prefixReplayRounds.map(\.fullReplayMilliseconds)),
+                           let cached = ProbeSummary(result.prefixReplayRounds.map(\.restoreAndTailMilliseconds)) {
+                            Text(String(format: "改写对照：整段重算 %.2f ms → 恢复前缀并重算尾部 %.2f ms",
+                                full.medianMilliseconds, cached.medianMilliseconds))
+                        }
                         if let error = result.failures.first(where: { !$0.cancelled }) {
                             Text("\(error.stage)\(error.model.map { " · \($0)" } ?? "")：\(error.error.domain) (\(error.error.code))")
                                 .foregroundStyle(.red).textSelection(.enabled)
@@ -422,7 +449,7 @@ struct ProbeView: View {
                 ForEach(Array(session.recentEvents.enumerated()), id: \.offset) { _, line in
                     Text(line).font(.caption.monospaced()).textSelection(.enabled)
                 }
-                Text("每种配置自动跑首次计算、1 轮预热、3 轮正式测量，然后统一诊断计算计划。一种配置失败会继续下一种。CPU + NPU 与 NPU + CPU 是同一配置，合并测试。")
+                Text("每种配置自动跑首次计算、1 轮预热、3 轮正式测量、3 轮前缀缓存改写对照，然后统一诊断计算计划。一种配置失败会继续下一种。CPU + NPU 与 NPU + CPU 是同一配置，合并测试。")
                     .font(.caption).foregroundStyle(.secondary)
                 Text("每轮清空上下文状态，固定相同输入。系统 Core ML 缓存不会清除；首次调用不代表系统完全冷启动。9 个单步样本的 P95 仅供本次观察。总耗时含加载与诊断，不等于打字延迟。测试期间请保持前台，App 会暂时关闭自动锁屏；进入后台后停止后续测试。")
                     .font(.caption).foregroundStyle(.secondary)
@@ -657,6 +684,35 @@ private func runExecutionCase(backend: ProbeBackend, compiled: URL, directory: U
         }
         try Task.checkCancellation()
         result.executionStatus = "succeeded"
+        currentStage = "prefixReplay"
+        result.prefixReplayStatus = "running"
+        publish()
+        await acknowledgeUpdates(updates)
+        do {
+            for index in 1...3 {
+                currentRound = index
+                updates.yield(.stage("prefixReplay", backend.rawValue,
+                    "\(backend.title) · 前缀缓存改写对照 \(index)/3"))
+                await acknowledgeUpdates(updates)
+                let (round, traces) = try await prefixReplayRound(engine: engine,
+                    fixture: fixture, continuation: continuation, heads: info.headModels?.count ?? 0,
+                    index: index, buffer: buffer)
+                result.prefixReplayRounds.append(round)
+                result.traces += traces
+                publish()
+                await acknowledgeUpdates(updates)
+            }
+            result.prefixReplayStatus = "succeeded"
+        } catch {
+            if error is CancellationError || Task.isCancelled {
+                result.prefixReplayStatus = "cancelled"
+                throw error
+            }
+            result.prefixReplayStatus = "failed"
+            result.traces += buffer.drain().map { ProbeTrace(stage: "prefixReplay", round: currentRound, event: $0) }
+            result.failures.append(ProbeIncident(timestamp: Date(), stage: "prefixReplay", model: nil,
+                cancelled: false, error: ANEFailure.capture(error)))
+        }
     } catch {
         let events = buffer.drain()
         result.traces += events.map { ProbeTrace(stage: currentStage, round: currentRound, event: $0) }
@@ -668,6 +724,55 @@ private func runExecutionCase(backend: ProbeBackend, compiled: URL, directory: U
     }
     result.finishedAt = Date()
     return result
+}
+
+private func prefixReplayRound(engine: QwenANE, fixture: ProbeFixture, continuation: [Int32],
+                               heads: Int, index: Int, buffer: ProbeTraceBuffer) async throws
+    -> (PrefixReplayRound, [ProbeTrace]) {
+    try Task.checkCancellation()
+    guard !continuation.isEmpty else { throw ANEError.invalid("Missing fixed tail fixture") }
+    let rewritten = fixture.tokenIDs + Array(continuation.prefix(1))
+    let advanced = fixture.tokenIDs + continuation
+    var traces: [ProbeTrace] = []
+    func take(_ stage: String) -> Int {
+        let events = buffer.drain()
+        traces += events.map { ProbeTrace(stage: stage, round: index, event: $0) }
+        return events.filter { $0.phase == "inference" && $0.state == "succeeded" }.count
+    }
+    try await engine.reset()
+    let fullStart = ProcessInfo.processInfo.systemUptime
+    let full = try await engine.logits(for: rewritten)
+    let fullMs = milliseconds(since: fullStart)
+    let fullCalls = take("prefixReplay.full")
+    try await engine.reset()
+    let setupStart = ProcessInfo.processInfo.systemUptime
+    let saved = try await engine.prepareStablePrefix(fixture.tokenIDs)
+    let setupMs = milliseconds(since: setupStart)
+    _ = take("prefixReplay.setup")
+    let advanceStart = ProcessInfo.processInfo.systemUptime
+    _ = try await engine.logits(for: advanced)
+    let advanceMs = milliseconds(since: advanceStart)
+    _ = take("prefixReplay.advance")
+    let cachedStart = ProcessInfo.processInfo.systemUptime
+    let restored = try await engine.logits(for: rewritten)
+    let cachedMs = milliseconds(since: cachedStart)
+    let cachedCalls = take("prefixReplay.restore")
+    guard let usage = await engine.prefixCacheInfo() else { throw ANEError.invalid("Missing stable checkpoint") }
+    let fullExpected = rewritten.count * ANEPlan.bodyModelNames.count + heads
+    let restoredExpected = (rewritten.count - fixture.tokenIDs.count) * ANEPlan.bodyModelNames.count + heads
+    guard fullCalls == fullExpected, cachedCalls == restoredExpected, usage.restoreCount == 1 else {
+        throw ANEError.invalid("Prefix replay did not execute the required full/tail predictions and one actual restore")
+    }
+    let difference = zip(full, restored).reduce(Float(0)) { max($0, abs($1.0 - $1.1)) }
+    return (PrefixReplayRound(index: index, prefixTokenCount: fixture.tokenIDs.count,
+        tailTokenCount: rewritten.count - fixture.tokenIDs.count,
+        fullReplayMilliseconds: fullMs, snapshotSetupMilliseconds: setupMs,
+        branchAdvanceMilliseconds: advanceMs, restoreAndTailMilliseconds: cachedMs,
+        checkpointBytes: saved.bytes, restoreCount: usage.restoreCount,
+        fullReplayModelCalls: fullCalls, restoredTailModelCalls: cachedCalls,
+        expectedFullReplayModelCalls: fullExpected, expectedRestoredTailModelCalls: restoredExpected,
+        fullReplayBestToken: try bestToken(full), restoredTailBestToken: try bestToken(restored),
+        maximumAbsoluteLogitDifference: difference), traces)
 }
 
 private func bestToken(_ logits: [Float]) throws -> Int32 {

@@ -16,10 +16,9 @@ def identifier(name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-directory", type=Path)
+    parser.add_argument("--compiled-model-directory", type=Path)
     args = parser.parse_args()
-    model_directory = args.model_directory or ROOT / "Models/Qwen3.5-0.8B-IME-Q4-Packed"
-    if args.model_directory is None and not model_directory.exists():
-        model_directory = ROOT / "Models/Qwen3.5-0.8B-IME-Q4-Optimized"
+    model_directory = args.model_directory or ROOT / "Models/Qwen3.5-0.8B-IME-Q4-Optimized"
     if args.model_directory is None and not model_directory.exists():
         model_directory = ROOT / "Models/Qwen3.5-0.8B-IME-Q4-SplitHead-Rank4"
         if not model_directory.exists():
@@ -29,7 +28,10 @@ def main():
     model_directory = model_directory.resolve()
     info = json.loads((model_directory / "model-info.json").read_text(encoding="utf-8"))
     names = ["chunk_" + suffix for suffix in "abcd"] + [head["name"] for head in info.get("headModels", [])]
-    model_sources = [(model_directory / (name + ".mlpackage")).relative_to(ROOT).as_posix() for name in names]
+    compiled = args.compiled_model_directory.resolve() if args.compiled_model_directory else None
+    model_root = compiled or model_directory
+    extension = ".mlmodelc" if compiled else ".mlpackage"
+    model_sources = [(model_root / (name + extension)).relative_to(ROOT).as_posix() for name in names]
     if not all((ROOT / path).is_dir() for path in model_sources):
         raise FileNotFoundError("Missing model package; prepare the selected model first")
     objects = []
@@ -42,13 +44,14 @@ def main():
     def listing(items):
         return "(" + ", ".join(items) + ("," if items else "") + ")"
     sources = ["ProbeApp/ANEProbeApp.swift", "Sources/QwenANERuntime/QwenANE.swift",
-               "Sources/QwenANERuntime/ANEPlan.swift"] + model_sources
+               "Sources/QwenANERuntime/ANEPlan.swift"] + ([] if compiled else model_sources)
     resources = ["ProbeApp/fixture.json", "work/probe-assets/Qwen3.5-0.8B-IME-Q4",
-                 "THIRD_PARTY_NOTICES.txt", "LICENSE-QWEN.txt"]
+                 "THIRD_PARTY_NOTICES.txt", "LICENSE-QWEN.txt"] + (model_sources if compiled else [])
     references, source_builds, resource_builds = [], [], []
     for path in sources + resources:
         kind = ("sourcecode.swift" if path.endswith(".swift") else
                 "folder.mlpackage" if path.endswith(".mlpackage") else
+                "folder.mlmodelc" if path.endswith(".mlmodelc") else
                 "folder" if path.startswith("work/probe-assets/") else
                 "text.json" if path.endswith(".json") else "text")
         reference = add("file:" + path, f"isa = PBXFileReference; lastKnownFileType = {kind}; path = {quote(path)}; sourceTree = \"<group>\";")
@@ -71,8 +74,8 @@ def main():
             "GENERATE_INFOPLIST_FILE": "YES", "CODE_SIGN_STYLE": "Automatic",
             "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
-            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "6",
-            "MARKETING_VERSION": "0.6", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
+            "TARGETED_DEVICE_FAMILY": "1,2", "CURRENT_PROJECT_VERSION": "7",
+            "MARKETING_VERSION": "0.7", "ENABLE_USER_SCRIPT_SANDBOXING": "YES"
         }
         body = " ".join(f"{key} = {quote(value)};" for key, value in settings.items())
         configurations.append(add("config:" + mode, f"isa = XCBuildConfiguration; buildSettings = {{ {body} }}; name = {mode};"))

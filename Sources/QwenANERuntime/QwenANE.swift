@@ -39,6 +39,18 @@ public actor QwenANE {
     public static let contextLength = 2048
     public static let vocabularySize = 248_320
     public static let hiddenSize = 1024
+    public struct PrefixCacheInfo: Codable, Sendable {
+        public let tokenCount: Int
+        public let bytes: Int
+        public let restoreCount: Int
+    }
+    private struct PrefixCheckpoint {
+        let tokens: [Int32]
+        let states: [[String: MLMultiArray]]
+        let recurrent: [[String: MLMultiArray]]
+        let logits: [Float]
+        let bytes: Int
+    }
     private static let inverseFrequencies: [Float] = (0..<32).map {
         powf(10_000_000, -Float(2 * $0) / 64)
     }
@@ -58,6 +70,8 @@ public actor QwenANE {
     private let position: MLMultiArray
     private var tokens: [Int32] = []
     private var lastLogits: [Float]?
+    private var stablePrefix: PrefixCheckpoint?
+    private var prefixRestoreCount = 0
 
     public init(compiledDirectory: URL, embeddingURL: URL,
                 embeddingEncoding: EmbeddingEncoding = .fp16,
@@ -115,6 +129,10 @@ public actor QwenANE {
     }
 
     public func reset() throws {
+        try resetState(clearCheckpoint: true)
+    }
+
+    private func resetState(clearCheckpoint: Bool) throws {
         let fresh = try Self.zeroRecurrent(models)
         kvStates = models.map { $0.makeState() }
         recurrent = fresh
@@ -122,28 +140,103 @@ public actor QwenANE {
         lastLogits = nil
         mask.dataPointer.assumingMemoryBound(to: Float16.self)
             .update(repeating: Float16(-10_000), count: Self.contextLength)
+        if clearCheckpoint {
+            stablePrefix = nil
+            prefixRestoreCount = 0
+        }
     }
 
-    /// Exact extension reuses the entire cached prefix. Any rewrite, deletion,
-    /// or changed context resets and replays; MLState cannot rewind an SSM.
+    /// Store one bounded checkpoint for the host's stable committed prefix.
+    /// The host chooses the boundary; nothing is auto-committed or truncated.
+    /// Copies are completed on this actor with no prediction in flight.
+    public func prepareStablePrefix(_ prefix: [Int32]) throws -> PrefixCacheInfo {
+        try Task.checkCancellation()
+        _ = try logits(for: prefix)
+        if stablePrefix?.tokens == prefix { return prefixCacheInfo()! }
+        var saved: [[String: MLMultiArray]] = []
+        for index in models.indices {
+            var buffers: [String: MLMultiArray] = [:]
+            for name in models[index].modelDescription.stateDescriptionsByName.keys.sorted() {
+                buffers[name] = try kvStates[index].withMultiArray(for: name) { try Self.copyArray($0) }
+            }
+            saved.append(buffers)
+        }
+        let savedRecurrent = try Self.copyRecurrent(recurrent)
+        let arrays = saved.flatMap { Array($0.values) } + savedRecurrent.flatMap { Array($0.values) }
+        let scores = lastLogits!
+        let bytes = arrays.reduce(0) { $0 + $1.count * 2 } + scores.count * 4 + prefix.count * 4
+        try Task.checkCancellation()
+        stablePrefix = PrefixCheckpoint(tokens: prefix, states: saved, recurrent: savedRecurrent,
+                                        logits: scores, bytes: bytes)
+        prefixRestoreCount = 0
+        return prefixCacheInfo()!
+    }
+
+    public func prefixCacheInfo() -> PrefixCacheInfo? {
+        guard let saved = stablePrefix else { return nil }
+        return PrefixCacheInfo(tokenCount: saved.tokens.count, bytes: saved.bytes,
+                               restoreCount: prefixRestoreCount)
+    }
+
+    private func restorePrefix(_ saved: PrefixCheckpoint) throws {
+        for index in kvStates.indices {
+            for (name, source) in saved.states[index] {
+                kvStates[index].withMultiArray(for: name) { source.transfer(to: $0) }
+            }
+        }
+        recurrent = try Self.copyRecurrent(saved.recurrent)
+        tokens = saved.tokens
+        lastLogits = saved.logits
+        let pointer = mask.dataPointer.assumingMemoryBound(to: Float16.self)
+        pointer.update(repeating: Float16(-10_000), count: Self.contextLength)
+        pointer.update(repeating: Float16(0), count: tokens.count)
+        prefixRestoreCount += 1
+    }
+
+    private static func copyArray(_ source: MLMultiArray) throws -> MLMultiArray {
+        guard source.dataType == .float16 else { throw ANEError.invalid("Expected FP16 state buffer") }
+        let copy = try MLMultiArray(shape: source.shape, dataType: .float16)
+        source.transfer(to: copy)
+        return copy
+    }
+
+    private static func copyRecurrent(_ source: [[String: MLMultiArray]]) throws -> [[String: MLMultiArray]] {
+        try source.map { tensors in
+            var result: [String: MLMultiArray] = [:]
+            for (name, value) in tensors { result[name] = try copyArray(value) }
+            return result
+        }
+    }
+
+    /// Exact extension reuses the cached prefix. A tail rewrite restores the
+    /// explicit stable-prefix checkpoint when available; otherwise it replays.
     /// Cancel the caller's Task when the keyboard disappears or input changes.
     public func logits(for prompt: [Int32]) throws -> [Float] {
+        // A cancelled request waiting in this actor's queue must not reset the
+        // useful state left by a newer request or invalidate its checkpoint.
+        try Task.checkCancellation()
         guard !prompt.isEmpty, prompt.count <= Self.contextLength,
               prompt.allSatisfy({ $0 >= 0 && Int($0) < Self.vocabularySize }) else {
             throw ANEError.invalid("Prompt must contain 1...2048 valid Qwen token IDs")
         }
-        let isExtension = prompt.count >= tokens.count &&
-            Array(prompt.prefix(tokens.count)) == tokens
-        if !isExtension { try reset() }
+        let isExtension = prompt.starts(with: tokens)
         do {
-            let pending = Array(prompt.dropFirst(tokens.count))
-            for (index, token) in pending.enumerated() {
+            if !isExtension {
+                if let saved = stablePrefix, prompt.starts(with: saved.tokens) {
+                    try restorePrefix(saved)
+                } else {
+                    try resetState(clearCheckpoint: true)
+                }
+            }
+            let firstPending = tokens.count
+            for index in firstPending..<prompt.count {
                 try Task.checkCancellation()
+                let token = prompt[index]
                 // Intermediate prefill tokens only update the recurrent/KV
                 // states. The separate full-vocabulary head is needed once,
                 // on the final token, preserving exactly the same final logits.
                 if let scores = try step(token: token, at: tokens.count,
-                                         produceLogits: index == pending.count - 1) {
+                                         produceLogits: index == prompt.count - 1) {
                     lastLogits = scores
                 }
                 tokens.append(token)
@@ -156,7 +249,7 @@ public actor QwenANE {
         } catch {
             // A cancelled/failed call can have partially mutated a chunk's
             // opaque KV state. Recreate every chunk before the next request.
-            try? reset()
+            try? resetState(clearCheckpoint: false)
             throw error
         }
     }

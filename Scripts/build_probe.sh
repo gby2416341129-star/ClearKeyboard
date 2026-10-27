@@ -2,7 +2,7 @@
 set -euo pipefail
 TASK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$TASK_ROOT"
-MODEL_DIRECTORY="${MODEL_DIRECTORY:-Models/Qwen3.5-0.8B-IME-Q4-Packed}"
+MODEL_DIRECTORY="${MODEL_DIRECTORY:-Models/Qwen3.5-0.8B-IME-Q4-Optimized}"
 test -f "$MODEL_DIRECTORY/model-info.json"
 # The large packages are individual Core ML SOURCES, compiled by Xcode for
 # iphoneos. Only sidecars go into the blue data folder, never a second copy of
@@ -17,7 +17,11 @@ for name in ['model-info.json', info['embeddingFile']]:
     shutil.copy2(source / name, destination / name)
 assert not list(destination.glob('*.mlpackage')), 'Raw packages must not be bundled'
 PY
-python3 Scripts/generate_project.py --model-directory "$MODEL_DIRECTORY"
+PROJECT_ARGS=(--model-directory "$MODEL_DIRECTORY")
+if [[ -n "${COMPILED_MODEL_DIRECTORY:-}" ]]; then
+  PROJECT_ARGS+=(--compiled-model-directory "$COMPILED_MODEL_DIRECTORY")
+fi
+python3 Scripts/generate_project.py "${PROJECT_ARGS[@]}"
 xcodebuild -project ANEProbe.xcodeproj -scheme ANEProbe \
   -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
   -derivedDataPath work/build CODE_SIGNING_ALLOWED=NO build
