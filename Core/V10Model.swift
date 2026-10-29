@@ -42,7 +42,7 @@ public struct V10Request: Sendable {
 public enum V10ContractError: Error {
     case invalidInput(String), invalidModel(String), invalidCalibration, invalidOutput
 }
-public struct V10Decision: Sendable {
+public struct V10Decision: Codable, Sendable {
     public let revision: UInt64
     public let preferredCandidateID: String
     public let ruleCandidateID: String
@@ -110,13 +110,24 @@ public struct V10InputEncoder {
         if full(#"\A[A-Z]{1,8}[-_]?\p{Nd}+[A-Za-z0-9-]*\z"#) { return true }
         return mode == .english && full(#"\A[A-Za-z]+[-_]?\p{Nd}+[A-Za-z0-9-]*\z"#)
     }
+    public static func features(_ c:V10Candidate,rawCount:Int,mode:V10InputMode)->[Float] {
+        let n=Double(max(1,rawCount)),a=c.consumedInputRange[0],b=c.consumedInputRange[1]
+        var f:[Double]=[min(1,log1p(max(0,Double(c.frequency)))/12),min(1,max(0,Double(c.editCost))/3),c.matchType == .exact ? 1:0,
+            min(1,Double(c.text.unicodeScalars.count)/32),min(1,Double(b-a)/n),min(1,Double(rawCount)/64),mode == .english ? 1:0,mode == .mixed ? 1:0]
+        f.append(contentsOf:matchTypes.map{$0==c.matchType ? 1.0:0.0})
+        f.append(min(1,Double(max(0,a))/n));f.append(min(1,Double(max(0,b))/n))
+        return f.map{Float(Float16($0))}
+    }
+    public static func prior(_ c:V10Candidate)->Float {
+        Float(-0.15*Double(c.baseRank)-0.5*Double(c.editCost)+0.02*log1p(max(0,Double(c.frequency))))
+    }
     public mutating func encode(_ request: V10Request) throws -> V10EncodedInput {
         let all=request.candidates
         guard !all.isEmpty, Set(all.map(\.id)).count == all.count,
               let rule=all.firstIndex(where:{$0.id == request.ruleCandidateID}), rule < 32
         else { throw V10ContractError.invalidInput("Empty/duplicate candidates, missing rule, or rule outside unchanged first32") }
         let candidates=Array(all.prefix(32)); let rawCount=request.rawInput.unicodeScalars.count
-        let denominator=Double(max(1,rawCount)); var arrays: [String:MLMultiArray]=[:]
+        var arrays: [String:MLMultiArray]=[:]
         for (name,shape) in Self.inputShapes {
             let integer=name.hasSuffix("_ids") || name == "rule_index"
             let a: MLMultiArray
@@ -140,17 +151,10 @@ public struct V10InputEncoder {
             guard a >= 0, a <= b, b <= rawCount else { throw V10ContractError.invalidInput("Consumption must reference actual raw Unicode scalars") }
             putTokens("candidate_ids",tokenIDs(c.text,length:32),j*32)
             putTokens("reading_ids",tokenIDs(c.reading,length:96),j*96)
-            let frequency=max(0,Double(c.frequency)), edit=Double(c.editCost)
-            var f:[Double]=[
-                min(1,log1p(frequency)/12), min(1,max(0,edit)/3), c.matchType == .exact ? 1:0,
-                min(1,Double(c.text.unicodeScalars.count)/32), min(1,Double(b-a)/denominator),
-                min(1,Double(rawCount)/64), request.mode == .english ? 1:0, request.mode == .mixed ? 1:0
-            ]
-            f.append(contentsOf:Self.matchTypes.map{$0 == c.matchType ? 1.0:0.0})
-            f.append(min(1,Double(max(0,a))/denominator)); f.append(min(1,Double(max(0,b))/denominator))
-            for k in 0..<18 { arrays["features"]![j*18+k]=NSNumber(value:Float(Float16(f[k]))) }
+            let f=Self.features(c,rawCount:rawCount,mode:request.mode)
+            for k in 0..<18 {arrays["features"]![j*18+k]=NSNumber(value:f[k])}
             arrays["valid_mask"]![j]=1
-            arrays["base_prior"]![j]=NSNumber(value:Float(-0.15*Double(c.baseRank)-0.5*edit+0.02*log1p(frequency)))
+            arrays["base_prior"]![j]=NSNumber(value:Self.prior(c))
         }
         return V10EncodedInput(arrays:arrays,orderedCandidateIDs:candidates.map(\.id),ruleIndex:rule)
     }

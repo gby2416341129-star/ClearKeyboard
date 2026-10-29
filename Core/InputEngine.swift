@@ -15,48 +15,63 @@ public final class InputEngine {
     public func immediateCandidates(_ raw: String, preferred: [Candidate] = [], context: String = "",
                                     fuzzy: Set<String> = [], correction: Bool = true,
                                     cancelled: () -> Bool = { false }) -> [Candidate] {
+        if V10InputEncoder.isProtected(raw:raw,mode:.pinyin) {return [Self.literal(raw)]}
         let query = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
-        return PersonalLexicon.merging(preferred, into: decoder.preview(query, context: context, fuzzy: fuzzy,
-                                                                       correction: correction, cancelled: cancelled), limit: 8)
+        let words=decoder.preview(query,context:context,fuzzy:fuzzy,correction:correction,cancelled:cancelled)
+        let mapped=preferred.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled)}.filter{$0.canConsume(raw)}
+        return PersonalLexicon.merging(mapped,into:words,limit:8)
     }
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:],
                            preferred: [Candidate] = [], recentCorrections: [Candidate] = [],
                            limit: Int = 24, compose: Bool = true, correction: Bool = true,
                            context: String = "", cancelled: () -> Bool = { false },
-                           updated: (([Candidate], Bool, Bool) -> Void)? = nil) -> [Candidate] {
+                           updated: (([Candidate], Bool, Bool) -> Void)? = nil,
+                           learningVersion: Int = 0, resolved: ((CandidateResolution)->Void)? = nil) -> [Candidate] {
         guard !raw.isEmpty, !cancelled() else { return [] }
+        if V10InputEncoder.isProtected(raw:raw,mode:.pinyin) {return [Self.literal(raw)]}
         let normalized = FuzzyPinyin.normalize(raw)
         let valid = (preferred + (correction ? recentCorrections : [])).filter {
             !$0.text.isEmpty && $0.consumed > 0 && $0.consumed <= normalized.count
         }
         let query = Composition.queryPrefix(raw, normalized: normalized)
-        var generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
+        let generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
                                            limit: max(32, limit + 1), cancelled: cancelled)
         guard !cancelled() else { return [] }
-        if !learned.isEmpty {
-            generated = generated.enumerated().sorted { a, b in
-                let x = learned[normalized + "|" + a.element.text] ?? learned[a.element.text] ?? 0
-                let y = learned[normalized + "|" + b.element.text] ?? learned[b.element.text] ?? 0
-                return x == y ? a.offset < b.offset : x > y
-            }.map(\.element)
+        let nativeSnapshot=generated
+        // Rule rank is derived before the diverse presentation pool, not
+        // replaced by a candidate's array slot (which may reserve fuzzy paths).
+        let ruleWords=generated.sorted { a,b in
+            let x=a.score + 0.25*log1p(Double(learned[normalized+"|"+a.text] ?? 0))
+            let y=b.score + 0.25*log1p(Double(learned[normalized+"|"+b.text] ?? 0))
+            return x==y ? (a.path?.baseRank ?? Int.max)<(b.path?.baseRank ?? Int.max):x>y
         }
-        var output = PersonalLexicon.merging(valid, into: generated, limit: max(32, limit + 1))
-        output = output.enumerated().map { index, candidate in candidate.withPath(candidate.path?.ranked(index)) }
-        let ruleID = output.first?.stableID
+        let mapped=valid.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled)}
+        let validMapped=mapped.filter{$0.canConsume(raw)}
+        let ruleOrder=PersonalLexicon.merging(validMapped,into:ruleWords,limit:max(32,limit+1))
+        let rankByID=Dictionary(ruleOrder.enumerated().map{($0.element.stableID,$0.offset)},uniquingKeysWith:min)
+        var output=PersonalLexicon.merging(validMapped,into:generated,limit:max(32,limit+1))
+        output=output.map{c in guard let path=c.path else{return c};return c.withPath(path.ranked(rankByID[c.stableID] ?? path.baseRank))}
+        let ruleID=ruleOrder.first?.stableID
+        if let ruleID,let index=output.firstIndex(where:{$0.stableID==ruleID}),index != 0 {let c=output.remove(at:index);output.insert(c,at:0)}
         updated?(Array(output.prefix(max(1,limit))), output.count > limit, false)
         if let ruleID, !cancelled() {
             let mixed=output.first?.text.unicodeScalars.contains(where:{$0.isASCII && CharacterSet.letters.contains($0)}) == true
             output=ClearV10Scorer.shared.rank(output,raw:raw,context:context,mode:mixed ? .mixed:.pinyin,
-                ruleCandidateID:ruleID,settingsKey:fuzzy.sorted().joined(separator:",")+(correction ? ":correct":":exact"),cancelled:cancelled)
+                ruleCandidateID:ruleID,settingsKey:fuzzy.sorted().joined(separator:",")+(correction ? ":correct":":exact")+":learning-"+String(learningVersion),cancelled:cancelled,
+                nativeCandidates:nativeSnapshot,observed:resolved)
         }
         guard !cancelled() else { return [] }
         updated?(Array(output.prefix(max(1,limit))), output.count > limit, true)
         // An explicit raw-spelling choice remains available for mixed-language
         // input. It is not a substitute engine when the model cannot load.
         if output.count < limit, !normalized.isEmpty, !output.contains(where: { $0.text == raw }) {
-            output.append(Candidate(text: raw, consumed: normalized.count))
+            output.append(Candidate(text:raw,consumed:normalized.count,path:CandidatePath(kind:.literal,frequency:0,editCost:0,consumedEnd:raw.unicodeScalars.count,segments:[raw.unicodeScalars.count])))
         }
         return Array(output.prefix(max(1, limit)))
+    }
+    private static func literal(_ raw:String)->Candidate {
+        Candidate(text:raw,consumed:FuzzyPinyin.normalize(raw).count,path:CandidatePath(kind:.literal,frequency:0,editCost:0,
+            consumedEnd:raw.unicodeScalars.count,segments:[raw.unicodeScalars.count]))
     }
     public func characterCandidates(_ raw: String, fuzzy: Set<String> = [], cancelled: () -> Bool = { false }) -> [Candidate] {
         let query = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))

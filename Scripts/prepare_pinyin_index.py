@@ -7,6 +7,7 @@ segmentation implementation, language model, or runtime is used.
 from pathlib import Path
 from collections import Counter
 import hashlib
+import json
 import math
 import struct
 import unicodedata
@@ -16,7 +17,7 @@ WORD_COMMIT = '67fa2e36e72f69d9134b8a1037b83fbb070b9775'
 WORD_SHA256 = '7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8'
 PHRASE_COMMIT = '195893902791321fe38ae7b4ebdd9905389cfd41'
 PHRASE_SHA256 = '5eff64ffd4de072b7e7f96baec560c3366887f93e762cc35ef0a8f62a7259b73'
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 
 
 def normalize(value):
@@ -44,9 +45,13 @@ def main():
         if 1 < len(text) <= 12 and len(text) == len(reading) and all(reading):
             phrases.setdefault(text, [])
             if reading not in phrases[text]: phrases[text].append(reading)
-    frequencies = {}
+    frequencies, tags = {}, {}
+    roles=json.loads((ROOT/"Core/Resources/PinyinInputs/composition_roles.json").read_text(encoding="utf-8"))
+    surnames=set(roles["surnames"]) | set(roles["compound_surnames"])
+    titles=set(roles["titles"]); kinship=set(roles["kinship"])
     for line in words_path.read_text(encoding='utf-8').splitlines():
-        text, frequency, _ = line.split(' ')
+        text, frequency, tag = line.split(' ')
+        tags[text]=tag
         if not 1 <= len(text) <= 12: continue
         if not any(ch in phonetics for ch in text): continue
         if not all(ch in phonetics or ch.isascii() and ch.isalpha() for ch in text): continue
@@ -111,13 +116,15 @@ def main():
     nodes, edges, words, pool = bytearray(), bytearray(), bytearray(), bytearray()
     text_offsets, texts = {}, []
     for node, outgoing in enumerate(children):
-        first_edge, first_word = len(edges) // 8, len(words) // 20
+        first_edge, first_word = len(edges) // 8, len(words) // 24
         for sid, child in sorted(outgoing.items()): edges.extend(struct.pack('<HHI', sid, 0, child))
         for text, score, pronunciation_cost in sorted(terminals[node], key=lambda x: (-x[1] + x[2], x[0])):
             if text not in text_offsets:
                 value = text.encode('utf-8'); text_offsets[text] = (len(pool), len(value)); pool.extend(value)
             offset, length = text_offsets[text]
-            words.extend(struct.pack('<IIffHH', offset, length, score, float(frequencies[text]), len(text), min(65535, round(pronunciation_cost * 256))))
+            tag=tags.get(text,'')
+            role=(1 if text in surnames else 0)|(2 if text in titles else 0)|(4 if tag.startswith('v') else 0)|(8 if text in kinship else 0)|(16 if tag.startswith('r') else 0)|(32 if tag.startswith('u') else 0)|(64 if tag=='y' else 0)
+            words.extend(struct.pack('<IIffHHHH', offset, length, score, float(frequencies[text]), len(text), min(65535, round(pronunciation_cost * 256)),role,0))
             texts.append(text)
         nodes.extend(struct.pack('<IIIIf', first_edge, len(outgoing), first_word, len(terminals[node]), maxima[node]))
     # The secondary text ordering serves next-word prediction without another
@@ -131,14 +138,14 @@ def main():
         padding = (-cursor) % 8; payload.extend(b'\0' * padding); cursor += padding
         offsets.append(cursor); payload.extend(section); cursor += len(section)
     padding = (-cursor) % 8; payload.extend(b'\0' * padding)
-    payload.extend(struct.pack('<8sII', b'CKFRQ84\0', len(characters), len(pairs)))
+    payload.extend(struct.pack('<8sII', b'CKFRQ85\0', len(characters), len(pairs)))
     for cp, count in sorted(characters.items()):
         payload.extend(struct.pack('<If', cp, math.log((count + .1) / character_total)))
     for (left, right), count in sorted(pairs.items()):
         payload.extend(struct.pack('<IIf', left, right, math.log(count / pair_totals[left])))
     fingerprint = int.from_bytes(hashlib.sha256(payload).digest()[:8], 'little')
-    header = struct.pack('<8s12IQ', b'CKLX84\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
-                         len(edges) // 8, len(words) // 20, len(pool), *offsets, fingerprint)
+    header = struct.pack('<8s12IQ', b'CKLX85\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
+                         len(edges) // 8, len(words) // 24, len(pool), *offsets, fingerprint)
     path = ROOT / 'Core/Resources/Pinyin/native.cklx'; path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(header + payload)
     print(f'Compiled native pinyin index: {len(texts)} readings, {path.stat().st_size} bytes; {hashlib.sha256(path.read_bytes()).hexdigest()}', flush=True)

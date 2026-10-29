@@ -24,6 +24,7 @@ enum LearningStore {
         let epoch = UUID().uuidString
         save(LearningMemory(), defaults: defaults, epoch: epoch)
         defaults.set(epoch, forKey: "clear.learned.epoch")
+        CandidateChoiceDiagnostics.clear(defaults)
         for name in ["clear.learned.v1", "clear.choices.v2", "clear.numbers.v1"] { defaults.removeObject(forKey: name) }
     }
 }

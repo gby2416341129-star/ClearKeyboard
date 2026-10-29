@@ -262,7 +262,7 @@ struct InputAboutView: View {
                 Label("长按空格，滑动定位光标", systemImage: "cursorarrow.motionlines")
                 Divider()
                 Label("删除键上滑清空，下滑撤回", systemImage: "delete.left")
-                Text("有拼音时，回车原样输入拼音，空格选择候选；没有拼音时，回车跟随当前 App 的发送、搜索或换行设置。")
+                Text("有拼音时，空格和确认使用当前首选；没有拼音时，回车跟随当前 App 的发送、搜索或换行设置。")
                     .font(.subheadline).foregroundStyle(.secondary)
             }.font(.system(size: 16))
         }.navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar).tint(AppPalette.accent)

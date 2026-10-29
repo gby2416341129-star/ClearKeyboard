@@ -11,6 +11,7 @@ CKNative *ck_native_create(const char *index_path);
 void ck_native_destroy(CKNative *engine);
 const char *ck_native_error(void);
 CKNativePage *ck_native_decode(CKNative *,const char *,const char *,uint32_t,int,int,int,CKNativeCancelled,void *);
+CKNativePage *ck_native_resolve(CKNative *,const char *,const char *,const char *,int,float,uint32_t,int,CKNativeCancelled,void *);
 void ck_native_page_destroy(CKNativePage *);
 int ck_native_page_count(const CKNativePage *);
 int ck_native_page_more(const CKNativePage *);

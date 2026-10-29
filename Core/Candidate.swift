@@ -34,22 +34,38 @@ public struct CandidatePath: Equatable, Codable, Sendable {
             consumedEnd:end,segments:initials ? Array(ends.prefix(consumed)):segments.filter{$0<=end},baseRank:baseRank)
     }
 }
+public struct PersonalPreference: Equatable, Codable, Sendable {
+    public let code: String
+    public let context: String
+    public let uses: Int
+    public let isExplicitContextMatch: Bool
+}
 public struct Candidate: Equatable, Sendable {
     public let text: String
     public let reading: String
     public let consumed: Int
     public let score: Double
     public let path: CandidatePath?
+    public let personalPreference: PersonalPreference?
     public var stableID: String {
         // Length-prefix fields: user text may itself contain any separator.
         let fields=[text,reading,String(consumed),String(path?.consumedStart ?? 0),String(path?.consumedEnd ?? 0),
                     path?.kind.rawValue ?? "unmapped",path?.segments.map(String.init).joined(separator:",") ?? ""]
         return fields.map{String($0.utf8.count)+":"+$0}.joined()
     }
-    public init(text: String, reading: String = "", consumed: Int, score: Double = 0, path: CandidatePath? = nil) {
-        self.text=text;self.reading=reading;self.consumed=consumed;self.score=score;self.path=path
+    public init(text: String, reading: String = "", consumed: Int, score: Double = 0, path: CandidatePath? = nil, personalPreference: PersonalPreference? = nil) {
+        self.text=text;self.reading=reading;self.consumed=consumed;self.score=score;self.path=path;self.personalPreference=personalPreference
+    }
+    public static func == (a: Candidate, b: Candidate) -> Bool {
+        a.stableID==b.stableID && a.score==b.score
+    }
+    func canConsume(_ raw: String) -> Bool {
+        guard consumed>0,consumed<=FuzzyPinyin.normalize(raw).count,let path,
+              path.consumedStart==0,path.consumedEnd>0,path.consumedEnd<=raw.unicodeScalars.count else{return false}
+        let prefix=String(String.UnicodeScalarView(raw.unicodeScalars.prefix(path.consumedEnd)))
+        return FuzzyPinyin.normalize(prefix).count==consumed && path.segments.last==path.consumedEnd
     }
     func withPath(_ path: CandidatePath?) -> Candidate {
-        Candidate(text:text,reading:reading,consumed:consumed,score:score,path:path)
+        Candidate(text:text,reading:reading,consumed:consumed,score:score,path:path,personalPreference:personalPreference)
     }
 }

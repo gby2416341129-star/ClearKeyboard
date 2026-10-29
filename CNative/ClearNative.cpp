@@ -8,6 +8,7 @@
 #include <mutex>
 #include <queue>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <sys/mman.h>
@@ -31,10 +32,10 @@ struct Header {
 };
 struct Node {uint32_t firstEdge,edgeCount,firstWord,wordCount; float maximum;};
 struct Edge {uint16_t syllable,reserved; uint32_t child;};
-struct Word {uint32_t offset,bytes; float logFrequency,frequency; uint16_t characters,flags;};
+struct Word {uint32_t offset,bytes; float logFrequency,frequency; uint16_t characters,flags,roles,reserved;};
 struct CharacterFrequency {uint32_t codepoint;float logp;};
 struct PairFrequency {uint32_t left,right;float logp;};
-static_assert(sizeof(Header)==64 && sizeof(Node)==20 && sizeof(Edge)==8 && sizeof(Word)==20,"Lexicon ABI");
+static_assert(sizeof(Header)==64 && sizeof(Node)==20 && sizeof(Edge)==8 && sizeof(Word)==24,"Lexicon ABI");
 struct Lexicon {
     void *mapping=MAP_FAILED; size_t bytes=0;
     const Header *header=nullptr; const Node *nodes=nullptr; const Edge *edges=nullptr;
@@ -54,7 +55,7 @@ struct Lexicon {
         bytes=size_t(status.st_size); mapping=mmap(nullptr,bytes,PROT_READ,MAP_PRIVATE,fd,0);
         if(mapping==MAP_FAILED) throw std::runtime_error("Cannot map native pinyin index");
         header=static_cast<const Header *>(mapping);
-        if(std::memcmp(header->magic,"CKLX84\0\0",8)!=0 || header->version!=3 || header->syllableCount>65535 || !header->nodeCount || !header->wordCount)
+        if(std::memcmp(header->magic,"CKLX85\0\0",8)!=0 || header->version!=4 || header->syllableCount>65535 || !header->nodeCount || !header->wordCount)
             throw std::runtime_error("Incompatible native pinyin index");
         auto section=[&](uint32_t offset,uint32_t count,size_t stride) {
             if(offset<64 || offset%4 || offset>bytes || count>(bytes-offset)/stride)
@@ -68,7 +69,7 @@ struct Lexicon {
         pool=section(header->poolOffset,header->poolBytes,1);
         textOrder=reinterpret_cast<const uint32_t *>(section(header->textIndexOffset,header->wordCount,4));
         uint64_t statistics=(uint64_t(header->textIndexOffset)+uint64_t(header->wordCount)*4+7)&~uint64_t(7);
-        if(statistics+16>bytes || std::memcmp(static_cast<const char *>(mapping)+statistics,"CKFRQ84\0",8)!=0)
+        if(statistics+16>bytes || std::memcmp(static_cast<const char *>(mapping)+statistics,"CKFRQ85\0",8)!=0)
             throw std::runtime_error("Missing lexical backoff frequencies");
         std::memcpy(&characterCount,static_cast<const char *>(mapping)+statistics+8,4);
         std::memcpy(&pairCount,static_cast<const char *>(mapping)+statistics+12,4);
@@ -173,7 +174,8 @@ struct Segment {uint16_t sid;int end,kind,edits,splits;double cost;double editCo
 struct WordMatch {uint32_t word;int end,kind,edits,splits;double cost;std::string reading;std::vector<int> ends;uint32_t kinds=0;double editCost=0;};
 struct Path {
     std::string text,reading;int consumed=0,kind=Exact,edits=0,characters=0,splits=0;uint32_t previous=0;double frequency=0,cost=0,editCost=0;float observedFrequency=1e30f;uint32_t kinds=0;std::vector<int> segments;
-    double priority() const {return frequency-cost-3.5*splits;}
+    uint16_t lastRoles=0;bool hasVerb=false;double grammar=0;
+    double priority() const {return frequency-cost-.35*splits+grammar;}
 };
 struct Request {
     std::string typed,letters,context,key;std::set<int> boundaries;std::vector<int> scalarEnds;int reuseStart=0;
@@ -231,7 +233,7 @@ void prepareGraph(const Lexicon &lex,Request &q) {
             }
             if(q.corrections && s.size()>=2) {
                 for(int length=std::max(2,int(s.size())-1);length<=std::min(remaining,int(s.size())+1);++length)
-                    {double distance=typoCost(q.letters.substr(pos,length),s);if(distance>=0)add(length,Corrected,3.5+distance,1,distance);}
+                    {double distance=typoCost(q.letters.substr(pos,length),s);if(distance>=0)add(length,Corrected,1.25+distance,1,distance);}
             }
         }
     }
@@ -256,36 +258,34 @@ const std::vector<WordMatch> &wordMatches(const Lexicon &lex,Request &q,int star
         if(state.position==int(q.letters.size()) || (q.character && state.depth==1) || state.depth>=12)continue;
         for(const auto &edge:q.graph[state.position]) {
             if(state.edits+edge.edits>2 || (edge.kind==Corrected && q.letters.size()<4))continue;
-            if(q.full && edge.kind>Fuzzy && edge.kind!=Corrected)continue;
+            if(q.full && (edge.kind==Literal || edge.kind==Initials))continue;
             if(q.full && edge.kind<=Fuzzy && (q.remaining[state.position]>=1000000 || q.remaining[edge.end]>=1000000 || !lex.completeSyllables.count(q.letters.substr(state.position,edge.end-state.position))))continue;
             auto child=lex.child(state.node,edge.sid);if(child==UINT32_MAX)continue;
             double cost=state.cost+edge.cost;int kind=std::max(state.kind,edge.kind);
             uint64_t key=(uint64_t(child)<<32)|(uint64_t(uint16_t(edge.end))<<16)|uint16_t(state.edits+edge.edits);
-            double rank=cost+10*kind;auto old=visited.find(key);if(old!=visited.end() && old->second<=rank)continue;visited[key]=rank;
+            double rank=cost;auto old=visited.find(key);if(old!=visited.end() && old->second<=rank)continue;visited[key]=rank;
             const auto &reading=lex.syllables[edge.sid];std::string next=state.reading;if(!next.empty())next+=' ';next+=reading[0]=='@'?reading.substr(1):reading;
             auto ends=state.ends;ends.push_back(edge.end);
             int splits=q.full && edge.kind<=Fuzzy?1+q.remaining[edge.end]-q.remaining[state.position]:0;
-            queue.push({child,edge.end,kind,state.edits+edge.edits,state.splits+splits,state.depth+1,cost,lex.node(child).maximum-cost-10*kind,std::move(next),std::move(ends),state.kinds|edge.kinds,state.editCost+edge.editCost});
+            queue.push({child,edge.end,kind,state.edits+edge.edits,state.splits+splits,state.depth+1,cost,lex.node(child).maximum-cost,std::move(next),std::move(ends),state.kinds|edge.kinds,state.editCost+edge.editCost});
         }
     }
     std::stable_sort(result.begin(),result.end(),[&](const WordMatch &a,const WordMatch &b){
-        if(a.kind!=b.kind)return a.kind<b.kind;
         // Choices competing for the same input span use word probability, not
         // probability divided by word length. The latter promotes obscure long
         // dictionary entries ahead of ordinary words before the lattice runs.
-        auto score=[&](const WordMatch &w){return lex.words[w.word].logFrequency-w.cost-3.5*w.splits;};return score(a)>score(b);
+        auto score=[&](const WordMatch &w){return lex.words[w.word].logFrequency-w.cost-.35*w.splits;};return score(a)>score(b);
     });
     return q.matches.emplace(start,std::move(result)).first->second;
 }
 void sortItems(Request &q) {
-    std::stable_sort(q.items.begin(),q.items.end(),[&](const Item &a,const Item &b){
-        if((a.kind==Literal)!=(b.kind==Literal))return a.kind!=Literal;
-        const bool x=a.consumed==int(q.letters.size()),y=b.consumed==int(q.letters.size());if(x!=y)return x;
-        if(a.kind!=b.kind)return a.kind<b.kind;if(a.score!=b.score)return a.score>b.score;
-        if(a.consumed!=b.consumed)return a.consumed>b.consumed;return a.text<b.text;
+    std::stable_sort(q.items.begin(),q.items.end(),[](const Item &a,const Item &b){
+        if(a.score!=b.score)return a.score>b.score;
+        if(a.consumed!=b.consumed)return a.consumed>b.consumed;
+        if(a.editCost!=b.editCost)return a.editCost<b.editCost;return a.text<b.text;
     });
     std::unordered_set<std::string> seen;
-    q.items.erase(std::remove_if(q.items.begin(),q.items.end(),[&](const Item &item){return !seen.insert(item.text+'\t'+std::to_string(item.consumed)).second;}),q.items.end());
+    q.items.erase(std::remove_if(q.items.begin(),q.items.end(),[&](const Item &x){return !seen.insert(x.text+'\t'+x.reading+'\t'+std::to_string(x.consumed)).second;}),q.items.end());
 }
 void predictions(const Lexicon &lex,Request &q) {
     if(q.context.empty())return;const auto offsets=utf8Offsets(q.context);std::unordered_set<std::string> seen;
@@ -304,9 +304,22 @@ void predictions(const Lexicon &lex,Request &q) {
 }
 void decode(const Lexicon &lex,Request &q,int capacity) {
     if(q.letters.empty()){predictions(lex,q);return;}prepareGraph(lex,q);if(q.stopped())return;
+    const int n=int(q.letters.size());
+    // Comparable complete-path estimates: a prefix carries the best cost of
+    // its still-unconsumed suffix. Neither length nor match type is an absolute
+    // priority gate; partial selections remain individually available.
+    std::vector<double> suffix(n+1,-1e20);suffix[n]=0;
+    if(!q.character)for(int pos=n-1;pos>=0 && !q.stopped();--pos){
+        const auto &matches=wordMatches(lex,q,pos);int count=0;
+        for(const auto &m:matches){if(++count>768)break;if(m.end<=pos || suffix[m.end]<-1e19)continue;
+            double sequence=0;uint32_t previous=0;for(auto cp:codepoints(lex.text(m.word))){sequence+=lex.characterScore(previous,cp);previous=cp;}
+            double prior=.55*lex.words[m.word].logFrequency+.45*sequence-m.cost-.35*m.splits;
+            suffix[pos]=std::max(suffix[pos],prior+suffix[m.end]);}
+        if(!q.full)suffix[pos]=std::max(suffix[pos],suffix[pos+1]-20.8);
+    }
     const auto &heads=wordMatches(lex,q,0);
     auto append=[&](const Path &path){if(!path.text.empty()){
-        Item item{path.text,path.reading,path.consumed,path.kind,path.characters,path.priority()};item.frequency=path.observedFrequency<1e30f?path.observedFrequency:0;
+        Item item{path.text,path.reading,path.consumed,path.kind,path.characters,path.priority()+(!q.character && path.consumed<n?(suffix[path.consumed]>-1e19?suffix[path.consumed]:-20.8*(n-path.consumed))-1.2:0)};item.frequency=path.observedFrequency<1e30f?path.observedFrequency:0;
         item.editCost=float(path.editCost);item.kinds=path.kinds;for(int end:path.segments)item.segments.push_back(q.scalarEnd(end));q.items.push_back(std::move(item));}};
     auto extend=[&](const Path &base,const WordMatch &match){
         Path next=base;auto text=lex.text(match.word);
@@ -319,6 +332,14 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
         next.text+=text;if(!next.reading.empty())next.reading+=' ';next.reading+=match.reading;
         next.consumed=match.end;next.kind=std::max(base.kind,match.kind);next.edits+=match.edits;next.splits+=match.splits;
         next.characters+=lex.words[match.word].characters;
+        const uint16_t role=lex.words[match.word].roles;
+        if((base.lastRoles&1) && (role&2)){
+            bool personContext=false;for(const char *cue:{"联系","找","问问","请教","咨询","通知","发给","交给","麻烦","请问","拜托","叫"})if(ends(q.context,cue))personContext=true;
+            next.grammar+=personContext?2.0:.35;
+        }
+        if((base.lastRoles&16) && (role&8))next.grammar+=1.5;
+        if((role&64) && base.hasVerb && match.end==n)next.grammar+=1.25;
+        next.lastRoles=role;next.hasVerb=base.hasVerb || (role&4);
         next.frequency+=.55*lex.words[match.word].logFrequency+.45*sequenceScore;next.cost+=match.cost;
         next.observedFrequency=std::min(base.observedFrequency,lex.words[match.word].frequency);next.editCost+=match.editCost;next.kinds|=match.kinds;
         next.segments.insert(next.segments.end(),match.ends.begin(),match.ends.end());return next;
@@ -329,7 +350,7 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
     if(!q.character) {
         const size_t beam=size_t(std::max(12,std::min(64,capacity/8)));
         std::vector<std::vector<Path>> states(q.letters.size()+1);states[0].push_back({});
-        auto better=[](const Path &a,const Path &b){return a.kind==b.kind?a.priority()>b.priority():a.kind<b.kind;};
+        auto better=[](const Path &a,const Path &b){return a.priority()>b.priority();};
         for(int pos=0;pos<int(q.letters.size()) && !q.stopped();++pos) {
             auto &at=states[pos];if(at.empty())continue;std::stable_sort(at.begin(),at.end(),better);
             std::unordered_set<std::string> distinct;
@@ -353,10 +374,11 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
     }
     sortItems(q);
     for(size_t i=0;i<q.items.size();++i)q.items[i].baseRank=int(i);
-    if(q.corrections && !q.character && q.items.size()>32){
+    if(!q.character && q.items.size()>32){
         std::vector<Item> pool;std::vector<bool> used(q.items.size());pool.push_back(q.items.front());used[0]=true;
-        auto take=[&](bool corrected,size_t quota){for(size_t i=0;i<q.items.size() && quota;++i)if(!used[i] && (q.items[i].kind==Corrected)==corrected && q.items[i].consumed==int(q.letters.size())){used[i]=true;pool.push_back(q.items[i]);--quota;}};
-        take(false,24);take(true,8);for(size_t i=0;i<q.items.size();++i)if(!used[i])pool.push_back(std::move(q.items[i]));q.items=std::move(pool);
+        auto group=[](const Item &x){return (x.kinds&(1u<<Corrected))?2:(x.kinds&(1u<<Fuzzy))?1:0;};
+        auto take=[&](int category,size_t quota){for(size_t i=0;i<q.items.size() && quota;++i)if(!used[i] && group(q.items[i])==category){used[i]=true;pool.push_back(q.items[i]);--quota;}};
+        take(0,19);take(1,6);take(2,6);for(size_t i=0;i<q.items.size();++i)if(!used[i])pool.push_back(std::move(q.items[i]));q.items=std::move(pool);
     }
     if(q.items.size()>size_t(capacity)){q.items.resize(capacity);q.truncated=true;}
 }
@@ -393,7 +415,7 @@ struct CKNative {
         graphLetters=q.letters;graphSettings=settings(q);graph=q.graph;
     }
 };
-extern "C" CKNative *ck_native_create(const char *indexPath){try{lastError.clear();auto e=std::make_unique<CKNative>();e->lexicon.load(indexPath);e->identity="clear-native84:"+std::to_string(e->lexicon.header->fingerprint);return e.release();}catch(const std::exception &error){lastError=error.what();return nullptr;}catch(...){lastError="Native input initialization failed";return nullptr;}}
+extern "C" CKNative *ck_native_create(const char *indexPath){try{lastError.clear();auto e=std::make_unique<CKNative>();e->lexicon.load(indexPath);e->identity="clear-native85:"+std::to_string(e->lexicon.header->fingerprint);return e.release();}catch(const std::exception &error){lastError=error.what();return nullptr;}catch(...){lastError="Native input initialization failed";return nullptr;}}
 extern "C" void ck_native_destroy(CKNative *e){delete e;}
 extern "C" const char *ck_native_error(){return lastError.c_str();}
 extern "C" CKNativePage *ck_native_decode(CKNative *e,const char *raw,const char *context,uint32_t fuzzy,int correction,int character,int limit,CKNativeCancelled cancel,void *opaque){
@@ -417,3 +439,32 @@ extern "C" int ck_native_match_type(const CKNativePage *p,int i){auto x=item(p,i
     if(m&(1u<<Fuzzy))return 4;if(m&(1u<<Unfinished))return 3;if(m&(1u<<Initials))return (m&(1u<<Exact))?2:1;return 0;}
 extern "C" int ck_native_segment_count(const CKNativePage *p,int i){auto x=item(p,i);return x?int(x->segments.size()):0;}
 extern "C" int ck_native_segment_end(const CKNativePage *p,int i,int segment){auto x=item(p,i);return x && segment>=0 && segment<int(x->segments.size())?x->segments[segment]:0;}
+
+extern "C" CKNativePage *ck_native_resolve(CKNative *e,const char *raw,const char *text,const char *reading,int consumption,float frequency,uint32_t fuzzy,int correction,CKNativeCancelled cancel,void *opaque){
+    if(!e || !raw || !text || !reading || consumption<=0)return nullptr;
+    try {
+        Request q;e->configure(q,raw,"",fuzzy,correction,0,cancel,opaque);if(consumption>int(q.letters.size()))return nullptr;prepareGraph(e->lexicon,q);
+        std::istringstream stream(reading);std::string token;std::vector<uint16_t> syllables;
+        while(stream>>token){auto at=std::lower_bound(e->lexicon.syllables.begin(),e->lexicon.syllables.end(),token);if(at==e->lexicon.syllables.end() || *at!=token)return nullptr;syllables.push_back(uint16_t(at-e->lexicon.syllables.begin()));}
+        if(syllables.empty() || syllables.size()>64)return nullptr;
+        struct Route{int pos=0,edits=0,kind=Exact;double cost=0,editCost=0;uint32_t kinds=0;std::vector<int> segments;};
+        std::vector<Route> routes(1);int expanded=0;
+        for(auto sid:syllables){std::vector<Route> next;
+            for(const auto &base:routes){if(base.pos>=consumption)continue;
+                for(const auto &edge:q.graph[base.pos]){
+                    if(++expanded>16384 || q.stopped())return nullptr;
+                    if(edge.sid!=sid || edge.end>consumption || base.edits+edge.edits>2)continue;
+                    if(q.full && (edge.kind==Initials || edge.kind==Literal))continue;
+                    Route candidate=base;candidate.pos=edge.end;candidate.edits+=edge.edits;candidate.kind=std::max(candidate.kind,edge.kind);candidate.cost+=edge.cost;candidate.editCost+=edge.editCost;candidate.kinds|=edge.kinds;candidate.segments.push_back(q.scalarEnd(edge.end));next.push_back(std::move(candidate));
+                }
+            }
+            std::stable_sort(next.begin(),next.end(),[](const Route &a,const Route &b){return a.cost<b.cost;});if(next.size()>64)next.resize(64);routes=std::move(next);if(routes.empty())return nullptr;
+        }
+        auto best=std::find_if(routes.begin(),routes.end(),[&](const Route &x){return x.pos==consumption;});if(best==routes.end() || q.stopped())return nullptr;
+        if(frequency<0){frequency=0;uint32_t lo=0,hi=e->lexicon.header->wordCount;std::string target=text;
+            while(lo<hi){uint32_t mid=lo+(hi-lo)/2;if(e->lexicon.text(e->lexicon.textOrder[mid])<target)lo=mid+1;else hi=mid;}
+            if(lo<e->lexicon.header->wordCount && e->lexicon.text(e->lexicon.textOrder[lo])==target)frequency=e->lexicon.words[e->lexicon.textOrder[lo]].frequency;
+        }
+        auto page=std::make_unique<CKNativePage>();Item result;result.text=text;result.reading=reading;result.consumed=consumption;result.kind=best->kind;result.characters=int(codepoints(text).size());result.frequency=frequency;result.editCost=float(best->editCost);result.kinds=best->kinds;result.segments=best->segments;result.score=-best->cost;page->items.push_back(std::move(result));page->scalarEnds=std::move(q.scalarEnds);return page.release();
+    }catch(...){return nullptr;}
+}
