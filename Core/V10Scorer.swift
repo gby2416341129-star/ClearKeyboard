@@ -41,7 +41,7 @@ final class ClearV10Scorer {
             let preferredID=personal?.stableID ?? modelID
             var result=candidates
             if let index=result.firstIndex(where:{$0.stableID==preferredID}),index != 0 {let c=result.remove(at:index);result.insert(c,at:0)}
-            observed?(CandidateResolution(engineVersion:"clear-native89",modelVersion:"V10",contractVersion:"contract_v2",raw:raw,
+            observed?(CandidateResolution(engineVersion:"clear-native90",modelVersion:"V10",contractVersion:"contract_v2",raw:raw,
                 committedContext:context,mode:mode.rawValue,settings:settingsKey,nativeCandidates:Array(nativeCandidates.prefix(32)).map(CandidateEvidence.init),
                 modelCandidates:Array(candidates.prefix(32)).map(CandidateEvidence.init),ruleCandidateID:ruleCandidateID,
                 modelDecision:decision,modelStatus:status,cacheHit:cacheHit,
@@ -64,7 +64,7 @@ final class ClearV10Scorer {
         guard Set(encoded.map(\.id)).count==encoded.count,let metadata=try? JSONEncoder().encode(encoded) else {
             return finish(ruleCandidateID,decision:nil,status:"invalid_candidate_snapshot")
         }
-        let key=Key(raw:raw,context:context,mode:mode.rawValue,settings:"clear-native89:V10:0d27285db15f626a:"+settingsKey,metadata:metadata)
+        let key=Key(raw:raw,context:context,mode:mode.rawValue,settings:"clear-native90:V10:0d27285db15f626a:"+settingsKey,metadata:metadata)
         guard !cancelled() else{return candidates}
         lock.lock();defer{lock.unlock()}
         guard !cancelled() else{return candidates}

@@ -27,6 +27,7 @@ int ck_native_match_type(const CKNativePage *,int);
 int ck_native_segment_count(const CKNativePage *,int);
 int ck_native_segment_end(const CKNativePage *,int,int);
 int ck_native_expands_complete_syllable(const CKNativePage *,int);
+uint32_t ck_native_search_class(const CKNativePage *,int);
 uint32_t ck_native_match_flags(const CKNativePage *,int);
 float ck_native_pronunciation_cost(const CKNativePage *,int);
 int ck_native_edit_count(const CKNativePage *,int);

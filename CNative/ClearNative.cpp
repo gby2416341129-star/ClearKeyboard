@@ -26,7 +26,7 @@ struct Cancellation {CKNativeCancelled callback=nullptr;void *opaque=nullptr;boo
 enum MatchKind {Exact=0, Fuzzy=1, Unfinished=2, Initials=3, Corrected=4, Literal=5};
 enum EditKind {Substitution=0,Insertion=1,Deletion=2,Transposition=3,FuzzyInitial=4,FuzzyFinal=5};
 struct NativeEdit {int kind=0,start=0,end=0,step=0;float cost=0,searchPenalty=0;char typed[8]{},replacement[8]{};};
-struct Item {std::string text,reading; int consumed=0,kind=Exact,characters=0; double score=0;float frequency=0,editCost=0;uint32_t kinds=0;int baseRank=0;std::vector<int> segments;std::vector<NativeEdit> changes;float pronunciationCost=0;bool expandsCompleteSyllable=false;};
+struct Item {std::string text,reading; int consumed=0,kind=Exact,characters=0; double score=0;float frequency=0,editCost=0;uint32_t kinds=0;int baseRank=0;std::vector<int> segments;std::vector<NativeEdit> changes;float pronunciationCost=0;bool expandsCompleteSyllable=false;uint32_t searchClass=0;};
 struct Header {
     char magic[8];
     uint32_t version,syllableCount,nodeCount,edgeCount,wordCount,poolBytes;
@@ -211,9 +211,38 @@ struct Segment {uint16_t sid;int end,kind,edits,splits;double cost;double editCo
 struct WordMatch {uint32_t word;int end,kind,edits,splits;double cost;std::string reading;std::vector<int> ends;uint32_t kinds=0;double editCost=0;std::vector<NativeEdit> changes;};
 struct Path {
     std::string text,reading;int consumed=0,kind=Exact,edits=0,characters=0,splits=0;uint32_t previous=0;double frequency=0,cost=0,editCost=0;float observedFrequency=1e30f;uint32_t kinds=0;std::vector<int> segments;
-    uint16_t lastRoles=0;bool hasVerb=false,locationLink=false,valid=true;double grammar=0,pronunciationCost=0;std::vector<NativeEdit> changes;std::vector<int> wordEnds;
+    uint16_t lastRoles=0;int prepositionState=0;bool hasVerb=false,locationLink=false,valid=true;double grammar=0,pronunciationCost=0;std::vector<NativeEdit> changes;std::vector<int> wordEnds;
     double priority() const {return frequency-cost-.8*splits+grammar;}
 };
+uint32_t pathClass(const Path &p){
+    uint32_t channel=(p.kinds&(1u<<Literal))?4:p.edits?2:(p.kinds&(1u<<Unfinished))?3:
+        ((p.kinds&(1u<<Fuzzy)) || p.pronunciationCost>0)?1:0;
+    const uint32_t roles=p.lastRoles&(4|8|16|32|64|128|256|512|1024|2048|4096);
+    return roles | (uint32_t(p.prepositionState)<<16) | (uint32_t(p.hasVerb)<<19) |
+        (uint32_t(p.locationLink)<<20) | (channel<<24);
+}
+void prunePaths(std::vector<Path> &paths,size_t capacity){
+    auto better=[](const Path &a,const Path &b){return a.priority()>b.priority();};
+    std::stable_sort(paths.begin(),paths.end(),better);
+    std::unordered_set<std::string> distinct;
+    paths.erase(std::remove_if(paths.begin(),paths.end(),[&](const Path &p){
+        auto key=p.text+'\t'+p.reading+'\t'+std::to_string(p.edits)+':'+std::to_string(pathClass(p));
+        return !distinct.insert(key).second;
+    }),paths.end());
+    if(paths.size()<=capacity)return;
+    std::vector<Path> kept;kept.reserve(capacity);std::vector<bool> used(paths.size());
+    std::set<uint32_t> represented;int channels[5]={0,0,0,0,0};
+    auto take=[&](size_t i){used[i]=true;auto group=pathClass(paths[i]);represented.insert(group);
+        ++channels[group>>24];kept.push_back(std::move(paths[i]));};
+    for(size_t i=0;i<paths.size() && kept.size()<std::max(size_t(1),capacity/3);++i)take(i);
+    for(unsigned channel=0;channel<5 && kept.size()<capacity;++channel)
+        for(size_t i=0;i<paths.size() && channels[channel]<2 && kept.size()<capacity;++i)
+            if(!used[i] && pathClass(paths[i])>>24==channel)take(i);
+    for(size_t i=0;i<paths.size() && kept.size()<capacity;++i)
+        if(!used[i] && !represented.count(pathClass(paths[i])))take(i);
+    for(size_t i=0;i<paths.size() && kept.size()<capacity;++i)if(!used[i])take(i);
+    std::stable_sort(kept.begin(),kept.end(),better);paths=std::move(kept);
+}
 struct Request {
     std::string typed,letters,context,key;std::set<int> boundaries;std::vector<int> scalarEnds,scalarStarts;int reuseStart=0;
     uint32_t fuzzy=0;bool corrections=false,character=false,full=false,truncated=false;
@@ -301,9 +330,11 @@ void prepareGraph(const Lexicon &lex,Request &q) {
             const auto &s=variant.first;const int remaining=n-pos;
             auto add=[&](int length,int kind,double cost,int edits=0,double editCost=0) {
                 if(length<=0 || length>remaining || !boundaryAllows(q,pos,pos+length)) return;
-                q.graph[pos].push_back({sid,pos+length,kind,edits,0,cost+variant.second,editCost+variant.second,(1u<<kind)|(variant.second>0?1u<<Fuzzy:0)});
+                const bool completeAnchor=lex.completeSyllables.count(q.letters.substr(pos,length))>0;
+                const double anchorPenalty=completeAnchor && (kind==Corrected || variant.second>0)?1.0:0.0;
+                q.graph[pos].push_back({sid,pos+length,kind,edits,0,cost+variant.second+anchorPenalty,editCost+variant.second+anchorPenalty,(1u<<kind)|(variant.second>0?1u<<Fuzzy:0)});
                 auto &edge=q.graph[pos].back();
-                if(kind==Corrected)edge.changes.push_back(letterEdit(q,pos,length,s,editCost));
+                if(kind==Corrected){auto change=letterEdit(q,pos,length,s,editCost);change.cost+=float(anchorPenalty);change.searchPenalty+=float(anchorPenalty);edge.changes.push_back(change);}
                 if(variant.second>0){
                     const auto fromHead=initial(s),toHead=initial(reading);int fromLength=int(fromHead.size());
                     const bool corrected=kind==Corrected;const auto correction=corrected?edge.changes.front():NativeEdit{};
@@ -316,6 +347,9 @@ void prepareGraph(const Lexicon &lex,Request &q) {
                     if(fromHead!=toHead){int a=boundary(0,false),b=boundary(std::min(fromLength,length),true);edge.changes.push_back(makeEdit(FuzzyInitial,a,b,q.typed.substr(a,b-a),toHead,.45f,.45f));}
                     auto fromFinal=s.substr(fromHead.size()),toFinal=reading.substr(toHead.size());
                     if(fromFinal!=toFinal && kind!=Initials && length>fromLength){int a=boundary(fromLength,false),b=boundary(int(s.size()),true);edge.changes.push_back(makeEdit(FuzzyFinal,a,b,q.typed.substr(a,b-a),toFinal,.45f,.45f));}
+                }
+                if(kind!=Corrected && anchorPenalty>0 && !edge.changes.empty()){
+                    edge.changes.front().cost+=float(anchorPenalty);edge.changes.front().searchPenalty+=float(anchorPenalty);
                 }
             };
             const auto head=initial(s);
@@ -452,6 +486,7 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
         const int tailStart=path.segments.size()>1?path.segments[path.segments.size()-2]:0;
         item.expandsCompleteSyllable=(path.kinds&(1u<<Unfinished)) &&
             (q.full || lex.completeSyllables.count(q.letters.substr(tailStart)));
+        item.searchClass=pathClass(path);
         item.editCost=float(path.editCost);item.kinds=path.kinds;item.changes=scalarEdits(q,path.changes);item.pronunciationCost=float(path.pronunciationCost);
         for(int end:path.segments)item.segments.push_back(q.scalarEnd(end));q.items.push_back(std::move(item));}};
     auto extend=[&](const Path &base,const WordMatch &match){
@@ -478,6 +513,12 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
         // explicit full spelling is still faithfully available for selection.
         next.locationLink=(role&4) ? bool(role&8192) : (base.locationLink || bool(role&256));
         if((role&128) && match.end==n && base.hasVerb && !next.locationLink)next.grammar-=4;
+        // A preposition, nominal object and predicate form a productive
+        // construction. Retain its state across word splits and search trims.
+        if(role&256)next.prepositionState=1;
+        else if(base.prepositionState==1 && (role&(8|16|1024))){next.prepositionState=2;next.grammar+=.25;}
+        else if(base.prepositionState==2 && (role&4)){next.prepositionState=3;next.grammar+=.75;}
+        if((role&128) && next.locationLink && base.hasVerb)next.grammar+=.5;
         next.lastRoles=role;next.hasVerb=base.hasVerb || (role&4);
         // Each character backoff and each word's lexical gain are charged once.
         // No dictionary-derived pair transition is reused as a sentence score.
@@ -494,27 +535,14 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
     if(!q.character) {
         const size_t beam=size_t(std::max(12,std::min(64,capacity/8)));
         std::vector<std::vector<Path>> states(q.letters.size()+1);states[0].push_back({});
-        auto better=[](const Path &a,const Path &b){return a.priority()>b.priority();};
         for(int pos=0;pos<int(q.letters.size()) && !q.stopped();++pos) {
-            auto &at=states[pos];if(at.empty())continue;std::stable_sort(at.begin(),at.end(),better);
-            std::unordered_set<std::string> distinct;
-            at.erase(std::remove_if(at.begin(),at.end(),[&](const Path &p){
-                auto key=p.text+'\t'+p.reading+'\t'+std::to_string(p.edits)+':'+std::to_string(p.lastRoles)+':'+std::to_string(p.locationLink);
-                return !distinct.insert(key).second;
-            }),at.end());
-            if(at.size()>beam){std::vector<Path> kept;std::vector<bool> used(at.size());int bins[3]={0,0,0};
-                const size_t reserved=std::max(size_t(1),beam/6);const int binLimit=int(std::max(size_t(1),beam/3));
-                for(size_t i=0;i<at.size() && kept.size()<reserved;++i){used[i]=true;++bins[std::min(2,at[i].edits)];kept.push_back(std::move(at[i]));}
-                for(size_t i=0;i<at.size() && kept.size()<beam;++i)if(!used[i] && bins[std::min(2,at[i].edits)]<binLimit){used[i]=true;++bins[std::min(2,at[i].edits)];kept.push_back(std::move(at[i]));}
-                for(size_t i=0;i<at.size() && kept.size()<beam;++i)if(!used[i])kept.push_back(std::move(at[i]));
-                std::stable_sort(kept.begin(),kept.end(),better);at=std::move(kept);
-            }
+            auto &at=states[pos];if(at.empty())continue;prunePaths(at,beam);
             const auto &matches=wordMatches(lex,q,pos);std::map<std::pair<int,int>,int> counts;std::vector<const WordMatch *> choices;
             for(const auto &match:matches)if(counts[{match.end,match.edits}]++<int(beam))choices.push_back(&match);
             for(const auto &base:at) {
                 for(const auto *match:choices)if(base.edits+match->edits<=2) {
                     auto next=extend(base,*match);if(!next.valid)continue;auto &target=states[next.consumed];target.push_back(std::move(next));
-                    if(target.size()>beam*8){std::partial_sort(target.begin(),target.begin()+beam*2,target.end(),better);target.resize(beam*2);}
+                    if(target.size()>beam*8)prunePaths(target,beam*2);
                 }
                 // Explicitly carry unknown English runs through mixed input;
                 // never invent casing, consume a suffix, or skip a character.
@@ -524,7 +552,7 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
                 }
             }
         }
-        for(auto &bucket:states){std::stable_sort(bucket.begin(),bucket.end(),better);for(size_t i=0;i<std::min(beam,bucket.size());++i)append(bucket[i]);}
+        for(auto &bucket:states){prunePaths(bucket,beam);for(const auto &path:bucket)append(path);}
     }
     sortItems(q);
     // The default decision concerns a complete, non-literal explanation when
@@ -537,7 +565,12 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
         auto take=[&](bool whole,size_t quota){for(size_t i=0;i<q.items.size() && quota;++i)if(!used[i] && complete(q.items[i])==whole){used[i]=true;pool.push_back(q.items[i]);--quota;}};
         // Keep a full decision pool before reserving manual prefix choices.
         // The Swift layer must not receive only sixteen complete explanations.
-        take(true,47);take(false,12);
+        take(true,15);
+        std::set<uint32_t> classes;for(const auto &x:pool)classes.insert(x.searchClass);
+        for(size_t i=0;i<q.items.size() && pool.size()<32;++i)
+            if(!used[i] && complete(q.items[i]) && classes.insert(q.items[i].searchClass).second){used[i]=true;pool.push_back(q.items[i]);}
+        if(pool.size()<48)take(true,48-pool.size());
+        take(false,12);
         for(size_t i=0;i<q.items.size();++i)if(!used[i])pool.push_back(std::move(q.items[i]));q.items=std::move(pool);
     }
     if(q.items.size()>size_t(capacity)){q.items.resize(capacity);q.truncated=true;}
@@ -575,7 +608,7 @@ struct CKNative {
         graphLetters=q.letters;graphSettings=settings(q);graph=q.graph;
     }
 };
-extern "C" CKNative *ck_native_create(const char *indexPath){try{lastError.clear();auto e=std::make_unique<CKNative>();e->lexicon.load(indexPath);e->identity="clear-native89:"+std::to_string(e->lexicon.header->fingerprint);return e.release();}catch(const std::exception &error){lastError=error.what();return nullptr;}catch(...){lastError="Native input initialization failed";return nullptr;}}
+extern "C" CKNative *ck_native_create(const char *indexPath){try{lastError.clear();auto e=std::make_unique<CKNative>();e->lexicon.load(indexPath);e->identity="clear-native90:"+std::to_string(e->lexicon.header->fingerprint);return e.release();}catch(const std::exception &error){lastError=error.what();return nullptr;}catch(...){lastError="Native input initialization failed";return nullptr;}}
 extern "C" void ck_native_destroy(CKNative *e){delete e;}
 extern "C" const char *ck_native_error(){return lastError.c_str();}
 extern "C" CKNativePage *ck_native_decode(CKNative *e,const char *raw,const char *context,uint32_t fuzzy,int correction,int character,int limit,CKNativeCancelled cancel,void *opaque){
@@ -601,6 +634,7 @@ extern "C" int ck_native_segment_count(const CKNativePage *p,int i){auto x=item(
 extern "C" int ck_native_segment_end(const CKNativePage *p,int i,int segment){auto x=item(p,i);return x && segment>=0 && segment<int(x->segments.size())?x->segments[segment]:0;}
 
 extern "C" int ck_native_expands_complete_syllable(const CKNativePage *p,int i){auto x=item(p,i);return x && x->expandsCompleteSyllable;}
+extern "C" uint32_t ck_native_search_class(const CKNativePage *p,int i){auto x=item(p,i);return x?x->searchClass:0;}
 extern "C" uint32_t ck_native_match_flags(const CKNativePage *p,int i){auto x=item(p,i);return x?x->kinds:0;}
 extern "C" float ck_native_pronunciation_cost(const CKNativePage *p,int i){auto x=item(p,i);return x?x->pronunciationCost:0;}
 extern "C" int ck_native_edit_count(const CKNativePage *p,int i){auto x=item(p,i);return x?int(x->changes.size()):0;}

@@ -56,6 +56,7 @@ public final class InputEngine {
         let decisionOrder=complete.isEmpty ? ruleOrder:complete
         let rankByID=Dictionary(decisionOrder.enumerated().map{($0.element.stableID,$0.offset)},uniquingKeysWith:min)
         var decisions=decisionOrder.map{c in guard let path=c.path else{return c};return c.withPath(path.ranked(rankByID[c.stableID] ?? path.baseRank))}
+        decisions=Self.modelPool(decisions)
         var output=Self.displayRow(ruleOrder,raw:query)
         updated?(Array(output.prefix(max(1,limit))), output.count > limit, false)
         if let ruleID=decisions.first?.stableID, !cancelled() {
@@ -78,6 +79,18 @@ public final class InputEngine {
     /// Complete hypotheses and prefix selections serve different actions.
     /// Display several complete alternatives, then a few selectable prefixes;
     /// retain every remaining object and its original consumption metadata.
+    /// Keep the rule winner and its genuine rule ranks. Diversity only selects
+    /// which real candidates occupy the model's fixed 32 input slots.
+    private static func modelPool(_ words:[Candidate])->[Candidate] {
+        guard words.count>16 else{return words}
+        var selected=Array(words.prefix(16)),ids=Set(selected.map(\.stableID))
+        var classes=Set(selected.compactMap{$0.path?.searchClass})
+        for c in words.dropFirst(16) where selected.count<32 {
+            if let group=c.path?.searchClass,classes.insert(group).inserted,ids.insert(c.stableID).inserted {selected.append(c)}
+        }
+        for c in words where selected.count<32 && ids.insert(c.stableID).inserted {selected.append(c)}
+        return selected+words.filter{!ids.contains($0.stableID)}
+    }
     private static func completeFirst(_ words:[Candidate],raw:String)->[Candidate] {
         words.filter{$0.completes(raw)} + words.filter{!$0.completes(raw)}
     }

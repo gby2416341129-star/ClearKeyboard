@@ -31,16 +31,17 @@ public struct CandidatePath: Equatable, Codable, Sendable {
     public let matchKinds: [InputMatchType]?
     public let pronunciationCost: Float?
     public let expandsCompleteSyllable: Bool?
+    public let searchClass: UInt32?
     public init(kind: InputMatchType, frequency: Float, editCost: Float, consumedStart: Int = 0,
                 consumedEnd: Int, segments: [Int] = [], baseRank: Int = 0,
-                edits: [InputEdit]? = nil, matchKinds: [InputMatchType]? = nil, pronunciationCost: Float? = nil, expandsCompleteSyllable: Bool? = nil) {
+                edits: [InputEdit]? = nil, matchKinds: [InputMatchType]? = nil, pronunciationCost: Float? = nil, expandsCompleteSyllable: Bool? = nil, searchClass: UInt32? = nil) {
         self.kind=kind;self.frequency=frequency;self.editCost=editCost
         self.consumedStart=consumedStart;self.consumedEnd=consumedEnd;self.segments=segments;self.baseRank=baseRank
-        self.edits=edits;self.matchKinds=matchKinds;self.pronunciationCost=pronunciationCost;self.expandsCompleteSyllable=expandsCompleteSyllable
+        self.edits=edits;self.matchKinds=matchKinds;self.pronunciationCost=pronunciationCost;self.expandsCompleteSyllable=expandsCompleteSyllable;self.searchClass=searchClass
     }
     func ranked(_ rank: Int) -> CandidatePath {
         CandidatePath(kind:kind,frequency:frequency,editCost:editCost,consumedStart:consumedStart,
-                      consumedEnd:consumedEnd,segments:segments,baseRank:rank,edits:edits,matchKinds:matchKinds,pronunciationCost:pronunciationCost,expandsCompleteSyllable:expandsCompleteSyllable)
+                      consumedEnd:consumedEnd,segments:segments,baseRank:rank,edits:edits,matchKinds:matchKinds,pronunciationCost:pronunciationCost,expandsCompleteSyllable:expandsCompleteSyllable,searchClass:searchClass)
     }
     func learned(raw: String, consumed: Int, uses: Int, initials: Bool) -> CandidatePath {
         var ends: [Int]=[]
@@ -51,7 +52,7 @@ public struct CandidatePath: Equatable, Codable, Sendable {
         let end=consumed>0 && consumed<=ends.count ? ends[consumed-1] : 0
         return CandidatePath(kind:initials ? .initials:kind,frequency:Float(uses),editCost:initials ? 0:editCost,
             consumedEnd:end,segments:initials ? Array(ends.prefix(consumed)):segments.filter{$0<=end},baseRank:baseRank,
-            edits:initials ? nil:edits,matchKinds:initials ? [.initials]:matchKinds,pronunciationCost:pronunciationCost,expandsCompleteSyllable:initials ? false:expandsCompleteSyllable)
+            edits:initials ? nil:edits,matchKinds:initials ? [.initials]:matchKinds,pronunciationCost:pronunciationCost,expandsCompleteSyllable:initials ? false:expandsCompleteSyllable,searchClass:searchClass)
     }
 }
 public struct PersonalPreference: Equatable, Codable, Sendable {
@@ -95,7 +96,7 @@ public struct Candidate: Equatable, Sendable {
         guard let path,path.kind == .exact,consumed<FuzzyPinyin.normalize(raw).count else{return self}
         return withPath(CandidatePath(kind:.prefix,frequency:path.frequency,editCost:path.editCost,
             consumedStart:path.consumedStart,consumedEnd:path.consumedEnd,segments:path.segments,baseRank:path.baseRank,
-            edits:path.edits,matchKinds:path.matchKinds,pronunciationCost:path.pronunciationCost,expandsCompleteSyllable:path.expandsCompleteSyllable))
+            edits:path.edits,matchKinds:path.matchKinds,pronunciationCost:path.pronunciationCost,expandsCompleteSyllable:path.expandsCompleteSyllable,searchClass:path.searchClass))
     }
     func completes(_ raw:String)->Bool {
         canConsume(raw) && consumed==FuzzyPinyin.normalize(raw).count && path?.kind != .literal &&

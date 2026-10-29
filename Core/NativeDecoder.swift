@@ -11,7 +11,7 @@ private let nativeCancelled: @convention(c) (UnsafeMutableRawPointer?) -> Int32 
     return Unmanaged<NativeCancellation>.fromOpaque(value).takeUnretainedValue().cancelled() ? 1:0
 }
 final class NativeDecoder {
-    static let revision=89
+    static let revision=90
     private static let ownerLock=NSLock()
     private static var owner: NativeDecoder?
     private let handle: OpaquePointer
@@ -69,7 +69,7 @@ final class NativeDecoder {
             let pronunciation=ck_native_pronunciation_cost(page,i)
             let path=CandidatePath(kind:kinds[kind],frequency:ck_native_frequency(page,i),editCost:ck_native_edit_cost(page,i),
                 consumedEnd:Int(ck_native_scalar_end(page,i)),segments:segments,baseRank:Int(ck_native_base_rank(page,i)),
-                edits:edits,matchKinds:matched,pronunciationCost:pronunciation.isFinite ? pronunciation:nil,expandsCompleteSyllable:ck_native_expands_complete_syllable(page,i) != 0)
+                edits:edits,matchKinds:matched,pronunciationCost:pronunciation.isFinite ? pronunciation:nil,expandsCompleteSyllable:ck_native_expands_complete_syllable(page,i) != 0,searchClass:ck_native_search_class(page,i))
             return Candidate(text:text,reading:String(cString:ck_native_reading(page,i)),consumed:consumed,
                          score:ck_native_score(page,i),path:path)
         }
