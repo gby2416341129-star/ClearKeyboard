@@ -475,7 +475,7 @@ import SwiftUI
         }
         return true
     }
-    private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, action: @escaping () -> Void) -> UIButton {
+    private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, independentNavigation: Bool = false, action: @escaping () -> Void) -> UIButton {
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
         let button = FeedbackButton(type: navigationIcon ? .system : .custom)
         var config = UIButton.Configuration.plain()
@@ -501,8 +501,12 @@ import SwiftUI
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
         button.heightAnchor.constraint(equalToConstant: 34).isActive = true
         button.addAction(UIAction { [weak self, weak button] _ in
-            guard let self, !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil,
-                  !self.toolbarScroll.isDragging else { return }
+            guard let self else { return }
+            if independentNavigation { self.prepareToolbarNavigation() }
+            else {
+                guard !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil,
+                      !self.toolbarScroll.isDragging else { return }
+            }
             self.toolbarPulse()
             button?.playActivationFeedback()
             if let button, button.accessibilityIdentifier?.hasPrefix("toolbar.") == true,
@@ -515,10 +519,13 @@ import SwiftUI
     }
     private func rebuildToolbar() {
         if toolbarBrand == nil {
-            let brand = circleButton(image: ToolArtwork.brand(size: 32), label: "键盘工具") { [weak self] in
+            let brand = circleButton(image: ToolArtwork.brand(size: 32), label: "键盘工具", independentNavigation: true) { [weak self] in
                 guard let self else { return }
                 if self.panel != nil { self.closePanel() } else { self.showToolbox() }
             }
+            // Stop momentum at touch-down so the same touch can activate this
+            // fixed sibling button; it is not a shortcut/scroll-stop gesture.
+            brand.addAction(UIAction { [weak self] _ in self?.prepareToolbarNavigation() }, for: .touchDown)
             brand.accessibilityIdentifier = "toolbar.tools"; toolbarBrand = brand
             toolbar.addArrangedSubview(brand)
             let spacer = UIView(); spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -619,6 +626,21 @@ import SwiftUI
         if scrollView === toolbarScroll {
             toolbarScroll.pendingOffset = nil; toolbarVibration.attach(to: self); toolbarVibration.prepareScroll()
         }
+    }
+    private func prepareToolbarNavigation() {
+        guard toolbarDragActive || toolbarScroll.isDragging || toolbarScroll.isTracking ||
+              toolbarScroll.isDecelerating || toolbarScroll.pendingOffset != nil else { return }
+        if toolbarDragActive { finishToolbarDrag() }
+        let offset = toolbarScroll.contentOffset, wasEnabled = toolbarScroll.isScrollEnabled
+        let suppressed = toolbarScroll.suppressScrollFeedback
+        toolbarScroll.pendingOffset = nil; toolbarScroll.suppressScrollFeedback = true
+        // The Logo is outside this scroll view. Cancelling its pan/deceleration
+        // leaves the Logo's own tracking intact and preserves the visible phase.
+        toolbarScroll.isScrollEnabled = false
+        toolbarScroll.setContentOffset(offset, animated: false)
+        toolbarScroll.isScrollEnabled = wasEnabled
+        rememberToolbarOffset()
+        toolbarScroll.suppressScrollFeedback = suppressed
     }
     private func rememberToolbarOffset() {
         toolbarScroll.pendingOffset = nil

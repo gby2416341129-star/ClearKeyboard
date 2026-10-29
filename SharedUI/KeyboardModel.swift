@@ -743,7 +743,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             if composition.isEmpty { insertText(" ") } else { commitComposition(flushRemainder: false) }
         case .enter:
-            if composition.isEmpty { insertText("\n") } else { _ = commitComposition(flushRemainder:false) }
+            // The host's rightmost Return/Search/Confirm key accepts the raw
+            // spelling. Space and candidate taps retain Chinese selection.
+            if composition.isEmpty { insertText("\n") } else { finishCompositionAsTyped() }
         case .page(let next): page = next
         case .globe: commitComposition(); finishNumericRun(); phraseLearning.reset(); document?.nextKeyboard()
         case .language: toggleLanguage(); return
@@ -921,7 +923,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
         switch action {
         // A long-press choice commits the Chinese draft before its literal
         // suffix, so it must await the same current candidate as punctuation.
-        case .space, .enter, .literal: return requestedContext != nil
+        case .space, .literal: return requestedContext != nil
+        case .enter: return false // Literal spelling confirmation never waits for conversion.
         case .text(let text):
             if page == .letters, !shifted, text.first?.isLetter == true || text == "'" { return false }
             return requestedContext != nil
