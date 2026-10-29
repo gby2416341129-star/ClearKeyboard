@@ -1,52 +1,42 @@
 #!/usr/bin/env python3
-"""Delivery-only checks: device executables, exact model and resource cleanup."""
-import hashlib
-from pathlib import PurePosixPath
-import plistlib
-import struct
-import sys
-import zipfile
-from prepare_qwen import MODEL_NAME, MODEL_SHA256, MODEL_BYTES
-
-
+"""Only delivery resource/link/identity checks. Never predict, type or benchmark."""
+import hashlib,json,plistlib,struct,sys,zipfile
+BASE='Payload/ClearKeyboard.app/'
+EXT=BASE+'PlugIns/ClearKeyboardExtension.appex/'
 def verify(path):
     with zipfile.ZipFile(path) as ipa:
-        names = ipa.namelist()
-        base = 'Payload/ClearKeyboard.app/'
-        extension = base + 'PlugIns/ClearKeyboardExtension.appex/'
-        for executable in [base + 'ClearKeyboard', extension + 'ClearKeyboardExtension']:
-            with ipa.open(executable) as stream: header = stream.read(32)
-            assert struct.unpack_from('<I', header)[0] == 0xfeedfacf, 'Not a thin Mach-O device executable'
-            assert struct.unpack_from('<I', header, 4)[0] == 0x100000c, 'Not arm64'
-        model_paths = [name for name in names if name.lower().endswith('.gguf')]
-        assert model_paths == [base + 'Models/' + MODEL_NAME], 'Model must be packaged exactly once in the App'
-        model = model_paths[0]
-        assert ipa.getinfo(model).file_size == MODEL_BYTES
-        with ipa.open(model) as stream: assert hashlib.file_digest(stream, 'sha256').hexdigest() == MODEL_SHA256
+        names=ipa.namelist()
+        for binary in [BASE+'ClearKeyboard',EXT+'ClearKeyboardExtension']:
+            data=ipa.read(binary)
+            assert struct.unpack_from('<II',data)==(0xfeedfacf,0x100000c),'iPhone arm64 binary required'
+            for symbol in [b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime']:
+                assert symbol not in data,'Old runtime linked: '+str(symbol)
+            assert b'ck_native_decode' in data,'Own native engine missing'
+        for prefix in [BASE,EXT]:
+            info=plistlib.loads(ipa.read(prefix+'Info.plist'))
+            assert str(info['CFBundleVersion'])=='84' and 'iPhoneOS' in info['CFBundleSupportedPlatforms']
+        assert plistlib.loads(ipa.read(EXT+'Info.plist'))['NSExtension']['NSExtensionPointIdentifier']=='com.apple.keyboard-service'
         for name in names:
-            lower = name.lower()
-            assert not any(word in lower for word in ['rime', 'wanxiang', '.gram', 'clear-sentence', 'clearsentence25m', 'mmproj']), name
-            assert not lower.endswith(('.clm', '.mlmodelc', '.mlpackage', '.part', '.tar.gz', '.dSYM'.lower())), name
-        for resource in ['Pinyin/native.cklx', 'english.clx']:
-            assert base + resource in names, resource
-            assert extension + resource not in names, 'Duplicate input resource'
-        with ipa.open(base + 'Pinyin/native.cklx') as stream: index_header = stream.read(64)
-        assert index_header[:8] == b'CKLX83\0\0' and struct.unpack_from('<I', index_header, 8)[0] == 2, 'Native pinyin index format mismatch'
-        assert base + 'default.metallib' in names and extension + 'default.metallib' not in names
-        # Inspect link output only; never initialize the model or simulate input.
-        app_binary = ipa.read(base + 'ClearKeyboard')
-        keyboard_binary = ipa.read(extension + 'ClearKeyboardExtension')
-        assert b'ggml_backend_metal_reg' in app_binary, 'App Metal runtime missing'
-        assert b'ggml_backend_metal_reg' not in keyboard_binary, 'Metal runtime linked into keyboard'
-        assert b'ck_qwen_create' in keyboard_binary, 'Qwen keyboard bridge missing'
-        assert b'ck_qwen_preview' in keyboard_binary, 'Qwen immediate candidate path missing'
-        for prefix in [base, extension]:
-            info = plistlib.loads(ipa.read(prefix + 'Info.plist'))
-            assert str(info['CFBundleVersion']) == '83'
-            assert 'iPhoneOS' in info['CFBundleSupportedPlatforms']
-        info = plistlib.loads(ipa.read(extension + 'Info.plist'))
-        assert info['NSExtension']['NSExtensionPointIdentifier'] == 'com.apple.keyboard-service'
-    print('IPA device binaries, single pinned Qwen model and resources verified.')
-
-
-if __name__ == '__main__': verify(sys.argv[1])
+            low=name.lower()
+            assert not any(old in low for old in ['qwen','rime','wanxiang','.gguf','.gram','clear-sentence','clearsentence25','llama','ggml','mmproj']),name
+            assert not low.endswith(('.mlpackage/manifest.json','.pt','.pth','.part','.tar.gz')),name
+        compiled=[n for n in names if n.rstrip('/').endswith('.mlmodelc')]
+        # ZIP tools may omit directory entries; use the distinct resource root.
+        roots={n.split('.mlmodelc/')[0]+'.mlmodelc' for n in names if '.mlmodelc/' in n}
+        assert roots=={EXT+'V10/V10KeyboardModel.mlmodelc'},'Model must be packaged once in the keyboard target'
+        v10=EXT+'V10/'
+        identity=json.loads(ipa.read(v10+'identity.json'))
+        assert identity['model_version']=='V10' and identity['delivery_zip_sha256']=='e81300bbe9ceabbc9654b477d797f6e33f778c667e8778ac07affe4c946e4071'
+        assert identity['checkpoint_sha256']=='0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423'
+        compiled_manifest=json.loads(ipa.read(v10+'compiled_manifest.json'))
+        for name,digest in compiled_manifest['files'].items():assert hashlib.sha256(ipa.read(v10+name)).hexdigest()==digest,name
+        for name in ['vocab.json','calibration.json']:
+            assert hashlib.sha256(ipa.read(v10+name)).hexdigest()==identity['runtime_files'][name]
+        policy=json.loads(ipa.read(v10+'calibration.json'))
+        assert policy['adoption_threshold']==0.65 and not policy['apply_external_affine'] and policy['adoption_logit_is_already_calibrated']
+        for name in ['Pinyin/native.cklx','english.clx']:
+            assert BASE+name in names and EXT+name not in names
+        with ipa.open(BASE+'Pinyin/native.cklx') as stream:header=stream.read(64)
+        assert header[:8]==b'CKLX84\0\0' and struct.unpack_from('<I',header,8)[0]==3
+    print('Build 84 iPhone binaries, single V10 identity, native index and old-runtime removal checked.')
+if __name__=='__main__':verify(sys.argv[1])

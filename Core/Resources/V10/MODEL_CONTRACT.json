@@ -1,0 +1,335 @@
+{
+  "version": "contract_v2",
+  "candidate_version": "baseline_v3_mobile",
+  "contains_v4_recall_improvements": false,
+  "parameters": 4901123,
+  "inputs": {
+    "context_ids": {
+      "dtype": "int32",
+      "shape": [
+        1,
+        96
+      ],
+      "protobuf_data_type": 131104
+    },
+    "raw_ids": {
+      "dtype": "int32",
+      "shape": [
+        1,
+        96
+      ],
+      "protobuf_data_type": 131104
+    },
+    "candidate_ids": {
+      "dtype": "int32",
+      "shape": [
+        1,
+        32,
+        32
+      ],
+      "protobuf_data_type": 131104
+    },
+    "reading_ids": {
+      "dtype": "int32",
+      "shape": [
+        1,
+        32,
+        96
+      ],
+      "protobuf_data_type": 131104
+    },
+    "features": {
+      "dtype": "float32",
+      "shape": [
+        1,
+        32,
+        18
+      ],
+      "protobuf_data_type": 65568
+    },
+    "valid_mask": {
+      "dtype": "float32",
+      "shape": [
+        1,
+        32
+      ],
+      "meaning": "1 real candidate, 0 padding; graph tests >0.5",
+      "protobuf_data_type": 65568
+    },
+    "base_prior": {
+      "dtype": "float32",
+      "shape": [
+        1,
+        32
+      ],
+      "protobuf_data_type": 65568
+    },
+    "rule_index": {
+      "dtype": "int32",
+      "shape": [
+        1
+      ],
+      "meaning": "actual frozen rule-top candidate index in supplied candidate order, not necessarily0; runtime available, no correctness label",
+      "protobuf_data_type": 131104
+    }
+  },
+  "outputs": {
+    "scores": {
+      "dtype": "float32",
+      "shape": [
+        1,
+        32
+      ],
+      "meaning": "ranking score including supplied base_prior; not calibrated probability",
+      "protobuf_data_type": 65568
+    },
+    "acceptance_logits": {
+      "dtype": "float32",
+      "shape": [
+        1,
+        32
+      ],
+      "meaning": "independent acceptance logits, not automatically calibrated",
+      "protobuf_data_type": 65568
+    },
+    "proposal_index": {
+      "dtype": "int32",
+      "shape": [
+        1
+      ],
+      "meaning": "argmax current raw ranking scores among valid candidates; ties firstindex; tracks current model each call",
+      "protobuf_data_type": 131104
+    },
+    "adopt_logit": {
+      "dtype": "float32",
+      "shape": [
+        1
+      ],
+      "meaning": "proposal-specific beneficial replacement logit; independent-calibration positive affine transform already folded into delivered final policy linear layer; sigmoid is calibrated evidence, not a correctness guarantee; external threshold/protected veto integration pending",
+      "protobuf_data_type": 65568
+    }
+  },
+  "candidate_mapping": "Output j corresponds exactly to external stable candidate ID at input row j. Keep an external ordered ID array. No IDs or targets are model features. Both outputs are -10000 on padded candidates. Discard padded outputs before selection.",
+  "tokenization": "vocab.json tokens array; 0 padding; Unicode scalar known at index>=257 uses that ID, otherwise emit UTF8 bytes+1 (1..256). No Unicode normalization. ASCII lowercase raw only for pinyin; preserve English/mixed case. committed context keeps last96 IDs, raw first96, candidate text first32, reading first96. Right-pad zeros. Empty string [0]. Out-of-vocab ID outside0..8191 is invalid.",
+  "features": [
+    "min(1,log1p(max(0,frequency))/12)",
+    "min(1,max(0,edit_cost)/3)",
+    "match_type==exact",
+    "min(1,UnicodeScalarCount(text)/32)",
+    "min(1,(consumed_end-consumed_start)/max(1,raw_scalar_count))",
+    "min(1,raw_scalar_count/64)",
+    "mode==english",
+    "mode==mixed",
+    "type==exact",
+    "type==initials",
+    "type==mixed",
+    "type==prefix",
+    "type==fuzzy",
+    "type==correction",
+    "type==association",
+    "type==literal",
+    "min(1,max(0,consumed_start)/max(1,raw_scalar_count))",
+    "min(1,max(0,consumed_end)/max(1,raw_scalar_count))"
+  ],
+  "feature_precision": "Round each of the 18 scalars to IEEE754 binary16 then expand to float32 before model input, matching frozen V3 cache.",
+  "base_prior": "-0.15*base_rank -0.5*edit_cost +0.02*log1p(max(0,frequency)); no binary16 rounding required",
+  "consumption": "Ranges are supplied by frozen candidate generator and measured on actual raw input Unicode scalar offsets, never intended or completed spelling.",
+  "bounds": {
+    "batch": 1,
+    "candidates": 32,
+    "context_tokens": 96,
+    "raw_tokens": 96,
+    "text_tokens": 32,
+    "reading_tokens": 96,
+    "inflight_recommendation": 1,
+    "pending_recommendation": 1
+  },
+  "deployment": {
+    "format": "ML Program .mlpackage",
+    "minimum": "iOS16",
+    "weights": "FP16 standard Core ML conversion",
+    "compute_units_options": [
+      "cpuOnly",
+      "cpuAndGPU",
+      "cpuAndNeuralEngine",
+      "all"
+    ],
+    "all_meaning": "allowed system scheduling; not evidence that ANE was used",
+    "ios_compile_verified": false,
+    "device_execution_verified": false,
+    "device_latency_verified": false,
+    "device_memory_verified": false,
+    "device_power_verified": false,
+    "deployment_ready": false
+  },
+  "calibration": {
+    "rank_output_transform": "identity",
+    "adoption_logit_transform": "positive scale+bias fitted only on independent calibration, folded into delivered policy.2 weight and bias; invalid/no-action remains -10000",
+    "transform_applied_in_model": true,
+    "adoption_threshold": "metadata only, runtime integration pending",
+    "product_gate_changed": false,
+    "same_method_for_v6": true
+  },
+  "run_id": "v10_policy_safety",
+  "integration_required": {
+    "status": true,
+    "app_project_inspected_or_changed": false,
+    "needs": [
+      "Map host real candidates and all required metadata to this exact feature contract",
+      "Supply actual rule identity even when not index0, plus stable snapshot/revision",
+      "Committed context is real preceding text; no synthesized unrelated/future context",
+      "Compile the supplied mlpackage in the existing iOS build and include resources in keyboard-extension target",
+      "Verify Swift encoder vs fixed vectors and Apple CoreML outputs vs source reference",
+      "Wire threshold/protected veto once; old product gates are not presumed equivalent"
+    ],
+    "unresolved": "Actual App candidate feature compatibility has not been inspected; all adapter differences remain integration_required. Never fill unknown metadata with guessed constants."
+  },
+  "policy": {
+    "proposal": "current scores argmax, never cached old-model proposal",
+    "keep_baseline": "actual rule_index, not hardcoded0",
+    "decision": "Apply existing raw-derived protected-literal veto. If vetoed, proposal equals rule, rule invalid, or adoption evidence below delivered threshold, keep actualrule; otherwise take proposal. No label, intendedinput or futuretext allowed.",
+    "protected_input_veto": "external existing frozen raw-input protection for URLs, identifiers and protected literals remains required; derive from available actual input, never gold",
+    "threshold_location": "metadata for runtime integration; model package exposes raw logit, does not silently change old product runtime",
+    "adoption_target_training_only": "1 exactly when actual current proposal is acceptable, actual rule is unacceptable, proposal differs from rule and input is not protected; all other caseskeep; this label never enters forward",
+    "both_acceptable": "keep is trained to avoid pointless substitution",
+    "both_wrong": "keep label does not count as correct outcome; final accuracy remains wrong",
+    "no_gold": "ranking masked, policy teachesreject unsupported replacement"
+  },
+  "network_extension": {
+    "base": "V9 best_rank step23739 unchanged encoder/ranker and existing V6-origin proposal-policy architecture",
+    "inherited_parameters": 4901123,
+    "new_policy_parameters": 0,
+    "new_head": false,
+    "evidence_order": [
+      "proposal_score",
+      "actual_rule_score",
+      "proposal_minus_rule_score",
+      "proposal_softmax_probability",
+      "proposal_acceptance_logit",
+      "rule_acceptance_logit",
+      "proposal_minus_rule_prior",
+      "proposal_differs_rule"
+    ],
+    "inference_runtime_dependency": "standard CoreML ops only; no Python or custom CUDA",
+    "policy_parameters": 132353,
+    "existing_policy": "existing 1032 -> 128 ReLU -> 1, initialized from V6 step160219; trained only on isolated selector_fit; calibration changes final linear values without adding parameters"
+  },
+  "weight_version": "v10_policy_safety",
+  "interface_changed_from_v6": false,
+  "training_protocol": "policy-only selector_fit training; frozen V9 rank; independent calibration affine folded into policy final linear; one locked final holdout",
+  "source_model": "V10",
+  "export_batch": "v10_iphone_trial_export_20261029_141958",
+  "checkpoint_step": 600,
+  "checkpoint_sha256": "0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423",
+  "research_only": true,
+  "quality_passed": false,
+  "deployment_ready": false,
+  "model_relative_path": "Model/V10KeyboardModel.mlpackage",
+  "vocabulary_relative_path": "Resources/vocab.json",
+  "runtime_policy_relative_path": "Resources/calibration.json",
+  "swift_entry": "Sources/V10TrialUsage.swift: V10TrialUsage.loadOnce -> V10LatestRequestRunner",
+  "dimension_meanings": {
+    "B": "batch=1; one keystroke snapshot",
+    "K": "32 candidate slots, unchanged original first32",
+    "C": "96 context token IDs",
+    "R": "96 actual-input token IDs",
+    "T": "32 candidate text token IDs",
+    "P": "96 candidate reading token IDs",
+    "F": "18 features, ordered exactly as features"
+  },
+  "encoding_details": {
+    "vocabulary_size": 8192,
+    "pad_token_id": 0,
+    "byte_fallback_token_ids": "UTF8 byte+1, IDs1..256",
+    "known_scalar_ids": "Use vocab.tokens index>=257; one Unicode scalar, never a grapheme or UTF16 unit",
+    "unknown_or_special": "No extra BOS/EOS/UNK is inserted. Unknown scalar expands into UTF8 byte IDs. Special-looking token strings are not parsed as macros.",
+    "normalization": "No NFC/NFKC, no trimming, no whitespace/punctuation removal, no ü/v rewriting, no traditional/simplified conversion",
+    "raw_input_case": "Python str.lower only in pinyin mode; English/mixed preserve case",
+    "text_reading_context_case": "Preserve as supplied",
+    "truncation": "After tokenization, context tail96; raw head96; candidate text head32; reading head96. Right-pad zeros.",
+    "length_units": "Token lengths are UTF8-fallback token count. Feature string lengths and actual consumed ranges are Unicode scalar count.",
+    "version_note": "Source Python Unicode15.0; Swift/Apple Unicode case-fold equivalence pending. Tokenizer edge vectors included.",
+    "empty_strings": "All-zero sequence; mean uses nonzero tokens and denominator clamped to1"
+  },
+  "candidate_adapter": {
+    "required": [
+      "id",
+      "text",
+      "reading",
+      "consumed_input_range",
+      "match_type",
+      "frequency",
+      "edit_cost",
+      "base_rank"
+    ],
+    "external_identity": "Stable ID stays outside neural tensors. candidate_ids contains text TOKEN IDs, not external candidate identities.",
+    "order": "Keep input candidate order; output column j maps to the same external ID at j. Do not sort first or assume actual rule is column0.",
+    "rule": "Look up rule_id in the original snapshot; pass that index as rule_index. Missing/duplicate IDs are errors. If rule lies outside unchanged first32, retain rule without inference.",
+    "truncation": "Take unchanged first32, mask padding. Do not insert target or pull a candidate from below32 for validation or this interface.",
+    "native_precision": "frequency/edit_cost are original Float32 reference-decoder values; base_rank is original integer rule rank. Do not substitute neural rank.",
+    "ranges": "[start,end) on ACTUAL raw Unicode scalar offsets. 0<=start<=end<=raw_scalar_count. Not the intended/corrected/expanded reading length.",
+    "partial_consumption": "Prefix/association/partial-consumption candidates are retained under the original contract; this export adds no new full-consumption veto.",
+    "base_prior": "Calculated once before the model; graph already adds it to scores. Never add again after inference.",
+    "invalid": "Pad token IDs/features/prior with0, valid_mask=0; real candidates mask=1. Discard padded outputs even though graph emits -10000.",
+    "truth_excluded": "No acceptable-answer set, intended text, correctness flag, future text or gold-present label enters runtime input."
+  },
+  "deterministic_decision": {
+    "order": [
+      "Validate snapshot and actual rule ID",
+      "Apply raw-derived protected literal veto",
+      "Encode first32 and infer all4 outputs",
+      "proposal_index is current scores argmax among valid candidates, first index wins ties",
+      "adopt_logit is already affine-calibrated",
+      "p=sigmoid(clamp(adopt_logit,-40,40)), evaluated in Float32",
+      "If proposal!=rule AND p>=Float32(0.65), adopt proposal; otherwise retain actual rule",
+      "Verify revision still current before applying the mapped preferred external ID"
+    ],
+    "threshold": 0.65,
+    "historical_scale_bias_already_folded": {
+      "scale": 0.8470209728622378,
+      "bias": -0.3160503520418978
+    },
+    "runtime_affine": {
+      "scale": 1.0,
+      "bias": 0.0,
+      "apply": false
+    },
+    "additional_legacy_gates": false,
+    "notes": "acceptance_logits and score/margin/softmax are policy evidence inside the graph, not additional runtime thresholds. No second temperature, scale, bias or base_prior.",
+    "fallbacks": [
+      "protected input",
+      "proposal==actual rule",
+      "below threshold",
+      "actual rule outside first32",
+      "encoding/model/output failure",
+      "stale revision"
+    ],
+    "output_scope": "Defines preferred candidate only. No implicit replacement of the host whole candidate list, committing text or discarding existing IME features."
+  },
+  "protected_input": {
+    "python_search_regex": "https?://|www\\.|[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}|[{}<>;=\\\\]",
+    "all_modes_fullmatch_regex": "[A-Z]{1,8}[-_]?\\d+[A-Za-z0-9-]*",
+    "english_only_fullmatch_regex": "[A-Za-z]+[-_]?\\d+[A-Za-z0-9-]*",
+    "case_sensitive": true,
+    "source": "OptionalCandidateReference/frozen_recall.py protected()",
+    "swift_translation": "ICU letters/numbers/underscore for Python w, Nd for Python d; see isProtected. Apple parity pending."
+  },
+  "runtime_dependency_closure": {
+    "required_files": [
+      "Model/V10KeyboardModel.mlpackage/**",
+      "Resources/vocab.json",
+      "Resources/calibration.json"
+    ],
+    "required_code": "Sources/*.swift or an equivalent implementation of this exact contract",
+    "python_or_checkpoint_required_on_phone": false,
+    "external_weights": false,
+    "optional_reference": "OptionalCandidateReference/ supplies the frozen V3 candidate-feature reference and assets; not automatically a replacement for the host engine."
+  },
+  "reports": {
+    "selected": "Reports/selected_evaluation.json",
+    "holdout": "Reports/final_holdout_check.json",
+    "historical_original_detail": "Reports/selected_final_original.json"
+  },
+  "not_a_candidate_engine": true,
+  "phone_validation_pending": true
+}

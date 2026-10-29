@@ -1,0 +1,34 @@
+{
+  "match_type_order": [
+    "exact",
+    "initials",
+    "mixed",
+    "prefix",
+    "fuzzy",
+    "correction",
+    "association",
+    "literal"
+  ],
+  "features": [
+    "min(1,log1p(max(0,frequency))/12)",
+    "min(1,max(0,edit_cost)/3)",
+    "match_type==exact",
+    "min(1,UnicodeScalarCount(text)/32)",
+    "min(1,(consumed_end-consumed_start)/max(1,raw_scalar_count))",
+    "min(1,raw_scalar_count/64)",
+    "mode==english",
+    "mode==mixed",
+    "type==exact",
+    "type==initials",
+    "type==mixed",
+    "type==prefix",
+    "type==fuzzy",
+    "type==correction",
+    "type==association",
+    "type==literal",
+    "min(1,max(0,consumed_start)/max(1,raw_scalar_count))",
+    "min(1,max(0,consumed_end)/max(1,raw_scalar_count))"
+  ],
+  "feature_rounding": "float64 formula -> IEEE754 binary16 nearest-even -> float32",
+  "prior_rounding": "float64 formula -> float32"
+}

@@ -1,7 +1,1 @@
-* text=auto eol=lf
-*.sh text eol=lf
-*.py text eol=lf
-*.yml text eol=lf
-*.swift text eol=lf
-*.clx binary
-*.png binary
+Core/Resources/V10/** -text

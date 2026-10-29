@@ -1,14 +1,14 @@
 import Foundation
 
 /// Chinese decoding uses our phonetic graph, lexical index and personal data.
-/// The local Qwen backend supplies only subsequent contextual token scores.
+/// The delivered V10 model supplies calibrated ranking/adoption decisions only.
 /// English completion retains its separate dictionary and case-handling API.
 public final class InputEngine {
     public let english: Lexicon
-    private let decoder: QwenDecoder
-    public var chineseBackend: String { "qwen3.5-0.8b-q4_k_m" }
-    public var backendRevision: Int { QwenDecoder.revision }
-    private init(english: Lexicon, decoder: QwenDecoder) { self.english = english; self.decoder = decoder }
+    private let decoder: NativeDecoder
+    public var chineseBackend: String { "clear-native+V10" }
+    public var backendRevision: Int { NativeDecoder.revision }
+    private init(english: Lexicon, decoder: NativeDecoder) { self.english = english; self.decoder = decoder }
     public static func bundled() throws -> InputEngine {
         try InputEngine(english: .bundled("english"), decoder: .bundled())
     }
@@ -31,9 +31,7 @@ public final class InputEngine {
         }
         let query = Composition.queryPrefix(raw, normalized: normalized)
         var generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
-                                           limit: limit, cancelled: cancelled, updated: { items, more, settled in
-            updated?(PersonalLexicon.merging(valid, into: items, limit: max(1, limit)), more, settled)
-        })
+                                           limit: max(32, limit + 1), cancelled: cancelled)
         guard !cancelled() else { return [] }
         if !learned.isEmpty {
             generated = generated.enumerated().sorted { a, b in
@@ -42,7 +40,17 @@ public final class InputEngine {
                 return x == y ? a.offset < b.offset : x > y
             }.map(\.element)
         }
-        var output = PersonalLexicon.merging(valid, into: generated, limit: max(1, limit))
+        var output = PersonalLexicon.merging(valid, into: generated, limit: max(32, limit + 1))
+        output = output.enumerated().map { index, candidate in candidate.withPath(candidate.path?.ranked(index)) }
+        let ruleID = output.first?.stableID
+        updated?(Array(output.prefix(max(1,limit))), output.count > limit, false)
+        if let ruleID, !cancelled() {
+            let mixed=output.first?.text.unicodeScalars.contains(where:{$0.isASCII && CharacterSet.letters.contains($0)}) == true
+            output=ClearV10Scorer.shared.rank(output,raw:raw,context:context,mode:mixed ? .mixed:.pinyin,
+                ruleCandidateID:ruleID,settingsKey:fuzzy.sorted().joined(separator:",")+(correction ? ":correct":":exact"),cancelled:cancelled)
+        }
+        guard !cancelled() else { return [] }
+        updated?(Array(output.prefix(max(1,limit))), output.count > limit, true)
         // An explicit raw-spelling choice remains available for mixed-language
         // input. It is not a substitute engine when the model cannot load.
         if output.count < limit, !normalized.isEmpty, !output.contains(where: { $0.text == raw }) {
@@ -55,7 +63,10 @@ public final class InputEngine {
         return decoder.candidates(query, fuzzy: fuzzy, characterOnly: true, limit: 4096, cancelled: cancelled)
     }
     public func predictions(after context: String, cancelled: () -> Bool = { false }) -> [Candidate] {
-        decoder.candidates("", context: context, correction: false, limit: 12, cancelled: cancelled)
+        let native=decoder.candidates("", context: context, correction: false, limit: 32, cancelled: cancelled)
+        guard let rule=native.first?.stableID, !cancelled() else{return native}
+        return Array(ClearV10Scorer.shared.rank(native,raw:"",context:context,mode:.pinyin,
+            ruleCandidateID:rule,settingsKey:"association",cancelled:cancelled).prefix(12))
     }
     public func englishCandidates(prefix: String) -> [Candidate] {
         let normalized = FuzzyPinyin.normalize(prefix)

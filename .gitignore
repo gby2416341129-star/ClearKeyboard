@@ -12,7 +12,6 @@ pending-feedback.json
 
 # Generated from the shared approved brand material on macOS.
 App/ClearAppIcon.icon/Assets/
-Core/Resources/Models/*.gguf
 Core/Resources/Phonetics/
 Core/Resources/Pinyin/
-Core/Resources/GPU/
+Core/Resources/Runtime/

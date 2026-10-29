@@ -1,9 +1,10 @@
-ClearKeyboard uses these local components:
+ClearKeyboard uses its own native phonetic decoder and the supplied V10 model.
+V10 export: v10_iphone_trial_export_20261029_141958; full ranking and calibrated adoption policy.
+Model identity and delivery checksums are retained in the runtime identity.json.
 
-Qwen3.5-0.8B by Qwen, Apache License 2.0.
-GGUF Q4_K_M conversion: unsloth/Qwen3.5-0.8B-GGUF.
-llama.cpp by ggml-org and contributors, MIT License.
-Unicode pronunciation data by mozillazg/pinyin-data, MIT License.
-English pronunciation dictionary by Carnegie Mellon University; see CMUdict.txt.
-
-The bundled model provides text inference only. No visual projector or cloud API is used.
+Independent lexical data:
+Unicode pronunciations: mozillazg/pinyin-data, MIT; see Unicode-pinyin.txt.
+Chinese lexical frequencies: fxsjy/jieba data, MIT; see LexicalFrequency.txt.
+Phrase pronunciations: mozillazg/phrase-pinyin-data, MIT; see PhrasePronunciation.txt.
+English pronunciations: Carnegie Mellon University; see CMUdict.txt.
+No external input-method engine implementation is included.

@@ -10,13 +10,13 @@ import hashlib
 import math
 import struct
 import unicodedata
-from prepare_qwen import ROOT, fetch
+from lexical_assets import ROOT, fetch
 
 WORD_COMMIT = '67fa2e36e72f69d9134b8a1037b83fbb070b9775'
 WORD_SHA256 = '7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8'
 PHRASE_COMMIT = '195893902791321fe38ae7b4ebdd9905389cfd41'
 PHRASE_SHA256 = '5eff64ffd4de072b7e7f96baec560c3366887f93e762cc35ef0a8f62a7259b73'
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 
 
 def normalize(value):
@@ -111,13 +111,13 @@ def main():
     nodes, edges, words, pool = bytearray(), bytearray(), bytearray(), bytearray()
     text_offsets, texts = {}, []
     for node, outgoing in enumerate(children):
-        first_edge, first_word = len(edges) // 8, len(words) // 16
+        first_edge, first_word = len(edges) // 8, len(words) // 20
         for sid, child in sorted(outgoing.items()): edges.extend(struct.pack('<HHI', sid, 0, child))
         for text, score, pronunciation_cost in sorted(terminals[node], key=lambda x: (-x[1] + x[2], x[0])):
             if text not in text_offsets:
                 value = text.encode('utf-8'); text_offsets[text] = (len(pool), len(value)); pool.extend(value)
             offset, length = text_offsets[text]
-            words.extend(struct.pack('<IIfHH', offset, length, score, len(text), min(65535, round(pronunciation_cost * 256))))
+            words.extend(struct.pack('<IIffHH', offset, length, score, float(frequencies[text]), len(text), min(65535, round(pronunciation_cost * 256))))
             texts.append(text)
         nodes.extend(struct.pack('<IIIIf', first_edge, len(outgoing), first_word, len(terminals[node]), maxima[node]))
     # The secondary text ordering serves next-word prediction without another
@@ -131,14 +131,14 @@ def main():
         padding = (-cursor) % 8; payload.extend(b'\0' * padding); cursor += padding
         offsets.append(cursor); payload.extend(section); cursor += len(section)
     padding = (-cursor) % 8; payload.extend(b'\0' * padding)
-    payload.extend(struct.pack('<8sII', b'CKFRQ83\0', len(characters), len(pairs)))
+    payload.extend(struct.pack('<8sII', b'CKFRQ84\0', len(characters), len(pairs)))
     for cp, count in sorted(characters.items()):
         payload.extend(struct.pack('<If', cp, math.log((count + .1) / character_total)))
     for (left, right), count in sorted(pairs.items()):
         payload.extend(struct.pack('<IIf', left, right, math.log(count / pair_totals[left])))
     fingerprint = int.from_bytes(hashlib.sha256(payload).digest()[:8], 'little')
-    header = struct.pack('<8s12IQ', b'CKLX83\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
-                         len(edges) // 8, len(words) // 16, len(pool), *offsets, fingerprint)
+    header = struct.pack('<8s12IQ', b'CKLX84\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
+                         len(edges) // 8, len(words) // 20, len(pool), *offsets, fingerprint)
     path = ROOT / 'Core/Resources/Pinyin/native.cklx'; path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(header + payload)
     print(f'Compiled native pinyin index: {len(texts)} readings, {path.stat().st_size} bytes; {hashlib.sha256(path.read_bytes()).hexdigest()}', flush=True)

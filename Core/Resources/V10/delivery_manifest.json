@@ -1,0 +1,427 @@
+{
+  "source_model": "V10",
+  "run_id": "v10_policy_safety",
+  "export_batch": "v10_iphone_trial_export_20261029_141958",
+  "exported_at": "2026-10-29 14:41:07 +0800",
+  "source_checkpoint": {
+    "path": "E:\\训练\\checkpoints\\v10_policy_safety\\calibrated_selected.pt",
+    "sha256": "0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423",
+    "bytes": 19688914,
+    "step": 600
+  },
+  "composition": {
+    "parameters": 4901123,
+    "encoder_rank_parameters": 4768770,
+    "policy_parameters": 132353,
+    "rank_source": {
+      "locked_rank_checkpoint": "E:\\训练\\checkpoints\\v9_recovery_ranker\\best_rank.pt",
+      "locked_rank_checkpoint_sha256": "56baa37b612ce3bfc8dcb4ce34367316d1edec909b9c0f163932ac2fd19b6fd4",
+      "rank_weight_sha256": "1965fb3802bf3564fd561d668b2bdcd96d6bcdf69cfc0d2d952c06b78cbcb65e",
+      "rank_weights_unchanged": true,
+      "policy_training_record": "E:\\训练\\runs\\v10_policy_safety\\selector_training_completion.json",
+      "policy_training_record_sha256": "f7d9a374f4853fc94eaa069d499511f5827d231280b6f3724113645dfab83a95",
+      "rank_source_run_id": "v9_recovery_ranker",
+      "rank_source_step": 23739,
+      "policy_initialization_run_id": "v6_context_policy_ranker",
+      "policy_initialization_step": 160219
+    },
+    "complete_selected_v10_policy": true,
+    "all_25_tensors_mapped": true,
+    "component_hashes": "Provenance/component_hashes.json"
+  },
+  "export_precision": "FP16 weights/internal standard CoreML conversion; external floats Float32, IDs/index Int32",
+  "minimum_deployment": "iOS16 / ML Program",
+  "format": "complete .mlpackage",
+  "converter": {
+    "python": "3.11.2 (main, Oct  7 2026, 12:35:07) [GCC 12.2.0]",
+    "platform": "Linux-6.1.0-54-cloud-amd64-x86_64-with-glibc2.36",
+    "coremltools": "8.3.0",
+    "numpy": "1.26.4"
+  },
+  "source_environment": {
+    "python": "3.12.16 (main, Oct 26 2026, 14:10:56) [MSC v.1944 64 bit (AMD64)]",
+    "torch": "2.9.1+cu128",
+    "numpy": "2.3.4",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "unicode": "15.0.0"
+  },
+  "weights_structure_calibration_and_rules": {
+    "source_checkpoint_changed": false,
+    "new_training": false,
+    "new_calibration": false,
+    "architecture_changed": false,
+    "decision_semantics_changed": false,
+    "export_fp16_rounding_expected": true,
+    "affine_calibration_already_folded": true,
+    "runtime_apply_affine": false,
+    "adoption_threshold": 0.65
+  },
+  "candidate_contract": "contract_v2; frozen baseline_v3_mobile features, not V4/V13 recall improvements",
+  "research_only": true,
+  "quality_passed": false,
+  "deployment_ready": false,
+  "best_safe_exists": false,
+  "known_validation": {
+    "source_identity_and_all_tensors_checked": true,
+    "graph_internal_weight_references_checked": true,
+    "source_fixed_encoder_parity_cases": 10,
+    "source_fixed_output_cases": 15,
+    "fixed_sample_adopted": 1,
+    "fixed_sample_kept": 14,
+    "calibration_fold_max_abs_error": 2.384185791015625e-07,
+    "no_full_quality_reevaluation": true,
+    "no_recalibration": true,
+    "coreml_numerics_verified": false,
+    "ios_compile_verified": false,
+    "swift_compile_verified": false,
+    "keyboard_extension_execution_verified": false,
+    "phone_accuracy_verified": false,
+    "phone_latency_verified": false,
+    "phone_memory_verified": false,
+    "phone_power_verified": false,
+    "actual_compute_units_verified": false
+  },
+  "integration_required": {
+    "status": true,
+    "app_project_inspected_or_changed": false,
+    "needs": [
+      "Map host real candidates and all required metadata to this exact feature contract",
+      "Supply actual rule identity even when not index0, plus stable snapshot/revision",
+      "Committed context is real preceding text; no synthesized unrelated/future context",
+      "Compile the supplied mlpackage in the existing iOS build and include resources in keyboard-extension target",
+      "Verify Swift encoder vs fixed vectors and Apple CoreML outputs vs source reference",
+      "Wire threshold/protected veto once; old product gates are not presumed equivalent"
+    ],
+    "unresolved": "Actual App candidate feature compatibility has not been inspected; all adapter differences remain integration_required. Never fill unknown metadata with guessed constants."
+  },
+  "runtime_required_files": [
+    "Model/V10KeyboardModel.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+    "Model/V10KeyboardModel.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+    "Model/V10KeyboardModel.mlpackage/Manifest.json",
+    "Resources/calibration.json",
+    "Resources/vocab.json"
+  ],
+  "runtime_code": [
+    "Sources/V10TrialModel.swift",
+    "Sources/V10TrialUsage.swift"
+  ],
+  "model_package_bytes": 9870777,
+  "model_and_required_resources_bytes": 9962837,
+  "optional_candidate_reference_bytes": 53886440,
+  "source_and_model_have_no_training_machine_runtime_dependency": true,
+  "report_references": [
+    "Reports/selected_evaluation.json",
+    "Reports/final_holdout_check.json",
+    "QUALITY.md"
+  ],
+  "checksum_scope": "files inventories all files except this manifest and SHA256SUMS; SHA256SUMS hashes every file except itself, including this manifest; ZIP hash is outside ZIP",
+  "disk_guard_before_archive": {
+    "project_bytes": 60034347994,
+    "e_free_bytes": 222381699072,
+    "max_project_bytes": 64424509440,
+    "minimum_e_free_bytes": 128849018880
+  },
+  "files": [
+    {
+      "path": "INTEGRATION.md",
+      "bytes": 11865,
+      "sha256": "c4f7d114a5592164507f2d4a7e6ada0f9b038ddcde9015d9e303a90c739ed2ab",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Model/V10KeyboardModel.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "bytes": 49744,
+      "sha256": "0bd86e02ea915d7ae5ea791d5aff992a8089b02c02526e190ba42ede4c1d4320",
+      "runtime_required": true,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Model/V10KeyboardModel.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "bytes": 9820416,
+      "sha256": "ce937c362aa8b824315f56f5853f8ae67371e1d62549c445155fdeb6663a9a44",
+      "runtime_required": true,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Model/V10KeyboardModel.mlpackage/Manifest.json",
+      "bytes": 617,
+      "sha256": "57bfaece7a52416018653f8182200ef54680ee66dfd14668c4664c1e8b3ef96d",
+      "runtime_required": true,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "MODEL_CONTRACT.json",
+      "bytes": 15549,
+      "sha256": "1a109a4d093739013c7722c7ab24aa160913d86b01e9c294eb862c5ef275d89c",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "OptionalCandidateReference/Assets/associations.json",
+      "bytes": 15169094,
+      "sha256": "6e0d8faf5e68ba535651b17eb9e5b6813d72689c029403e3ef2b6b9346bef22b",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/Assets/lexicon.json",
+      "bytes": 38690896,
+      "sha256": "7e85db6547a30fcea9579bea06b7fc6ae8eb9b9ac84248ee4e4ca1ee5652dbb9",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/Assets/source_notices.json",
+      "bytes": 4231,
+      "sha256": "d3200eac070fa156dec72c86d3284901a4194379b492b0858c6e7f21924b89c0",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/CMakeLists.txt",
+      "bytes": 275,
+      "sha256": "748b72f80aa9fa0e302fe5d50d04bd037f3519f5b373031ecfdd296ba1d01e23",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/decoder_config.json",
+      "bytes": 1017,
+      "sha256": "acd63253f1e7599e2cb0bc202e0ee479cb271c174e2a100c74bd1ff72ff59af1",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/frozen_recall.py",
+      "bytes": 4189,
+      "sha256": "dd334ecb29465861c6b483bb0757dddad81abfd286d17e2db61f23f16601c6fd",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/README.md",
+      "bytes": 1450,
+      "sha256": "df161010521720bb27ebbcba4ce1a595e06ad2f7b0f65d36dbeaea61b8a8e7be",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/reference_candidates.py",
+      "bytes": 728,
+      "sha256": "dc062e56ed2363ab1b374e46f2d35b4f5d8eac001436a70844ec1fbce16449ef",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/reference_recall.cpp",
+      "bytes": 13395,
+      "sha256": "e2d491b85b0e6ce2d583592ffb4b232661bc9fba62d4824731b0dd1663d706f5",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/reference_recall.h",
+      "bytes": 898,
+      "sha256": "b9bf487c69fcf2f629f44be452fc31e61dcc77e9f6e3a44a4f497a0ee9538d17",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "OptionalCandidateReference/support.py",
+      "bytes": 267,
+      "sha256": "21abd0019ab761710e927f0d32b813670b6f5b9fef7dcf1d13b4bb93bf14cbf1",
+      "runtime_required": false,
+      "optional_candidate_reference": true
+    },
+    {
+      "path": "Provenance/component_hashes.json",
+      "bytes": 13986,
+      "sha256": "59420886931e023a819f21272d2ad972c79e1c4f77c6c9b484973d2527f9c75f",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/converter_environment.json",
+      "bytes": 185,
+      "sha256": "ad5ad5aa8845783de2d2a74f8c20597112964875bfef7ae0064a697ae67cdee2",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/coreml_export_record.json",
+      "bytes": 6286,
+      "sha256": "87d7d27d0c65677c9884f9d4935c5b9e35cf914d15859180c82a2a0e1a321d39",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/export_completion.json",
+      "bytes": 299,
+      "sha256": "2ee13f349dfc9862bb6d4536fe45df5c95f820b57572ed18b11254bc15bf29ac",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/export_structure.json",
+      "bytes": 3988,
+      "sha256": "820e284d5ed40aef7b3b917fd40cf6d77c49b59d817c79645a5541e747fe2589",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/fixed_input_checks.json",
+      "bytes": 334,
+      "sha256": "f3970d2d73f40bf47dc492f8ea0262653ff5c886512f9be71da04b85a5673cc7",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/original_V10_contract.json",
+      "bytes": 8476,
+      "sha256": "3f98a87d6de0c4398b64383c10cb3852a9e13058054cbd43eab25139c2242d2e",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/source_identity.json",
+      "bytes": 3908,
+      "sha256": "48f77257c64f6ae1d408ec50376706f63444b326eea5e1d90c88ca6ed79f2d9d",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/training_config.json",
+      "bytes": 9433,
+      "sha256": "7c125870d5ab039e6edeccba8005762b0b1b2e13ee167f6707ad6ca6a3d1b5ff",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/V10CoreMLExport.py",
+      "bytes": 9832,
+      "sha256": "3520498fb051b4b234f582b98068009c92dbd9e8a75b788e520d4c7bcf54865d",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Provenance/V10Network.py",
+      "bytes": 8582,
+      "sha256": "9acc67eda8fcfc73fa1faa39b5b8741ae3fa2df7f7bbf9b26b20e3c98a4a39ee",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "PROVENANCE_AND_LICENSES.md",
+      "bytes": 845,
+      "sha256": "8d2b46220f074d4d1a8833eb73d8aa4bf41aefda9abffc9955be4f46fdebee3c",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "QUALITY.md",
+      "bytes": 1275,
+      "sha256": "b75c3c3ad1265a11d1032de23b857177630619904bf9f851fae9d123264e7091",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reference/encoder_reference.py",
+      "bytes": 3983,
+      "sha256": "5c6c898a3114bcbf3f5cf2fa7a0d0ed5787041c15af026395ca184c3d1177998",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reference/README.md",
+      "bytes": 1384,
+      "sha256": "1aeff5c25df0f147da23a8a6d170042e168c259a4ccebdf3d82e21dd3100695a",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reference/reference_cases.json",
+      "bytes": 1469549,
+      "sha256": "9a43bc36f8152224850fc38e4b21cefe5e018076e567c03deb2fab9c67d85404",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reference/reference_inputs_outputs.npz",
+      "bytes": 302762,
+      "sha256": "491457577abeca8d6164611d797e5ce6f7dda72d8a55c634854ba71508eabfe1",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reference/tokenizer_vectors.json",
+      "bytes": 19630,
+      "sha256": "5d3336c5ad520fe19f42eb9944f7394e2ad699794f5e24dd0a7ed4254801feee",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reports/final_holdout_check.json",
+      "bytes": 540935,
+      "sha256": "0137c9258aa06fd6adfa970d87d334cc6b6f515cabce8e7c5ce5065bdf0124a0",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reports/selected_evaluation.json",
+      "bytes": 626754,
+      "sha256": "a64393724f5a7264b876e3ded2db9025c6f154ccb7e4e69c3b59d0370eef7096",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Reports/selected_final_original.json",
+      "bytes": 243559,
+      "sha256": "1325a8dbf6e59a48d0c11215764c3a0150592f5ed926af9a0fad21dd27edd1e7",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Resources/calibration.json",
+      "bytes": 649,
+      "sha256": "765c8c2849c42a6f0d97759062cce62b870b271d2c714e7095e2372c1b42f8af",
+      "runtime_required": true,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Resources/feature_types.json",
+      "bytes": 909,
+      "sha256": "0734933e55a139dce75690d576023eb5189850045be19744b5bc36e1c51c37fb",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Resources/vocab.json",
+      "bytes": 91411,
+      "sha256": "dee26a331731799f9c84c625cf93036cf6bd1c1bedc62531d0b47ca70100c1a8",
+      "runtime_required": true,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Sources/V10TrialModel.swift",
+      "bytes": 14521,
+      "sha256": "b4235485a3b41fae7cb5d7cacdc48bfeaa91d294a10399daeb0290315093509b",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "Sources/V10TrialUsage.swift",
+      "bytes": 3208,
+      "sha256": "43db51d03f191357453e52685c7d7c6d026ce47aedff807fea4bdaed71640fa5",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    },
+    {
+      "path": "START_HERE.md",
+      "bytes": 1590,
+      "sha256": "0733eef7ba617e0279206c8bd5c93756e5bda873dbd6e1e556d375e41c23c7b0",
+      "runtime_required": false,
+      "optional_candidate_reference": false
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "engine_version": "clear-native-84",
+  "model_version": "V10",
+  "export_batch": "v10_iphone_trial_export_20261029_141958",
+  "checkpoint_sha256": "0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423",
+  "delivery_zip_sha256": "e81300bbe9ceabbc9654b477d797f6e33f778c667e8778ac07affe4c946e4071",
+  "quality_passed": false,
+  "deployment_ready": false,
+  "runtime_files": {
+    "calibration.json": "765c8c2849c42a6f0d97759062cce62b870b271d2c714e7095e2372c1b42f8af",
+    "delivery_manifest.json": "980548bf007849bc0e6de81c1e5be766a636224c77aa2aed7af0b1a03b86835d",
+    "feature_types.json": "0734933e55a139dce75690d576023eb5189850045be19744b5bc36e1c51c37fb",
+    "MODEL_CONTRACT.json": "1a109a4d093739013c7722c7ab24aa160913d86b01e9c294eb862c5ef275d89c",
+    "V10KeyboardModel.mlpackage/Data/com.apple.CoreML/model.mlmodel": "0bd86e02ea915d7ae5ea791d5aff992a8089b02c02526e190ba42ede4c1d4320",
+    "V10KeyboardModel.mlpackage/Data/com.apple.CoreML/weights/weight.bin": "ce937c362aa8b824315f56f5853f8ae67371e1d62549c445155fdeb6663a9a44",
+    "V10KeyboardModel.mlpackage/Manifest.json": "57bfaece7a52416018653f8182200ef54680ee66dfd14668c4664c1e8b3ef96d",
+    "vocab.json": "dee26a331731799f9c84c625cf93036cf6bd1c1bedc62531d0b47ca70100c1a8"
+  }
+}

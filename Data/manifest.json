@@ -9,14 +9,13 @@
     "sha256": "c0ec19c39badffdc635f39d6af32c824a7e06b5974932b5d5b50dd5fdbcbfc13"
   },
   "chinese": {
-    "model": "Qwen/Qwen3.5-0.8B",
-    "quantization": "unsloth/Qwen3.5-0.8B-GGUF",
-    "file": "Qwen3.5-0.8B-Q4_K_M.gguf",
-    "bytes": 532517120,
-    "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
-    "runtime": "llama.cpp",
-    "runtimeCommit": "caa8191df159f764fb0160e3d2fc6be008948aee",
-    "phoneticData": "mozillazg/pinyin-data",
-    "phoneticCommit": "9d05c9e29cb6a7e5c79f2f5279f5c1014246a19a"
+    "engine": "clear-native",
+    "engineVersion": 84,
+    "model": "V10",
+    "runtime": "Apple Core ML",
+    "modelBundle": "PlugIns/ClearKeyboardExtension.appex/V10",
+    "exportBatch": "v10_iphone_trial_export_20261029_141958",
+    "checkpointSHA256": "0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423",
+    "deliveryZIP_SHA256": "e81300bbe9ceabbc9654b477d797f6e33f778c667e8778ac07affe4c946e4071"
   }
 }

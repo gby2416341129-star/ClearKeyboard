@@ -156,11 +156,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var appearanceLink: AppearanceSettingsLink?
     private let suppliedDefaults: UserDefaults?
     private var engine: InputEngine?
-    // One serial Qwen inference owner; immutable Qwen scores have a separate
+    // One latest-task V10 inference owner; native candidate lookups have a separate
     // phonetic filtering worker so sentence generation cannot hold up a key.
-    private let queue = DispatchQueue(label: "clear.candidates", qos: .userInitiated, autoreleaseFrequency: .workItem)
+    private let queue = LatestCandidateWorkQueue(label: "clear.candidates")
     // Constraint matching stays off the UI thread and the inference queue.
-    private let wordQueue = DispatchQueue(label: "clear.words", qos: .userInitiated)
+    private let wordQueue = LatestCandidateWorkQueue(label: "clear.words")
     private let wordLookup: (InputEngine, String, [Candidate]) -> [Candidate]
     private let hotWords = HotWordCache()
     private let warmsWords: Bool
@@ -364,7 +364,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
             let cancelled = { query.token.isCancelled || token.isCancelled }
             guard !cancelled() else { return }
-            // The native decoder publishes its indexed row before Qwen ranking.
+            // The native decoder publishes its indexed row before V10 ranking/adoption.
             let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
                 correction: correction, context: query.preceding, cancelled: cancelled, updated: { items, more, settled in
@@ -387,8 +387,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
         }
         refinementWork = job
-        if delay == 0 { queue.async(execute: job) }
-        else { queue.asyncAfter(deadline: .now() + delay, execute: job) }
+        queue.async(execute: job)
     }
 
 

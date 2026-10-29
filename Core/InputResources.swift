@@ -7,9 +7,10 @@ enum InputResources {
         return [Bundle.module, Bundle.main]
         #else
         let main = Bundle.main
-        guard main.bundleURL.pathExtension == "appex",
-              let app = Bundle(url: main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()) else { return [main] }
-        return [app, main]
+        if main.bundleURL.pathExtension == "appex",
+           let app=Bundle(url:main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()) {return [main,app]}
+        if let keyboard=Bundle(url:main.bundleURL.appendingPathComponent("PlugIns/ClearKeyboardExtension.appex")) {return [main,keyboard]}
+        return [main]
         #endif
     }
     static func url(_ name: String, extension suffix: String, directory: String? = nil) -> URL? {

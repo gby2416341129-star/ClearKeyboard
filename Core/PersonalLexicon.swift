@@ -11,6 +11,7 @@ public struct PersonalLexicon: Codable {
         var uses: Int
         var selectedAt: Date
         var initials: String?
+        var path: CandidatePath? = nil
     }
     private(set) var entries: [Entry] = []
     public init() {}
@@ -38,7 +39,7 @@ public struct PersonalLexicon: Codable {
         entries.removeAll { $0.code == code && $0.text == candidate.text }
         entries.insert(Entry(code: code, text: candidate.text, reading: candidate.reading,
             consumed: candidate.consumed, uses: min(10_000, uses + 1), selectedAt: now,
-            initials: candidate.consumed == FuzzyPinyin.normalize(code).count ? Self.initials(text: candidate.text, reading: candidate.reading) : nil), at: 0)
+            initials: candidate.consumed == FuzzyPinyin.normalize(code).count ? Self.initials(text: candidate.text, reading: candidate.reading) : nil, path: candidate.path), at: 0)
         entries = Array(entries.prefix(512))
     }
     public func candidates(for raw: String) -> [Candidate] {
@@ -63,7 +64,8 @@ public struct PersonalLexicon: Codable {
             // An explicit full phrase also teaches its initials immediately.
             // Exact spelling choices retain their gradual contextual preference.
             Candidate(text: entry.text, reading: entry.reading, consumed: consumed,
-                score: entry.initials == code ? 4 : Double(min(3, entry.uses)))
+                score: entry.initials == code ? 4 : Double(min(3, entry.uses)),
+                path: entry.path?.learned(raw:raw,consumed:consumed,uses:entry.uses,initials:entry.initials == code))
         })
     }
     private static func initials(text: String, reading: String) -> String? {
@@ -77,7 +79,10 @@ public struct PersonalLexicon: Codable {
     /// are immediately reusable; caller preferences (0 or legacy 200) keep their API.
     public static func merging(_ preferred: [Candidate], into words: [Candidate], limit: Int) -> [Candidate] {
         var seen = Set<String>()
-        let choices = preferred.filter { seen.insert($0.text).inserted }
+        let choices = preferred.filter { seen.insert($0.text).inserted }.map { candidate in
+            guard candidate.path == nil,let evidence=words.first(where:{$0.text==candidate.text && $0.consumed==candidate.consumed})?.path else{return candidate}
+            return candidate.withPath(evidence)
+        }
         let ranks = Dictionary(words.enumerated().map { ($0.element.text, $0.offset) }, uniquingKeysWith: min)
         var output = words.filter { !seen.contains($0.text) }
         seen.removeAll()
