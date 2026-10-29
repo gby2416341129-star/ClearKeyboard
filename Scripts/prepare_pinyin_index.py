@@ -129,7 +129,11 @@ def main():
             role|=16384 if text in phrases else 0
             independent=sum(math.log((characters[ord(ch)]+.1)/character_total) for ch in text)
             reliability=frequencies[text]/(frequencies[text]+16)
-            lexical_bonus=min(6.0,max(0.0,score-independent))*reliability*.35
+            # A recorded multi-character expression contributes its discounted
+            # lexical likelihood gain. Capping every expression to a tiny fixed
+            # bonus discarded most of the evidence for idioms and rare words.
+            # Single characters already pay their prior once in the decoder.
+            lexical_bonus=max(0.0,score-independent)*reliability if len(text)>1 else 0.0
             words.extend(struct.pack('<IIffHHHH', offset, length, score, float(frequencies[text]), len(text), min(65535, round(pronunciation_cost * 256)),role,round(lexical_bonus*256)))
             texts.append(text)
         nodes.extend(struct.pack('<IIIIf', first_edge, len(outgoing), first_word, len(terminals[node]), maxima[node]))

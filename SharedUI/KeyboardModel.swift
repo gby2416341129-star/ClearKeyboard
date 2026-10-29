@@ -141,6 +141,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private(set) var engineState = "本地拼音索引加载中…"
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
+    var onCandidateSelection: (() -> Void)?
+    var spaceSelectsCandidate: Bool {
+        !composition.isEmpty || (settings.language == .english && englishSpaceSelectionIsVisible && candidatesAreCurrent)
+    }
     var onInputChange: (() -> Void)?
     var onContentKey: (() -> Void)?
     var onNotice: ((String) -> Void)?
@@ -741,7 +745,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 commitChoice(candidate, document: document)
                 return
             }
-            if composition.isEmpty { insertText(" ") } else { commitComposition(flushRemainder: false) }
+            if composition.isEmpty { insertText(" ") }
+            else {
+                let selecting = automaticChoiceIsReady && candidates.first != nil
+                if commitComposition(flushRemainder: false), selecting { onCandidateSelection?() }
+            }
         case .enter:
             // The host's rightmost Return/Search/Confirm key accepts the raw
             // spelling. Space and candidate taps retain Chinese selection.
@@ -778,7 +786,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
               composition.isEmpty, document.selectedText.isEmpty, document.contextBefore.hasSuffix(arithmetic.expression) else { return }
         numericRun.reset(); phraseLearning.reset()
         for _ in arithmetic.expression { document.deleteBackward() }
-        document.insert(text); refreshCandidates()
+        document.insert(text); onCandidateSelection?(); refreshCandidates()
     }
     @discardableResult private func commitComposition(flushRemainder: Bool = true) -> Bool {
         guard !composition.isEmpty else { composition.clear(); return true }
@@ -879,7 +887,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         beginDocumentEdit(); defer { endDocumentEdit() }
         if composition.isEmpty, candidate.consumed == 0, NumericLexicon.isDigits(candidate.reading) {
             guard settings.learnChoices, let prefix = numericPrefix(), numbers.candidates(for: prefix).contains(candidate) else { return }
-            insertText(candidate.text); refreshCandidates(); return
+            insertText(candidate.text); onCandidateSelection?(); refreshCandidates(); return
         }
         if settings.language == .chinese {
             let spelling = learningRaw ?? composition.raw
@@ -916,6 +924,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 insertText(output + " ")
             }
         }
+        onCandidateSelection?()
         refreshCandidates()
     }
     private func needsLatestCandidate(for action: KeyAction) -> Bool {

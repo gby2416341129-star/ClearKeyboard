@@ -4,6 +4,7 @@ import UIKit
     private let workspace = KeyboardAdjustmentWorkspace()
     private let enabled = UISwitch()
     private let strength = KeyboardVerticalValueControl()
+    private var interactionSwitches: [(UISwitch, WritableKeyPath<KeyboardSettings, Bool?>)] = []
     private var modes: [(VibrationMode, UIButton)] = []
     private let current: () -> KeyboardSettings
     private let save: (KeyboardSettings) -> Void
@@ -28,7 +29,28 @@ import UIKit
         reset.accessibilityIdentifier = "keyboard.vibration.reset"; workspace.left.addArrangedSubview(reset)
         strength.slider.accessibilityIdentifier = "keyboard.vibration.strength"; strength.slider.accessibilityLabel = "震动力度"
         strength.onChange = { [weak self] value in self?.edit { $0.vibrationIntensity = value } }
-        workspace.right.addArrangedSubview(strength); apply(current())
+        workspace.right.addArrangedSubview(strength)
+        let interactions = UIStackView(); interactions.axis = .horizontal; interactions.spacing = 8; interactions.distribution = .fillEqually
+        workspace.footerHeight = 65; workspace.footer.addSubview(interactions)
+        interactions.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([interactions.leadingAnchor.constraint(equalTo: workspace.footer.leadingAnchor), interactions.trailingAnchor.constraint(equalTo: workspace.footer.trailingAnchor), interactions.topAnchor.constraint(equalTo: workspace.footer.topAnchor), interactions.bottomAnchor.constraint(equalTo: workspace.footer.bottomAnchor)])
+        let fields: [(String, String, WritableKeyPath<KeyboardSettings, Bool?>)] = [
+            ("Logo 点击", "logo", \.logoVibrationEnabled), ("小图标滑动", "toolbarScroll", \.toolbarScrollVibrationEnabled), ("选词", "candidate", \.candidateVibrationEnabled)]
+        for (title, identifier, path) in fields {
+            let card = UIStackView(); card.axis = .vertical; card.alignment = .center; card.spacing = 7
+            let label = UILabel(); label.text = title; label.font = .systemFont(ofSize: 12, weight: .medium); label.textColor = .secondaryLabel
+            let toggle = UISwitch(); toggle.onTintColor = enabled.onTintColor
+            toggle.accessibilityLabel = title + "震动"; toggle.accessibilityIdentifier = "keyboard.vibration." + identifier
+            toggle.addAction(UIAction { [weak self, weak toggle] _ in
+                guard let self, let toggle else { return }
+                // Interaction preferences are independent of typing feedback.
+                var settings = self.current(); settings[keyPath: path] = toggle.isOn
+                self.save(settings); self.apply(settings)
+            }, for: .valueChanged)
+            card.addArrangedSubview(label); card.addArrangedSubview(toggle); interactions.addArrangedSubview(card)
+            interactionSwitches.append((toggle, path))
+        }
+        apply(current())
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() { super.layoutSubviews(); workspace.frame = bounds }
@@ -44,6 +66,7 @@ import UIKit
     }
     func apply(_ settings: KeyboardSettings) {
         enabled.isOn = settings.usesVibration
+        for (toggle, path) in interactionSwitches { toggle.isOn = settings[keyPath: path] ?? true }
         workspace.preview.apply(settings)
         for (mode, button) in modes {
             let active = settings.resolvedVibrationMode == mode

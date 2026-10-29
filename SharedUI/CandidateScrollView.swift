@@ -47,6 +47,7 @@ import os
     var onInteractionChanged: ((Bool) -> Void)?
     var onLoadMore: ((KeyboardModel.CandidateContext?) -> Void)?
     var onSelect: ((Candidate, KeyboardModel.CandidateContext?, Bool) -> Void)?
+    var selectionVibrationEnabled = true
     override var accessibilityValue: String? {
         get { "offset:\(Int(contentOffset.x));count:\(presentation?.items.count ?? 0)" }
         set {}
@@ -207,7 +208,7 @@ import os
         let index = firstIndex(at: point.x)
         guard current.items.indices.contains(index), frames.indices.contains(index), frames[index].contains(point) else { return }
         beginBrowsing(); managementActive = true
-        KeyboardVibration.shared.pulseInterface()
+        if selectionVibrationEnabled { KeyboardVibration.shared.pulseInterface() }
         onManage?(current.items[index], context, convert(frames[index], from: strip))
     }
     private func selectionFeedback(_ index: Int) {
@@ -218,7 +219,7 @@ import os
         flash.configure(tint: ink, strength: 0.65, fallback: ink.withAlphaComponent(0.18))
         host.addSubview(flash)
         flash.transform = CGAffineTransform(scaleX: 0.98, y: 0.96)
-        KeyboardVibration.shared.pulseInterface()
+        // Feedback is emitted once, after the shared commit actually succeeds.
         UIView.animate(withDuration: 0.22, delay: 0.025, usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
                        options: [.allowUserInteraction, .beginFromCurrentState], animations: {
             flash.transform = .identity; flash.alpha = 0

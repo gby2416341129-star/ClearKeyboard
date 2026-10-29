@@ -164,7 +164,7 @@ final class KeyButton: UIButton {
         accessibilityCustomActions = choices.map { value in
             UIAccessibilityCustomAction(name: "输入 " + value) { [weak self] _ in self?.onAction?(.literal(value)); return true }
         }
-        if vibrationEnabled { vibration.prepare(mode: vibrationMode) }
+        if vibrationEnabled && !suppressTypingVibration { vibration.prepare(mode: vibrationMode) }
         appearanceSettings = settings; applyAppearance(settings)
         pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.24)
         updateShift(active: active, capsLocked: capsLocked)
@@ -194,6 +194,7 @@ final class KeyButton: UIButton {
         caption.isHidden = active || icon.image != nil; icon.isHidden = active
         plate.alpha = active ? 0.1 : 1
     }
+    var suppressTypingVibration = false
     @objc private func down() {
         if !interactionActive { interactionActive = true; onInteractionChanged?(true) }
         didRepeat = false; suppressTap = false
@@ -206,7 +207,7 @@ final class KeyButton: UIButton {
             : CGAffineTransform(translationX: 0, y: 1.3).scaledBy(x: 0.945, y: 0.945)
         onPrepare?(key.action)
         if key.action == .space { vibration.attach(to: self); vibration.prepareCursorActivation() }
-        if vibrationEnabled {
+        if vibrationEnabled && !suppressTypingVibration {
             var host: UIView = self
             while let parent = host.superview, !(host is KeyboardSurface) { host = parent }
             vibration.attach(to: host); vibration.pulse(intensity: vibrationIntensity, mode: vibrationMode)

@@ -110,7 +110,7 @@ import SwiftUI
         toolbarScroll.delegate = self; toolbarScroll.alwaysBounceHorizontal = true
         toolbarScroll.pendingOffset = toolbarOffset
         toolbarScroll.onTooth = { [weak self] speed in
-            guard let self, !self.toolbarDragActive else { return }
+            guard let self, !self.toolbarDragActive, self.model.settings.usesToolbarScrollVibration else { return }
             self.toolbarVibration.attach(to: self); self.toolbarVibration.pulseScroll(speed: speed)
         }
         toolbarScroll.backgroundColor = .clear
@@ -153,6 +153,10 @@ import SwiftUI
         candidateScroll.delaysContentTouches = false; candidateScroll.canCancelContentTouches = true
         candidateScroll.onInteractionChanged = { [weak model] active in model?.candidateInteractionChanged(active) }
         candidateScroll.onLoadMore = { [weak model] context in model?.loadMoreCandidates(context: context) }
+        model.onCandidateSelection = { [weak self] in
+            guard let self, self.model.settings.usesCandidateVibration else { return }
+            self.toolbarVibration.attach(to: self); self.toolbarVibration.pulseInterface()
+        }
         candidateScroll.onSelect = { [weak model] candidate, context, arithmetic in
             if arithmetic { model?.chooseArithmetic(candidate.text) }
             else { model?.chooseDisplayed(candidate, context: context) }
@@ -297,6 +301,9 @@ import SwiftUI
                     button.onPrepare = { [weak self, weak button] action in
                         guard let self, let button else { return }
                         switch action { case .text, .literal: self.consumeClipboardForTyping(); default: break }
+                        // A Space selection has one selection pulse after commit,
+                        // instead of also firing the ordinary typing pulse down.
+                        button.suppressTypingVibration = action == .space && self.model.spaceSelectsCandidate
                         self.beginContact(button, action: action)
                         self.model.prepare(action)
                     }
@@ -340,7 +347,9 @@ import SwiftUI
             update(panel)
         }
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
-        let style = "\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
+        candidateScroll.selectionVibrationEnabled = settings.usesCandidateVibration
+        (panel as? KeyboardHapticPanel)?.apply(settings)
+        let style = "\(settings.usesLogoVibration)-\(settings.usesToolbarScrollVibration)-\(settings.usesCandidateVibration)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
             appearanceSignature = style; tintColor = settings.accentInkColor
@@ -507,7 +516,7 @@ import SwiftUI
                 guard !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil,
                       !self.toolbarScroll.isDragging else { return }
             }
-            self.toolbarPulse()
+            if !independentNavigation || self.model.settings.usesLogoVibration { self.toolbarPulse() }
             button?.playActivationFeedback()
             if let button, button.accessibilityIdentifier?.hasPrefix("toolbar.") == true,
                !self.toolbarEditing, !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil {
@@ -624,7 +633,8 @@ import SwiftUI
     }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         if scrollView === toolbarScroll {
-            toolbarScroll.pendingOffset = nil; toolbarVibration.attach(to: self); toolbarVibration.prepareScroll()
+            toolbarScroll.pendingOffset = nil
+            if model.settings.usesToolbarScrollVibration { toolbarVibration.attach(to: self); toolbarVibration.prepareScroll() }
         }
     }
     private func prepareToolbarNavigation() {

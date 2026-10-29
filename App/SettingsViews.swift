@@ -51,6 +51,16 @@ struct CustomizationView: View {
                 }
             }
             AppCard {
+                PreferenceToggle(title: "Logo 点击震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesLogoVibration }, set: { preferences.settings.logoVibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.logoVibration")
+                Divider()
+                PreferenceToggle(title: "小图标滑动震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesToolbarScrollVibration }, set: { preferences.settings.toolbarScrollVibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.toolbarScrollVibration")
+                Divider()
+                PreferenceToggle(title: "选词震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesCandidateVibration }, set: { preferences.settings.candidateVibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.candidateVibration")
+            }
+            AppCard {
                 Button { showToolbarEditor = true } label: { AppRow(title: "快捷工具", detail: "排列与选择", symbol: "rectangle.3.group") }
                     .buttonStyle(AppRowButtonStyle()).accessibilityIdentifier("custom.toolbarEditor")
             }

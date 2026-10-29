@@ -8,6 +8,8 @@ import UIKit
     private var strength: KeyboardVerticalValueControl?
     private var swatches: [(UIButton, String)] = []
     private var colors: [KeyboardRGBControl] = []
+    private let colorSlider = UISlider()
+    private var colorChannel = 0
     private var options: [(UIButton, (KeyboardSettings) -> Bool)] = []
     private(set) var selected: AppearanceItem?
     var onNavigate: ((AppearanceItem?) -> Void)?
@@ -79,6 +81,16 @@ import UIKit
             workspace.right.addArrangedSubview(reset)
         case .keyColor, .candidateColor:
             workspace.configure(left: "预设颜色", right: "RGB")
+            colorChannel = 0; workspace.footerHeight = 44
+            colorSlider.removeTarget(nil, action: nil, for: .valueChanged)
+            colorSlider.removeAction(identifiedBy: UIAction.Identifier("keyboard.rgb.change"), for: .valueChanged)
+            colorSlider.addAction(UIAction(identifier: UIAction.Identifier("keyboard.rgb.change")) { [weak self] _ in
+                guard let self else { return }; var rgb = self.color(); let value = Double(self.colorSlider.value)
+                switch self.colorChannel { case 0: rgb.red = value; case 1: rgb.green = value; default: rgb.blue = value }
+                self.setColor(rgb.hex)
+            }, for: .valueChanged)
+            colorSlider.frame = workspace.footer.bounds; colorSlider.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            colorSlider.accessibilityIdentifier = "keyboard.color.slider"; workspace.footer.addSubview(colorSlider)
             let palette = ["#F2F3F8", "#292C39", "#7573F5", "#558DF2", "#D799BC", "#E3AC72"]
             for start in stride(from: 0, to: palette.count, by: 2) {
                 let row = KeyboardColorPresetRow(); row.spacing = 5; row.distribution = .fillEqually
@@ -93,14 +105,12 @@ import UIKit
             workspace.left.addArrangedSubview(reset)
             for (index, name) in ["R", "G", "B"].enumerated() {
                 let control = KeyboardRGBControl(name: name)
-                control.onChange = { [weak self] value in
-                    guard let self else { return }; var rgb = self.color()
-                    if index == 0 { rgb.red = value }; if index == 1 { rgb.green = value }; if index == 2 { rgb.blue = value }
-                    self.setColor(rgb.hex)
+                control.onSelect = { [weak self] in
+                    guard let self else { return }; self.colorChannel = index; self.apply(self.current())
                 }
                 colors.append(control); workspace.right.addArrangedSubview(control)
             }
-            // Four equal slots on both sides: RGB thumbs match all three color rows.
+            // Readable channel values select the full-width slider below the preview.
             workspace.right.addArrangedSubview(UIView())
         }
         apply(current()); setNeedsLayout()
@@ -124,7 +134,12 @@ import UIKit
         strength?.configure(value: settings.resolvedKeyGlassStrength)
         if selected?.colorPath != nil {
             let rgb = color(), values = [rgb.red, rgb.green, rgb.blue]
-            for (index, control) in colors.enumerated() { control.configure(values[index]) }
+            for (index, control) in colors.enumerated() { control.configure(values[index], selected: index == colorChannel, tint: tintColor) }
+            if !colorSlider.isTracking { colorSlider.value = Float(values[colorChannel]) }
+            let channel = ["R", "G", "B"][colorChannel]
+            colorSlider.accessibilityLabel = "自定义颜色 " + channel
+            colorSlider.accessibilityValue = String(Int((values[colorChannel] * 255).rounded()))
+            colorSlider.minimumTrackTintColor = tintColor
             for (button, hex) in swatches {
                 let active = rgb.hex == hex; button.layer.borderWidth = active ? 2 : 0; button.layer.borderColor = UIColor.label.cgColor
                 button.accessibilityTraits = active ? [.button, .selected] : .button
@@ -146,24 +161,30 @@ import UIKit
     }
 }
 
-@MainActor private final class KeyboardRGBControl: UIView {
-    private let name = UILabel(), amount = UILabel(), slider = UISlider()
-    var onChange: ((Double) -> Void)?
+/// Channel labels never share a narrow row with a slider thumb. The selected
+/// channel uses the full-width, 44pt-high adjustment track below the keyboard.
+@MainActor private final class KeyboardRGBControl: UIControl {
+    private let name = UILabel(), amount = UILabel()
+    var onSelect: (() -> Void)?
     init(name title: String) {
         super.init(frame: .zero); name.text = title
-        name.font = .monospacedSystemFont(ofSize: 11, weight: .medium); amount.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
-        amount.textAlignment = .right; amount.textColor = .secondaryLabel
-        [name, amount, slider].forEach(addSubview); slider.accessibilityIdentifier = "keyboard.color." + title; slider.accessibilityLabel = "自定义颜色 " + title
-        slider.addAction(UIAction { [weak self] _ in guard let self else { return }; self.updateAmount(); self.onChange?(Double(self.slider.value)) }, for: .valueChanged)
+        name.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        amount.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium); amount.textAlignment = .right
+        [name, amount].forEach { $0.isUserInteractionEnabled = false; addSubview($0) }
+        layer.cornerRadius = 9; accessibilityIdentifier = "keyboard.color." + title
+        accessibilityLabel = "自定义颜色 " + title; isAccessibilityElement = true
+        addAction(UIAction { [weak self] _ in self?.onSelect?() }, for: .touchUpInside)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        name.frame = CGRect(x: bounds.width - 18, y: bounds.midY - 13, width: 18, height: 12)
-        amount.frame = CGRect(x: bounds.width - 18, y: bounds.midY + 1, width: 18, height: 12)
-        amount.textAlignment = .left
-        slider.frame = CGRect(x: 0, y: bounds.midY - 14, width: max(1, bounds.width - 20), height: 28)
+        name.frame = CGRect(x: 6, y: bounds.midY - 9, width: 13, height: 18)
+        amount.frame = CGRect(x: 20, y: bounds.midY - 10, width: max(30, bounds.width - 26), height: 20)
     }
-    func configure(_ value: Double) { if !slider.isTracking { slider.value = Float(value) }; updateAmount() }
-    private func updateAmount() { amount.text = String(Int((slider.value * 255).rounded())) }
+    func configure(_ value: Double, selected: Bool, tint: UIColor) {
+        amount.text = String(Int((value * 255).rounded())); accessibilityValue = amount.text
+        backgroundColor = selected ? tint.withAlphaComponent(0.20) : .secondarySystemFill
+        name.textColor = selected ? tint : .secondaryLabel; amount.textColor = .label
+        accessibilityTraits = selected ? [.button, .selected] : .button
+    }
 }

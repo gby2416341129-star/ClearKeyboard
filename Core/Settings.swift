@@ -75,6 +75,12 @@ public struct KeyboardSettings: Codable, Equatable {
     public var learnChoices = true
     public var selectionLearningVersion: Int? = 1
     public var vibrationEnabled: Bool? = nil
+    public var logoVibrationEnabled: Bool? = nil
+    public var toolbarScrollVibrationEnabled: Bool? = nil
+    public var candidateVibrationEnabled: Bool? = nil
+    public var usesLogoVibration: Bool { logoVibrationEnabled ?? true }
+    public var usesToolbarScrollVibration: Bool { toolbarScrollVibrationEnabled ?? true }
+    public var usesCandidateVibration: Bool { candidateVibrationEnabled ?? true }
     public var vibrationIntensity: Double? = nil
     public var vibrationMode: VibrationMode? = nil
     public var resolvedVibrationMode: VibrationMode { vibrationMode ?? .crisp }
