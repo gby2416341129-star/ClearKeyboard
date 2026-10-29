@@ -8,6 +8,9 @@ final class LatestCandidateWorkQueue {
     private var pending: DispatchWorkItem?
     private var running=false
     init(label: String) {queue=DispatchQueue(label:label,qos:.userInitiated,autoreleaseFrequency:.workItem)}
+    func async(execute body: @escaping () -> Void) {
+        async(execute: DispatchWorkItem(block: body))
+    }
     func async(execute job: DispatchWorkItem) {
         lock.lock();pending?.cancel();pending=job
         guard !running else{lock.unlock();return}
