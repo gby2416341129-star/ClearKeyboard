@@ -10,7 +10,7 @@
   },
   "chinese": {
     "engine": "clear-native",
-    "engineVersion": 85,
+    "engineVersion": 86,
     "model": "V10",
     "runtime": "Apple Core ML",
     "modelBundle": "PlugIns/ClearKeyboardExtension.appex/V10",

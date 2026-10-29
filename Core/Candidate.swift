@@ -65,6 +65,14 @@ public struct Candidate: Equatable, Sendable {
         let prefix=String(String.UnicodeScalarView(raw.unicodeScalars.prefix(path.consumedEnd)))
         return FuzzyPinyin.normalize(prefix).count==consumed && path.segments.last==path.consumedEnd
     }
+    func inDraft(_ raw:String)->Candidate {
+        guard let path,path.kind == .exact,consumed<FuzzyPinyin.normalize(raw).count else{return self}
+        return withPath(CandidatePath(kind:.prefix,frequency:path.frequency,editCost:path.editCost,
+            consumedStart:path.consumedStart,consumedEnd:path.consumedEnd,segments:path.segments,baseRank:path.baseRank))
+    }
+    func completes(_ raw:String)->Bool {
+        canConsume(raw) && consumed==FuzzyPinyin.normalize(raw).count && path?.kind != .literal
+    }
     func withPath(_ path: CandidatePath?) -> Candidate {
         Candidate(text:text,reading:reading,consumed:consumed,score:score,path:path,personalPreference:personalPreference)
     }

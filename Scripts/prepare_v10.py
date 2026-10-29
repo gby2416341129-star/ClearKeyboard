@@ -25,6 +25,6 @@ def main():
     # Exact compiled assets, source hashes and model identity form the package
     # chain; this never loads the model or runs the supplied reference cases.
     files={p.relative_to(RUNTIME).as_posix():digest(p) for p in sorted(RUNTIME.rglob('*')) if p.is_file() and p.name!='compiled_manifest.json'}
-    (RUNTIME/'compiled_manifest.json').write_text(json.dumps({'model':'V10','engine':'clear-native85','files':files},indent=2))
+    (RUNTIME/'compiled_manifest.json').write_text(json.dumps({'model':'V10','engine':'clear-native86','files':files},indent=2))
     print('Exact V10 payload compiled for iPhone; calibration remains folded.',flush=True)
 if __name__=='__main__':main()

@@ -123,8 +123,13 @@ def main():
                 value = text.encode('utf-8'); text_offsets[text] = (len(pool), len(value)); pool.extend(value)
             offset, length = text_offsets[text]
             tag=tags.get(text,'')
-            role=(1 if text in surnames else 0)|(2 if text in titles else 0)|(4 if tag.startswith('v') else 0)|(8 if text in kinship else 0)|(16 if tag.startswith('r') else 0)|(32 if tag.startswith('u') else 0)|(64 if tag=='y' else 0)
-            words.extend(struct.pack('<IIffHHHH', offset, length, score, float(frequencies[text]), len(text), min(65535, round(pronunciation_cost * 256)),role,0))
+            role=(1 if text in surnames else 0)|(2 if text in titles else 0)|(4 if tag.startswith('v') else 0)|(8 if text in kinship else 0)|(16 if tag.startswith('r') else 0)|(32 if tag in ('ul','uz','ug') else 0)|(64 if tag=='y' else 0)
+            role|=(128 if tag=='f' else 0)|(256 if tag=='p' else 0)|(512 if tag=='d' else 0)|(1024 if tag.startswith('n') else 0)|(2048 if tag.startswith('a') else 0)|(4096 if tag=='t' else 0)
+            role|=8192 if text in roles['location_predicates'] else 0
+            independent=sum(math.log((characters[ord(ch)]+.1)/character_total) for ch in text)
+            reliability=frequencies[text]/(frequencies[text]+16)
+            lexical_bonus=min(6.0,max(0.0,score-independent))*reliability*.35
+            words.extend(struct.pack('<IIffHHHH', offset, length, score, float(frequencies[text]), len(text), min(65535, round(pronunciation_cost * 256)),role,round(lexical_bonus*256)))
             texts.append(text)
         nodes.extend(struct.pack('<IIIIf', first_edge, len(outgoing), first_word, len(terminals[node]), maxima[node]))
     # The secondary text ordering serves next-word prediction without another
@@ -138,13 +143,13 @@ def main():
         padding = (-cursor) % 8; payload.extend(b'\0' * padding); cursor += padding
         offsets.append(cursor); payload.extend(section); cursor += len(section)
     padding = (-cursor) % 8; payload.extend(b'\0' * padding)
-    payload.extend(struct.pack('<8sII', b'CKFRQ85\0', len(characters), len(pairs)))
+    payload.extend(struct.pack('<8sII', b'CKFRQ86\0', len(characters), len(pairs)))
     for cp, count in sorted(characters.items()):
         payload.extend(struct.pack('<If', cp, math.log((count + .1) / character_total)))
     for (left, right), count in sorted(pairs.items()):
         payload.extend(struct.pack('<IIf', left, right, math.log(count / pair_totals[left])))
     fingerprint = int.from_bytes(hashlib.sha256(payload).digest()[:8], 'little')
-    header = struct.pack('<8s12IQ', b'CKLX85\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
+    header = struct.pack('<8s12IQ', b'CKLX86\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
                          len(edges) // 8, len(words) // 24, len(pool), *offsets, fingerprint)
     path = ROOT / 'Core/Resources/Pinyin/native.cklx'; path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(header + payload)

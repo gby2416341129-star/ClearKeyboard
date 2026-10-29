@@ -17,9 +17,10 @@ public final class InputEngine {
                                     cancelled: () -> Bool = { false }) -> [Candidate] {
         if V10InputEncoder.isProtected(raw:raw,mode:.pinyin) {return [Self.literal(raw)]}
         let query = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
-        let words=decoder.preview(query,context:context,fuzzy:fuzzy,correction:correction,cancelled:cancelled)
-        let mapped=preferred.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled)}.filter{$0.canConsume(raw)}
-        return PersonalLexicon.merging(mapped,into:words,limit:8)
+        let words=decoder.preview(query,context:context,fuzzy:fuzzy,correction:correction,cancelled:cancelled).map{$0.inDraft(raw)}
+        let mapped=preferred.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled).inDraft(raw)}.filter{$0.canConsume(raw)}
+        let combined=PersonalLexicon.merging(mapped,into:words,limit:40)
+        return Array(Self.displayRow(combined,raw:query).prefix(8))
     }
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:],
                            preferred: [Candidate] = [], recentCorrections: [Candidate] = [],
@@ -35,30 +36,33 @@ public final class InputEngine {
         }
         let query = Composition.queryPrefix(raw, normalized: normalized)
         let generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
-                                           limit: max(32, limit + 1), cancelled: cancelled)
+                                           limit: max(32, limit + 1), cancelled: cancelled).map{$0.inDraft(raw)}
         guard !cancelled() else { return [] }
         let nativeSnapshot=generated
-        // Rule rank is derived before the diverse presentation pool, not
-        // replaced by a candidate's array slot (which may reserve fuzzy paths).
-        let ruleWords=generated.sorted { a,b in
+        let mapped=valid.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled).inDraft(raw)}
+        let validMapped=mapped.filter{$0.canConsume(raw)}
+        let lexicalOrder=generated.sorted { a,b in
             let x=a.score + 0.25*log1p(Double(learned[normalized+"|"+a.text] ?? 0))
             let y=b.score + 0.25*log1p(Double(learned[normalized+"|"+b.text] ?? 0))
             return x==y ? (a.path?.baseRank ?? Int.max)<(b.path?.baseRank ?? Int.max):x>y
         }
-        let mapped=valid.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled)}
-        let validMapped=mapped.filter{$0.canConsume(raw)}
-        let ruleOrder=PersonalLexicon.merging(validMapped,into:ruleWords,limit:max(32,limit+1))
-        let rankByID=Dictionary(ruleOrder.enumerated().map{($0.element.stableID,$0.offset)},uniquingKeysWith:min)
-        var output=PersonalLexicon.merging(validMapped,into:generated,limit:max(32,limit+1))
-        output=output.map{c in guard let path=c.path else{return c};return c.withPath(path.ranked(rankByID[c.stableID] ?? path.baseRank))}
-        let ruleID=ruleOrder.first?.stableID
-        if let ruleID,let index=output.firstIndex(where:{$0.stableID==ruleID}),index != 0 {let c=output.remove(at:index);output.insert(c,at:0)}
+        let ruleOrder=PersonalLexicon.merging(validMapped,into:lexicalOrder,limit:max(40,limit+1))
+        // A prefix is a valid manual selection, not an explanation of the entire
+        // draft. Keep it in the display list without letting it replace a
+        // complete hypothesis in the automatic decision/model request.
+        let complete=ruleOrder.filter{$0.completes(query)}
+        let decisionOrder=complete.isEmpty ? ruleOrder:complete
+        let rankByID=Dictionary(decisionOrder.enumerated().map{($0.element.stableID,$0.offset)},uniquingKeysWith:min)
+        var decisions=decisionOrder.map{c in guard let path=c.path else{return c};return c.withPath(path.ranked(rankByID[c.stableID] ?? path.baseRank))}
+        var output=Self.displayRow(ruleOrder,raw:query)
         updated?(Array(output.prefix(max(1,limit))), output.count > limit, false)
-        if let ruleID, !cancelled() {
-            let mixed=output.first?.text.unicodeScalars.contains(where:{$0.isASCII && CharacterSet.letters.contains($0)}) == true
-            output=ClearV10Scorer.shared.rank(output,raw:raw,context:context,mode:mixed ? .mixed:.pinyin,
+        if let ruleID=decisions.first?.stableID, !cancelled() {
+            let mixed=decisions.first?.text.unicodeScalars.contains(where:{$0.isASCII && CharacterSet.letters.contains($0)}) == true
+            decisions=ClearV10Scorer.shared.rank(decisions,raw:raw,context:context,mode:mixed ? .mixed:.pinyin,
                 ruleCandidateID:ruleID,settingsKey:fuzzy.sorted().joined(separator:",")+(correction ? ":correct":":exact")+":learning-"+String(learningVersion),cancelled:cancelled,
                 nativeCandidates:nativeSnapshot,observed:resolved)
+            let decisionIDs=Set(decisions.map(\.stableID))
+            output=Self.displayRow(decisions+ruleOrder.filter{!decisionIDs.contains($0.stableID)},raw:query)
         }
         guard !cancelled() else { return [] }
         updated?(Array(output.prefix(max(1,limit))), output.count > limit, true)
@@ -68,6 +72,17 @@ public final class InputEngine {
             output.append(Candidate(text:raw,consumed:normalized.count,path:CandidatePath(kind:.literal,frequency:0,editCost:0,consumedEnd:raw.unicodeScalars.count,segments:[raw.unicodeScalars.count])))
         }
         return Array(output.prefix(max(1, limit)))
+    }
+    /// Complete hypotheses and prefix selections serve different actions.
+    /// Display several complete alternatives, then a few selectable prefixes;
+    /// retain every remaining object and its original consumption metadata.
+    private static func displayRow(_ words:[Candidate],raw:String)->[Candidate] {
+        let complete=words.filter{$0.completes(raw)}
+        guard !complete.isEmpty else{return words}
+        let partial=words.filter{!$0.completes(raw)}
+        var seen=Set<String>(),result:[Candidate]=[]
+        for c in Array(complete.prefix(4))+Array(partial.prefix(4))+words where seen.insert(c.stableID).inserted {result.append(c)}
+        return result
     }
     private static func literal(_ raw:String)->Candidate {
         Candidate(text:raw,consumed:FuzzyPinyin.normalize(raw).count,path:CandidatePath(kind:.literal,frequency:0,editCost:0,

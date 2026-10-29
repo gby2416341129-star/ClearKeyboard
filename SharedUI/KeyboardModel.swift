@@ -362,7 +362,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             let cancelled = { query.token.isCancelled || token.isCancelled }
             guard !cancelled() else { return }
             // The native decoder publishes its indexed row before V10 ranking/adoption.
-            let result = engine.candidates(raw, fuzzy: correction ? settings.fuzzyPairs : [],
+            let result = engine.candidates(raw, fuzzy: settings.fuzzyPairs,
                 learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
                 correction: correction, context: query.preceding, cancelled: cancelled, updated: { items, more, settled in
                     guard !cancelled() else { return }
@@ -1023,7 +1023,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             guard !token.isCancelled else { return }
             let result: [Candidate]
             if settings.language == .chinese {
-                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context, cancelled: { token.isCancelled }) : []) : engine.candidates(raw, learned: settings.learnChoices ? learned : [:], preferred: preferred, correction: false, cancelled: { token.isCancelled })
+                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context, cancelled: { token.isCancelled }) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, correction: false, context: context, cancelled: { token.isCancelled })
             } else {
                 let word = EnglishContext.word(in: context)
                 if word.isEmpty {

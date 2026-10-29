@@ -14,7 +14,7 @@ def verify(path):
             assert b'ck_native_decode' in data,'Own native engine missing'
         for prefix in [BASE,EXT]:
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='85' and 'iPhoneOS' in info['CFBundleSupportedPlatforms']
+            assert str(info['CFBundleVersion'])=='86' and 'iPhoneOS' in info['CFBundleSupportedPlatforms']
         assert plistlib.loads(ipa.read(EXT+'Info.plist'))['NSExtension']['NSExtensionPointIdentifier']=='com.apple.keyboard-service'
         for name in names:
             low=name.lower()
@@ -37,6 +37,6 @@ def verify(path):
         for name in ['Pinyin/native.cklx','english.clx']:
             assert BASE+name in names and EXT+name not in names
         with ipa.open(BASE+'Pinyin/native.cklx') as stream:header=stream.read(64)
-        assert header[:8]==b'CKLX85\0\0' and struct.unpack_from('<I',header,8)[0]==4
-    print('Build 85 iPhone binaries, single V10 identity, native index and old-runtime removal checked.')
+        assert header[:8]==b'CKLX86\0\0' and struct.unpack_from('<I',header,8)[0]==4
+    print('Build 86 iPhone binaries, single V10 identity, native index and old-runtime removal checked.')
 if __name__=='__main__':verify(sys.argv[1])

@@ -24,8 +24,11 @@ import Foundation
         guard let context, let rule = rules[key(context)] else { return candidates }
         var result = candidates.filter { !rule.hidden.contains($0.text) }
         if let pinned = rule.pinned, !rule.hidden.contains(pinned.text) {
-            let actual=result.first{$0.text==pinned.text && $0.consumed==pinned.consumed && (pinned.reading.isEmpty || $0.reading==pinned.reading)} ?? pinned.candidate
-            if context.raw.isEmpty || actual.canConsume(context.raw) {
+            let matched=result.first{$0.text==pinned.text && $0.consumed==pinned.consumed && (pinned.reading.isEmpty || $0.reading==pinned.reading)}
+            // A stored path belongs to an older input/settings snapshot. Only
+            // the current decoder may bind it to a nonempty draft again.
+            let actual=matched ?? (context.raw.isEmpty ? pinned.candidate:nil)
+            if let actual,context.raw.isEmpty || actual.canConsume(context.raw) {
                 result.removeAll { $0.text == pinned.text }; result.insert(actual, at: 0)
             }
         }
