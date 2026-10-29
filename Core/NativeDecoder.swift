@@ -11,7 +11,7 @@ private let nativeCancelled: @convention(c) (UnsafeMutableRawPointer?) -> Int32 
     return Unmanaged<NativeCancellation>.fromOpaque(value).takeUnretainedValue().cancelled() ? 1:0
 }
 final class NativeDecoder {
-    static let revision=88
+    static let revision=89
     private static let ownerLock=NSLock()
     private static var owner: NativeDecoder?
     private let handle: OpaquePointer
@@ -89,6 +89,6 @@ final class NativeDecoder {
         }
     }
     func preview(_ raw: String, context: String, fuzzy: Set<String>, correction: Bool, cancelled: () -> Bool) -> [Candidate] {
-        candidates(raw,context:context,fuzzy:fuzzy,correction:correction,limit:32,cancelled:cancelled)
+        candidates(raw,context:context,fuzzy:fuzzy,correction:correction,limit:96,cancelled:cancelled)
     }
 }

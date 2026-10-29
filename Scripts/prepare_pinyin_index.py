@@ -60,15 +60,12 @@ def main():
         if all(ch in phonetics for ch in text): frequencies.setdefault(text, 1)
     for ch in phonetics: frequencies.setdefault(ch, 1)
     total = float(sum(frequencies.values()))
-    # Frequency backoff comes from the same lexical data, not another engine
-    # or neural model. Keep character evidence and adjacent-character evidence
-    # separate so a rare long place name is not rewarded just for being long.
-    characters, pairs, pair_totals = Counter(), Counter(), Counter()
+    # A static character prior and a discounted word likelihood gain are
+    # complementary lexical evidence. Dictionary-internal pairs are not real
+    # sentence transitions and must not duplicate the word's collocation gain.
+    characters = Counter()
     for text, frequency in frequencies.items():
         for ch in text: characters[ord(ch)] += frequency
-        for left, right in zip(text, text[1:]):
-            pairs[ord(left), ord(right)] += frequency
-            pair_totals[ord(left)] += frequency
     character_total = sum(characters.values()) + .1 * len(characters)
 
     def readings_for(text):
@@ -148,11 +145,9 @@ def main():
         padding = (-cursor) % 8; payload.extend(b'\0' * padding); cursor += padding
         offsets.append(cursor); payload.extend(section); cursor += len(section)
     padding = (-cursor) % 8; payload.extend(b'\0' * padding)
-    payload.extend(struct.pack('<8sII', b'CKFRQ86\0', len(characters), len(pairs)))
+    payload.extend(struct.pack('<8sII', b'CKFRQ86\0', len(characters), 0))
     for cp, count in sorted(characters.items()):
         payload.extend(struct.pack('<If', cp, math.log((count + .1) / character_total)))
-    for (left, right), count in sorted(pairs.items()):
-        payload.extend(struct.pack('<IIf', left, right, math.log(count / pair_totals[left])))
     # Read-only membership filter: most constructed prefixes are not known
     # pronunciation phrases and need no text-table/trie validation at runtime.
     bits=1<<21; pronunciation_filter=bytearray(bits//8)

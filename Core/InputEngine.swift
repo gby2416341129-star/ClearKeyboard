@@ -19,7 +19,7 @@ public final class InputEngine {
         let query = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
         let words=decoder.preview(query,context:context,fuzzy:fuzzy,correction:correction,cancelled:cancelled).map{$0.inDraft(raw)}
         let mapped=preferred.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled).inDraft(raw)}.filter{$0.canConsume(raw)}
-        let combined=PersonalLexicon.merging(mapped,into:words,limit:40)
+        let combined=PersonalLexicon.merging(mapped,into:Self.completeFirst(words,raw:query),limit:96)
         return Array(Self.displayRow(combined,raw:query).prefix(8))
     }
     public func candidates(_ raw: String, fuzzy: Set<String> = [], learned: [String: Int] = [:],
@@ -36,7 +36,7 @@ public final class InputEngine {
         }
         let query = Composition.queryPrefix(raw, normalized: normalized)
         let generated = decoder.candidates(query, context: context, fuzzy: fuzzy, correction: correction,
-                                           limit: max(32, limit + 1), cancelled: cancelled).map{$0.inDraft(raw)}
+                                           limit: max(96, limit + 32), cancelled: cancelled).map{$0.inDraft(raw)}
         guard !cancelled() else { return [] }
         let nativeSnapshot=generated
         let mapped=valid.map{decoder.resolve($0,raw:query,fuzzy:fuzzy,correction:correction,cancelled:cancelled).inDraft(raw)}
@@ -46,7 +46,9 @@ public final class InputEngine {
             let y=b.score + 0.25*log1p(Double(learned[normalized+"|"+b.text] ?? 0))
             return x==y ? (a.path?.baseRank ?? Int.max)<(b.path?.baseRank ?? Int.max):x>y
         }
-        let ruleOrder=PersonalLexicon.merging(validMapped,into:lexicalOrder,limit:max(40,limit+1))
+        // Partition by real input coverage before truncation. A high-scoring
+        // prefix cannot consume the pool needed by complete model hypotheses.
+        let ruleOrder=PersonalLexicon.merging(validMapped,into:Self.completeFirst(lexicalOrder,raw:query),limit:max(96,limit+32))
         // A prefix is a valid manual selection, not an explanation of the entire
         // draft. Keep it in the display list without letting it replace a
         // complete hypothesis in the automatic decision/model request.
@@ -76,6 +78,9 @@ public final class InputEngine {
     /// Complete hypotheses and prefix selections serve different actions.
     /// Display several complete alternatives, then a few selectable prefixes;
     /// retain every remaining object and its original consumption metadata.
+    private static func completeFirst(_ words:[Candidate],raw:String)->[Candidate] {
+        words.filter{$0.completes(raw)} + words.filter{!$0.completes(raw)}
+    }
     private static func displayRow(_ words:[Candidate],raw:String)->[Candidate] {
         let complete=words.filter{$0.completes(raw)}
         guard !complete.isEmpty else{return words}

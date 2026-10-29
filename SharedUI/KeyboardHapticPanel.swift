@@ -35,7 +35,7 @@ import UIKit
         interactions.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([interactions.leadingAnchor.constraint(equalTo: workspace.footer.leadingAnchor), interactions.trailingAnchor.constraint(equalTo: workspace.footer.trailingAnchor), interactions.topAnchor.constraint(equalTo: workspace.footer.topAnchor), interactions.bottomAnchor.constraint(equalTo: workspace.footer.bottomAnchor)])
         let fields: [(String, String, WritableKeyPath<KeyboardSettings, Bool?>)] = [
-            ("Logo 点击", "logo", \.logoVibrationEnabled), ("小图标滑动", "toolbarScroll", \.toolbarScrollVibrationEnabled), ("选词", "candidate", \.candidateVibrationEnabled)]
+            ("Logo 点击", "logo", \.logoVibrationEnabled), ("小图标点击", "toolbarTap", \.toolbarTapVibrationEnabled), ("小图标滑动", "toolbarScroll", \.toolbarScrollVibrationEnabled), ("选词", "candidate", \.candidateVibrationEnabled)]
         for (title, identifier, path) in fields {
             let card = UIStackView(); card.axis = .vertical; card.alignment = .center; card.spacing = 7
             let label = UILabel(); label.text = title; label.font = .systemFont(ofSize: 12, weight: .medium); label.textColor = .secondaryLabel

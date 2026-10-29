@@ -127,17 +127,13 @@ struct Lexicon {
         uint32_t a=uint32_t(value)&(pronunciationBits-1),b=uint32_t(value>>32)&(pronunciationBits-1);
         return (pronunciationFilter[a>>3]&(1u<<(a&7))) && (pronunciationFilter[b>>3]&(1u<<(b&7)));
     }
-    double characterScore(uint32_t previous,uint32_t next)const {
+    double characterScore(uint32_t /*previous*/,uint32_t next)const {
         const auto end=characterFrequencies+characterCount;
         auto character=std::lower_bound(characterFrequencies,end,next,[](const CharacterFrequency &a,uint32_t b){return a.codepoint<b;});
-        double unigram=character!=end && character->codepoint==next?character->logp:-20;
-        if(!previous)return unigram;
-        auto key=std::make_pair(previous,next);const auto pairEnd=pairFrequencies+pairCount;
-        auto pair=std::lower_bound(pairFrequencies,pairEnd,key,[](const PairFrequency &a,const auto &b){return std::make_pair(a.left,a.right)<b;});
-        // Interpolate in probability space, with unigram backoff for unseen
-        // pairs; never pretend a context-free word score is a live LM result.
-        return pair!=pairEnd && pair->left==previous && pair->right==next?
-            std::log(.65*std::exp(double(pair->logp))+.35*std::exp(unigram)):unigram;
+        // This is a unigram lexical backoff, not sentence-context evidence.
+        // Word association is counted exactly once by the word's discounted
+        // lexical gain. Dictionary-internal pairs must not count it again.
+        return character!=end && character->codepoint==next?character->logp:-20;
     }
 };
 bool starts(const std::string &s,const std::string &p) {return s.compare(0,p.size(),p)==0;}
@@ -216,13 +212,14 @@ struct WordMatch {uint32_t word;int end,kind,edits,splits;double cost;std::strin
 struct Path {
     std::string text,reading;int consumed=0,kind=Exact,edits=0,characters=0,splits=0;uint32_t previous=0;double frequency=0,cost=0,editCost=0;float observedFrequency=1e30f;uint32_t kinds=0;std::vector<int> segments;
     uint16_t lastRoles=0;bool hasVerb=false,locationLink=false,valid=true;double grammar=0,pronunciationCost=0;std::vector<NativeEdit> changes;std::vector<int> wordEnds;
-    double priority() const {return frequency-cost-.35*splits+grammar;}
+    double priority() const {return frequency-cost-.8*splits+grammar;}
 };
 struct Request {
     std::string typed,letters,context,key;std::set<int> boundaries;std::vector<int> scalarEnds,scalarStarts;int reuseStart=0;
     uint32_t fuzzy=0;bool corrections=false,character=false,full=false,truncated=false;
     Cancellation cancel;
     std::vector<int> remaining,prefixUnits,minimumUnits;std::vector<std::vector<Segment>> graph;
+    std::vector<double> inputPrefixCost,inputSuffixCost;std::vector<bool> preferredBoundary;
     std::map<int,std::vector<WordMatch>> matches;std::vector<Item> items;std::unordered_map<std::string,bool> pronunciationChecks;
     bool stopped() const {return cancel.stopped();}
     int scalarEnd(int consumed)const{return consumed>0 && consumed<=int(scalarEnds.size())?scalarEnds[consumed-1]:0;}
@@ -321,9 +318,11 @@ void prepareGraph(const Lexicon &lex,Request &q) {
                     if(fromFinal!=toFinal && kind!=Initials && length>fromLength){int a=boundary(fromLength,false),b=boundary(int(s.size()),true);edge.changes.push_back(makeEdit(FuzzyFinal,a,b,q.typed.substr(a,b-a),toFinal,.45f,.45f));}
                 }
             };
+            const auto head=initial(s);
+            const bool abbreviationTail=(remaining==1 && q.letters[pos]==head[0] && std::string("bpmfdtnlgkhjqxrzcsyw").find(head[0])!=std::string::npos) ||
+                (head.size()==2 && remaining==2 && q.letters.compare(pos,2,head)==0);
             if(remaining>=int(s.size()) && q.letters.compare(pos,s.size(),s)==0) add(int(s.size()),lex.completeSyllables.count(s)?(variant.second==0?Exact:Fuzzy):Initials,0);
-            else if(remaining<int(s.size()) && s.compare(0,remaining,q.letters,pos,remaining)==0) add(remaining,Unfinished,.8);
-            auto head=initial(s);
+            else if(!abbreviationTail && remaining<int(s.size()) && s.compare(0,remaining,q.letters,pos,remaining)==0) add(remaining,Unfinished,.8);
             if(q.letters[pos]==head[0] && std::string("bpmfdtnlgkhjqxrzcsyw").find(head[0])!=std::string::npos) {
                 add(1,Initials,1.65);if(head.size()==2 && remaining>=2 && q.letters.compare(pos,2,head)==0) add(2,Initials,1.5);
             }
@@ -344,6 +343,28 @@ void prepareGraph(const Lexicon &lex,Request &q) {
     for(int pos=n-1;pos>=0;--pos)for(const auto &edge:q.graph[pos])
         if(edge.kind!=Corrected && edge.kind!=Literal && q.minimumUnits[edge.end]<unreachable)
             q.minimumUnits[pos]=std::min(q.minimumUnits[pos],1+q.minimumUnits[edge.end]);
+    // Preserve likely boundaries in mixed full/initial input too. These are
+    // phonetic costs only, independent of any word frequency or model score.
+    const double infinity=1e30;
+    q.inputPrefixCost.assign(n+1,infinity);q.inputSuffixCost.assign(n+1,infinity);
+    q.inputPrefixCost[0]=0;q.inputSuffixCost[n]=0;
+    auto phonetic=[](const Segment &x){return x.kind!=Corrected && x.kind!=Literal;};
+    for(int pos=n-1;pos>=0;--pos)for(const auto &edge:q.graph[pos])if(phonetic(edge))
+        q.inputSuffixCost[pos]=std::min(q.inputSuffixCost[pos],edge.cost+q.inputSuffixCost[edge.end]);
+    for(int pos=0;pos<n;++pos)for(const auto &edge:q.graph[pos])if(phonetic(edge))
+        q.inputPrefixCost[edge.end]=std::min(q.inputPrefixCost[edge.end],q.inputPrefixCost[pos]+edge.cost);
+    q.preferredBoundary.assign(n+1,false);
+    if(q.inputSuffixCost[0]<infinity/2)for(int pos=0;pos<=n;++pos)
+        q.preferredBoundary[pos]=q.inputPrefixCost[pos]+q.inputSuffixCost[pos]<=q.inputSuffixCost[0]+.5;
+}
+double boundaryPenalty(const Request &q,int pos,const Segment &edge){
+    if(q.full || q.preferredBoundary.empty() || !q.preferredBoundary.front())return 0;
+    // A typo is still allowed inside a legal syllable. Crossing a better
+    // full/initial segmentation has a real search cost, not a silent rewrite.
+    double cost=0;
+    if(pos>0 && !q.preferredBoundary[pos])cost+=.85;
+    if(edge.end<int(q.letters.size()) && !q.preferredBoundary[edge.end])cost+=.85;
+    return cost;
 }
 bool segmentAllowed(const Request &q,int pos,const Segment &edge){
     if(!q.full)return true;
@@ -378,18 +399,20 @@ const std::vector<WordMatch> &wordMatches(const Lexicon &lex,Request &q,int star
             if(state.edits+edge.edits>2 || (edge.kind==Corrected && q.letters.size()<4))continue;
             if(!segmentAllowed(q,state.position,edge))continue;
             auto child=lex.child(state.node,edge.sid);if(child==UINT32_MAX)continue;
-            double cost=state.cost+edge.cost;int kind=std::max(state.kind,edge.kind);
+            const double alignment=boundaryPenalty(q,state.position,edge);
+            double cost=state.cost+edge.cost+alignment;int kind=std::max(state.kind,edge.kind);
             uint64_t key=(uint64_t(child)<<32)|(uint64_t(uint16_t(edge.end))<<16)|uint16_t(state.edits+edge.edits);
             double rank=cost;auto old=visited.find(key);if(old!=visited.end() && old->second<=rank)continue;visited[key]=rank;
             const auto &reading=lex.syllables[edge.sid];std::string next=state.reading;if(!next.empty())next+=' ';next+=reading[0]=='@'?reading.substr(1):reading;
             auto ends=state.ends;ends.push_back(edge.end);
-            int splits=q.full && edge.kind<=Fuzzy?1+q.remaining[edge.end]-q.remaining[state.position]:0;
-            auto changes=state.changes;for(auto change:edge.changes){change.step=state.depth;changes.push_back(change);}
+            int splits=q.minimumUnits[state.position]<1000000 && q.minimumUnits[edge.end]<1000000?
+                std::max(0,1+q.minimumUnits[edge.end]-q.minimumUnits[state.position]):0;
+            auto changes=state.changes;for(auto change:edge.changes){change.step=state.depth;if(edge.kind==Corrected && change.kind<=Transposition)change.searchPenalty+=float(alignment);changes.push_back(change);}
             queue.push({child,edge.end,kind,state.edits+edge.edits,state.splits+splits,state.depth+1,cost,lex.node(child).maximum-cost,std::move(next),std::move(ends),state.kinds|edge.kinds,state.editCost+edge.editCost,std::move(changes)});
         }
     }
     std::stable_sort(result.begin(),result.end(),[&](const WordMatch &a,const WordMatch &b){
-        return lex.words[a.word].logFrequency-a.cost-.35*a.splits>lex.words[b.word].logFrequency-b.cost-.35*b.splits;
+        return lex.words[a.word].logFrequency-a.cost-.8*a.splits>lex.words[b.word].logFrequency-b.cost-.8*b.splits;
     });
     return q.matches.emplace(start,std::move(result)).first->second;
 }
@@ -426,7 +449,9 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
     auto append=[&](const Path &path){if(path.valid && !path.text.empty()){
         if(!(path.kinds&(1u<<Literal)) && path.consumed==n && q.minimumUnits[0]<1000000 && int(path.segments.size())<q.minimumUnits[0])return;
         Item item{path.text,path.reading,path.consumed,path.kind,path.characters,path.priority()};item.frequency=path.observedFrequency<1e30f?path.observedFrequency:0;
-        item.expandsCompleteSyllable=q.full && (path.kinds&(1u<<Unfinished));
+        const int tailStart=path.segments.size()>1?path.segments[path.segments.size()-2]:0;
+        item.expandsCompleteSyllable=(path.kinds&(1u<<Unfinished)) &&
+            (q.full || lex.completeSyllables.count(q.letters.substr(tailStart)));
         item.editCost=float(path.editCost);item.kinds=path.kinds;item.changes=scalarEdits(q,path.changes);item.pronunciationCost=float(path.pronunciationCost);
         for(int end:path.segments)item.segments.push_back(q.scalarEnd(end));q.items.push_back(std::move(item));}};
     auto extend=[&](const Path &base,const WordMatch &match){
@@ -454,8 +479,8 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
         next.locationLink=(role&4) ? bool(role&8192) : (base.locationLink || bool(role&256));
         if((role&128) && match.end==n && base.hasVerb && !next.locationLink)next.grammar-=4;
         next.lastRoles=role;next.hasVerb=base.hasVerb || (role&4);
-        // Each character is charged once. A reliable lexical collocation adds
-        // a bounded bonus, avoiding an arbitrary extra penalty per word split.
+        // Each character backoff and each word's lexical gain are charged once.
+        // No dictionary-derived pair transition is reused as a sentence score.
         next.frequency+=sequenceScore+double(lex.words[match.word].lexicalBonus)/256;next.cost+=match.cost;
         next.observedFrequency=std::min(base.observedFrequency,lex.words[match.word].frequency);next.editCost+=match.editCost;next.kinds|=match.kinds;
         next.pronunciationCost+=double(lex.words[match.word].flags)/256;
@@ -510,7 +535,9 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
     if(!q.character && q.items.size()>32){
         std::vector<Item> pool;std::vector<bool> used(q.items.size());pool.push_back(q.items.front());used[0]=true;
         auto take=[&](bool whole,size_t quota){for(size_t i=0;i<q.items.size() && quota;++i)if(!used[i] && complete(q.items[i])==whole){used[i]=true;pool.push_back(q.items[i]);--quota;}};
-        take(true,15);take(false,6);
+        // Keep a full decision pool before reserving manual prefix choices.
+        // The Swift layer must not receive only sixteen complete explanations.
+        take(true,47);take(false,12);
         for(size_t i=0;i<q.items.size();++i)if(!used[i])pool.push_back(std::move(q.items[i]));q.items=std::move(pool);
     }
     if(q.items.size()>size_t(capacity)){q.items.resize(capacity);q.truncated=true;}
@@ -548,7 +575,7 @@ struct CKNative {
         graphLetters=q.letters;graphSettings=settings(q);graph=q.graph;
     }
 };
-extern "C" CKNative *ck_native_create(const char *indexPath){try{lastError.clear();auto e=std::make_unique<CKNative>();e->lexicon.load(indexPath);e->identity="clear-native88:"+std::to_string(e->lexicon.header->fingerprint);return e.release();}catch(const std::exception &error){lastError=error.what();return nullptr;}catch(...){lastError="Native input initialization failed";return nullptr;}}
+extern "C" CKNative *ck_native_create(const char *indexPath){try{lastError.clear();auto e=std::make_unique<CKNative>();e->lexicon.load(indexPath);e->identity="clear-native89:"+std::to_string(e->lexicon.header->fingerprint);return e.release();}catch(const std::exception &error){lastError=error.what();return nullptr;}catch(...){lastError="Native input initialization failed";return nullptr;}}
 extern "C" void ck_native_destroy(CKNative *e){delete e;}
 extern "C" const char *ck_native_error(){return lastError.c_str();}
 extern "C" CKNativePage *ck_native_decode(CKNative *e,const char *raw,const char *context,uint32_t fuzzy,int correction,int character,int limit,CKNativeCancelled cancel,void *opaque){
@@ -593,7 +620,7 @@ extern "C" CKNativePage *ck_native_resolve(CKNative *e,const char *raw,const cha
         std::istringstream stream(reading);std::string token;std::vector<uint16_t> syllables;
         while(stream>>token){auto at=std::lower_bound(e->lexicon.syllables.begin(),e->lexicon.syllables.end(),token);if(at==e->lexicon.syllables.end() || *at!=token)return nullptr;syllables.push_back(uint16_t(at-e->lexicon.syllables.begin()));}
         if(syllables.empty() || syllables.size()>64)return nullptr;
-        struct Route{int pos=0,edits=0,kind=Exact;double cost=0,editCost=0;uint32_t kinds=0;std::vector<int> segments;std::vector<NativeEdit> changes;};
+        struct Route{int pos=0,edits=0,kind=Exact,lastStart=0;double cost=0,editCost=0;uint32_t kinds=0;std::vector<int> segments;std::vector<NativeEdit> changes;};
         std::vector<Route> routes(1);int expanded=0;
         for(auto sid:syllables){std::vector<Route> next;
             for(const auto &base:routes){if(base.pos>=consumption)continue;
@@ -601,7 +628,7 @@ extern "C" CKNativePage *ck_native_resolve(CKNative *e,const char *raw,const cha
                     if(++expanded>16384 || q.stopped())return nullptr;
                     if(edge.sid!=sid || edge.end>consumption || base.edits+edge.edits>2)continue;
                     if(!segmentAllowed(q,base.pos,edge))continue;
-                    Route candidate=base;candidate.pos=edge.end;candidate.edits+=edge.edits;candidate.kind=std::max(candidate.kind,edge.kind);candidate.cost+=edge.cost;candidate.editCost+=edge.editCost;candidate.kinds|=edge.kinds;candidate.segments.push_back(q.scalarEnd(edge.end));for(auto change:edge.changes){change.step=int(base.segments.size());candidate.changes.push_back(change);}next.push_back(std::move(candidate));
+                    Route candidate=base;candidate.pos=edge.end;candidate.lastStart=base.pos;candidate.edits+=edge.edits;candidate.kind=std::max(candidate.kind,edge.kind);candidate.cost+=edge.cost+boundaryPenalty(q,base.pos,edge);candidate.editCost+=edge.editCost;candidate.kinds|=edge.kinds;candidate.segments.push_back(q.scalarEnd(edge.end));for(auto change:edge.changes){change.step=int(base.segments.size());if(edge.kind==Corrected && change.kind<=Transposition)change.searchPenalty+=float(boundaryPenalty(q,base.pos,edge));candidate.changes.push_back(change);}next.push_back(std::move(candidate));
                 }
             }
             std::stable_sort(next.begin(),next.end(),[](const Route &a,const Route &b){return a.cost<b.cost;});if(next.size()>64)next.resize(64);routes=std::move(next);if(routes.empty())return nullptr;
@@ -613,6 +640,6 @@ extern "C" CKNativePage *ck_native_resolve(CKNative *e,const char *raw,const cha
             while(lo<hi){uint32_t mid=lo+(hi-lo)/2;if(e->lexicon.text(e->lexicon.textOrder[mid])<target)lo=mid+1;else hi=mid;}
             if(lo<e->lexicon.header->wordCount && e->lexicon.text(e->lexicon.textOrder[lo])==target)frequency=e->lexicon.words[e->lexicon.textOrder[lo]].frequency;
         }
-        auto page=std::make_unique<CKNativePage>();Item result;result.text=text;result.reading=reading;result.consumed=consumption;result.kind=best->kind;result.characters=int(codepoints(text).size());result.frequency=frequency;result.editCost=float(best->editCost);result.kinds=best->kinds;result.expandsCompleteSyllable=q.full && (best->kinds&(1u<<Unfinished));result.segments=best->segments;result.changes=scalarEdits(q,best->changes);auto evidence=textEvidence(e->lexicon,text,reading);result.pronunciationCost=evidence.readingAllowed?float(evidence.pronunciationCost):std::numeric_limits<float>::quiet_NaN();result.score=-best->cost;page->items.push_back(std::move(result));page->scalarEnds=std::move(q.scalarEnds);return page.release();
+        auto page=std::make_unique<CKNativePage>();Item result;result.text=text;result.reading=reading;result.consumed=consumption;result.kind=best->kind;result.characters=int(codepoints(text).size());result.frequency=frequency;result.editCost=float(best->editCost);result.kinds=best->kinds;result.expandsCompleteSyllable=(best->kinds&(1u<<Unfinished)) && (q.full || e->lexicon.completeSyllables.count(q.letters.substr(best->lastStart)));result.segments=best->segments;result.changes=scalarEdits(q,best->changes);auto evidence=textEvidence(e->lexicon,text,reading);result.pronunciationCost=evidence.readingAllowed?float(evidence.pronunciationCost):std::numeric_limits<float>::quiet_NaN();result.score=-best->cost;page->items.push_back(std::move(result));page->scalarEnds=std::move(q.scalarEnds);return page.release();
     }catch(...){return nullptr;}
 }

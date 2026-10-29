@@ -240,13 +240,17 @@ import SwiftUI
         let settings = model.settings
         let geometry = GeometryPresentation(size: bounds.size, keyHeight: settings.keyHeight, hand: settings.hand,
             fraction: settings.oneHandFraction, left: safeAreaInsets.left, right: safeAreaInsets.right)
+        let fullHeader = KeyboardGeometry.layout(size: bounds.size, metrics: metrics, hand: .full,
+            oneHandFraction: settings.oneHandFraction, leadingInset: safeAreaInsets.left,
+            trailingInset: safeAreaInsets.right, fitHeight: !systemBacked).header
         let layout = KeyboardGeometry.layout(size: bounds.size, metrics: metrics, hand: settings.hand,
             oneHandFraction: settings.oneHandFraction, leadingInset: safeAreaInsets.left,
             trailingInset: safeAreaInsets.right, fitHeight: !systemBacked)
         if keyFramesNeedLayout || geometryPresentation != geometry {
             geometryPresentation = geometry; keyFramesNeedLayout = false
             UIView.performWithoutAnimation {
-                toolbar.frame = layout.header
+                toolbar.frame = fullHeader
+                candidateHeaderFrame = layout.header
                 keyGlassGroup.frame = layout.keys
                 for (button, row, start, units) in keys {
                     button.frame = CGRect(x: CGFloat(start) * layout.unitWidth, y: CGFloat(row) * layout.rowPitch,
@@ -263,7 +267,7 @@ import SwiftUI
         let contentWidth = CGFloat(toolbarInstances.count * 44 + 1)
         // The completion action shares the existing header. The words start
         // directly below it; no second empty header is reserved by the panel.
-        let available = max(0, layout.header.width - (selectionDone.isHidden ? 54 : 108))
+        let available = max(0, fullHeader.width - (selectionDone.isHidden ? 54 : 108))
         let width = available
         toolbarScroll.expectedContentWidth = max(contentWidth, width)
         toolbarLeading?.constant = 4
@@ -349,7 +353,7 @@ import SwiftUI
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
         candidateScroll.selectionVibrationEnabled = settings.usesCandidateVibration
         (panel as? KeyboardHapticPanel)?.apply(settings)
-        let style = "\(settings.usesLogoVibration)-\(settings.usesToolbarScrollVibration)-\(settings.usesCandidateVibration)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
+        let style = "\(settings.usesToolbarTapVibration)-\(settings.usesLogoVibration)-\(settings.usesToolbarScrollVibration)-\(settings.usesCandidateVibration)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
             appearanceSignature = style; tintColor = settings.accentInkColor
@@ -429,10 +433,11 @@ import SwiftUI
         // The collection lays out in UIKit's normal pass, never synchronously
         // from a key event or a decoder completion.
     }
+    private var candidateHeaderFrame = CGRect.zero
     private func layoutCandidateHeader() {
         // This is the same 44pt row in both transports. Input-only callbacks
         // update it directly; no host context getter or key layout is required.
-        let base = toolbar.frame
+        let base = candidateHeaderFrame
         guard base.width > 0 else { return }
         var header = base.insetBy(dx: -4, dy: 0); header.size.height = candidateHeight
         characterButton.frame = CGRect(x: header.maxX - 37, y: header.midY - 16, width: 34, height: 32)
@@ -484,7 +489,7 @@ import SwiftUI
         }
         return true
     }
-    private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, independentNavigation: Bool = false, action: @escaping () -> Void) -> UIButton {
+    private func circleButton(symbol: String? = nil, image: UIImage? = nil, label: String, independentNavigation: Bool = false, shortcut: Bool = false, action: @escaping () -> Void) -> UIButton {
         let navigationIcon = symbol == "chevron.down" || symbol == "checkmark"
         let button = FeedbackButton(type: navigationIcon ? .system : .custom)
         var config = UIButton.Configuration.plain()
@@ -516,7 +521,8 @@ import SwiftUI
                 guard !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil,
                       !self.toolbarScroll.isDragging else { return }
             }
-            if !independentNavigation || self.model.settings.usesLogoVibration { self.toolbarPulse() }
+            let feedbackEnabled = independentNavigation ? self.model.settings.usesLogoVibration : shortcut ? self.model.settings.usesToolbarTapVibration : true
+            if feedbackEnabled { self.toolbarPulse() }
             button?.playActivationFeedback()
             if let button, button.accessibilityIdentifier?.hasPrefix("toolbar.") == true,
                !self.toolbarEditing, !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil {
@@ -552,7 +558,7 @@ import SwiftUI
         let copies = tools.isEmpty ? 1 : max(3, visibleCycles * 2 + 3)
         toolbarMiddleCopy = copies / 2
         func makeButton(_ tool: ToolbarTool) -> FeedbackButton {
-            let button = circleButton(symbol: tool.symbol, label: tool.title) { [weak self] in
+            let button = circleButton(symbol: tool.symbol, label: tool.title, shortcut: true) { [weak self] in
                 guard let self, !self.toolbarDragActive, CACurrentMediaTime() >= self.toolbarTapBlockedUntil else { return }
                 if self.toolbarEditing { self.setToolPinned(tool, pinned: false) } else { self.activateTool(tool) }
             } as! FeedbackButton
@@ -602,8 +608,11 @@ import SwiftUI
             } else if !toolbarEditing { button.viewWithTag(badgeTag)?.removeFromSuperview() }
             button.setEditingMotion(toolbarEditing && !toolbarDragActive)
             button.accessibilityLabel = toolbarEditing ? "移除" + tool.title + "，长按拖动排序" : tool.title
-            button.accessibilityTraits = activeTool == tool ? [.button, .selected] : .button
-            button.subviews.compactMap { $0 as? ToolIconView }.first?.setActive(activeTool == tool && !toolbarEditing, tint: model.settings.accentInkColor)
+            let active = activeTool == tool || (tool == .appearance && panelKind == .appearance) ||
+                (tool == .oneHand && model.settings.hand != .full) ||
+                (tool == .compatibility && model.settings.localPinyinComposition == true)
+            button.accessibilityTraits = active ? [.button, .selected] : .button
+            button.subviews.compactMap { $0 as? ToolIconView }.first?.setActive(active && !toolbarEditing, tint: model.settings.accentInkColor)
             if tool == .oneHand, !toolbarEditing {
                 let enabled = model.settings.hand != .full
                 button.accessibilityLabel = enabled ? "单手模式，已开启，点按恢复全宽" : "单手模式，点按开启"

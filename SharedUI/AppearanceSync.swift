@@ -15,6 +15,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     let vibrationEnabled: Bool?
     let logoVibrationEnabled: Bool?
     let toolbarScrollVibrationEnabled: Bool?
+    let toolbarTapVibrationEnabled: Bool?
     let candidateVibrationEnabled: Bool?
     let vibrationIntensity: Double?
     let vibrationMode: VibrationMode?
@@ -43,6 +44,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         vibrationMode = value.resolvedVibrationMode
         logoVibrationEnabled = value.usesLogoVibration
         toolbarScrollVibrationEnabled = value.usesToolbarScrollVibration
+        toolbarTapVibrationEnabled = value.usesToolbarTapVibration
         candidateVibrationEnabled = value.usesCandidateVibration
         hand = value.hand; preferredHand = value.preferredHand; oneHandWidth = value.oneHandFraction; toolbar = value.toolbar
         localPinyinComposition = value.localPinyinComposition == true
@@ -66,6 +68,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         if let vibrationMode { value.vibrationMode = vibrationMode }
         if let logoVibrationEnabled { value.logoVibrationEnabled = logoVibrationEnabled }
         if let toolbarScrollVibrationEnabled { value.toolbarScrollVibrationEnabled = toolbarScrollVibrationEnabled }
+        if let toolbarTapVibrationEnabled { value.toolbarTapVibrationEnabled = toolbarTapVibrationEnabled }
         if let candidateVibrationEnabled { value.candidateVibrationEnabled = candidateVibrationEnabled }
         if let hand { value.hand = hand }
         if let preferredHand { value.preferredHand = preferredHand }
