@@ -211,7 +211,7 @@ struct Segment {uint16_t sid;int end,kind,edits,splits;double cost;double editCo
 struct WordMatch {uint32_t word;int end,kind,edits,splits;double cost;std::string reading;std::vector<int> ends;uint32_t kinds=0;double editCost=0;std::vector<NativeEdit> changes;};
 struct Path {
     std::string text,reading;int consumed=0,kind=Exact,edits=0,characters=0,splits=0;uint32_t previous=0;double frequency=0,cost=0,editCost=0;float observedFrequency=1e30f;uint32_t kinds=0;std::vector<int> segments;
-    uint16_t lastRoles=0;int prepositionState=0;bool hasVerb=false,locationLink=false,valid=true;double grammar=0,pronunciationCost=0;std::vector<NativeEdit> changes;std::vector<int> wordEnds;
+    uint16_t lastRoles=0;uint8_t constructions=0;int prepositionState=0;bool hasVerb=false,locationLink=false,valid=true;double grammar=0,pronunciationCost=0;std::vector<NativeEdit> changes;std::vector<int> wordEnds;
     double priority() const {return frequency-cost-.8*splits+grammar;}
 };
 uint32_t pathClass(const Path &p){
@@ -219,7 +219,7 @@ uint32_t pathClass(const Path &p){
         ((p.kinds&(1u<<Fuzzy)) || p.pronunciationCost>0)?1:0;
     const uint32_t roles=p.lastRoles&(4|8|16|32|64|128|256|512|1024|2048|4096);
     return roles | (uint32_t(p.prepositionState)<<16) | (uint32_t(p.hasVerb)<<19) |
-        (uint32_t(p.locationLink)<<20) | (channel<<24);
+        (uint32_t(p.locationLink)<<20) | (uint32_t(p.constructions)<<21) | (channel<<24);
 }
 void prunePaths(std::vector<Path> &paths,size_t capacity){
     auto better=[](const Path &a,const Path &b){return a.priority()>b.priority();};
@@ -505,9 +505,9 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
             bool personContext=false;for(const char *cue:{"联系","找","问问","请教","咨询","通知","发给","交给","麻烦","请问","拜托","叫"})if(ends(q.context,cue))personContext=true;
             next.grammar+=personContext?2.0:.35;
         }
-        if((base.lastRoles&16) && (role&8))next.grammar+=1.5;
+        if((base.lastRoles&16) && (role&8)){next.grammar+=1.5;next.constructions|=1;}
         if((role&32) && base.hasVerb)next.grammar+=.6;
-        if((role&64) && base.hasVerb && match.end==n){next.grammar+=1.25;if(base.lastRoles&32)next.grammar+=.6;}
+        if((role&64) && base.hasVerb && match.end==n){next.constructions|=2;next.grammar+=1.25;if(base.lastRoles&32)next.grammar+=.6;}
         // A clause ending in a location needs a locative predicate/link. This
         // penalizes mechanical verb+location fragments only in ambiguous input;
         // explicit full spelling is still faithfully available for selection.
@@ -519,6 +519,7 @@ void decode(const Lexicon &lex,Request &q,int capacity) {
         else if(base.prepositionState==1 && (role&(8|16|1024))){next.prepositionState=2;next.grammar+=.25;}
         else if(base.prepositionState==2 && (role&4)){next.prepositionState=3;next.grammar+=.75;}
         if((role&128) && next.locationLink && base.hasVerb)next.grammar+=.5;
+        if((base.lastRoles&4) && (role&4))next.constructions|=4;
         next.lastRoles=role;next.hasVerb=base.hasVerb || (role&4);
         // Each character backoff and each word's lexical gain are charged once.
         // No dictionary-derived pair transition is reused as a sentence score.
