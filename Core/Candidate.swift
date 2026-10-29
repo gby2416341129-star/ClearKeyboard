@@ -3,6 +3,19 @@ import Foundation
 public enum InputMatchType: String, Codable, Sendable {
     case exact, initials, mixed, prefix, fuzzy, correction, association, literal
 }
+public enum InputEditKind: String,Codable,Sendable {
+    case substitution,insertion,deletion,transposition,fuzzyInitial,fuzzyFinal
+}
+public struct InputEdit: Equatable,Codable,Sendable {
+    public let kind: InputEditKind
+    public let inputStart: Int
+    public let inputEnd: Int
+    public let syllableIndex: Int
+    public let typed: String
+    public let replacement: String
+    public let cost: Float
+    public let searchPenalty: Float
+}
 /// Native evidence, independent of any neural backend. Offsets and segments
 /// refer to the actual raw Unicode scalar stream; consumed remains the public
 /// normalized-letter count used by the existing composition transaction.
@@ -14,14 +27,19 @@ public struct CandidatePath: Equatable, Codable, Sendable {
     public let consumedEnd: Int
     public let segments: [Int]
     public let baseRank: Int
+    public let edits: [InputEdit]?
+    public let matchKinds: [InputMatchType]?
+    public let pronunciationCost: Float?
     public init(kind: InputMatchType, frequency: Float, editCost: Float, consumedStart: Int = 0,
-                consumedEnd: Int, segments: [Int] = [], baseRank: Int = 0) {
+                consumedEnd: Int, segments: [Int] = [], baseRank: Int = 0,
+                edits: [InputEdit]? = nil, matchKinds: [InputMatchType]? = nil, pronunciationCost: Float? = nil) {
         self.kind=kind;self.frequency=frequency;self.editCost=editCost
         self.consumedStart=consumedStart;self.consumedEnd=consumedEnd;self.segments=segments;self.baseRank=baseRank
+        self.edits=edits;self.matchKinds=matchKinds;self.pronunciationCost=pronunciationCost
     }
     func ranked(_ rank: Int) -> CandidatePath {
         CandidatePath(kind:kind,frequency:frequency,editCost:editCost,consumedStart:consumedStart,
-                      consumedEnd:consumedEnd,segments:segments,baseRank:rank)
+                      consumedEnd:consumedEnd,segments:segments,baseRank:rank,edits:edits,matchKinds:matchKinds,pronunciationCost:pronunciationCost)
     }
     func learned(raw: String, consumed: Int, uses: Int, initials: Bool) -> CandidatePath {
         var ends: [Int]=[]
@@ -31,7 +49,8 @@ public struct CandidatePath: Equatable, Codable, Sendable {
         }
         let end=consumed>0 && consumed<=ends.count ? ends[consumed-1] : 0
         return CandidatePath(kind:initials ? .initials:kind,frequency:Float(uses),editCost:initials ? 0:editCost,
-            consumedEnd:end,segments:initials ? Array(ends.prefix(consumed)):segments.filter{$0<=end},baseRank:baseRank)
+            consumedEnd:end,segments:initials ? Array(ends.prefix(consumed)):segments.filter{$0<=end},baseRank:baseRank,
+            edits:initials ? nil:edits,matchKinds:initials ? [.initials]:matchKinds,pronunciationCost:pronunciationCost)
     }
 }
 public struct PersonalPreference: Equatable, Codable, Sendable {
@@ -50,7 +69,8 @@ public struct Candidate: Equatable, Sendable {
     public var stableID: String {
         // Length-prefix fields: user text may itself contain any separator.
         let fields=[text,reading,String(consumed),String(path?.consumedStart ?? 0),String(path?.consumedEnd ?? 0),
-                    path?.kind.rawValue ?? "unmapped",path?.segments.map(String.init).joined(separator:",") ?? ""]
+                    path?.kind.rawValue ?? "unmapped",path?.segments.map(String.init).joined(separator:",") ?? "",
+                    path?.edits?.map{e in "\(e.kind.rawValue):\(e.inputStart):\(e.inputEnd):\(e.syllableIndex):\(e.typed):\(e.replacement)"}.joined(separator:";") ?? ""]
         return fields.map{String($0.utf8.count)+":"+$0}.joined()
     }
     public init(text: String, reading: String = "", consumed: Int, score: Double = 0, path: CandidatePath? = nil, personalPreference: PersonalPreference? = nil) {
@@ -68,7 +88,8 @@ public struct Candidate: Equatable, Sendable {
     func inDraft(_ raw:String)->Candidate {
         guard let path,path.kind == .exact,consumed<FuzzyPinyin.normalize(raw).count else{return self}
         return withPath(CandidatePath(kind:.prefix,frequency:path.frequency,editCost:path.editCost,
-            consumedStart:path.consumedStart,consumedEnd:path.consumedEnd,segments:path.segments,baseRank:path.baseRank))
+            consumedStart:path.consumedStart,consumedEnd:path.consumedEnd,segments:path.segments,baseRank:path.baseRank,
+            edits:path.edits,matchKinds:path.matchKinds,pronunciationCost:path.pronunciationCost))
     }
     func completes(_ raw:String)->Bool {
         canConsume(raw) && consumed==FuzzyPinyin.normalize(raw).count && path?.kind != .literal

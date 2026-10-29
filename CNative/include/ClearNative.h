@@ -26,6 +26,17 @@ int ck_native_base_rank(const CKNativePage *,int);
 int ck_native_match_type(const CKNativePage *,int);
 int ck_native_segment_count(const CKNativePage *,int);
 int ck_native_segment_end(const CKNativePage *,int,int);
+uint32_t ck_native_match_flags(const CKNativePage *,int);
+float ck_native_pronunciation_cost(const CKNativePage *,int);
+int ck_native_edit_count(const CKNativePage *,int);
+int ck_native_edit_kind(const CKNativePage *,int,int);
+int ck_native_edit_start(const CKNativePage *,int,int);
+int ck_native_edit_end(const CKNativePage *,int,int);
+int ck_native_edit_unit(const CKNativePage *,int,int);
+float ck_native_edit_amount(const CKNativePage *,int,int);
+float ck_native_edit_penalty(const CKNativePage *,int,int);
+const char *ck_native_edit_typed(const CKNativePage *,int,int);
+const char *ck_native_edit_replacement(const CKNativePage *,int,int);
 #ifdef __cplusplus
 }
 #endif

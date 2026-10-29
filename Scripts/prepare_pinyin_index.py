@@ -126,6 +126,7 @@ def main():
             role=(1 if text in surnames else 0)|(2 if text in titles else 0)|(4 if tag.startswith('v') else 0)|(8 if text in kinship else 0)|(16 if tag.startswith('r') else 0)|(32 if tag in ('ul','uz','ug') else 0)|(64 if tag=='y' else 0)
             role|=(128 if tag=='f' else 0)|(256 if tag=='p' else 0)|(512 if tag=='d' else 0)|(1024 if tag.startswith('n') else 0)|(2048 if tag.startswith('a') else 0)|(4096 if tag=='t' else 0)
             role|=8192 if text in roles['location_predicates'] else 0
+            role|=16384 if text in phrases else 0
             independent=sum(math.log((characters[ord(ch)]+.1)/character_total) for ch in text)
             reliability=frequencies[text]/(frequencies[text]+16)
             lexical_bonus=min(6.0,max(0.0,score-independent))*reliability*.35

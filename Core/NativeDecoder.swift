@@ -55,8 +55,21 @@ final class NativeDecoder {
             guard !text.isEmpty, consumed>=0,consumed<=maximum,(maximum==0 || consumed>0),kinds.indices.contains(kind) else{return nil}
             let count=ck_native_segment_count(page,i)
             let segments=(0..<count).map{Int(ck_native_segment_end(page,i,$0))}
+            let editKinds: [InputEditKind]=[.substitution,.insertion,.deletion,.transposition,.fuzzyInitial,.fuzzyFinal]
+            let edits=(0..<ck_native_edit_count(page,i)).compactMap { j -> InputEdit? in
+                let k=Int(ck_native_edit_kind(page,i,j));guard editKinds.indices.contains(k) else{return nil}
+                return InputEdit(kind:editKinds[k],inputStart:Int(ck_native_edit_start(page,i,j)),inputEnd:Int(ck_native_edit_end(page,i,j)),
+                    syllableIndex:Int(ck_native_edit_unit(page,i,j)),typed:String(cString:ck_native_edit_typed(page,i,j)),
+                    replacement:String(cString:ck_native_edit_replacement(page,i,j)),cost:ck_native_edit_amount(page,i,j),searchPenalty:ck_native_edit_penalty(page,i,j))
+            }
+            let flags=ck_native_match_flags(page,i)
+            let channels: [InputMatchType]=[.exact,.fuzzy,.prefix,.initials,.correction,.literal]
+            var matched=channels.enumerated().compactMap{flags & (1 << UInt32($0.offset)) != 0 ? $0.element:nil}
+            if (matched.contains(.exact) && matched.contains(.initials)) || (matched.contains(.literal) && matched.count>1){matched.append(.mixed)}
+            let pronunciation=ck_native_pronunciation_cost(page,i)
             let path=CandidatePath(kind:kinds[kind],frequency:ck_native_frequency(page,i),editCost:ck_native_edit_cost(page,i),
-                consumedEnd:Int(ck_native_scalar_end(page,i)),segments:segments,baseRank:Int(ck_native_base_rank(page,i)))
+                consumedEnd:Int(ck_native_scalar_end(page,i)),segments:segments,baseRank:Int(ck_native_base_rank(page,i)),
+                edits:edits,matchKinds:matched,pronunciationCost:pronunciation.isFinite ? pronunciation:nil)
             return Candidate(text:text,reading:String(cString:ck_native_reading(page,i)),consumed:consumed,
                          score:ck_native_score(page,i),path:path)
         }
