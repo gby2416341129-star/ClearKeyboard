@@ -1,0 +1,37 @@
+{
+  "model": "V10",
+  "probe_build": 1,
+  "checkpoint_sha256": "0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423",
+  "files": [
+    {
+      "path": "vocab.json",
+      "bytes": 91411,
+      "sha256": "dee26a331731799f9c84c625cf93036cf6bd1c1bedc62531d0b47ca70100c1a8"
+    },
+    {
+      "path": "calibration.json",
+      "bytes": 649,
+      "sha256": "765c8c2849c42a6f0d97759062cce62b870b271d2c714e7095e2372c1b42f8af"
+    },
+    {
+      "path": "reference_cases.json",
+      "bytes": 1469549,
+      "sha256": "9a43bc36f8152224850fc38e4b21cefe5e018076e567c03deb2fab9c67d85404"
+    },
+    {
+      "path": "tokenizer_vectors.json",
+      "bytes": 19630,
+      "sha256": "5d3336c5ad520fe19f42eb9944f7394e2ad699794f5e24dd0a7ed4254801feee"
+    },
+    {
+      "path": "source_identity.json",
+      "bytes": 3908,
+      "sha256": "48f77257c64f6ae1d408ec50376706f63444b326eea5e1d90c88ca6ed79f2d9d"
+    },
+    {
+      "path": "MODEL_CONTRACT.json",
+      "bytes": 15549,
+      "sha256": "1a109a4d093739013c7722c7ab24aa160913d86b01e9c294eb862c5ef275d89c"
+    }
+  ]
+}

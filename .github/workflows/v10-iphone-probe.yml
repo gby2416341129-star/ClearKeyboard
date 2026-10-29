@@ -1,0 +1,28 @@
+name: Build V10 standalone iPhone compute suite
+on:
+  workflow_dispatch:
+  push:
+    branches: [npu/v10-iphone-probe]
+    paths: ['V10Probe/**', '.github/workflows/v10-iphone-probe.yml']
+permissions:
+  contents: read
+concurrency:
+  group: v10-iphone-probe-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: V10Probe
+      - name: Compile iPhone app and model; do not execute tests or predictions
+        run: bash V10Probe/Scripts/build_probe.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V10Probe-build1-IPA
+          path: V10Probe/work/artifacts/
+          compression-level: 0
+          retention-days: 14
