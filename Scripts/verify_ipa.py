@@ -37,6 +37,6 @@ def verify(path):
         for name in ['Pinyin/native.cklx','english.clx']:
             assert BASE+name in names and EXT+name not in names
         with ipa.open(BASE+'Pinyin/native.cklx') as stream:header=stream.read(64)
-        assert header[:8]==b'CKLX86\0\0' and struct.unpack_from('<I',header,8)[0]==4
+        assert header[:8]==b'CKLX86\0\0' and struct.unpack_from('<I',header,8)[0]==5
     print('Build 86 iPhone binaries, single V10 identity, native index and old-runtime removal checked.')
 if __name__=='__main__':verify(sys.argv[1])

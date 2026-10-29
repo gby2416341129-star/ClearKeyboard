@@ -17,7 +17,7 @@ WORD_COMMIT = '67fa2e36e72f69d9134b8a1037b83fbb070b9775'
 WORD_SHA256 = '7197c3211ddd98962b036cdf40324d1ea2bfaa12bd028e68faa70111a88e12a8'
 PHRASE_COMMIT = '195893902791321fe38ae7b4ebdd9905389cfd41'
 PHRASE_SHA256 = '5eff64ffd4de072b7e7f96baec560c3366887f93e762cc35ef0a8f62a7259b73'
-FORMAT_VERSION = 4
+FORMAT_VERSION = 5
 
 
 def normalize(value):
@@ -149,6 +149,14 @@ def main():
         payload.extend(struct.pack('<If', cp, math.log((count + .1) / character_total)))
     for (left, right), count in sorted(pairs.items()):
         payload.extend(struct.pack('<IIf', left, right, math.log(count / pair_totals[left])))
+    # Read-only membership filter: most constructed prefixes are not known
+    # pronunciation phrases and need no text-table/trie validation at runtime.
+    bits=1<<21; pronunciation_filter=bytearray(bits//8)
+    for text in phrases:
+        value=14695981039346656037
+        for byte in text.encode('utf8'): value=((value^byte)*1099511628211)&0xffffffffffffffff
+        for index in (value&(bits-1),(value>>32)&(bits-1)):pronunciation_filter[index>>3]|=1<<(index&7)
+    payload.extend(struct.pack('<8sII',b'CKPH86\0\0',bits,len(pronunciation_filter)));payload.extend(pronunciation_filter)
     fingerprint = int.from_bytes(hashlib.sha256(payload).digest()[:8], 'little')
     header = struct.pack('<8s12IQ', b'CKLX86\0\0', FORMAT_VERSION, len(symbols), len(nodes) // 20,
                          len(edges) // 8, len(words) // 24, len(pool), *offsets, fingerprint)

@@ -68,9 +68,14 @@ public struct Candidate: Equatable, Sendable {
     public let personalPreference: PersonalPreference?
     public var stableID: String {
         // Length-prefix fields: user text may itself contain any separator.
-        let fields=[text,reading,String(consumed),String(path?.consumedStart ?? 0),String(path?.consumedEnd ?? 0),
-                    path?.kind.rawValue ?? "unmapped",path?.segments.map(String.init).joined(separator:",") ?? "",
-                    path?.edits?.map{e in "\(e.kind.rawValue):\(e.inputStart):\(e.inputEnd):\(e.syllableIndex):\(e.typed):\(e.replacement)"}.joined(separator:";") ?? ""]
+        let segmentsKey=path?.segments.map(String.init).joined(separator:",") ?? ""
+        let operations=path?.edits ?? []
+        let editKeys:[String]=operations.map { e in
+            let positions=[String(e.inputStart),String(e.inputEnd),String(e.syllableIndex)].joined(separator:":")
+            return [e.kind.rawValue,positions,e.typed,e.replacement].joined(separator:":")
+        }
+        let fields:[String]=[text,reading,String(consumed),String(path?.consumedStart ?? 0),String(path?.consumedEnd ?? 0),
+                             path?.kind.rawValue ?? "unmapped",segmentsKey,editKeys.joined(separator:";")]
         return fields.map{String($0.utf8.count)+":"+$0}.joined()
     }
     public init(text: String, reading: String = "", consumed: Int, score: Double = 0, path: CandidatePath? = nil, personalPreference: PersonalPreference? = nil) {

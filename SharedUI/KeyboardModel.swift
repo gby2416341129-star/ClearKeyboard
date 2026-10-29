@@ -85,8 +85,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         settings.sanitize()
         if settings != oldValue {
             if settings.language != oldValue.language { shiftState.reset(); manualShift = false }
-            if settings.language != oldValue.language || settings.fuzzyPairs != oldValue.fuzzyPairs ||
-                settings.learnChoices != oldValue.learnChoices || settings.predictions != oldValue.predictions {
+            let inputChanged=settings.language != oldValue.language || settings.fuzzyPairs != oldValue.fuzzyPairs ||
+                settings.learnChoices != oldValue.learnChoices || settings.predictions != oldValue.predictions
+            if inputChanged {
                 activeCandidates?.token.cancel(); refinementCancellation.cancel(); refinementWork?.cancel(); scheduledQuery=nil
                 discardPreparedCandidates(); candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []
             }
@@ -104,7 +105,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
                 settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }
-            if !loadingSavedSettings,settings.fuzzyPairs != oldValue.fuzzyPairs,engine != nil {refreshCandidates()}
+            if !loadingSavedSettings,inputChanged,engine != nil {refreshCandidates()}
             onChange?()
         }
     } }

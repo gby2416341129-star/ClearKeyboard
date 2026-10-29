@@ -44,7 +44,7 @@ struct Lexicon {
     const Header *header=nullptr; const Node *nodes=nullptr; const Edge *edges=nullptr;
     const Word *words=nullptr; const char *pool=nullptr; const uint32_t *textOrder=nullptr;
     const CharacterFrequency *characterFrequencies=nullptr;uint32_t characterCount=0;
-    const PairFrequency *pairFrequencies=nullptr;uint32_t pairCount=0;
+    const PairFrequency *pairFrequencies=nullptr;uint32_t pairCount=0;const uint8_t *pronunciationFilter=nullptr;uint32_t pronunciationBits=0;
     std::vector<std::string> syllables;std::unordered_map<std::string,uint16_t> syllableIDs;
     std::unordered_set<std::string> completeSyllables;
     std::vector<uint32_t> frequent;
@@ -58,7 +58,7 @@ struct Lexicon {
         bytes=size_t(status.st_size); mapping=mmap(nullptr,bytes,PROT_READ,MAP_PRIVATE,fd,0);
         if(mapping==MAP_FAILED) throw std::runtime_error("Cannot map native pinyin index");
         header=static_cast<const Header *>(mapping);
-        if(std::memcmp(header->magic,"CKLX86\0\0",8)!=0 || header->version!=4 || header->syllableCount>65535 || !header->nodeCount || !header->wordCount)
+        if(std::memcmp(header->magic,"CKLX86\0\0",8)!=0 || header->version!=5 || header->syllableCount>65535 || !header->nodeCount || !header->wordCount)
             throw std::runtime_error("Incompatible native pinyin index");
         auto section=[&](uint32_t offset,uint32_t count,size_t stride) {
             if(offset<64 || offset%4 || offset>bytes || count>(bytes-offset)/stride)
@@ -78,6 +78,11 @@ struct Lexicon {
         std::memcpy(&pairCount,static_cast<const char *>(mapping)+statistics+12,4);
         characterFrequencies=reinterpret_cast<const CharacterFrequency *>(section(uint32_t(statistics+16),characterCount,8));
         pairFrequencies=reinterpret_cast<const PairFrequency *>(section(uint32_t(statistics+16+uint64_t(characterCount)*8),pairCount,12));
+        uint64_t filter=statistics+16+uint64_t(characterCount)*8+uint64_t(pairCount)*12;
+        if(filter+16>bytes || std::memcmp(static_cast<const char *>(mapping)+filter,"CKPH86\0\0",8)!=0)throw std::runtime_error("Missing phrase-pronunciation index");
+        uint32_t filterBytes=0;std::memcpy(&pronunciationBits,static_cast<const char *>(mapping)+filter+8,4);std::memcpy(&filterBytes,static_cast<const char *>(mapping)+filter+12,4);
+        if(pronunciationBits!=(1u<<21) || filterBytes!=pronunciationBits/8)throw std::runtime_error("Invalid phrase-pronunciation index");
+        pronunciationFilter=reinterpret_cast<const uint8_t *>(section(uint32_t(filter+16),filterBytes,1));
         for(uint32_t i=0;i<header->syllableCount;++i) {
             size_t length=strnlen(symbols+i*8,8);
             if(!length || length==8) throw std::runtime_error("Invalid pinyin symbol");
@@ -116,6 +121,11 @@ struct Lexicon {
         const auto &w=words[id];
         if(w.offset>header->poolBytes || w.bytes>header->poolBytes-w.offset) throw std::runtime_error("Invalid word text");
         return {pool+w.offset,w.bytes};
+    }
+    bool mayHavePhrase(const std::string &text)const{
+        uint64_t value=14695981039346656037ull;for(unsigned char c:text){value^=c;value*=1099511628211ull;}
+        uint32_t a=uint32_t(value)&(pronunciationBits-1),b=uint32_t(value>>32)&(pronunciationBits-1);
+        return (pronunciationFilter[a>>3]&(1u<<(a&7))) && (pronunciationFilter[b>>3]&(1u<<(b&7)));
     }
     double characterScore(uint32_t previous,uint32_t next)const {
         const auto end=characterFrequencies+characterCount;
@@ -235,12 +245,14 @@ std::vector<NativeEdit> scalarEdits(const Request &q,const std::vector<NativeEdi
 }
 bool compoundPronunciationAllowed(const Lexicon &lex,Request &q,const Path &path){
     if(path.wordEnds.size()<2 || (path.kinds&(1u<<Literal)))return true;
-    auto offsets=utf8Offsets(path.text);auto parts=readingParts(path.reading);int n=path.characters;
-    if(n!=int(parts.size()) || n+1!=int(offsets.size()))return false;
+    auto offsets=utf8Offsets(path.text);std::vector<std::string> parts;int n=path.characters;
+    if(n+1!=int(offsets.size()))return false;
     int checked=0;
     for(int index=int(path.wordEnds.size())-2;index>=-1 && checked<4;--index){
         int start=index<0?0:path.wordEnds[index];if(n-start>12)break;++checked;
-        auto text=path.text.substr(offsets[start]),reading=joinedReading(parts,start,n),key=text+'\t'+reading;
+        auto text=path.text.substr(offsets[start]);if(!lex.mayHavePhrase(text))continue;
+        if(parts.empty()){parts=readingParts(path.reading);if(n!=int(parts.size()))return false;}
+        auto reading=joinedReading(parts,start,n),key=text+'\t'+reading;
         auto found=q.pronunciationChecks.find(key);if(found!=q.pronunciationChecks.end()){if(!found->second)return false;continue;}
         auto evidence=textEvidence(lex,text,reading);bool allowed=!evidence.authoritative || evidence.readingAllowed;
         if(q.pronunciationChecks.size()<2048)q.pronunciationChecks.emplace(std::move(key),allowed);

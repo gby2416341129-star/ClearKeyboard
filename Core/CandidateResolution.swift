@@ -5,7 +5,7 @@ public struct CandidateEvidence: Codable, Sendable {
     let text: String
     let reading: String
     let consumed: Int
-    let nativeScore: Double
+    let nativeScore: Double?
     let path: CandidatePath?
     init(_ c: Candidate) {id=c.stableID;text=c.text;reading=c.reading;consumed=c.consumed;nativeScore=c.score;path=c.path}
 }
