@@ -29,6 +29,8 @@ V19_API int32_t v19_path_normalized_end(const V19Request *request,int32_t path,i
 /* logits are source-model FP32 [1,64,8192]. Strides and element_count are in FLOATS. */
 V19_API int32_t v19_decode_path(V19Request *request,int32_t path,const float *logits,size_t element_count,int32_t position_stride,int32_t character_stride);
 /* Applies the original stable global sort, text deduplication, and Top8 cap. */
+/* Real candidates from completed paths only; does not truncate the search pool. */
+V19_API int32_t v19_preview(V19Request *request,int32_t requested_count);
 V19_API int32_t v19_finish(V19Request *request,int32_t requested_count);
 V19_API const char *v19_request_error(const V19Request *request);
 V19_API int32_t v19_candidate_count(const V19Request *request);

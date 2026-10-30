@@ -48,6 +48,8 @@ public struct V19Result: Sendable {
     public let requestedCount: Int
     public let maximumSupportedCount: Int
     internal let generation: UInt64
+    public let completedPaths: Int
+    public let isFinal: Bool
 }
 public struct V19Selection: Sendable {
     public let inputVersion: UInt64

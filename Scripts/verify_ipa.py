@@ -24,7 +24,7 @@ def verify(path):
         assert roots=={EXT+'V19FullPinyinFP16.mlmodelc'},roots
         assert [n for n in names if n.endswith('/V19Resources.bin')]==[EXT+'V19/V19Resources.bin']
         identity=json.loads(ipa.read(EXT+'V19/identity.json'))
-        assert identity['sdk_patch']['revision']=='clear-v19-score-domain-1'
+        assert identity['sdk_patch']['revision']=='clear-v19-score-domain-stream-2'
         assert identity['checkpoint_sha256']==SHA and identity['step']==38750 and identity['parameters']==20730368
         config=ipa.read(EXT+'V19/runtime_config.json')
         assert hashlib.sha256(config).hexdigest()==identity['files']['Native/V19NativeIME/Sources/V19NativeIME/Resources/runtime_config.json']

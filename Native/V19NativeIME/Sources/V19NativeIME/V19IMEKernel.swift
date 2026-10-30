@@ -78,12 +78,12 @@ private final class V19Runner: @unchecked Sendable {
               logits.dataType == .float32, logits.shape.map({ $0.intValue }) == [1,64,8192] else { throw V19Error.model("Invalid logits tensor returned by Core ML") }
         return logits
     }
-    func run(raw: String, context: String, version: UInt64, limit: Int, generation: UInt64) throws -> V19Result {
+    func run(raw: String, context: String, version: UInt64, limit: Int, generation: UInt64, progress: (@Sendable (V19Result) -> Void)? = nil) throws -> V19Result {
         try Task.checkCancellation()
         guard limit > 0 else { throw V19Error.contract("requestedCount must be positive; V19 supports at most8") }
         let input: V19Input
         do { input = try V19Input.normalize(raw) }
-        catch { return V19Result(inputVersion: version, rawInput: raw, normalizedPinyin: "", normalizationMap: [], candidates: [], recommendedID: nil, status: .unsupportedInput, reason: error.localizedDescription, syllablePathsExamined: 0, requestedCount: limit, maximumSupportedCount: 8, generation: generation) }
+        catch { return V19Result(inputVersion: version, rawInput: raw, normalizedPinyin: "", normalizationMap: [], candidates: [], recommendedID: nil, status: .unsupportedInput, reason: error.localizedDescription, syllablePathsExamined: 0, requestedCount: limit, maximumSupportedCount: 8, generation: generation, completedPaths: 0, isFinal: true) }
         var error = [CChar](repeating: 0, count: 1024)
         let request = raw.withCString { original in input.normalized.withCString { normalized in
             input.starts.withUnsafeBufferPointer { starts in input.ends.withUnsafeBufferPointer { ends in
@@ -93,12 +93,13 @@ private final class V19Runner: @unchecked Sendable {
         guard let request else { throw V19Error.contract(error.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }) }
         defer { v19_request_destroy(request) }
         let pathCount = Int(v19_path_count(request))
-        if pathCount == 0 { return V19Result(inputVersion: version, rawInput: raw, normalizedPinyin: input.normalized, normalizationMap: input.map, candidates: [], recommendedID: nil, status: raw.isEmpty ? .emptyInput : .noCompleteSyllablePath, reason: "No complete legal full-pinyin path under the frozen V19 parser", syllablePathsExamined: 0, requestedCount: limit, maximumSupportedCount: 8, generation: generation) }
+        if pathCount == 0 { return V19Result(inputVersion: version, rawInput: raw, normalizedPinyin: input.normalized, normalizationMap: input.map, candidates: [], recommendedID: nil, status: raw.isEmpty ? .emptyInput : .noCompleteSyllablePath, reason: "No complete legal full-pinyin path under the frozen V19 parser", syllablePathsExamined: 0, requestedCount: limit, maximumSupportedCount: 8, generation: generation, completedPaths: 0, isFinal: true) }
         // Python takes the last32 Unicode code points, not32 grapheme clusters.
         let contextScalars = Array(context.unicodeScalars.suffix(32))
         var contextIDs = [Int32](repeating: 0, count: 32), contextMask = contextIDs
         for (i, scalar) in contextScalars.enumerated() { contextIDs[i] = Int32(v19_character_id(resources, scalar.value)); contextMask[i] = 1 }
         let cx = try array(contextIDs, width: 32), cm = try array(contextMask, width: 32)
+        var publishedPreview = false
         for path in 0..<pathCount {
             try Task.checkCancellation()
             let count = Int(v19_path_length(request, Int32(path)))
@@ -118,9 +119,27 @@ private final class V19Runner: @unchecked Sendable {
                 status = contiguous.withUnsafeBufferPointer { v19_decode_path(request, Int32(path), $0.baseAddress, $0.count, 8192, 1) }
             }
             guard status == 0 else { throw V19Error.model(String(cString: v19_request_error(request))) }
+            if let progress, !publishedPreview, path+1 < pathCount {
+                let count = v19_preview(request, Int32(min(8, limit)))
+                guard count >= 0 else { throw V19Error.model(String(cString: v19_request_error(request))) }
+                if count > 0 {
+                    let result = try snapshot(request: request, input: input, raw: raw, version: version,
+                        limit: limit, generation: generation, count: count, pathCount: pathCount,
+                        completedPaths: path+1, isFinal: false)
+                    try Task.checkCancellation()
+                    progress(result); publishedPreview = true
+                }
+            }
         }
         let count = v19_finish(request, Int32(min(8, limit)))
         guard count >= 0 else { throw V19Error.model(String(cString: v19_request_error(request))) }
+        return try snapshot(request: request, input: input, raw: raw, version: version,
+            limit: limit, generation: generation, count: count, pathCount: pathCount,
+            completedPaths: pathCount, isFinal: true)
+    }
+    private func snapshot(request: OpaquePointer, input: V19Input, raw: String, version: UInt64,
+                          limit: Int, generation: UInt64, count: Int32, pathCount: Int,
+                          completedPaths: Int, isFinal: Bool) throws -> V19Result {
         let consumed = V19Range(start: 0, end: raw.utf8.count), consumed16 = V19Range(start: 0, end: raw.utf16.count)
         var candidates: [V19Candidate] = []
         for i in 0..<Int(count) {
@@ -131,7 +150,7 @@ private final class V19Runner: @unchecked Sendable {
             }
             candidates.append(V19Candidate(id: String(cString: v19_candidate_id(request, Int32(i))), text: String(cString: v19_candidate_text(request, Int32(i))), reading: String(cString: v19_candidate_reading(request, Int32(i))), score: v19_candidate_score(request, Int32(i)), consumedRawUTF8Range: consumed, consumedRawUTF16Range: consumed16, fullConsumption: true, remainingPinyin: "", matchType: "exact_full_pinyin", alignment: alignment, inputVersion: version))
         }
-        return V19Result(inputVersion: version, rawInput: raw, normalizedPinyin: input.normalized, normalizationMap: input.map, candidates: candidates, recommendedID: candidates.first?.id, status: candidates.isEmpty ? .noCandidateAfterConstraints : .ok, reason: candidates.isEmpty ? "No candidate survived the unchanged V19 reading constraints" : nil, syllablePathsExamined: pathCount, requestedCount: limit, maximumSupportedCount: 8, generation: generation)
+        return V19Result(inputVersion: version, rawInput: raw, normalizedPinyin: input.normalized, normalizationMap: input.map, candidates: candidates, recommendedID: candidates.first?.id, status: candidates.isEmpty ? .noCandidateAfterConstraints : .ok, reason: candidates.isEmpty ? "No candidate survived the unchanged V19 reading constraints" : nil, syllablePathsExamined: pathCount, requestedCount: limit, maximumSupportedCount: 8, generation: generation, completedPaths: completedPaths, isFinal: isFinal)
     }
 }
 
@@ -141,21 +160,31 @@ public actor V19IMEKernel {
     private var generation: UInt64 = 0
     private var latestInputVersion: UInt64 = 0
     private var pending: Task<V19Result, Error>?
+    private var progressFinished = false
+    private var publishedPaths = 0
     private init(runner: V19Runner) { self.runner = runner }
     public static func prepare(compiledModelURL: URL, resourceDirectory: URL? = nil, configuration: V19Configuration = V19Configuration()) async throws -> V19IMEKernel {
         let runner = try await Task.detached(priority: .userInitiated) { try V19Runner(compiledModelURL: compiledModelURL, resourceDirectory: resourceDirectory, configuration: configuration) }.value
         return V19IMEKernel(runner: runner)
     }
     /// nil means this request became obsolete/cancelled. Do not replace the current UI with nil.
-    public func candidates(rawPinyin: String, committedLeftContext: String, inputVersion: UInt64, requestedCount: Int = 8) async throws -> V19Result? {
+    public func candidates(rawPinyin: String, committedLeftContext: String, inputVersion: UInt64, requestedCount: Int = 8, onUpdate: (@Sendable (V19Result) -> Void)? = nil) async throws -> V19Result? {
         guard let runner else { throw V19Error.released }
         guard inputVersion >= latestInputVersion else { return nil }
         latestInputVersion = inputVersion; generation &+= 1; let token = generation
-        pending?.cancel()
-        let work = Task.detached(priority: .userInitiated) { try runner.run(raw: rawPinyin, context: committedLeftContext, version: inputVersion, limit: requestedCount, generation: token) }
+        pending?.cancel(); progressFinished = false; publishedPaths = 0
+        let work = Task.detached(priority: .userInitiated) { try runner.run(raw: rawPinyin, context: committedLeftContext, version: inputVersion, limit: requestedCount, generation: token,
+            progress: onUpdate == nil ? nil : { result in
+                Task { await self.deliverProgress(result, update: onUpdate!) }
+            }) }
         pending = work
-        do { let result = try await work.value; guard token == generation && inputVersion == latestInputVersion else { return nil }; return result }
+        do { let result = try await work.value; guard token == generation && inputVersion == latestInputVersion else { return nil }; progressFinished = true; return result }
         catch is CancellationError { return nil }
+    }
+    private func deliverProgress(_ result: V19Result, update: @Sendable (V19Result) -> Void) {
+        guard runner != nil, !progressFinished, result.generation == generation,
+              result.inputVersion == latestInputVersion, result.completedPaths > publishedPaths else { return }
+        publishedPaths = result.completedPaths; update(result)
     }
     public func resetComposition(inputVersion: UInt64) {
         latestInputVersion = max(latestInputVersion, inputVersion); generation &+= 1; pending?.cancel(); pending = nil

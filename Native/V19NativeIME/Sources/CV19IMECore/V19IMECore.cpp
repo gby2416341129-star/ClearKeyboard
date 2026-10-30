@@ -159,15 +159,17 @@ int32_t v19_decode_path(V19Request *q,int32_t path,const float *logits,size_t co
   if(q->all.size()>256)throw std::runtime_error("Workspace candidate bound exceeded");q->decoded[path]=true;return 0;
  }catch(const std::exception& e){if(q)q->error=e.what();return -1;}
 }
-int32_t v19_finish(V19Request *q,int32_t requested){
+static int32_t collectCandidates(V19Request *q,int32_t requested,bool complete){
  try{
   if(!q||requested<1)throw std::runtime_error("Candidate count must be positive");
-  if(std::find(q->decoded.begin(),q->decoded.end(),false)!=q->decoded.end())throw std::runtime_error("Not every original pinyin path was decoded");
+  if(complete&&std::find(q->decoded.begin(),q->decoded.end(),false)!=q->decoded.end())throw std::runtime_error("Not every original pinyin path was decoded");
   stableTop(q->all,q->all.size(),[](const Candidate& c){return c.score;});q->final.clear();std::unordered_set<std::string> seen;size_t limit=std::min(requested,8);
   for(const auto& c:q->all)if(seen.insert(c.text).second){q->final.push_back(c);if(q->final.size()>=limit)break;}
   return int32_t(q->final.size());
  }catch(const std::exception& e){if(q)q->error=e.what();return -1;}
 }
+int32_t v19_preview(V19Request *q,int32_t requested){return collectCandidates(q,requested,false);}
+int32_t v19_finish(V19Request *q,int32_t requested){return collectCandidates(q,requested,true);}
 const char *v19_request_error(const V19Request *q){return q?q->error.c_str():"Invalid request";}
 int32_t v19_candidate_count(const V19Request *q){return q?int32_t(q->final.size()):0;}
 const char *v19_candidate_id(const V19Request *q,int32_t i){return q&&i>=0&&size_t(i)<q->final.size()?q->final[i].id.c_str():"";}

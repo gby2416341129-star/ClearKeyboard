@@ -236,14 +236,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let characters=query.characters
         refinementWork=Task { [weak self] in
             do {
-                let result=try await V19InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters)
+                let result=try await V19InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters,
+                    updated: { [weak self] batch in
+                        Task { @MainActor [weak self] in
+                            guard let self,!token.isCancelled,!query.token.isCancelled,
+                                  self.activeCandidates === query,query.publish(batch) else{return}
+                            self.presentCandidates(query)
+                        }
+                    })
                 guard let self, !Task.isCancelled, !token.isCancelled, !query.token.isCancelled,
                       self.activeCandidates === query else{return}
-                query.publish(result)
-                self.presentCandidates(query)
+                if query.publish(result) {self.presentCandidates(query)}
             } catch {
                 guard let self, !Task.isCancelled, !token.isCancelled, self.activeCandidates === query else{return}
-                query.publish([]);self.engineState="V19 暂未返回候选："+error.localizedDescription
+                _ = query.publish(V19CandidateBatch(items:[],completedPaths:Int.max,isFinal:true));self.engineState="V19 暂未返回候选："+error.localizedDescription
                 self.presentCandidates(query)
             }
         }
@@ -861,7 +867,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 
 /// A version-scoped SDK response; no host scoring or candidate merging.
 private final class PreparedCandidates {
-    struct Result {let items:[Candidate]}
+    typealias Result = V19CandidateBatch
     let raw:String
     let generation:Int
     let origin:KeyboardModel.CandidateContext
@@ -872,7 +878,10 @@ private final class PreparedCandidates {
     init(raw:String,generation:Int,origin:KeyboardModel.CandidateContext,preceding:String,characters:Bool) {
         self.raw=raw;self.generation=generation;self.origin=origin;self.preceding=preceding;self.characters=characters
     }
-    func publish(_ items:[Candidate]) {result=Result(items:items)}
+    @discardableResult func publish(_ batch:V19CandidateBatch)->Bool {
+        if let old=result,old.isFinal || (!batch.isFinal && batch.completedPaths<=old.completedPaths) {return false}
+        result=batch;return true
+    }
 }
 private final class QueryCancellation: @unchecked Sendable {
     private let lock=NSLock()

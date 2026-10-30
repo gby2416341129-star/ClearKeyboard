@@ -26,30 +26,49 @@ actor V19InputService {
         guard requested == version, let initialization else { return }
         if let kernel = try? await initialization.value, requested == version { await kernel.cancelPending() }
     }
-    func candidates(raw: String, context: String, characters: Bool) async throws -> [Candidate] {
+    private func convert(_ result: V19Result, kernel: V19IMEKernel,
+                         requested: UInt64, characters: Bool) async throws -> V19CandidateBatch {
+        var output: [Candidate] = [], seen = Set<String>()
+        for item in result.candidates {
+            let selection = try await kernel.select(candidateID: item.id, from: result,
+                prefixCharacterCount: characters ? 1 : nil)
+            guard requested == version, !Task.isCancelled else { throw CancellationError() }
+            if !characters || seen.insert(selection.selectedText).inserted {
+                output.append(Candidate(text: selection.selectedText, reading: selection.selectedReading,
+                    consumed: selection.consumedRawUTF16Range.length, score: item.score,
+                    nativeChoice: V19Choice(raw: result.rawInput, selection: selection,
+                        recommended: item.id == result.recommendedID)))
+            }
+        }
+        return V19CandidateBatch(items: output, completedPaths: result.completedPaths, isFinal: result.isFinal)
+    }
+    private func progress(_ result: V19Result, kernel: V19IMEKernel, requested: UInt64,
+                          characters: Bool, updated: @Sendable (V19CandidateBatch) -> Void) async {
+        guard requested == version else { return }
+        guard let batch = try? await convert(result, kernel: kernel, requested: requested, characters: characters),
+              requested == version else { return }
+        updated(batch)
+    }
+    func candidates(raw: String, context: String, characters: Bool,
+                    updated: @escaping @Sendable (V19CandidateBatch) -> Void) async throws -> V19CandidateBatch {
         version &+= 1
         let requested = version
         let kernel = try await prepare()
         try Task.checkCancellation()
         return try await withTaskCancellationHandler(operation: {
             guard let result = try await kernel.candidates(rawPinyin: raw,
-                    committedLeftContext: context, inputVersion: requested, requestedCount: 8),
-                  requested == version, !Task.isCancelled else { return [] }
-            var output: [Candidate] = [], seen = Set<String>()
-            // SDK order and recommendation are authoritative. Selection receipts
-            // are obtained from the SDK, never by guessing a consumed prefix.
-            for item in result.candidates {
-                let selection = try await kernel.select(candidateID: item.id, from: result,
-                    prefixCharacterCount: characters ? 1 : nil)
-                guard requested == version, !Task.isCancelled else { return [] }
-                if seen.insert(selection.selectedText).inserted {
-                    output.append(Candidate(text: selection.selectedText, reading: selection.selectedReading,
-                        consumed: selection.consumedRawUTF16Range.length, score: item.score,
-                        nativeChoice: V19Choice(raw: raw, selection: selection,
-                            recommended: item.id == result.recommendedID)))
-                }
-            }
-            return output
+                    committedLeftContext: context, inputVersion: requested, requestedCount: 8,
+                    onUpdate: { result in
+                        Task { await self.progress(result, kernel: kernel, requested: requested,
+                            characters: characters, updated: updated) }
+                    }), requested == version, !Task.isCancelled else { throw CancellationError() }
+            return try await convert(result, kernel: kernel, requested: requested, characters: characters)
         }, onCancel: { Task { await self.cancel(requested) } })
     }
+}
+
+struct V19CandidateBatch: Sendable {
+    let items: [Candidate]
+    let completedPaths: Int
+    let isFinal: Bool
 }
