@@ -59,7 +59,7 @@ actor V19InputService {
             guard let result = try await kernel.candidates(rawPinyin: raw,
                     committedLeftContext: context, inputVersion: requested, requestedCount: 8,
                     onUpdate: { result in
-                        Task { await self.progress(result, kernel: kernel, requested: requested,
+                        _ = Task<Void, Never> { await self.progress(result, kernel: kernel, requested: requested,
                             characters: characters, updated: updated) }
                     }), requested == version, !Task.isCancelled else { throw CancellationError() }
             return try await convert(result, kernel: kernel, requested: requested, characters: characters)

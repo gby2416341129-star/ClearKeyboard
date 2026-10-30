@@ -10,7 +10,7 @@
     "Native/V19NativeIME/Sources/CV19IMECore/V19IMECore.cpp": "850c1a35ecc271e653270a5b78e27bcd3c0ced4a6648a11a313f10fd4e610967",
     "Native/V19NativeIME/Sources/V19NativeIME/Resources/runtime_config.json": "d620529c97960ba8422b31c921451cb4646d5f847f55fc5655b3b28ecde2fab5",
     "Native/V19NativeIME/Sources/V19NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
-    "Native/V19NativeIME/Sources/V19NativeIME/V19IMEKernel.swift": "af64d3b2a2cab9409519dfb359c8c000c942c5227f3f54a27830842390b36925",
+    "Native/V19NativeIME/Sources/V19NativeIME/V19IMEKernel.swift": "175670dd31a0bc6bd6670359fd03f529b6d2da71a3c303a8945a09cc69b0b118",
     "Native/V19NativeIME/Sources/V19NativeIME/V19Input.swift": "9eb93f2594a83721001cb94fd2f6f4b71c356c0a6d85a626dca64b2c5740ea42",
     "Native/V19NativeIME/Sources/V19NativeIME/V19Types.swift": "fc26b20946dfb2dbb2ec44c3cb953258dd0e830af82781ff2e160b84a9b085ed",
     "Core/Resources/V19/V19FullPinyinFP16.mlpackage/Data/com.apple.CoreML/model.mlmodel": "d85ec00ff3376058f2bc3372eff7002883d02548d7cb2573eceaa78376518d37",

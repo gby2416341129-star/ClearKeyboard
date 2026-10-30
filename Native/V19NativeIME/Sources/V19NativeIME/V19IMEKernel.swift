@@ -175,7 +175,7 @@ public actor V19IMEKernel {
         pending?.cancel(); progressFinished = false; publishedPaths = 0
         let work = Task.detached(priority: .userInitiated) { try runner.run(raw: rawPinyin, context: committedLeftContext, version: inputVersion, limit: requestedCount, generation: token,
             progress: onUpdate == nil ? nil : { result in
-                Task { await self.deliverProgress(result, update: onUpdate!) }
+                _ = Task<Void, Never> { await self.deliverProgress(result, update: onUpdate!) }
             }) }
         pending = work
         do { let result = try await work.value; guard token == generation && inputVersion == latestInputVersion else { return nil }; progressFinished = true; return result }
