@@ -1,10 +1,3 @@
-ClearKeyboard uses its own native phonetic decoder and the supplied V10 model.
-V10 export: v10_iphone_trial_export_20261029_141958; full ranking and calibrated adoption policy.
-Model identity and delivery checksums are retained in the runtime identity.json.
-
-Independent lexical data:
-Unicode pronunciations: mozillazg/pinyin-data, MIT; see Unicode-pinyin.txt.
-Chinese lexical frequencies: fxsjy/jieba data, MIT; see LexicalFrequency.txt.
-Phrase pronunciations: mozillazg/phrase-pinyin-data, MIT; see PhrasePronunciation.txt.
-English pronunciations: Carnegie Mellon University; see CMUdict.txt.
-No external input-method engine implementation is included.
+ClearKeyboard uses the supplied V19 native input SDK and matching V19 Core ML model.
+Checkpoint step 38750: d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7.
+No external input-method engine or execution runtime is included.

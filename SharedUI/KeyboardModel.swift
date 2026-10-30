@@ -89,7 +89,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 settings.learnChoices != oldValue.learnChoices || settings.predictions != oldValue.predictions
             if inputChanged {
                 activeCandidates?.token.cancel(); refinementCancellation.cancel(); refinementWork?.cancel(); scheduledQuery=nil
-                discardPreparedCandidates(); candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []
+                discardPreparedCandidates();
             }
             if settings.language != oldValue.language || settings.learnChoices != oldValue.learnChoices {
                 phraseLearning.reset(); numericRun.reset()
@@ -105,7 +105,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             if clipboardActive, settings.capturesClipboard != oldValue.capturesClipboard ||
                 settings.clipboardLifetimeHours != oldValue.clipboardLifetimeHours { startClipboardCapture() }
-            if !loadingSavedSettings,inputChanged,engine != nil {refreshCandidates()}
+            if !loadingSavedSettings,inputChanged,engineReady {refreshCandidates()}
             onChange?()
         }
     } }
@@ -133,12 +133,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
     var canUndoClearInput: Bool { deletionUndo != nil }
     var candidatesAreCurrent: Bool { candidateGeneration == generation }
     private var automaticChoiceIsReady: Bool {
-        // Indexed candidates already have validated phonetic spans. Background
-        // model ranking must never hold Space/Return hostage, including initials
-        // and partial selections. Consumption preserves the unselected suffix.
-        candidatesAreCurrent && candidateContext == activeCandidateContext() && candidates.first?.canConsume(composition.raw) == true
+        candidatesAreCurrent && candidateContext == activeCandidateContext() && recommendedCandidate?.canConsume(composition.raw) == true
     }
-    private(set) var engineState = "本地拼音索引加载中…"
+    private var recommendedCandidate: Candidate? {
+        candidates.first{$0.nativeChoice?.recommended == true} ?? candidates.first
+    }
+    private(set) var engineState = "V19 原生内核加载中…"
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
     var onCandidateSelection: (() -> Void)?
@@ -152,40 +152,24 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var loadingMoreCandidates = false
     private var browsedContext: CandidateContext?
     private func notifyCandidates() {
-        candidates = candidatePreferences?.applying(candidates, context: candidateContext) ?? candidates
         if let onCandidatesChange { onCandidatesChange() } else { onChange?() }
     }
     let clipboardCapture = ClipboardCapture()
     private var clipboardActive = false
     private var store: SettingsStore
     private var candidatePreferences: CandidatePreferences?
-    private var currentResolution: CandidateResolution?
     private var loadingSavedSettings = false
     private var appearanceLink: AppearanceSettingsLink?
     private let suppliedDefaults: UserDefaults?
-    private var engine: InputEngine?
-    // One latest-task V10 inference owner; native candidate lookups have a separate
-    // phonetic filtering worker so sentence generation cannot hold up a key.
-    private let queue = LatestCandidateWorkQueue(label: "clear.candidates")
-    // Constraint matching stays off the UI thread and the inference queue.
-    private let wordQueue = LatestCandidateWorkQueue(label: "clear.words")
-    private let wordLookup: (InputEngine, String, [Candidate]) -> [Candidate]
-    private let hotWords = HotWordCache()
-    private let warmsWords: Bool
-    private var work: DispatchWorkItem?
+    private var engineReady = false
+    private var startup: Task<Void, Never>?
     private var preparedCandidates: PreparedCandidates?
-    private var interruptedCandidates: PreparedCandidates?
     private var activeCandidates: PreparedCandidates?
     private var presentedRevision = 0
-    private var candidateCache: [CandidateRequestKey: PreparedCandidates.Result] = [:]
-    private var candidateCacheOrder: [CandidateRequestKey] = []
-    private var candidateCacheEpoch = 0
-    private var candidateBackendRevision = 0
-    private var refinementWork: DispatchWorkItem?
+    private var refinementWork: Task<Void, Never>?
     private var refinementCancellation = QueryCancellation()
+    private var work: DispatchWorkItem?
     private var scheduledQuery: PreparedCandidates?
-    private var scheduledLimit = 0
-    private var scheduledStage = 0
     private var generation = 0
     private var candidateGeneration = -1
     private var englishSnapshot = ""
@@ -221,218 +205,59 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func manageCandidate(_ candidate: Candidate, context: CandidateContext, pinned: Bool) {
         guard displaysCurrentCandidates(context) else { return }
         candidatePreferences?.set(candidate, context: context, pinned: pinned)
-        candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []
+
         discardPreparedCandidates(); refreshCandidates()
     }
     func loadMoreCandidates(context: CandidateContext?) {
-        guard hasMoreCandidates, !loadingMoreCandidates, acceptsCandidateContext(context),
-              let query = activeCandidates, !query.token.isCancelled else { return }
-        let previous = query.result
-        let limit = min(4095, (previous?.stage ?? 0) == 0 ? 24 : (previous?.limit ?? 24) + 32)
-        guard limit > (previous?.stage == 3 ? previous?.limit ?? 0 : 0) else { return }
-        browsedContext = candidateContext; loadingMoreCandidates = true
-        scheduleDecoder(query, limit: limit, stage: 3, correction: previous?.correction ?? false, delay: 0)
+        // V19 Trial 1 returns at most8 real candidates; no synthetic pages.
     }
-
-    // Begin work during the contact, without changing the document or the row.
-    // A cancelled key is still cancelled; only handle(_:) commits the spelling.
     func prepare(_ action: KeyAction) {
-        guard !awaitingCommit, !isMovingCursor, !characterSelectionMode, settings.language == .chinese,
-              page == .letters, !shifted else { return }
-        var next = composition
-        switch action {
-        case .text(let text) where text.first?.isLetter == true || (text == "'" && !next.isEmpty):
-            let math = next.isEmpty && text.count == 1 && "xX".contains(text) &&
-                document?.contextBefore.last.map { $0.isNumber || $0 == ")" } == true
-            guard !math, next.append(text) else { return }
-        case .delete:
-            next.deleteBackward()
-        default: return
-        }
-        // Only a possible spelling edit interrupts enrichment. In particular,
-        // touching Space must leave the result it is about to commit running.
-        interruptedCandidates = activeCandidates
-        refinementCancellation.cancel(); refinementWork?.cancel()
-        loadingMoreCandidates = false
-        if !next.isEmpty { _ = prepareCandidates(for: next.raw) }
+        // Submit only accepted raw input. A cancelled contact must not supersede
+        // the SDK result that is still available for selection.
     }
-    func cancelPreparation() {
-        let interrupted = interruptedCandidates; interruptedCandidates = nil
-        discardPreparedCandidates()
-        // Sliding off a key cancels the edit, not the current composition's
-        // ability to finish. A successful release has adopted a different query.
-        if let interrupted, activeCandidates === interrupted, !candidatesAreCurrent {
-            scheduleDecoder(interrupted, delay: 0)
-        }
-    }
-
+    func cancelPreparation() { discardPreparedCandidates() }
     private func discardPreparedCandidates() {
-        if preparedCandidates !== activeCandidates { preparedCandidates?.token.cancel() }
-        preparedCandidates = nil
+        if preparedCandidates !== activeCandidates {preparedCandidates?.token.cancel()}
+        preparedCandidates=nil
     }
-
     private func prepareCandidates(for raw: String) -> PreparedCandidates? {
-        guard !characterSelectionMode, let engine, let document, !raw.isEmpty, document.selectedText.isEmpty else { return nil }
-        let backend = engine.backendRevision
-        if backend != candidateBackendRevision {
-            candidateBackendRevision = backend; candidateCacheEpoch += 1
-            candidateCache = [:]; candidateCacheOrder = []
-        }
-        let origin = CandidateContext(raw: "", before: document.contextBefore, after: document.contextAfter,
-                                      document: document.documentIdentity, language: settings.language)
-        if let query = preparedCandidates, query.raw == raw, query.generation == generation,
-           query.origin == origin, !query.token.isCancelled { return query }
-        discardPreparedCandidates()
-        let preceding = CandidateLanguageContext.preceding(before: origin.before, markedDraft: composition.raw)
-        let query = PreparedCandidates(raw: raw, generation: generation, origin: origin, cacheEpoch: candidateCacheEpoch, preceding: preceding)
-        preparedCandidates = query
-        if let cached = candidateCache[query.cacheKey] {
-            if let resolution=cached.resolution {query.setResolution(resolution)}
-            query.publish(cached.items, stage: cached.stage, limit: cached.limit,
-                          hasMore: cached.hasMore, correction: cached.correction)
-            return query
-        }
-        let preferred = (settings.learnChoices ? personal.candidates(for:raw,context:preceding) : []) + (candidatePreferences?.preferred(context:activeCandidateContext()) ?? [])
-        let lookup = wordLookup, cache = hotWords, warm = warmsWords, fuzzy = settings.fuzzyPairs
-        let wordKey = String(backend) + "\u{1f}" + raw + "\u{1f}" + preceding + "\u{1f}" + fuzzy.sorted().joined(separator: ",") + ":learning-" + String(candidateCacheEpoch)
-        let cachedWords = warm ? cache.value(wordKey) : nil
-        let window = Composition.queryPrefix(raw, normalized: FuzzyPinyin.normalize(raw))
-        let expectedConsumption = FuzzyPinyin.normalize(window).count
-        if let cachedWords,!cachedWords.isEmpty {
-            query.publish(cachedWords,stage:0,refining:(cachedWords.first?.consumed ?? 0)<expectedConsumption)
-        }
-        let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
-            guard !query.token.isCancelled else { return }
-            let words = cachedWords ?? (warm ? engine.immediateCandidates(raw, preferred: preferred, context: preceding, fuzzy: fuzzy,
-                cancelled: { query.token.isCancelled }) : lookup(engine, raw, preferred))
-            if warm, !query.token.isCancelled { cache.put(wordKey, words) }
-            query.wordLookupCompleted(empty: words.isEmpty)
-            guard !query.token.isCancelled else { return }
-            if !words.isEmpty {
-                let items = warm ? words:Self.preferredWords(preferred, words)
-                query.publish(items, stage: 0, refining: (items.first?.consumed ?? 0) < expectedConsumption)
-            }
-            DispatchQueue.main.async {
-                guard let self, !query.token.isCancelled else { return }
-                if self.preparedCandidates === query, self.activeCandidates !== query {
-                    if words.isEmpty { self.scheduleDecoder(query, delay: 0) }
-                    return
-                }
-                guard self.activeCandidates === query else { return }
+        guard engineReady, let document, !raw.isEmpty, document.selectedText.isEmpty else{return nil}
+        let origin=CandidateContext(raw:"",before:document.contextBefore,after:document.contextAfter,
+            document:document.documentIdentity,language:settings.language)
+        let preceding=document.usesLocalPinyinComposition ? CandidateLanguageContext.tail(origin.before):CandidateLanguageContext.preceding(before:origin.before,markedDraft:composition.raw)
+        return PreparedCandidates(raw:raw,generation:generation,origin:origin,preceding:preceding)
+    }
+    private func scheduleDecoder(_ query: PreparedCandidates, delay: Double) {
+        guard activeCandidates === query, !query.token.isCancelled else{return}
+        refinementCancellation.cancel();refinementWork?.cancel()
+        let token=QueryCancellation();refinementCancellation=token;scheduledQuery=query
+        let characters=characterSelectionMode
+        refinementWork=Task { [weak self] in
+            do {
+                let result=try await V19InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters)
+                guard let self, !Task.isCancelled, !token.isCancelled, !query.token.isCancelled,
+                      self.activeCandidates === query else{return}
+                query.publish(result)
                 self.presentCandidates(query)
-                guard self.activeCandidates === query, !query.token.isCancelled else { return }
-                // Unknown spellings need the decoder immediately. A populated
-                // word row can defer this work without delaying its first paint.
-                if (query.result?.stage ?? 0) == 0 {
-                    self.scheduleDecoder(query, delay: 0)
-                }
-            }
-
-        }
-        wordQueue.async(execute: job)
-        let contextualShortSpelling = !preceding.isEmpty && raw.utf8.count <= 6
-        if contextualShortSpelling ||
-            (raw.utf8.count >= 3 && raw.allSatisfy({ "bpmfdtnlgkhjqxrzcsyw".contains($0) })) {
-            // Start the semantic row at contact-down. It can finish while the
-            // key is still held. A context-aware short spelling must not wait
-            // for the independent, context-free word lookup to finish first.
-            scheduleDecoder(query, delay: 0)
-        }
-        return query
-    }
-
-    nonisolated private static func preferredWords(_ preferred: [Candidate], _ words: [Candidate]) -> [Candidate] {
-        PersonalLexicon.merging(preferred, into: words, limit: 8)
-    }
-
-    private func scheduleDecoder(_ query: PreparedCandidates, limit: Int = 8, stage: Int = 1,
-                                 correction: Bool = true, delay: Double) {
-        guard activeCandidates === query || preparedCandidates === query,
-              !query.token.isCancelled, let engine else { return }
-        // A late word callback for the old, still-visible spelling must not
-        // cancel the prospective key's decoder. Cancelling the contact removes
-        // this priority and explicitly resumes the interrupted current query.
-        if let prepared = preparedCandidates, prepared !== query,
-           activeCandidates === query, interruptedCandidates === query { return }
-        // A quick-word miss may arrive after the same sentence query started.
-        // Keep that work; cancelling and restarting it only adds latency.
-        if scheduledQuery === query, scheduledLimit == limit, scheduledStage == stage,
-           !refinementCancellation.isCancelled { return }
-        refinementCancellation.cancel(); refinementWork?.cancel()
-        let token = QueryCancellation(); refinementCancellation = token
-        scheduledQuery = query; scheduledLimit = limit; scheduledStage = stage
-        let raw = query.raw, settings = self.settings, learningVersion = candidateCacheEpoch
-        let preferred = (settings.learnChoices ? personal.candidates(for:raw,context:query.preceding):[]) + (candidatePreferences?.preferred(context:activeCandidateContext()) ?? [])
-        let learned = settings.learnChoices ? self.learned : [:]
-        let recent = settings.learnChoices ? personal.recentCorrections(for: raw) : []
-        let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
-            let cancelled = { query.token.isCancelled || token.isCancelled }
-            guard !cancelled() else { return }
-            // The native decoder publishes its indexed row before V10 ranking/adoption.
-            let result = engine.candidates(raw, fuzzy: settings.fuzzyPairs,
-                learned: learned, preferred: preferred, recentCorrections: recent, limit: limit + 1,
-                correction: correction, context: query.preceding, cancelled: cancelled, updated: { items, more, settled in
-                    guard !cancelled() else { return }
-                    query.publish(Array(items.prefix(limit)), stage: stage, limit: limit,
-                                  hasMore: more || items.count > limit, correction: correction, refining: !settled)
-                    DispatchQueue.main.async {
-                        guard let self, self.activeCandidates === query, !cancelled() else { return }
-                        self.loadingMoreCandidates = false; self.presentCandidates(query)
-                    }
-                }, learningVersion:learningVersion, resolved:{ query.setResolution($0) })
-            guard !cancelled() else { return }
-            query.publish(Array(result.prefix(limit)), stage: stage, limit: limit,
-                          hasMore: (result.count > limit || query.result?.hasMore == true) && limit < 4095,
-                          correction: correction)
-            DispatchQueue.main.async {
-                guard let self, self.activeCandidates === query, !cancelled() else { return }
-                self.loadingMoreCandidates = false
+            } catch {
+                guard let self, !Task.isCancelled, !token.isCancelled, self.activeCandidates === query else{return}
+                query.publish([]);self.engineState="V19 暂未返回候选："+error.localizedDescription
                 self.presentCandidates(query)
             }
         }
-        refinementWork = job
-        queue.async(execute: job)
     }
-
-
     private func presentCandidates(_ query: PreparedCandidates, notify: Bool = true) {
         guard activeCandidates === query, !query.token.isCancelled,
-              query.raw == composition.raw, requestedContext?.raw == query.raw,
-              let result = query.result, result.revision > presentedRevision else { return }
-        presentedRevision = result.revision
-        var items = result.items
-        if browsedContext != nil, browsedContext == requestedContext, candidateContext == requestedContext {
-            var seen = Set(candidates.map(\.text))
-            items = candidates + items.filter { seen.insert($0.text).inserted }
-        }
-        let changed = candidates != items || candidateContext != requestedContext || hasMoreCandidates != result.hasMore
-        candidates = items; hasMoreCandidates = result.hasMore
-        candidateGeneration = generation; candidateContext = requestedContext
-        candidates = candidatePreferences?.applying(candidates, context: candidateContext) ?? candidates
-        currentResolution=result.resolution
-        if var resolution=currentResolution,let first=candidates.first,resolution.raw==query.raw {
-            if resolution.finalCandidateID != first.stableID {resolution.finalCandidateID=first.stableID;resolution.finalSource=browsedContext==requestedContext ? "interaction_frozen":"explicit_menu_preference"}
-            currentResolution=resolution
-        }
-        if result.stage > 0 && result.stage < 3 && !result.refining {
-            if query.cacheEpoch == candidateCacheEpoch {
-                if candidateCache[query.cacheKey] == nil { candidateCacheOrder.append(query.cacheKey) }
-                candidateCache[query.cacheKey] = result
-                if candidateCacheOrder.count > 32 { candidateCache.removeValue(forKey: candidateCacheOrder.removeFirst()) }
-            }
-        }
-        if notify {
-            if changed { notifyCandidates() }
-            completeDeferredActions(for: requestedContext)
-        }
+              query.raw==composition.raw, requestedContext?.raw==query.raw,
+              let result=query.result else{return}
+        candidates=result.items;hasMoreCandidates=false
+        candidateGeneration=generation;candidateContext=requestedContext
+        if notify {notifyCandidates();completeDeferredActions(for:requestedContext)}
     }
 
     init(document: KeyboardDocument, settings: KeyboardSettings? = nil, defaults: UserDefaults? = nil,
-         wordLookup: ((InputEngine, String, [Candidate]) -> [Candidate])? = nil,
          appearanceLink: AppearanceSettingsLink? = nil) {
         self.document = document
-        self.wordLookup = wordLookup ?? { $0.immediateCandidates($1, preferred: $2) }
-        self.warmsWords = wordLookup == nil
         suppliedDefaults = defaults
         let defaults = defaults ?? SharedStorage.defaults(allowShared: document.fullAccess)
         store = SettingsStore(defaults: defaults)
@@ -469,27 +294,23 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if inputChanged { self.refreshCandidates() }
         }
         if document.fullAccess { self.appearanceLink?.activate() }
-        queue.async { [weak self] in
-            let result = Result { try InputEngine.bundled() }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                switch result {
-                case .success(let engine):
-                    // Confirm can be pressed before engine startup completes.
-                    // Rebase only to the exact context our queued-letter preview
-                    // wrote, so loading cannot silently drop those later keys.
-                    if self.awaitingCommit {
-                        if self.deferredVisibleContext == self.activeCandidateContext() {
-                            self.deferredContext = self.deferredVisibleContext
-                        } else { self.cancelDeferredActions() }
-                    }
-                    self.engine = engine; self.engineState = "离线就绪"; self.refreshCandidates()
-                    self.resumeDeferredActions()
-                case .failure: self.finishCompositionAsTyped(); self.engineState = "拼音索引加载失败 · 可继续输入英文"; self.onChange?()
+        startup=Task { [weak self] in
+            do {
+                _ = try await V19InputService.shared.prepare()
+                guard let self else{return}
+                if self.awaitingCommit {
+                    if self.deferredVisibleContext == self.activeCandidateContext() {self.deferredContext=self.deferredVisibleContext}
+                    else {self.cancelDeferredActions()}
                 }
+                self.engineReady=true;self.engineState="V19 离线就绪";self.refreshCandidates()
+            } catch {
+                guard let self else{return}
+                // Preserve the draft and editing on loading failure.
+                self.engineState="V19 加载失败："+error.localizedDescription;self.onChange?()
             }
         }
     }
+
     func reloadSettings() {
         guard let document else { return }
         store = SettingsStore(defaults: suppliedDefaults ?? SharedStorage.defaults(allowShared: document.fullAccess))
@@ -751,9 +572,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 if commitComposition(flushRemainder: false), selecting { onCandidateSelection?() }
             }
         case .enter:
-            // The host's rightmost Return/Search/Confirm key accepts the raw
-            // spelling. Space and candidate taps retain Chinese selection.
-            if composition.isEmpty { insertText("\n") } else { finishCompositionAsTyped() }
+            if composition.isEmpty {insertText("\n")}
+            else if commitComposition(flushRemainder:false) {onCandidateSelection?()}
         case .page(let next): page = next
         case .globe: commitComposition(); finishNumericRun(); phraseLearning.reset(); document?.nextKeyboard()
         case .language: toggleLanguage(); return
@@ -789,29 +609,20 @@ struct DeletedInput { let text: String; let selection: NSRange }
         document.insert(text); onCandidateSelection?(); refreshCandidates()
     }
     @discardableResult private func commitComposition(flushRemainder: Bool = true) -> Bool {
-        guard !composition.isEmpty else { composition.clear(); return true }
-        guard let document else { return false }
-        let current = automaticChoiceIsReady ? candidates.first : nil
-        let fallback = current
-        if let candidate = fallback {
-            let spelling = composition.raw, previousLearning = phraseLearning
-            let learningContext=CandidateLanguageContext.preceding(before:document.contextBefore,markedDraft:composition.raw)
-            let phrase = trackPhrase(candidate,explicit:false)
-            var remainder = composition; remainder.consume(candidate.consumed)
-            let output = candidate.text + (flushRemainder ? remainder.normalized : "")
-            guard document.commitMarkedText(output, remaining: flushRemainder ? "" : remainder.raw) else {
-                phraseLearning = previousLearning; return false
-            }
-            composition = remainder
-            learn(candidate,raw:spelling,phrase:phrase,context:learningContext,explicit:false)
-        } else {
-            guard document.commitMarkedText(composition.normalized, remaining: "") else { return false }
-            phraseLearning.reset()
+        guard !composition.isEmpty else {composition.clear();return true}
+        guard automaticChoiceIsReady,let document,let candidate=recommendedCandidate,
+              let choice=candidate.nativeChoice, candidateContext == activeCandidateContext() else{return false}
+        let spelling=composition.raw,previousLearning=phraseLearning
+        let context=CandidateLanguageContext.preceding(before:document.contextBefore,markedDraft:spelling)
+        let phrase=trackPhrase(candidate,explicit:false)
+        guard document.commitMarkedText(choice.selection.selectedText,remaining:choice.selection.remainingPinyin) else {
+            phraseLearning=previousLearning;return false
         }
-        if flushRemainder { phraseLearning.reset() }
-        if flushRemainder || fallback == nil { composition.clear() }
+        composition.replace(with:choice.selection.remainingPinyin)
+        learn(candidate,raw:spelling,phrase:phrase,context:context,explicit:false)
         return true
     }
+
     func choose(_ candidate: Candidate) {
         guard candidateGeneration == generation, candidates.contains(candidate), let document else { return }
         commitChoice(candidate, document: document, explicit:true)
@@ -840,32 +651,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard !awaitingCommit, !isMovingCursor, let context, let current = activeCandidateContext(), let document,
               document.selectedText.isEmpty else { return }
-        var selected = candidate
-        var learningRaw = context.raw
-        if context != current {
-            // A finger can reach a visible prefix word before sentence decoding
-            // catches up with the next letters. Commit only that prefix and keep
-            // the remaining spelling; never apply an old row to another field,
-            // another cursor position, or a prediction from an empty composition.
-            guard context.language == .chinese, current.language == .chinese,
-                  context.characters == current.characters,
-                  !context.raw.isEmpty, current.raw.hasPrefix(context.raw),
-                  candidate.consumed > 0, candidate.consumed <= FuzzyPinyin.normalize(context.raw).count,
-                  context.document == current.document, context.after == current.after,
-                  context.before.hasSuffix(context.raw), current.before.hasSuffix(current.raw),
-                  context.before.dropLast(context.raw.count) == current.before.dropLast(current.raw.count) else { return }
-            // A completed word may have been shown for an unfinished final
-            // syllable (nih -> 你好). Consume letters subsequently typed inside
-            // that same reading too, while retaining any following word.
-            let old = FuzzyPinyin.normalize(context.raw), typed = composition.normalized
-            let reading = FuzzyPinyin.normalize(candidate.reading)
-            if candidate.consumed == old.count, reading.hasPrefix(old) {
-                let consumed = reading.hasPrefix(typed) ? typed.count : (typed.hasPrefix(reading) ? reading.count : candidate.consumed)
-                selected = Candidate(text: candidate.text, reading: candidate.reading, consumed: consumed, score: candidate.score)
-            }
-            var remainder = composition; remainder.consume(selected.consumed)
-            learningRaw = String(composition.raw.dropLast(remainder.raw.count))
-        }
+        guard context == current, candidateContext == context, candidatesAreCurrent, candidates.contains(candidate) else{return}
         guard document.validateCandidate(before: current.before, after: current.after, identity: current.document) else {
             // Remote identity can briefly be unavailable during a long marked
             // edit. Preserve the tapped choice and draft for two frame-sized
@@ -881,7 +667,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             return
         }
-        commitChoice(selected, document: document, learningRaw: learningRaw, explicit:true)
+        commitChoice(candidate, document: document, explicit:true)
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument, learningRaw: String? = nil, explicit: Bool = false) {
         beginDocumentEdit(); defer { endDocumentEdit() }
@@ -890,39 +676,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
             insertText(candidate.text); onCandidateSelection?(); refreshCandidates(); return
         }
         if settings.language == .chinese {
-            let spelling = learningRaw ?? composition.raw
-            let originalLearning = phraseLearning
-            let learningContext=CandidateLanguageContext.preceding(before:document.contextBefore,markedDraft:composition.raw)
-            let selectedResolution=currentResolution
-            let phrase = trackPhrase(candidate,explicit:explicit)
-            if composition.raw.isEmpty {
-                insertText(candidate.text)
+            guard candidatesAreCurrent,candidateContext == activeCandidateContext(),candidates.contains(candidate),candidate.canConsume(composition.raw),let choice=candidate.nativeChoice else{return}
+            let spelling=composition.raw,previousLearning=phraseLearning
+            let context=CandidateLanguageContext.preceding(before:document.contextBefore,markedDraft:spelling)
+            let phrase=trackPhrase(candidate,explicit:explicit)
+            guard document.commitMarkedText(choice.selection.selectedText,remaining:choice.selection.remainingPinyin) else {
+                phraseLearning=previousLearning;return
             }
-            else {
-                var remaining = composition; remaining.consume(candidate.consumed)
-                guard document.commitMarkedText(candidate.text, remaining: remaining.raw) else {
-                    phraseLearning = originalLearning; refreshCandidates(); return
-                }
-                composition = remaining
-            }
-            if !spelling.isEmpty {
-                if explicit,let trace=selectedResolution,trace.raw==spelling {
-                    CandidateChoiceDiagnostics.record(trace,selected:candidate,revision:generation,defaults:store.defaults,epoch:learningEpoch)
-                }
-                learn(candidate,raw:spelling,phrase:phrase,context:learningContext,explicit:explicit)
-            }
-        } else {
-            guard document.selectedText.isEmpty, document.contextBefore == englishSnapshot else { refreshCandidates(); return }
-            let word = EnglishContext.word(in: englishSnapshot)
-            let output = EnglishContext.applyingCase(candidate.text, like: word)
-            if candidate.consumed > 0, output == word {
-                // A complete word is already in the host. Space confirms it
-                // without deleting and reinserting the same characters.
-                insertText(" ")
-            } else {
-                if candidate.consumed > 0 { for _ in word { document.deleteBackward() } }
-                insertText(output + " ")
-            }
+            composition.replace(with:choice.selection.remainingPinyin)
+            learn(candidate,raw:spelling,phrase:phrase,context:context,explicit:explicit)
         }
         onCandidateSelection?()
         refreshCandidates()
@@ -932,11 +694,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
         switch action {
         // A long-press choice commits the Chinese draft before its literal
         // suffix, so it must await the same current candidate as punctuation.
-        case .space, .literal: return requestedContext != nil
-        case .enter: return false // Literal spelling confirmation never waits for conversion.
+        case .space, .literal, .enter: return requestedContext != nil && activeCandidates?.result == nil
         case .text(let text):
             if page == .letters, !shifted, text.first?.isLetter == true || text == "'" { return false }
-            return requestedContext != nil
+            return requestedContext != nil && activeCandidates?.result == nil
         default: return false // Layout, delete and mode changes do not need a decoded sentence.
         }
     }
@@ -969,15 +730,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
         generation += 1; let requestedGeneration = generation
         cancellation.cancel(); activeCandidates = nil; presentedRevision = 0
         let token = prepared?.token ?? QueryCancellation(); cancellation = token
-        if prepared == nil || scheduledQuery !== prepared {
-            refinementCancellation.cancel(); refinementWork?.cancel()
-        }
-        work?.cancel(); candidateGeneration = -1
+        refinementCancellation.cancel();refinementWork?.cancel()
+        work?.cancel();candidateGeneration = -1
         hasMoreCandidates = false; loadingMoreCandidates = false
         let selectionIsEmpty = document?.selectedText.isEmpty == true
         let context = composition.isEmpty || settings.language == .english ? (document?.contextBefore ?? "") : ""
+        englishSnapshot=context
         arithmetic = composition.isEmpty && selectionIsEmpty ? InlineArithmetic.result(in: context) : nil
-        if arithmetic != nil || engine == nil || !selectionIsEmpty { candidates = [] }
+        if arithmetic != nil || !engineReady || !selectionIsEmpty { candidates = [] }
         if settings.language == .english && !capsLocked && !manualShift, let document {
             let trimmed = context.trimmingCharacters(in: .whitespaces)
             switch document.capitalization {
@@ -992,81 +752,24 @@ struct DeletedInput { let text: String; let selection: NSRange }
         requestedContext = queryContext
         if browsedContext != queryContext { browsedContext = nil }
         if arithmetic != nil { candidateGeneration = requestedGeneration; candidateContext = queryContext }
-        let raw = composition.raw, settings = self.settings, learned = self.learned
-        let preferred = (settings.learnChoices ? personal.candidates(for:raw,context:CandidateLanguageContext.preceding(before:document?.contextBefore ?? "",markedDraft:raw)):[])
-        // Numeric recall is a bounded in-memory lookup independent of the
-        // Chinese decoder. No query or animation may automatically insert it.
-        if arithmetic == nil, selectionIsEmpty, let prefix = numericPrefix() {
-            candidates = settings.learnChoices ? numbers.candidates(for: prefix) : []
-            candidateGeneration = requestedGeneration; candidateContext = queryContext
-            render(); return
+        let raw=composition.raw
+        if arithmetic == nil, selectionIsEmpty, let prefix=numericPrefix() {
+            candidates=settings.learnChoices ? numbers.candidates(for:prefix):[]
+            candidateGeneration=requestedGeneration;candidateContext=queryContext;render();return
         }
-        if arithmetic != nil { candidateGeneration = requestedGeneration; render(); return }
-        guard let engine, document != nil, selectionIsEmpty else { render(); return }
-        englishSnapshot = context
-        if characterSelectionMode, settings.language == .chinese, !raw.isEmpty {
-            render()
-            let job = DispatchWorkItem(qos: .userInitiated) { [weak self] in
-                let result = engine.characterCandidates(raw, fuzzy: settings.fuzzyPairs, cancelled: { token.isCancelled })
-                guard !token.isCancelled else { return }
-                DispatchQueue.main.async {
-                    guard let self, self.generation == requestedGeneration, !token.isCancelled else { return }
-                    self.candidates = result; self.candidateGeneration = requestedGeneration
-                    self.candidateContext = queryContext; self.hasMoreCandidates = false
-                    self.notifyCandidates(); self.completeDeferredActions(for: queryContext)
-                }
-            }
-            work = job; queue.async(execute: job); return
+        if arithmetic != nil {candidateGeneration=requestedGeneration;render();return}
+        candidates=[];candidateContext=queryContext
+        guard settings.language == .chinese,!raw.isEmpty,selectionIsEmpty,document != nil,engineReady else {
+            candidateGeneration=requestedGeneration;render();return
         }
-        if settings.language == .chinese, !raw.isEmpty {
-            guard let query = prepared ?? prepareCandidates(for: raw) else { render(); return }
-            activeCandidates = query; preparedCandidates = nil; cancellation = query.token
-            presentCandidates(query, notify: false)
-            render()
-            if candidatesAreCurrent { completeDeferredActions(for: queryContext) }
-            guard activeCandidates === query, !query.token.isCancelled else { return }
-            if (query.result?.stage ?? 0) == 0 {
-                // Publish one corrected sentence row. Showing an uncorrected
-                // sentence and replacing it 250 ms later made the row jump and
-                // allowed Space to commit the intermediate, incorrect phrase.
-                scheduleDecoder(query, delay: 0)
-            }
-            return
-        }
-        render()
-        let job = DispatchWorkItem(qos: .userInitiated, flags: .enforceQoS) { [weak self] in
-            guard !token.isCancelled else { return }
-            let result: [Candidate]
-            if settings.language == .chinese {
-                result = raw.isEmpty ? (settings.predictions ? engine.predictions(after: context, cancelled: { token.isCancelled }) : []) : engine.candidates(raw, fuzzy: settings.fuzzyPairs, learned: settings.learnChoices ? learned : [:], preferred: preferred, correction: false, context: context, cancelled: { token.isCancelled })
-            } else {
-                let word = EnglishContext.word(in: context)
-                if word.isEmpty {
-                    result = settings.predictions ? engine.englishPredictions(after: context) : []
-                } else {
-                    let completions = engine.englishCandidates(prefix: word)
-                    // Completion intentionally excludes the typed word. Keep a
-                    // recognized whole word first so Space cannot expand what
-                    // into what's (or can into can't) without an explicit tap.
-                    // The mapped dictionary stays on this worker, never a key.
-                    let exact = engine.english.lookup("e:" + FuzzyPinyin.normalize(word), limit: 12)
-                        .contains { $0.text.lowercased() == word.lowercased() }
-                    result = exact ? [Candidate(text: word, consumed: word.count)] + Array(completions.prefix(11)) : completions
-                }
-            }
-            guard !token.isCancelled else { return }
-            DispatchQueue.main.async {
-                guard let self, self.generation == requestedGeneration else { return }
-                self.candidates = result; self.candidateGeneration = requestedGeneration
-                self.candidateContext = queryContext; self.notifyCandidates()
-                self.completeDeferredActions(for: queryContext)
-            }
-        }
-        work = job; queue.async(execute: job)
+        guard let query=prepareCandidates(for:raw) else {render();return}
+        activeCandidates=query;cancellation=query.token
+        render();scheduleDecoder(query,delay:0)
     }
+
     private func completeDeferredActions(for context: CandidateContext?) {
         guard awaitingCommit else { return }
-        if deferredContext == context && !automaticChoiceIsReady { return }
+        if deferredContext == context && activeCandidates?.result == nil { return }
         awaitingCommit = false
         if deferredContext == context { resumeDeferredActions() }
         else { deferredActions = []; deferredContext = nil; deferredPreview = nil; deferredVisibleContext = nil }
@@ -1096,13 +799,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     private func learn(_ candidate: Candidate, raw: String, phrase: PhraseLearning.Choice? = nil, context: String = "", explicit: Bool = false) {
         guard settings.learnChoices else { return }
-        candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []; discardPreparedCandidates()
+        discardPreparedCandidates()
         let text = candidate.text
         personal.record(candidate,for:raw,context:context,explicit:explicit)
         if let phrase, phrase.raw != raw || phrase.candidate.text != candidate.text {
             personal.record(phrase.candidate,for:phrase.raw,context:phrase.context,explicit:phrase.explicit)
         }
-        let learningKey=FuzzyPinyin.normalize(raw)+"|"+text
+        let learningKey=raw+"|"+text
         learned[learningKey] = min(10_000, (learned[learningKey] ?? 0) + 1)
         if learned.count > 512, let least = learned.min(by: { $0.value < $1.value })?.key { learned.removeValue(forKey: least) }
         scheduleLearningSave()
@@ -1118,7 +821,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard epoch == learningEpoch else {
             learned = [:]; personal = PersonalLexicon(); numbers = NumericLexicon(); learningEpoch = epoch
             phraseLearning.reset(); numericRun.reset()
-            candidateCacheEpoch += 1; candidateCache = [:]; candidateCacheOrder = []; discardPreparedCandidates()
+            discardPreparedCandidates()
             return
         }
         LearningStore.save(LearningMemory(learned: learned, personal: personal, numbers: numbers), defaults: store.defaults, epoch: learningEpoch)
@@ -1131,62 +834,23 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
 }
 
-/// Workers publish immutable results without waiting for UIKit's event loop.
-/// A late word lookup cannot downgrade a decoded/corrected row.
-private final class PreparedCandidates: @unchecked Sendable {
-    struct Result {
-        let items: [Candidate]; let stage: Int; let revision: Int
-        let limit: Int; let hasMore: Bool; let correction: Bool; let refining: Bool; let resolution: CandidateResolution?
+/// A version-scoped SDK response; no host scoring or candidate merging.
+private final class PreparedCandidates {
+    struct Result {let items:[Candidate]}
+    let raw:String
+    let generation:Int
+    let origin:KeyboardModel.CandidateContext
+    let preceding:String
+    let token=QueryCancellation()
+    var result:Result?
+    init(raw:String,generation:Int,origin:KeyboardModel.CandidateContext,preceding:String) {
+        self.raw=raw;self.generation=generation;self.origin=origin;self.preceding=preceding
     }
-    let raw: String
-    let generation: Int
-    let origin: KeyboardModel.CandidateContext
-    let cacheEpoch: Int
-    let preceding: String
-    var cacheKey: CandidateRequestKey { CandidateRequestKey(raw: raw, preceding: preceding) }
-    let token = QueryCancellation()
-    private let lock = NSLock()
-    private var stored: Result?
-    private var resolution: CandidateResolution?
-    private var emptyWordLookup = false
-    init(raw: String, generation: Int, origin: KeyboardModel.CandidateContext, cacheEpoch: Int, preceding: String) {
-        self.raw = raw; self.generation = generation; self.origin = origin; self.cacheEpoch = cacheEpoch
-        self.preceding = preceding
-    }
-    var result: Result? { lock.lock(); defer { lock.unlock() }; return stored }
-    var missedWords: Bool { lock.lock(); defer { lock.unlock() }; return emptyWordLookup }
-    func setResolution(_ value: CandidateResolution) {lock.lock();resolution=value;lock.unlock()}
-    func wordLookupCompleted(empty: Bool) { lock.lock(); emptyWordLookup = empty; lock.unlock() }
-    func publish(_ items: [Candidate], stage: Int, limit: Int = 8, hasMore: Bool = true, correction: Bool = false,
-                 refining: Bool = false) {
-        lock.lock(); defer { lock.unlock() }
-        guard stage >= (stored?.stage ?? -1) else { return }
-        stored = Result(items: items, stage: stage, revision: (stored?.revision ?? 0) + 1,
-                        limit: limit, hasMore: hasMore, correction: correction, refining: refining, resolution:resolution)
-    }
+    func publish(_ items:[Candidate]) {result=Result(items:items)}
 }
-
 private final class QueryCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return value }
-    func cancel() { lock.lock(); value = true; lock.unlock() }
-}
-
-
-/// Only immutable quick-word rows live here. This lock is never held while
-/// looking up a dictionary, entering the model decoder, or calling UIKit/the document proxy.
-private final class HotWordCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var rows: [String: [Candidate]] = [:]
-    private var order: [String] = []
-    func value(_ raw: String) -> [Candidate]? {
-        lock.lock(); defer { lock.unlock() }; return rows[raw]
-    }
-    func put(_ raw: String, _ items: [Candidate]) {
-        lock.lock(); defer { lock.unlock() }
-        if rows[raw] == nil { order.append(raw) }
-        rows[raw] = items
-        if order.count > 512 { rows.removeValue(forKey: order.removeFirst()) }
-    }
+    private let lock=NSLock()
+    private var value=false
+    var isCancelled:Bool {lock.lock();defer{lock.unlock()};return value}
+    func cancel() {lock.lock();value=true;lock.unlock()}
 }

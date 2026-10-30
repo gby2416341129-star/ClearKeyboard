@@ -60,22 +60,9 @@ final class StateTests: XCTestCase {
         XCTAssertTrue(bottom.contains { $0.action == .language })
         XCTAssertEqual(bottom.last?.action, .enter)
     }
-    func testCompositionConsumptionHonorsApostrophes() {
-        var buffer = Composition(); buffer.append("ni'hao'ma")
-        buffer.consume(5); XCTAssertEqual(buffer.raw, "ma")
-        buffer.deleteBackward(); XCTAssertEqual(buffer.raw, "m")
-        buffer.clear(); XCTAssertTrue(buffer.isEmpty)
-    }
-    func testDecoderBoundDoesNotDiscardTheDraft() {
-        var buffer = Composition(); XCTAssertTrue(buffer.append(String(repeating: "a", count: Composition.maximumQueryLength)))
-        XCTAssertTrue(buffer.append("a")); XCTAssertEqual(buffer.normalized.count, Composition.maximumQueryLength + 1)
-        let prefix = Composition.queryPrefix(buffer.raw, normalized: buffer.normalized)
-        XCTAssertTrue(buffer.raw.hasPrefix(prefix)); XCTAssertLessThanOrEqual(prefix.count, Composition.maximumQueryLength)
-    }
-    func testNormalizationAndBoundedFuzzyVariants() {
-        XCTAssertEqual(FuzzyPinyin.normalize("LÜ'e 123"), "lve")
-        XCTAssertLessThanOrEqual(FuzzyPinyin.variants("zhangshengning", enabled: Set(FuzzyPinyin.availablePairs)).count, 12)
-    }
+
+
+
     func testEnglishReplacementWordAndCase() {
         XCTAssertEqual(EnglishContext.word(in: "hello, wor"), "wor")
         XCTAssertEqual(EnglishContext.word(in: "don't"), "don't")

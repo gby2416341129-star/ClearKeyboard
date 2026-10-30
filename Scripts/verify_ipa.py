@@ -1,42 +1,37 @@
 #!/usr/bin/env python3
-"""Only delivery resource/link/identity checks. Never predict, type or benchmark."""
-import hashlib,json,plistlib,struct,sys,zipfile
+"""Final resource, identity and linkage checks only. No model/input execution."""
+import hashlib,json,plistlib,re,struct,sys,zipfile
 BASE='Payload/ClearKeyboard.app/'
 EXT=BASE+'PlugIns/ClearKeyboardExtension.appex/'
+SHA='d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7'
 def verify(path):
     with zipfile.ZipFile(path) as ipa:
         names=ipa.namelist()
-        for binary in [BASE+'ClearKeyboard',EXT+'ClearKeyboardExtension']:
-            data=ipa.read(binary)
-            assert struct.unpack_from('<II',data)==(0xfeedfacf,0x100000c),'iPhone arm64 binary required'
-            for symbol in [b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime']:
-                assert symbol not in data,'Old runtime linked: '+str(symbol)
-            assert b'ck_native_decode' in data,'Own native engine missing'
-        for prefix in [BASE,EXT]:
+        for prefix,exe in [(BASE,'ClearKeyboard'),(EXT,'ClearKeyboardExtension')]:
+            data=ipa.read(prefix+exe)
+            assert struct.unpack_from('<II',data)==(0xfeedfacf,0x100000c)
+            assert b'v19_decode_path' in data and b'V19IMEKernel' in data,'Formal V19 SDK must be linked'
+            for old in [b'ck_native_decode',b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime',b'ClearV10Scorer',b'ClearV10Model']:
+                assert old not in data,'Old runtime linked: '+str(old)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='90' and 'iPhoneOS' in info['CFBundleSupportedPlatforms']
+            assert str(info['CFBundleVersion'])=='91' and info['CFBundleShortVersionString']=='0.1.88'
         assert plistlib.loads(ipa.read(EXT+'Info.plist'))['NSExtension']['NSExtensionPointIdentifier']=='com.apple.keyboard-service'
-        for name in names:
-            low=name.lower()
-            assert not any(old in low for old in ['qwen','rime','wanxiang','.gguf','.gram','clear-sentence','clearsentence25','llama','ggml','mmproj']),name
-            assert not low.endswith(('.mlpackage/manifest.json','.pt','.pth','.part','.tar.gz')),name
-        compiled=[n for n in names if n.rstrip('/').endswith('.mlmodelc')]
-        # ZIP tools may omit directory entries; use the distinct resource root.
+        old=re.compile(r'qwen|librime|wanxiang|clear[-_]sentence|clearsentence25|llama|ggml|mmproj|(?:^|/)V10(?:/|$)|native\.cklx|english\.clx|\.gguf$|\.gram$',re.I)
+        for n in names:
+            assert not old.search(n),n
+            assert not n.lower().endswith(('.pt','.pth','.onnx','.py','.pyc','.mlpackage/manifest.json')),n
         roots={n.split('.mlmodelc/')[0]+'.mlmodelc' for n in names if '.mlmodelc/' in n}
-        assert roots=={EXT+'V10/V10KeyboardModel.mlmodelc'},'Model must be packaged once in the keyboard target'
-        v10=EXT+'V10/'
-        identity=json.loads(ipa.read(v10+'identity.json'))
-        assert identity['model_version']=='V10' and identity['delivery_zip_sha256']=='e81300bbe9ceabbc9654b477d797f6e33f778c667e8778ac07affe4c946e4071'
-        assert identity['checkpoint_sha256']=='0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423'
-        compiled_manifest=json.loads(ipa.read(v10+'compiled_manifest.json'))
-        for name,digest in compiled_manifest['files'].items():assert hashlib.sha256(ipa.read(v10+name)).hexdigest()==digest,name
-        for name in ['vocab.json','calibration.json']:
-            assert hashlib.sha256(ipa.read(v10+name)).hexdigest()==identity['runtime_files'][name]
-        policy=json.loads(ipa.read(v10+'calibration.json'))
-        assert policy['adoption_threshold']==0.65 and not policy['apply_external_affine'] and policy['adoption_logit_is_already_calibrated']
-        for name in ['Pinyin/native.cklx','english.clx']:
-            assert BASE+name in names and EXT+name not in names
-        with ipa.open(BASE+'Pinyin/native.cklx') as stream:header=stream.read(64)
-        assert header[:8]==b'CKLX86\0\0' and struct.unpack_from('<I',header,8)[0]==5
-    print('Build 90 iPhone binaries, single V10 identity, native index and old-runtime removal checked.')
+        assert roots=={EXT+'V19FullPinyinFP16.mlmodelc'},roots
+        assert [n for n in names if n.endswith('/V19Resources.bin')]==[EXT+'V19/V19Resources.bin']
+        identity=json.loads(ipa.read(EXT+'V19/identity.json'))
+        assert identity['checkpoint_sha256']==SHA and identity['step']==38750 and identity['parameters']==20730368
+        config=ipa.read(EXT+'V19/runtime_config.json')
+        assert hashlib.sha256(config).hexdigest()==identity['files']['Native/V19NativeIME/Sources/V19NativeIME/Resources/runtime_config.json']
+        assert hashlib.sha256(ipa.read(EXT+'V19/V19Resources.bin')).hexdigest()==json.loads(config)['resource_binary_sha256']
+        manifest=json.loads(ipa.read(EXT+'V19/packaged_manifest.json'))
+        assert 'V19/packaged_manifest.json' not in manifest['files']
+        expected={n[len(EXT):] for n in names if n.startswith((EXT+'V19/',EXT+'V19FullPinyinFP16.mlmodelc/')) and not n.endswith('/') and n!=EXT+'V19/packaged_manifest.json'}
+        assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
+        for n,h in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+n)).hexdigest()==h,n
+    print('Build91 App/keyboard, formal V19 identity, single model and final resource hashes checked.')
 if __name__=='__main__':verify(sys.argv[1])

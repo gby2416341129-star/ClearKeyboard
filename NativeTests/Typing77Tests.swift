@@ -91,34 +91,8 @@ import CoreText
         window.isHidden = true
         print("FAST_KEY_CONTACT contacts=30 immediatePress=true orderedText=true minimumVisibleMs=45")
     }
-    func testFuzzyRulesStayAtSyllableBoundariesAndCombineEnabledPairs() {
-        XCTAssertEqual(FuzzyPinyin.variants("shi", enabled: ["f/h"]), ["shi"])
-        XCTAssertEqual(FuzzyPinyin.variants("zhong", enabled: ["f/h"]), ["zhong"])
-        XCTAssertFalse(FuzzyPinyin.variants("ang", enabled: ["an/ang"]).contains("angg"))
-        let all = Set(FuzzyPinyin.availablePairs)
-        XCTAssertTrue(FuzzyPinyin.variants("nian", enabled: all, limit: 48).contains("liang"))
-        XCTAssertTrue(FuzzyPinyin.variants("sijiesang", enabled: all, limit: 48).contains("shijieshang"))
-        XCTAssertEqual(Set(FuzzyPinyin.variants("shi'an", enabled: ["an/ang"])), ["shian", "shiang"])
-        XCTAssertLessThanOrEqual(FuzzyPinyin.variants(String(repeating: "zhangshengning", count: 6), enabled: all).count, 12)
-        print("FUZZY_BOUNDARIES internalHRewrites=0 finalOverwrites=0 combinedSyllables=true explicitBoundaries=true")
-    }
-    func testAllFuzzyKeepsExactHeadsAndOffersCommonFuzzySpellings() throws {
-        let engine = try InputEngine.bundled(), all = Set(FuzzyPinyin.availablePairs)
-        let cases = ["nihao", "zhongguo", "shijie", "shangban", "mingtian", "women", "zaijian", "iphone"]
-        var rows: [[String: Any]] = []
-        for raw in cases {
-            let exact = engine.candidates(raw, limit: 9), started = CACurrentMediaTime()
-            let fuzzy = engine.candidates(raw, fuzzy: all, limit: 9)
-            XCTAssertEqual(fuzzy.first?.text, exact.first?.text, "All fuzzy must preserve the exact head for \(raw)")
-            rows.append(["raw": raw, "head": fuzzy.first?.text ?? "", "fuzzyMs": (CACurrentMediaTime() - started) * 1000])
-        }
-        for (raw, expected) in [("zongguo", "中国"), ("sijie", "世界"), ("cifan", "吃饭"), ("lanjing", "南京"), ("beijin", "北京")] {
-            let result = engine.candidates(raw, fuzzy: all, limit: 9)
-            XCTAssertTrue(result.contains { $0.text == expected }, "Missing enabled fuzzy candidate \(expected) for \(raw): \(result.map(\.text))")
-        }
-        let data = try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
-        print("FUZZY_ALL_EXACT_HEADS " + String(decoding: data, as: UTF8.self))
-    }
+
+
     func testBlurPreparationDoesNotBlockTheTypingThread() {
         let image = UIGraphicsImageRenderer(size: CGSize(width: 420, height: 48)).image { _ in
             ("今天我们一起去吃饭 你好 世界" as NSString).draw(at: CGPoint(x: 8, y: 8), withAttributes: [.font: UIFont.systemFont(ofSize: 19)])
@@ -133,7 +107,7 @@ import CoreText
         let proxy = Typing77Proxy(), controller = Typing77Controller(); controller.proxy = proxy; controller.loadViewIfNeeded()
         let surface = try XCTUnwrap(views(controller.view).compactMap { $0 as? KeyboardSurface }.first)
         let model = surface.model
-        model.settings.language = .chinese; model.settings.fuzzyPairs = Set(FuzzyPinyin.availablePairs)
+        model.settings.language = .chinese; model.settings.fuzzyPairs = Set(InputPreferenceKeys.fuzzyPairs)
         model.settings.learnChoices = false; model.settings.automaticClipboard = false; model.settings.vibrationEnabled = false
         defer { model.suspend() }
         try await waitFor { model.engineState == "离线就绪" }

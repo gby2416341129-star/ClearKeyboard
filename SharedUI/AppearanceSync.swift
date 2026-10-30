@@ -101,7 +101,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         }.sorted()
     }
     var isValid: Bool {
-        if let fuzzyPairs, !fuzzyPairs.isSubset(of: Set(FuzzyPinyin.availablePairs)) { return false }
+        if let fuzzyPairs, !fuzzyPairs.isSubset(of: Set(InputPreferenceKeys.fuzzyPairs)) { return false }
         if let oneHandWidth, !oneHandWidth.isFinite || !(0.68...0.88).contains(oneHandWidth) { return false }
         if let toolbar, toolbar.count > ToolbarTool.allCases.count || Set(toolbar).count != toolbar.count { return false }
         if let clipboardLifetimeHours, !clipboardLifetimeHours.isFinite || !(clipboardLifetimeHours == 0 || (0.25...8760).contains(clipboardLifetimeHours)) { return false }

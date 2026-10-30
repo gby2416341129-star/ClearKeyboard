@@ -7,10 +7,8 @@ struct CandidateRequestKey: Hashable {
 
 enum CandidateLanguageContext {
     static func tail(_ text: String) -> String {
-        // Each scalar emits at least one token. This real suffix contains the
-        // complete possible last96 token window without stripping Latin text,
-        // punctuation or spaces. The V10 encoder performs token truncation.
-        String(String.UnicodeScalarView(text.unicodeScalars.suffix(96)))
+        // V19 takes the actual last32 committed Unicode scalars.
+        String(String.UnicodeScalarView(text.unicodeScalars.suffix(32)))
     }
 
     static func preceding(before: String, markedDraft: String) -> String {

@@ -114,7 +114,7 @@ import UIKit
         var settings = KeyboardSettings(); settings.language = .chinese; settings.automaticClipboard = false
         store.save(settings)
         let document = Repair66EnglishDocument()
-        let model = KeyboardModel(document: document, defaults: defaults, wordLookup: { _, _, _ in [] })
+        let model = KeyboardModel(document: document, defaults: defaults)
         defer { model.suspend() }
         model.reloadSettings(); XCTAssertEqual(model.settings.language, .english)
         model.settings.vibrationEnabled = true; model.settings.vibrationIntensity = 0.87

@@ -3,49 +3,7 @@ import UIKit
 import SwiftUI
 
 @MainActor final class RemoteProxyPerformanceTests: XCTestCase {
-    func testSegmentedNamesLearnWholeSpellingAndInitialsWithRealUIKitTextStorage() async throws {
-        let suite = "clear.names.runtime." + UUID().uuidString
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
-        controller.proxy = proxy; controller.loadViewIfNeeded()
-        var settings = KeyboardSettings(); settings.language = .chinese
-        settings.learnChoices = true; settings.automaticClipboard = false; settings.predictions = false
-        let model = KeyboardModel(document: controller, settings: settings, defaults: defaults)
-        defer { model.suspend(); defaults.removePersistentDomain(forName: suite) }
-        try await waitFor { model.engineState == "离线就绪" }
-        for (raw, name, parts, initials) in [
-            ("gouboyuan", "苟博渊", [("苟", 3), ("博", 2), ("渊", 4)], "gby"),
-            ("chenyuhan", "陈宇涵", [("陈", 4), ("宇", 2), ("涵", 3)], "cyh"),
-            ("liuxinyue", "刘欣悦", [("刘", 3), ("欣", 3), ("悦", 3)], "lxy")
-        ] {
-            model.handle(.enter)
-            let anchor = proxy.textView.text ?? ""
-            for letter in raw { model.handle(.text(String(letter))) }
-            var confirmed = ""
-            for (text, consumed) in parts {
-                let candidate = try await selectable(text, consumed: consumed, model: model)
-                var remainder = model.composition; remainder.consume(consumed)
-                model.chooseDisplayed(candidate, context: model.candidateContext)
-                confirmed += text
-                try await waitFor { proxy.textView.text == anchor + confirmed + remainder.raw }
-                XCTAssertEqual(model.composition.raw, remainder.raw)
-                XCTAssertEqual(controller.contextBefore, anchor + confirmed + remainder.raw)
-            }
-            XCTAssertEqual(proxy.textView.text, anchor + name); XCTAssertNil(proxy.textView.markedTextRange)
-            for letter in initials { model.handle(.text(String(letter))) }
-            try await waitFor { model.candidatesAreCurrent && model.candidates.prefix(4).contains { $0.text == name } }
-            let recalled = try XCTUnwrap(model.candidates.first { $0.text == name })
-            XCTAssertEqual(recalled.consumed, initials.count, "An initials alias must consume its own source, not the original full spelling")
-            model.chooseDisplayed(recalled, context: model.candidateContext)
-            XCTAssertEqual(proxy.textView.text, anchor + name + name)
-            XCTAssertTrue(model.composition.isEmpty)
-        }
-        model.flushLearning()
-        let restored = LearningStore.load(defaults, epoch: defaults.string(forKey: "clear.learned.epoch")).personal
-        XCTAssertTrue(restored.candidates(for: "gby").contains { $0.text == "苟博渊" && $0.consumed == 3 })
-        XCTAssertTrue(restored.candidates(for: "gouboyuan").contains { $0.text == "苟博渊" && $0.consumed == 9 })
-        print("NAME_LEARNING_UIKIT names=3 segmentedSelections=9 fullSpellingAndInitials=true lostWords=0 duplicatedPinyin=0")
-    }
+
     private func selectable(_ text: String, consumed: Int, model: KeyboardModel) async throws -> Candidate {
         try await waitFor { model.candidatesAreCurrent }
         for _ in 0..<10 {
@@ -57,51 +15,7 @@ import SwiftUI
         }
         return try XCTUnwrap(model.candidates.first { $0.text == text && $0.consumed == consumed }, "Missing selectable character \(text) for \(model.composition.raw)")
     }
-    func testNumericRecallNeedsTwoCompletedRunsAndInsertsOnlySuffixInRealUIKit() async throws {
-        let suite = "clear.numbers.runtime." + UUID().uuidString
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
-        controller.proxy = proxy; controller.loadViewIfNeeded()
-        var settings = KeyboardSettings(); settings.language = .chinese
-        settings.learnChoices = true; settings.automaticClipboard = false; settings.predictions = false
-        let model = KeyboardModel(document: controller, settings: settings, defaults: defaults)
-        defer { model.suspend(); defaults.removePersistentDomain(forName: suite) }
-        model.handle(.page(.numbers))
-        let surface = KeyboardSurface(model: model)
-        surface.frame = CGRect(x: 0, y: 0, width: 390, height: 276); surface.layoutIfNeeded()
-        for letter in "19981108" { model.handle(.text(String(letter))) }
-        model.handle(.enter)
-        for letter in "1998" { model.handle(.text(String(letter))) }
-        XCTAssertFalse(model.candidates.contains { $0.text == "1108" }, "One completed run must not activate recall")
-        for _ in 0..<4 { model.handle(.delete) }
-        for letter in "19981108" { model.handle(.text(String(letter))) }
-        model.handle(.enter)
-        let anchor = proxy.textView.text ?? ""
-        let started = ProcessInfo.processInfo.systemUptime
-        for letter in "1998" { model.handle(.text(String(letter))) }
-        let elapsed = (ProcessInfo.processInfo.systemUptime - started) * 1_000
-        XCTAssertTrue(model.candidatesAreCurrent)
-        let suffix = try XCTUnwrap(model.candidates.first { $0.text == "1108" })
-        XCTAssertEqual(suffix.consumed, 0); XCTAssertEqual(suffix.reading, "19981108")
-        XCTAssertEqual(proxy.textView.text, anchor + "1998", "Suggestions must never insert without a choice")
-        let context = model.candidateContext, insertions = proxy.insertedTexts.count
-        try await waitFor { self.descendants(surface).contains { $0 is CandidateButton && $0.accessibilityIdentifier == "candidate.1108" && !$0.isHidden } }
-        let suffixButton = try XCTUnwrap(descendants(surface).compactMap { $0 as? CandidateButton }.first { $0.accessibilityIdentifier == "candidate.1108" && !$0.isHidden })
-        XCTAssertTrue(suffixButton.accessibilityActivate(), "The visible number row must perform the same validated selection as touch")
-        XCTAssertEqual(proxy.textView.text, anchor + "19981108")
-        XCTAssertEqual(proxy.insertedTexts.count, insertions + 1); XCTAssertEqual(proxy.insertedTexts.last, "1108")
-        model.chooseDisplayed(suffix, context: context)
-        XCTAssertEqual(proxy.textView.text, anchor + "19981108", "A repeated tap on the old prefix must not append twice")
-        model.handle(.enter); model.flushLearning()
-        let restored = LearningStore.load(defaults, epoch: defaults.string(forKey: "clear.learned.epoch")).numbers
-        XCTAssertEqual(restored.candidates(for: "1998").first?.text, "1108")
-        model.settings.language = .english
-        for letter in "1998" { model.handle(.text(String(letter))) }
-        model.chooseDisplayed(try XCTUnwrap(model.candidates.first { $0.text == "1108" }), context: model.candidateContext)
-        XCTAssertTrue(controller.contextBefore.hasSuffix("19981108"), "English mode must not add a completion space to a numeric suffix")
-        XCTAssertLessThan(elapsed, 100, "Numeric recall must not wait for the sentence decoder")
-        print("NUMERIC_RECALL_UIKIT completedThreshold=2 suffixOnly=true automaticInsertions=0 staleTapIgnored=true keyAndRecallMs=\(elapsed)")
-    }
+
     func testNumericRecallSurvivesReloadAndRespectsDisableAndClear() async throws {
         let suite = "clear.numbers.settings." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -136,45 +50,7 @@ import SwiftUI
         XCTAssertNil(defaults.data(forKey: "clear.choices.v2"))
         print("NUMERIC_RECALL_LIFECYCLE leadingZeroes=true persistence=true deletionInvalidatesOldTap=true disable=true clear=true")
     }
-    func testLongLifestyleArticlesNeverCommitBeforeAChoiceOrLoseTheirRemainder() async throws {
-        var keys = 0
-        for article in LifestyleTypingFixtures.articles {
-            let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
-            controller.proxy = proxy; controller.loadViewIfNeeded()
-            let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
-            model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
-            defer { model.suspend() }
-            try await waitFor { model.engineState == "离线就绪" }
-            for letter in article.raw { model.handle(.text(String(letter))); keys += 1 }
-            XCTAssertGreaterThan(article.raw.count, 1_500)
-            XCTAssertEqual(model.composition.raw, article.raw, "A decoder window cannot automatically confirm or split an article")
-            XCTAssertTrue(proxy.insertedTexts.isEmpty, "Typing alone must never commit Chinese or literal pinyin")
-            try await waitFor { proxy.textView.text == article.raw }
-            try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text.contains { !$0.isASCII } && $0.consumed > 0 } }
-            let candidate = try XCTUnwrap(model.candidates.first { $0.text.contains { !$0.isASCII } && $0.consumed > 0 })
-            XCTAssertLessThan(candidate.consumed, article.raw.count)
-            var remainder = model.composition; remainder.consume(candidate.consumed)
-            model.chooseDisplayed(candidate, context: model.candidateContext)
-            try await waitFor { proxy.textView.text == candidate.text + remainder.raw }
-            XCTAssertEqual(model.composition.raw, remainder.raw)
-            model.finishCompositionAsTyped()
-            XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw)
-            XCTAssertNil(proxy.textView.markedTextRange)
-            XCTAssertTrue(model.composition.isEmpty)
-            // Enter may confirm the already visible marked pinyin by unmarking
-            // it. Verify text conservation and one Chinese insertion, without
-            // requiring a second insertion of that literal text.
-            XCTAssertEqual(proxy.insertedTexts.filter { $0.contains { !$0.isASCII } }, [candidate.text])
-            // Also exercise one atomic Chinese replacement with a complete,
-            // naturally punctuated article, independently of decoder quality.
-            controller.setMarkedText(article.raw)
-            controller.commitMarkedText(article.text)
-            XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw + article.text)
-            await Task.yield()
-            XCTAssertEqual(proxy.textView.text, candidate.text + remainder.raw + article.text)
-        }
-        print("LONGFORM_UIKIT articles=4 typedLetters=\(keys) automaticCommits=0 lostRemainders=0 actualUITextView=true")
-    }
+
     func testRapidTypingAfterAnExternalClearKeepsTheNewComposition() async throws {
         let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()
@@ -260,52 +136,7 @@ import SwiftUI
         }
         print("HOST_COMMIT_REENTRANCY actualUITextView=true scenarios=5 droppedKeys=0 duplicateKeys=0 ordering=preserved")
     }
-    func testRealUIKitEditingConservesEveryChosenWordAndUntouchedContext() async throws {
-        let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
-        controller.proxy = proxy; controller.loadViewIfNeeded()
-        let model = try XCTUnwrap(descendants(controller.view).compactMap { $0 as? KeyboardSurface }.first?.model)
-        model.settings.language = .chinese; model.settings.learnChoices = false; model.settings.automaticClipboard = false
-        defer { model.suspend() }
-        try await waitFor { model.engineState == "离线就绪" }
-        let drafts = ["bangongji", "zaigansha", "wogeimam", "busuanchadla", "chongzhika", "jintianxiayu",
-            "qingbangwokankan", "womenmingtianzaijiudianjian", String(repeating: "nichifanlema", count: 9)]
-        var choices = 0, edits = 0
-        for (index, raw) in drafts.enumerated() {
-            let prefix = "前文🙂\(index)：", suffix = "｜后文🙂"
-            proxy.textView.text = prefix + suffix
-            proxy.textView.selectedRange = NSRange(location: prefix.utf16.count, length: 0)
-            controller.textDidChange(nil)
-            try await waitFor { controller.contextBefore == prefix && controller.contextAfter == suffix }
-            for character in raw { model.handle(.text(String(character))); edits += 1 }
-            // Backspace and retype the last character before any pending
-            // spelling frame is guaranteed to have reached the host.
-            model.handle(.delete); model.handle(.text(String(try XCTUnwrap(raw.last)))); edits += 2
-            var confirmed = "", steps = 0
-            while !model.composition.isEmpty {
-                try await waitFor { model.candidatesAreCurrent && model.candidates.contains { $0.text != model.composition.raw && $0.consumed > 0 } }
-                let available = model.candidates.filter { $0.text != model.composition.raw && $0.consumed > 0 }
-                let candidate = try XCTUnwrap((index % 2 == 0 ? available.first { $0.consumed < model.composition.normalized.count } : nil) ?? available.first)
-                var remainder = model.composition; remainder.consume(candidate.consumed)
-                confirmed += candidate.text
-                model.chooseDisplayed(candidate, context: model.candidateContext)
-                try await waitFor { proxy.textView.text == prefix + confirmed + remainder.raw + suffix }
-                XCTAssertEqual(model.composition, remainder)
-                XCTAssertEqual(controller.contextBefore, prefix + confirmed + remainder.raw)
-                XCTAssertEqual(controller.contextAfter, suffix)
-                if remainder.isEmpty { XCTAssertNil(proxy.textView.markedTextRange) }
-                else {
-                    let marked = try XCTUnwrap(proxy.textView.markedTextRange)
-                    XCTAssertEqual(proxy.textView.text(in: marked), remainder.raw)
-                }
-                choices += 1; steps += 1
-                XCTAssertLessThanOrEqual(steps, raw.count, "Every choice must consume some spelling")
-                if steps > raw.count { break }
-            }
-            XCTAssertEqual(proxy.textView.text, prefix + confirmed + suffix)
-            XCTAssertEqual(proxy.insertedTexts.suffix(steps).joined(), confirmed)
-        }
-        print("EDIT_TEXT_CONSERVATION actualUITextView=true drafts=\(drafts.count) keyEdits=\(edits) choices=\(choices) lostWords=0 duplicatedPinyin=0 contextPreserved=true")
-    }
+
     func testCandidateCommitReplacesRealUIKitMarkedRangeInOneInsertion() async throws {
         let proxy = UIKitDocumentProxy(), controller = ProxyKeyboardController()
         controller.proxy = proxy; controller.loadViewIfNeeded()

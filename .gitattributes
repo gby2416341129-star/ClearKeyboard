@@ -1,2 +1,4 @@
 *.sh text eol=lf
-Core/Resources/V10/** -text
+Native/V19NativeIME/** -text
+Core/Resources/V19/** -text
+BuildAssets/V19/** -text

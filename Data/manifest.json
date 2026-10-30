@@ -1,21 +1,6 @@
 {
-  "format": "CLRX0001",
-  "englishSource": "https://raw.githubusercontent.com/cmusphinx/cmudict/74790861f652b15e4ac49015a90074ad62a27690/cmudict.dict",
-  "englishSourceSHA256": "81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22",
-  "english": {
-    "entries": 50000,
-    "indexKeys": 131156,
-    "bytes": 5562321,
-    "sha256": "c0ec19c39badffdc635f39d6af32c824a7e06b5974932b5d5b50dd5fdbcbfc13"
-  },
-  "chinese": {
-    "engine": "clear-native",
-    "engineVersion": 86,
-    "model": "V10",
-    "runtime": "Apple Core ML",
-    "modelBundle": "PlugIns/ClearKeyboardExtension.appex/V10",
-    "exportBatch": "v10_iphone_trial_export_20261029_141958",
-    "checkpointSHA256": "0d27285db15f626a04d37e00070e3c63c803ddb176860be409d069119aca9423",
-    "deliveryZIP_SHA256": "e81300bbe9ceabbc9654b477d797f6e33f778c667e8778ac07affe4c946e4071"
-  }
+  "engine": "V19NativeIME",
+  "model": "V19FullPinyinFP16",
+  "step": 38750,
+  "maximum_candidates": 8
 }

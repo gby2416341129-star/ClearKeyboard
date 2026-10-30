@@ -186,7 +186,7 @@ struct FuzzySettingsView: View {
         AppPage(title: "模糊拼音") {
             AppSectionTitle(title: "发音组合")
             AppCard {
-                ForEach(Array(FuzzyPinyin.availablePairs.enumerated()), id: \.element) { index, pair in
+                ForEach(Array(InputPreferenceKeys.fuzzyPairs.enumerated()), id: \.element) { index, pair in
                     if index > 0 { Divider() }
                     PreferenceToggle(title: pair.replacingOccurrences(of: "/", with: " ↔ "), isOn: Binding(
                         get: { preferences.settings.fuzzyPairs.contains(pair) },
@@ -264,8 +264,8 @@ struct InputAboutView: View {
             }
             AppSectionTitle(title: "离线引擎")
             AppCard {
-                Text("自研内核 · V10 本地排序").font(.system(size: 16, weight: .medium))
-                Text("自研内核处理拼音、候选和用户学习，V10 在本机辅助排序与采用决策；支持整句、简拼、拼写纠错和中英混输。")
+                Text("V19 原生全拼内核").font(.system(size: 16, weight: .medium))
+                Text("V19 在本机处理连续全拼、解码及候选推荐。本试用版暂不支持简拼、模糊音、纠错、中英混输和联想；学习记录保留，但不参与 SDK 排序。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Divider()
                 AppNavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)

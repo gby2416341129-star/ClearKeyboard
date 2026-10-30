@@ -33,7 +33,7 @@ import UIKit
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         let doc = Document(); var settings = KeyboardSettings()
         settings.toolbar = allTools ? ToolbarTool.allCases : [.language]
-        let model = KeyboardModel(document: doc, settings: settings, defaults: defaults, wordLookup: { _, _, _ in [] })
+        let model = KeyboardModel(document: doc, settings: settings, defaults: defaults)
         let surface = KeyboardSurface(model: model); surface.frame = CGRect(x: 0, y: 0, width: 420, height: 310)
         surface.layoutIfNeeded(); return (doc, model, surface, defaults)
     }

@@ -54,7 +54,7 @@ import Security
         let document = Document(); var settings = KeyboardSettings()
         settings.toolbar = ToolbarTool.allCases; settings.vibrationIntensity = 0.63
         let model = KeyboardModel(document: document, settings: settings,
-            defaults: UserDefaults(suiteName: UUID().uuidString)!, wordLookup: { _, _, _ in [] })
+            defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let surface = KeyboardSurface(model: model, toolbarVibration: vibration)
         surface.frame = CGRect(x: 0, y: 0, width: 390, height: 310); surface.layoutIfNeeded()
         return (document, model, surface)
@@ -162,7 +162,7 @@ import Security
         let appDefaults = UserDefaults(suiteName: UUID().uuidString)!, keyboardDefaults = UserDefaults(suiteName: UUID().uuidString)!
         let preferences = Preferences(store: SettingsStore(defaults: appDefaults), appearanceLink: appLink)
         let document = Document(fullAccess: true)
-        let model = KeyboardModel(document: document, defaults: keyboardDefaults, wordLookup: { _, _, _ in [] }, appearanceLink: keyboardLink)
+        let model = KeyboardModel(document: document, defaults: keyboardDefaults, appearanceLink: keyboardLink)
         preferences.activate(); defer { preferences.deactivate(); keyboardLink.deactivate(); withExtendedLifetime(document) {} }
         var value = KeyboardSettings()
         value.language = .english; value.keyHeight = 56; value.hand = .left; value.oneHandWidth = 0.72

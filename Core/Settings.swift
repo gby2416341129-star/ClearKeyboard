@@ -112,7 +112,7 @@ public struct KeyboardSettings: Codable, Equatable {
         // The keyboard always retains a way to change the input language.
         if !toolbar.contains(.language) { toolbar.insert(.language, at: 0) }
         toolbar = [.language] + toolbar.filter { $0 != .language }
-        fuzzyPairs.formIntersection(Set(FuzzyPinyin.availablePairs))
+        fuzzyPairs.formIntersection(Set(InputPreferenceKeys.fuzzyPairs))
     }
 }
 

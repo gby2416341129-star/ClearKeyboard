@@ -31,7 +31,7 @@ import UIKit
         let document = Document(), defaults = UserDefaults(suiteName: UUID().uuidString)!
         let state = ClipboardSuggestionState(defaults: defaults)
         var settings = KeyboardSettings(); settings.toolbar = ToolbarTool.allCases; settings.automaticClipboard = false
-        let model = KeyboardModel(document: document, settings: settings, defaults: defaults, wordLookup: { _, _, _ in [] })
+        let model = KeyboardModel(document: document, settings: settings, defaults: defaults)
         let surface = KeyboardSurface(model: model, suggestionState: state)
         surface.frame = CGRect(x: 0, y: 0, width: 390, height: 310); surface.layoutIfNeeded()
         return (document, model, surface, state)

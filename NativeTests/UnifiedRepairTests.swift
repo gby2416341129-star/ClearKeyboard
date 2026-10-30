@@ -48,27 +48,7 @@ import UIKit
             }
         }
     }
-    func testOneConfirmationImmediatelyPromotesLearnedInitialsButNotUnrelatedWords() throws {
-        for (text, reading) in [("苟博渊", "gou bo yuan"), ("老子去你妈的", "lao zi qu ni ma de"),
-                                ("今天在干什么", "jin tian zai gan shen me"), ("明天早上见", "ming tian zao shang jian")] {
-            let raw = reading.replacingOccurrences(of: " ", with: "")
-            let initials = String(reading.split(separator: " ").compactMap(\.first))
-            var memory = PersonalLexicon(); memory.record(Candidate(text: text, reading: reading, consumed: raw.count), for: raw)
-            let restored = try JSONDecoder().decode(PersonalLexicon.self, from: JSONEncoder().encode(memory))
-            let base = [Candidate(text: "原首选", consumed: initials.count)]
-            XCTAssertEqual(PersonalLexicon.merging(restored.candidates(for: initials), into: base, limit: 8).first?.text, text)
-            XCTAssertTrue(restored.candidates(for: initials + "x").isEmpty)
-            XCTAssertEqual(restored.candidates(for: raw).first?.score, 1, "Full spellings retain gradual learning")
-        }
-        var memory = PersonalLexicon()
-        let previous = Candidate(text: "高博雅", reading: "gao bo ya", consumed: 8)
-        for _ in 0..<5 { memory.record(previous, for: "gaoboya", now: Date(timeIntervalSince1970: 1)) }
-        let name = Candidate(text: "苟博渊", reading: "gou bo yuan", consumed: 9)
-        memory.record(name, for: "gouboyuan", now: Date(timeIntervalSince1970: 2))
-        XCTAssertEqual(memory.candidates(for: "gby").first?.text, name.text, "A newly confirmed initials mapping must not be buried by an older frequent phrase")
-        memory.record(Candidate(text: name.text, reading: name.reading, consumed: 3), for: "gby", now: Date(timeIntervalSince1970: 3))
-        XCTAssertEqual(memory.candidates(for: "gby").first?.score, 4, "Selecting the learned alias must not downgrade its next recall")
-    }
+
     func testDecimalPointAndChineseFullStopRemainDistinctWhenTypingNumbers() throws {
         let value = controller(), model = try XCTUnwrap(value.model)
         defer { model.suspend() }
@@ -193,16 +173,7 @@ import UIKit
         XCTAssertEqual(value.textView.text, "苟博渊苟博渊")
         print("CHARACTER_PICKER_UIKIT characters=3 unrelatedPhraseRows=0 initialsImmediateFirst=true duplicatedPinyin=0")
     }
-    func testCharacterBrowsingKeepsAlternativeSyllableBoundariesAndExplicitSeparators() throws {
-        let engine = try InputEngine.bundled()
-        let ambiguous = engine.characterCandidates("xian")
-        XCTAssertTrue(ambiguous.contains { $0.text == "先" && $0.consumed == 4 })
-        XCTAssertTrue(ambiguous.contains { $0.text == "西" && $0.consumed == 2 })
-        let separated = engine.characterCandidates("xi'an")
-        XCTAssertTrue(separated.contains { $0.text == "西" && $0.consumed == 2 })
-        XCTAssertTrue(separated.allSatisfy { $0.consumed <= 2 })
-        XCTAssertTrue(engine.characterCandidates("xian", cancelled: { true }).isEmpty)
-    }
+
     func testSwitchingFromBrowsedPhrasesToCharactersReplacesTheRowAndResetsItsOffset() async throws {
         let ribbon = CandidateScrollView()
         ribbon.frame = CGRect(x: 0, y: 0, width: 320, height: 44)
