@@ -173,10 +173,16 @@ public actor V19IMEKernel {
         guard inputVersion >= latestInputVersion else { return nil }
         latestInputVersion = inputVersion; generation &+= 1; let token = generation
         pending?.cancel(); progressFinished = false; publishedPaths = 0
-        let work = Task.detached(priority: .userInitiated) { try runner.run(raw: rawPinyin, context: committedLeftContext, version: inputVersion, limit: requestedCount, generation: token,
-            progress: onUpdate == nil ? nil : { result in
-                _ = Task<Void, Never> { await self.deliverProgress(result, update: onUpdate!) }
-            }) }
+        let callback: (@Sendable (V19Result) -> Void)?
+        if let update = onUpdate {
+            callback = { result in
+                _ = Task<Void, Never> { await self.deliverProgress(result, update: update) }
+            }
+        } else { callback = nil }
+        let work: Task<V19Result, Error> = Task.detached(priority: .userInitiated) {
+            return try runner.run(raw: rawPinyin, context: committedLeftContext,
+                version: inputVersion, limit: requestedCount, generation: token, progress: callback)
+        }
         pending = work
         do { let result = try await work.value; guard token == generation && inputVersion == latestInputVersion else { return nil }; progressFinished = true; return result }
         catch is CancellationError { return nil }
