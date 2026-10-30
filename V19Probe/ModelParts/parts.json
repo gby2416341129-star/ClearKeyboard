@@ -1,0 +1,57 @@
+{
+  "target": "Model/V19FullPinyinFP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+  "bytes": 41467520,
+  "sha256": "4e5849b6efefc351f1c4e39ab2fc0f20ff9d8c16866b3eb2a5b9ed12d0019b98",
+  "parts": [
+    {
+      "file": "weight.part000",
+      "bytes": 4194304,
+      "sha256": "d892d053e9a7da4ed19cf7875499b1419cf623e1e9b9c282a1439063a75684b6"
+    },
+    {
+      "file": "weight.part001",
+      "bytes": 4194304,
+      "sha256": "47c316ad67d29ff924dc603f00fce05f6f0a0aa034ae030793bd3e0f4e6ecb90"
+    },
+    {
+      "file": "weight.part002",
+      "bytes": 4194304,
+      "sha256": "474397dba93f20c7346d745ed15965290ff22fdf4bc6fced979b1b4efde11b93"
+    },
+    {
+      "file": "weight.part003",
+      "bytes": 4194304,
+      "sha256": "4168a3140c9cbafc966854a02dd6274b81cda6a5a53e1212d69bfff37b1fcba8"
+    },
+    {
+      "file": "weight.part004",
+      "bytes": 4194304,
+      "sha256": "f04eb1f5017214b57ae1a3ba1a107b3d9bb5a403526c5c35cd355ca3af91288c"
+    },
+    {
+      "file": "weight.part005",
+      "bytes": 4194304,
+      "sha256": "068bd22f5147290e0add926f506a4c06d954c22906bf2db15b57229dce8b4b0d"
+    },
+    {
+      "file": "weight.part006",
+      "bytes": 4194304,
+      "sha256": "b3dc9e1c79f561862aef79aebfe615cd223f93883c080415e5fc56cd8e5b15e9"
+    },
+    {
+      "file": "weight.part007",
+      "bytes": 4194304,
+      "sha256": "6e1dbfb18aac9dd0224348a37412388e790cbe7c3a10f54f0924067cdd360575"
+    },
+    {
+      "file": "weight.part008",
+      "bytes": 4194304,
+      "sha256": "b98b0eac53d4d6de69e868115fb25f7ed29f34d3921d52d8e43eb1aa29daea48"
+    },
+    {
+      "file": "weight.part009",
+      "bytes": 3718784,
+      "sha256": "1757a0f18fa930f56479f990b140ac7961d1023d4c2b010e575a03c998b2a14c"
+    }
+  ]
+}

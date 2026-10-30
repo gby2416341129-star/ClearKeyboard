@@ -1,0 +1,34 @@
+{
+  "files": [
+    {
+      "path": "delivery_manifest.json",
+      "bytes": 10667,
+      "sha256": "f51c5f274bca560047520b5e9c903439ec0e5a35213474c0331d24731889430e"
+    },
+    {
+      "path": "fixtures.json",
+      "bytes": 77419,
+      "sha256": "335d3b192d4ae504cdaee17e8fd52da642ee8aae3911ccc7225c4dc30ab5f17f"
+    },
+    {
+      "path": "MODEL_CONTRACT.json",
+      "bytes": 9070,
+      "sha256": "4b508eb3a90e7110b09da9091789744f8c2e11bccbc4ef4300f4667de8452da8"
+    },
+    {
+      "path": "resource_manifest.json",
+      "bytes": 831,
+      "sha256": "d035bfabc7056fd03ef29a16ce0efef585d9585096473211c72b38f7fef83f2a"
+    },
+    {
+      "path": "Runtime/runtime_config.json",
+      "bytes": 754,
+      "sha256": "d620529c97960ba8422b31c921451cb4646d5f847f55fc5655b3b28ecde2fab5"
+    },
+    {
+      "path": "Runtime/V19Resources.bin",
+      "bytes": 3711204,
+      "sha256": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb"
+    }
+  ]
+}

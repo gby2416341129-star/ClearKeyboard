@@ -1,0 +1,201 @@
+{
+  "delivery_version": "V19_iOS_Native_Trial_1",
+  "source_model": "V19",
+  "source_step": 38750,
+  "source_checkpoint_sha256": "d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7",
+  "parameters": 20730368,
+  "minimum_iOS": "16.0",
+  "minimum_Xcode": "15 (Swift tools 5.9 package manifest)",
+  "model_format": "Core ML ML Program; specificationVersion 7",
+  "compute": "Apple Core ML only; FP16 weights/compute, FP32 logits; no custom layers; no third-party execution backend",
+  "model_path": "Model/V19FullPinyinFP16.mlpackage",
+  "runtime_entry": "V19IMEKernel.prepare -> candidates -> select -> resetComposition/releaseResources",
+  "inputs": [
+    {
+      "name": "context_ids",
+      "shape": [
+        1,
+        32
+      ],
+      "dtype": "int32",
+      "dimension_meanings": [
+        "batch=1",
+        "last up to32 committed-left-context Unicode code points; left-aligned, right-pad0"
+      ],
+      "values": "character IDs0..8191; PAD0, unknown1"
+    },
+    {
+      "name": "pinyin_ids",
+      "shape": [
+        1,
+        64
+      ],
+      "dtype": "int32",
+      "dimension_meanings": [
+        "batch=1",
+        "one raw-input-derived legal syllable path; left-aligned, right-pad0"
+      ],
+      "values": "syllable IDs2..410; PAD0, unknown1 is never emitted by parser"
+    },
+    {
+      "name": "context_mask",
+      "shape": [
+        1,
+        32
+      ],
+      "dtype": "int32",
+      "dimension_meanings": [
+        "batch=1",
+        "context key-valid mask"
+      ],
+      "values": "int32 0 or1; source context_ids !=0"
+    },
+    {
+      "name": "pinyin_mask",
+      "shape": [
+        1,
+        64
+      ],
+      "dtype": "int32",
+      "dimension_meanings": [
+        "batch=1",
+        "pinyin key-valid mask"
+      ],
+      "values": "int32 0 or1; source pinyin_ids !=0"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "character_logits",
+      "shape": [
+        1,
+        64,
+        8192
+      ],
+      "dtype": "float32",
+      "dimension_meanings": [
+        "one syllable path",
+        "target syllable position",
+        "character ID"
+      ],
+      "semantics": "unnormalized source-model character logits; larger is better, not a correctness probability; padded target rows are ignored"
+    }
+  ],
+  "batch_adapter": {
+    "source_B_batch": "1..8 segmentation paths predicted together",
+    "CoreML": "one [1,...] prediction per path, up to8 calls; all paths preserved and merged with unchanged scores",
+    "reason": "fixed memory-bounded Apple input shape; path batch has no cross-example operation",
+    "CPU_reference_batch1_vs_batched_max_abs_error": 0.0,
+    "Apple_FP16_numerical_equivalence": "pending"
+  },
+  "vocabulary": {
+    "file": "V19NativeIME/Sources/V19NativeIME/Resources/vocabulary.json",
+    "characters": 8192,
+    "syllables_including_reserved": 411,
+    "embedding_pinyin_slots": 512,
+    "pad_id": 0,
+    "unknown_id": 1,
+    "IDs_changed": false,
+    "Unicode": "output Chinese vocabulary is single BMP scalar per non-special character; output alignment uses one UTF16 unit per generated character"
+  },
+  "normalization": {
+    "pinyin": "Unicode NFC then lowercase; accept only ASCII a-z (including v), ASCII apostrophe and space; no strip, no ü-to-v conversion, no tone-number removal",
+    "context": "no normalization; last32 Unicode scalar/code points, unknown chars map to1; actual committed left text only",
+    "source_vocabulary_cleaning_metadata_is_not_an_extra_runtime_transform": true,
+    "original_position_mapping": "Swift NFC/lowercase conversion records original UTF8 and UTF16 spans for every normalized unit; accepted non-ASCII NFC edge positions map to original spans, unlike legacy Python ASCII-only offset assumption"
+  },
+  "parser": {
+    "max_normalized_bytes": 384,
+    "max_raw_utf8_buffer_bytes": 4096,
+    "max_syllables": 64,
+    "max_syllable_letters": 6,
+    "max_paths_per_position": 8,
+    "separators": "apostrophe and ASCII space advance input without creating syllables",
+    "prior_per_syllable": "0.01 * syllable.length - 0.05",
+    "ties": "stable original traversal order",
+    "boundary_source": "actual raw input only; no answer-provided syllable boundaries"
+  },
+  "encoder": {
+    "hidden": 384,
+    "layers": 8,
+    "heads": 6,
+    "ffn": 1536,
+    "context_positions": 32,
+    "pinyin_positions": 64,
+    "position_slots": 96,
+    "segment_ids": "context0, pinyin1",
+    "padding": "right zero-padding with int32 validity masks",
+    "no_target_or_future_text_inputs": true
+  },
+  "decoder": {
+    "legal_character_table": "binary: bool legal_readings[512,8192] represented as ascending character-ID lists",
+    "per_position_log_probability": "x=logits[legal_ids] cast to float64; x-max(x)-log(sum(exp(x-max(x))))",
+    "per_position_char_limit": 8,
+    "beam": 32,
+    "max_expanded_hypotheses_per_position": 256,
+    "phrase_constraints": "greedy longest matching phrase2..24 chars; syllable IDs must equal stored phrase reading; else require stored single-character default; checked after full path beam",
+    "score": "sum legal-character log probabilities / number_of_syllables",
+    "sort": "stable descending score across all parser paths",
+    "dedup": "first candidate per exact text after global stable sort",
+    "max_returned": 8,
+    "requested_count": "positive; 1..8 honored, >8 capped to8",
+    "whole_sentence_dictionary_entry_required": false,
+    "no_extra_word_frequency_or_lexicon_scoring": true
+  },
+  "candidate": {
+    "stable_id": "lowercase16hex FNV1a64(UTF8(original_raw + NUL + text + NUL + space_joined_reading + NUL + decimal_consumed_raw_UTF8_end)), seed14695981039346656037, multiplier1099511628211, uint64 wrap",
+    "id_collision_policy": "matches V19 ID convention; identify selections within their result/inputVersion",
+    "recommended_id": "first returned candidate ID, or nil",
+    "candidate_order": "final SDK order; host App must not re-sort for the V19 trial",
+    "consumed_ranges": "half-open [start,end), relative to ORIGINAL raw input; both UTF8 bytes and UTF16 code units provided",
+    "full_candidate": "fullConsumption=true, consumed full original input including separators, remainingPinyin empty",
+    "alignment": "generated-character UTF16 span + original raw UTF8/UTF16 syllable span + normalized UTF8 span + syllable text",
+    "partial_selection": "select(prefixCharacterCount:) derives an aligned prefix of an already-returned full candidate, consumes through last selected syllable end, returns exact original suffix; not an extra decoder candidate",
+    "partial_generation": "not present in original V19 B; no injected prefix candidates or unfinished-tail completion"
+  },
+  "decision": {
+    "calibration": "none in V19; no scale, bias, acceptance head or threshold to apply",
+    "selected_recommendation": "highest decoder score after constraints/dedup",
+    "fallback": "no legal complete path / no surviving candidate -> empty list and structured reason, retain composition; model/resource errors throw, do not substitute another engine"
+  },
+  "lifecycle": {
+    "reuse": "one prepared actor/model per keyboard process",
+    "request_version": "UInt64 monotonic per composition/context update; older results return nil or are rejected at selection",
+    "cancel": "cancelPending/resetComposition mark old generations obsolete; synchronous CoreML call already executing completes, results are discarded",
+    "release": "releaseResources cancels and releases after any in-flight native call safely exits",
+    "compute_units": [
+      "cpuOnly",
+      "cpuAndGPU",
+      "cpuAndNeuralEngine",
+      "all"
+    ],
+    "compute_units_change": "release and prepare explicitly when configuration changes, never reload for each key"
+  },
+  "resources": {
+    "binary": "V19NativeIME/Sources/V19NativeIME/Resources/V19Resources.bin",
+    "config": "V19NativeIME/Sources/V19NativeIME/Resources/runtime_config.json",
+    "binary_sha256": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
+    "reading_rules_version": "locked matching_resources_1793340328913539900; reachable phrase rules packed without score/search changes"
+  },
+  "unsupported": [
+    "abbreviated pinyin",
+    "fuzzy matching",
+    "typo correction",
+    "English or mixed output",
+    "tone-number or tone-mark input",
+    "unbounded candidates",
+    "automatic completion of unfinished syllable tails"
+  ],
+  "validation": {
+    "export_complete": true,
+    "native_source_complete": true,
+    "Windows_Cpp_host_reference_check": "passed, see Provenance/native_host_checks.json",
+    "Apple_iOS_compilation": "pending",
+    "CoreML_Apple_numerical_consistency": "pending",
+    "keyboard_extension_execution": "pending user/App Codex",
+    "latency_memory_power_hardware_units": "pending user",
+    "quality_passed": false,
+    "deployment_ready": false,
+    "research_only": true
+  }
+}

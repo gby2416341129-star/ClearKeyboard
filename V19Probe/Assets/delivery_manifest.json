@@ -1,0 +1,276 @@
+{
+  "delivery_version": "V19_iOS_Native_Trial_1",
+  "export_batch_created_local": "2026-10-30 17:35:59 +0800",
+  "source_model": "V19",
+  "source_run_id": "v19_v18_quality_continue_1h",
+  "source_step": 38750,
+  "source_checkpoint": "E:\\训练\\checkpoints\\v19_v18_quality_continue_1h\\best.pt",
+  "source_checkpoint_sha256": "d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7",
+  "matching_source_resources": "E:\\训练\\checkpoints\\v19_v18_quality_continue_1h\\matching_resources_1793340328913539900",
+  "source_parameters": 20730368,
+  "source_fixed_snapshot_verified": true,
+  "model_weights_retrained": false,
+  "model_architecture_changed": false,
+  "token_IDs_changed": false,
+  "calibration_changed": false,
+  "search_parameters_changed": false,
+  "candidate_scoring_changed": false,
+  "source_model_definition": "Provenance/V19_model.py",
+  "source_decoder_definition": "Provenance/V19_decoder.py",
+  "normalization_position_mapping": "Explicit original UTF8/UTF16 mapping; fixes legacy ASCII-offset assumption only for non-ASCII NFC/lowercase edge input; no path/score/ranking changes",
+  "export": {
+    "format": "Core ML ML Program",
+    "precision": "FP16 weights/compute, FP32 logits; INT32 IDs/masks",
+    "minimum_iOS": "16.0",
+    "minimum_Xcode": "15, Swift tools5.9",
+    "source_tensors_mapped": 104,
+    "parameters": 20730368,
+    "custom_operators": false,
+    "all_weights_inside_package": true,
+    "relative_weight_reference": "@model_path/weights/weight.bin",
+    "converter_record": "Provenance/coreml_export_record.json",
+    "operator_record": "Provenance/coreml_graph_inspection.json"
+  },
+  "runtime": {
+    "swift_package": "V19NativeIME",
+    "entry": "V19IMEKernel",
+    "model": "Model/V19FullPinyinFP16.mlpackage",
+    "resources": "V19NativeIME/Sources/V19NativeIME/Resources",
+    "framework_dependencies": [
+      "Apple CoreML",
+      "Apple Foundation",
+      "Apple CryptoKit",
+      "Apple system libc++/C++17"
+    ],
+    "external_model_backend": null,
+    "network_required": false,
+    "Python_or_training_environment_required": false,
+    "candidate_generation_included": true,
+    "segmentation_included": true,
+    "decoding_and_reading_constraints_included": true,
+    "source_batching_adapter": "fixed1 path per CoreML call; up to8 original paths retained",
+    "max_candidates": 8,
+    "calibration": "none; no extra scale/bias/threshold",
+    "plain_text_vocabulary": "readable matched table; actual native runtime uses binary and runtime_config.json"
+  },
+  "sizes": {
+    "model_package_bytes": 41549790,
+    "all_shipped_runtime_resource_bytes": 3764357,
+    "model_plus_all_runtime_resources_bytes": 45314147,
+    "native_source_bytes": 38292,
+    "compiled_iOS_native_code_size": null,
+    "reference_and_docs_are_separate_from_runtime": true
+  },
+  "status": {
+    "export_completed": true,
+    "native_source_completed": true,
+    "Windows_Cpp_host_compile_completed": true,
+    "Windows_native_parser_fixed_cases_passed": 16,
+    "Windows_native_decoder_fixed_cases_passed": 14,
+    "Apple_iOS_build_completed": false,
+    "CoreML_Apple_predict_verified": false,
+    "CoreML_Apple_numerical_verified": false,
+    "iPhone_execution_verified": false,
+    "keyboard_extension_verified": false,
+    "phone_latency_verified": false,
+    "phone_memory_verified": false,
+    "phone_power_verified": false,
+    "actual_CPU_GPU_ANE_assignment_verified": false
+  },
+  "research_only": true,
+  "quality_passed": false,
+  "deployment_ready": false,
+  "unsupported_modes": [
+    "abbreviated pinyin",
+    "fuzzy pinyin",
+    "typo correction",
+    "English or mixed output",
+    "unfinished-tail completion"
+  ],
+  "first_read": "INTEGRATION.md",
+  "contract": "MODEL_CONTRACT.json",
+  "example": "Examples/KeyboardIntegration.swift",
+  "source_reference_outputs": "References/fixed_reference_cases.json",
+  "quality_record": "Provenance/QUALITY.md",
+  "full_prior_quality_record": "Provenance/V19_evaluation_60m.json",
+  "files": [
+    {
+      "path": "Examples/KeyboardIntegration.swift",
+      "bytes": 3760,
+      "sha256": "bfd98dd3a49d0c19d09b79c886ac2e9b744688c626fc00442fc7209f5d3ed112"
+    },
+    {
+      "path": "INTEGRATION.md",
+      "bytes": 9261,
+      "sha256": "21718f2e0c6d2db1e44b400ba6f3ccfcc91f4d8955316f36763e71dc05b37d95"
+    },
+    {
+      "path": "Integration/CompileModelOnApple.sh",
+      "bytes": 463,
+      "sha256": "49fbb74373cab5463968148cbab17f0e4d6c1f720b0001a3a7312bacb8227814"
+    },
+    {
+      "path": "Integration/RESOURCE_FORMAT.md",
+      "bytes": 1585,
+      "sha256": "0dc12aded98ec0edc36f3e8eeb3b1d03d7b0d7f2c98bc25cf4b405bf9e036cb8"
+    },
+    {
+      "path": "Integration/V19Keyboard.xcconfig",
+      "bytes": 689,
+      "sha256": "aac24ab198f485fcd0ddc0590627e836f1de5c909d29f503d3130576b093a3b5"
+    },
+    {
+      "path": "Integration/V19NativeIME-Bridging-Header.h",
+      "bytes": 115,
+      "sha256": "f754dfb3180f315d7bae1faae109ddf116e59bed2903be5afc9ad9ad2a8ff218"
+    },
+    {
+      "path": "MODEL_CONTRACT.json",
+      "bytes": 9070,
+      "sha256": "4b508eb3a90e7110b09da9091789744f8c2e11bccbc4ef4300f4667de8452da8"
+    },
+    {
+      "path": "Model/V19FullPinyinFP16.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+      "bytes": 81653,
+      "sha256": "d85ec00ff3376058f2bc3372eff7002883d02548d7cb2573eceaa78376518d37"
+    },
+    {
+      "path": "Model/V19FullPinyinFP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "bytes": 41467520,
+      "sha256": "4e5849b6efefc351f1c4e39ab2fc0f20ff9d8c16866b3eb2a5b9ed12d0019b98"
+    },
+    {
+      "path": "Model/V19FullPinyinFP16.mlpackage/Manifest.json",
+      "bytes": 617,
+      "sha256": "7ee7dd5a564c0bd7ec5742b381234b39501f2519b2a91a065316a71ac147c830"
+    },
+    {
+      "path": "Provenance/QUALITY.md",
+      "bytes": 1034,
+      "sha256": "00f04e5820b99e5e3ca06d7ec10d7a3f070e9eeed3e2b26c5b4c8f09a3f62733"
+    },
+    {
+      "path": "Provenance/V19_config.json",
+      "bytes": 3849,
+      "sha256": "9fc9f85c0c0b3a856ddaf17977a593a8e78d0f9691375ece802a627b99c91c84"
+    },
+    {
+      "path": "Provenance/V19_decoder.py",
+      "bytes": 5321,
+      "sha256": "2990d93733f6a55fb594577fefc9880eccce56d1d36c876a43fb4b2f2a2510f0"
+    },
+    {
+      "path": "Provenance/V19_evaluation_60m.json",
+      "bytes": 7384,
+      "sha256": "253ee666c95b6d4c0cfd775d80fa5b12bce25631faf57b412d9dd8a2b1fcde29"
+    },
+    {
+      "path": "Provenance/V19_model.py",
+      "bytes": 2921,
+      "sha256": "2465019a513eafec0a8ee814aa9c68780716cbe8ca4f01b28cd02e2cffefc71b"
+    },
+    {
+      "path": "Provenance/coreml_export_record.json",
+      "bytes": 1512,
+      "sha256": "d9f837575eab480d22a7c4d48511b731da1af6268f72a7833d3bcb1dfd006387"
+    },
+    {
+      "path": "Provenance/coreml_graph_inspection.json",
+      "bytes": 666,
+      "sha256": "0edb832896c6ff5d829431caeeb240b0f11c83c609857ee35219e24817bdbc1b"
+    },
+    {
+      "path": "Provenance/native_host_checks.json",
+      "bytes": 1148,
+      "sha256": "213d81ea412725e69d0ca7ee72c33d53b0ecb518d1d0262a73219998e0e7a862"
+    },
+    {
+      "path": "Provenance/resource_conversion.json",
+      "bytes": 753,
+      "sha256": "8507d002b9317797a7ad49e935335993eb153fe0745f80f8b2f136024e906062"
+    },
+    {
+      "path": "Provenance/source_identity.json",
+      "bytes": 7533,
+      "sha256": "29159a4b8f5e1873d0dbe9729ac36e70d6e05c3c061824cee178e36cc82408c3"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1390,
+      "sha256": "0f0b83d217e7ee2e701aa2d04b4c39455b5fc34c3f3cd5467e9bed0d1da8f4e9"
+    },
+    {
+      "path": "References/case_00_path0_logits.f32",
+      "bytes": 2097152,
+      "sha256": "acf2bc9ac6c6217dbcab929d2c62984e90b1c705fc1133b7aec131f6546d42bd"
+    },
+    {
+      "path": "References/case_01_path0_logits.f32",
+      "bytes": 2097152,
+      "sha256": "680232bd436629a906e13b216d6fea5faad08c1e8147ef72c5b2fbe67b9a3a33"
+    },
+    {
+      "path": "References/case_02_path0_logits.f32",
+      "bytes": 2097152,
+      "sha256": "43fbb74ff5786e3dc13741bc5a81511ccf2e34cae763e9f5840df18602e8405b"
+    },
+    {
+      "path": "References/case_03_path0_logits.f32",
+      "bytes": 2097152,
+      "sha256": "1d1827fd1a01000914a32bc19440b1bed6dcfbd8d81533237d619d288c1bea33"
+    },
+    {
+      "path": "References/fixed_reference_cases.json",
+      "bytes": 670717,
+      "sha256": "684c7c8aff01c18a4a0b8165cf5b5762b49c7719d0041160543122d4f552acef"
+    },
+    {
+      "path": "V19NativeIME/Package.swift",
+      "bytes": 644,
+      "sha256": "0aa272a82a14e2db4bbfff1ce62ffa4d1291ee4acec4d7db2543d198d12d1d6c"
+    },
+    {
+      "path": "V19NativeIME/Sources/CV19IMECore/V19IMECore.cpp",
+      "bytes": 14154,
+      "sha256": "b6acfbe46b979fd897d749092eb49974dfa8d0e7ea5eebb3a9888cf07bf06924"
+    },
+    {
+      "path": "V19NativeIME/Sources/CV19IMECore/include/V19IMECore.h",
+      "bytes": 3171,
+      "sha256": "deb4e624e46dbef5df4a2a24b8b4a08f1822cffa642290994f8d8f7c53f8f41b"
+    },
+    {
+      "path": "V19NativeIME/Sources/V19NativeIME/Resources/V19Resources.bin",
+      "bytes": 3711204,
+      "sha256": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb"
+    },
+    {
+      "path": "V19NativeIME/Sources/V19NativeIME/Resources/runtime_config.json",
+      "bytes": 754,
+      "sha256": "d620529c97960ba8422b31c921451cb4646d5f847f55fc5655b3b28ecde2fab5"
+    },
+    {
+      "path": "V19NativeIME/Sources/V19NativeIME/Resources/vocabulary.json",
+      "bytes": 52399,
+      "sha256": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1"
+    },
+    {
+      "path": "V19NativeIME/Sources/V19NativeIME/V19IMEKernel.swift",
+      "bytes": 14864,
+      "sha256": "6351e0468897755f31d6253300ded8a2f90fe687ce7f57306fc886336164c0e0"
+    },
+    {
+      "path": "V19NativeIME/Sources/V19NativeIME/V19Input.swift",
+      "bytes": 3317,
+      "sha256": "9eb93f2594a83721001cb94fd2f6f4b71c356c0a6d85a626dca64b2c5740ea42"
+    },
+    {
+      "path": "V19NativeIME/Sources/V19NativeIME/V19Types.swift",
+      "bytes": 2786,
+      "sha256": "d3ff5cc99bd658b58028ac70763d9fa07737f52b72a068e458fde72fc7c969c0"
+    }
+  ],
+  "hash_inventory_note": "files[] covers every payload except delivery_manifest.json and SHA256SUMS.txt; SHA256SUMS.txt additionally covers delivery_manifest.json, and excludes itself to avoid recursion",
+  "source_checkpoint_in_bundle": false,
+  "training_data_optimizer_environment_in_bundle": false
+}

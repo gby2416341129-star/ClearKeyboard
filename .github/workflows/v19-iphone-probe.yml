@@ -1,0 +1,28 @@
+name: Build V19 standalone iPhone latency suite
+on:
+  workflow_dispatch:
+  push:
+    branches: [npu/v19-iphone-probe]
+    paths: ['V19Probe/**', '.github/workflows/v19-iphone-probe.yml']
+permissions:
+  contents: read
+concurrency:
+  group: v19-iphone-probe-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: V19Probe
+      - name: Compile iPhone app and model; never execute predictions or tests
+        run: bash V19Probe/Scripts/build_probe.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V19Probe-build1-IPA
+          path: V19Probe/work/artifacts/
+          compression-level: 0
+          retention-days: 14
