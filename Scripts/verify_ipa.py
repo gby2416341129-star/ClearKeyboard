@@ -10,11 +10,11 @@ def verify(path):
         for prefix,exe in [(BASE,'ClearKeyboard'),(EXT,'ClearKeyboardExtension')]:
             data=ipa.read(prefix+exe)
             assert struct.unpack_from('<II',data)==(0xfeedfacf,0x100000c)
-            assert b'v19_decode_path' in data and b'V19IMEKernel' in data,'Formal V19 SDK must be linked'
+            assert b'v19_decode_path' in data and b'V19IMEKernel' in data,'V19 native SDK must be linked'
             for old in [b'ck_native_decode',b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime',b'ClearV10Scorer',b'ClearV10Model']:
                 assert old not in data,'Old runtime linked: '+str(old)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='91' and info['CFBundleShortVersionString']=='0.1.88'
+            assert str(info['CFBundleVersion'])=='92' and info['CFBundleShortVersionString']=='0.1.89'
         assert plistlib.loads(ipa.read(EXT+'Info.plist'))['NSExtension']['NSExtensionPointIdentifier']=='com.apple.keyboard-service'
         old=re.compile(r'qwen|librime|wanxiang|clear[-_]sentence|clearsentence25|llama|ggml|mmproj|(?:^|/)V10(?:/|$)|native\.cklx|english\.clx|\.gguf$|\.gram$',re.I)
         for n in names:
@@ -24,6 +24,7 @@ def verify(path):
         assert roots=={EXT+'V19FullPinyinFP16.mlmodelc'},roots
         assert [n for n in names if n.endswith('/V19Resources.bin')]==[EXT+'V19/V19Resources.bin']
         identity=json.loads(ipa.read(EXT+'V19/identity.json'))
+        assert identity['sdk_patch']['revision']=='clear-v19-score-domain-1'
         assert identity['checkpoint_sha256']==SHA and identity['step']==38750 and identity['parameters']==20730368
         config=ipa.read(EXT+'V19/runtime_config.json')
         assert hashlib.sha256(config).hexdigest()==identity['files']['Native/V19NativeIME/Sources/V19NativeIME/Resources/runtime_config.json']
@@ -33,5 +34,5 @@ def verify(path):
         expected={n[len(EXT):] for n in names if n.startswith((EXT+'V19/',EXT+'V19FullPinyinFP16.mlmodelc/')) and not n.endswith('/') and n!=EXT+'V19/packaged_manifest.json'}
         assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
         for n,h in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+n)).hexdigest()==h,n
-    print('Build91 App/keyboard, formal V19 identity, single model and final resource hashes checked.')
+    print('Build92 App/keyboard, versioned V19 identity, single model and final resource hashes checked.')
 if __name__=='__main__':verify(sys.argv[1])

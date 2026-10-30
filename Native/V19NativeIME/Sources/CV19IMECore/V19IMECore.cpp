@@ -136,9 +136,15 @@ int32_t v19_decode_path(V19Request *q,int32_t path,const float *logits,size_t co
   std::vector<Prefix> beam(1);const auto& r=*q->resources;
   for(size_t position=0;position<segments.size();position++){
    const auto& ids=r.legal[segments[position].id];if(ids.empty())throw std::runtime_error("No legal characters for syllable");
+   // Paths must share the model's character probability space. Conditioning
+   // each row on a different legal set discards its probability mass and can
+   // give a rare/over-segmented syllable an artificial near-zero log loss.
+   // Apply legality as a search constraint, without renormalizing it away.
    struct Value{uint16_t id;double score;};std::vector<Value> values;double max=-std::numeric_limits<double>::infinity();
-   for(uint16_t id:ids){double x=logits[position*positionStride+id*characterStride];if(!std::isfinite(x))throw std::runtime_error("Nonfinite model logits");values.push_back(Value{id,x});max=std::max(max,x);}
-   double sum=0;for(auto& x:values){x.score-=max;sum+=std::exp(x.score);}double normalizer=std::log(sum);for(auto& x:values)x.score-=normalizer;
+   for(size_t id=0;id<r.characters.size();id++){double x=logits[position*positionStride+id*characterStride];if(!std::isfinite(x))throw std::runtime_error("Nonfinite model logits");max=std::max(max,x);}
+   double sum=0;for(size_t id=0;id<r.characters.size();id++)sum+=std::exp(double(logits[position*positionStride+id*characterStride])-max);
+   const double normalizer=std::log(sum);
+   for(uint16_t id:ids)values.push_back(Value{id,(double(logits[position*positionStride+id*characterStride])-max)-normalizer});
    stableTop(values,8,[](const Value& x){return x.score;});std::vector<Prefix> expanded;expanded.reserve(256);
    for(const auto& prefix:beam)for(const auto& x:values){Prefix n=prefix;n.score+=x.score;n.ids.push_back(x.id);expanded.push_back(std::move(n));}
    stableTop(expanded,32,[](const Prefix& x){return x.score;});beam=std::move(expanded);

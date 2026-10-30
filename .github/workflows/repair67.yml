@@ -1,4 +1,4 @@
-name: Build 91 IPA
+name: Build 92 IPA
 on:
   push:
     branches: [codex/repair67-20261026]

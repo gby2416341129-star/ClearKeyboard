@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the formal SDK/export; stage only required runtime data. No inference."""
+"""Validate the supplied model/resources and versioned SDK sources; stage only required runtime data. No inference."""
 from pathlib import Path
 import hashlib,json,shutil
 ROOT=Path(__file__).resolve().parents[1]
@@ -37,5 +37,5 @@ def main():
     source=ROOT/'Native/V19NativeIME/Sources/V19NativeIME/Resources'
     for name in ['V19Resources.bin','runtime_config.json']:shutil.copyfile(source/name,runtime/name)
     shutil.copyfile(ROOT/'Core/Resources/V19/identity.json',runtime/'identity.json')
-    print('Formal V19 SDK/model hashes matched; Xcode will compile the supplied mlpackage.')
+    print('V19 model/resources and versioned SDK source hashes matched; Xcode will compile the supplied mlpackage.')
 if __name__=='__main__':main()

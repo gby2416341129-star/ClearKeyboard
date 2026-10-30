@@ -224,14 +224,16 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard engineReady, let document, !raw.isEmpty, document.selectedText.isEmpty else{return nil}
         let origin=CandidateContext(raw:"",before:document.contextBefore,after:document.contextAfter,
             document:document.documentIdentity,language:settings.language)
-        let preceding=document.usesLocalPinyinComposition ? CandidateLanguageContext.tail(origin.before):CandidateLanguageContext.preceding(before:origin.before,markedDraft:composition.raw)
-        return PreparedCandidates(raw:raw,generation:generation,origin:origin,preceding:preceding)
+        // Both host and local transports expose the same edit ledger, which
+        // includes the provisional draft. Neither may feed it back as history.
+        let preceding=CandidateLanguageContext.preceding(before:origin.before,markedDraft:composition.raw)
+        return PreparedCandidates(raw:raw,generation:generation,origin:origin,preceding:preceding,characters:characterSelectionMode)
     }
     private func scheduleDecoder(_ query: PreparedCandidates, delay: Double) {
         guard activeCandidates === query, !query.token.isCancelled else{return}
         refinementCancellation.cancel();refinementWork?.cancel()
         let token=QueryCancellation();refinementCancellation=token;scheduledQuery=query
-        let characters=characterSelectionMode
+        let characters=query.characters
         refinementWork=Task { [weak self] in
             do {
                 let result=try await V19InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters)
@@ -733,6 +735,21 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if inputOnly, let onInputChange { onInputChange() } else { onChange?() }
         }
         guard !isMovingCursor else { return }
+        // Host acknowledgements and view/settings refreshes can describe the
+        // same SDK input. Keep its in-flight work or completed SDK result;
+        // rebinding the editor snapshot does not change linguistic evidence.
+        if engineReady,settings.language == .chinese,!composition.isEmpty,
+           let document,document.selectedText.isEmpty,
+           let query=activeCandidates,!query.token.isCancelled,!refinementCancellation.isCancelled,
+           query.raw==composition.raw,query.characters==characterSelectionMode,
+           query.origin.document==document.documentIdentity,query.origin.after==document.contextAfter,
+           query.preceding==CandidateLanguageContext.preceding(before:document.contextBefore,markedDraft:composition.raw) {
+            requestedContext=activeCandidateContext()
+            if query.result != nil {presentCandidates(query,notify:false)}
+            render()
+            if candidatesAreCurrent {completeDeferredActions(for:requestedContext)}
+            return
+        }
         if composition.isEmpty || settings.language != .chinese { characterSelectionMode = false }
         if prepared == nil { discardPreparedCandidates() }
         generation += 1; let requestedGeneration = generation
@@ -849,10 +866,11 @@ private final class PreparedCandidates {
     let generation:Int
     let origin:KeyboardModel.CandidateContext
     let preceding:String
+    let characters:Bool
     let token=QueryCancellation()
     var result:Result?
-    init(raw:String,generation:Int,origin:KeyboardModel.CandidateContext,preceding:String) {
-        self.raw=raw;self.generation=generation;self.origin=origin;self.preceding=preceding
+    init(raw:String,generation:Int,origin:KeyboardModel.CandidateContext,preceding:String,characters:Bool) {
+        self.raw=raw;self.generation=generation;self.origin=origin;self.preceding=preceding;self.characters=characters
     }
     func publish(_ items:[Candidate]) {result=Result(items:items)}
 }
