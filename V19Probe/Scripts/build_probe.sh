@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p work/artifacts
 python3 Scripts/restore_model.py
+python3 Scripts/prepare_asset_manifest.py
 python3 Scripts/generate_project.py
 xcodebuild -version > work/artifacts/apple-toolchain.txt
 xcodebuild -project V19Probe.xcodeproj -scheme V19Probe \
@@ -18,6 +19,13 @@ assert compiled.is_dir(), 'Missing compiled V19 Core ML model'
 assert not list(bundle.rglob('*.mlpackage')), 'Do not duplicate uncompiled model in IPA'
 assert not list(bundle.rglob('*.pt')), 'Training checkpoints do not belong in IPA'
 assert (bundle/'Assets/Runtime/V19Resources.bin').is_file()
+resources=json.loads((bundle/'Assets/resource_manifest.json').read_text())
+assert resources['self_included'] is False
+assert all(item['path']!='resource_manifest.json' for item in resources['files'])
+for item in resources['files']:
+    data=(bundle/'Assets'/item['path']).read_bytes()
+    assert len(data)==item['bytes'], 'Bundled resource size mismatch: '+item['path']
+    assert hashlib.sha256(data).hexdigest()==item['sha256'], 'Bundled resource hash mismatch: '+item['path']
 files=[]
 for path in sorted(compiled.rglob('*')):
     if path.is_file():
@@ -29,13 +37,15 @@ Path('work/artifacts/build_manifest.json').write_text(json.dumps({
  'bundle_id':info['CFBundleIdentifier'],'build':info['CFBundleVersion'],'model':'V19','step':38750,
  'source_checkpoint_sha256':'d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7',
  'compiled_model_files':files,'native_cpp_decoder_compiled':True,
+ 'bundled_resource_manifest_verified':True,'bundled_resources_checked':len(resources['files']),
+ 'resource_manifest_excludes_self':True,
  'inference_executed':False,'user_runs_all_tests':True,'keyboard_project_modified':False,
 },indent=2))
 PY
 mkdir -p work/ipa/Payload
 ditto work/build/Build/Products/Release-iphoneos/V19Probe.app work/ipa/Payload/V19Probe.app
 cd work/ipa
-ditto -c -k --keepParent Payload ../artifacts/V19Probe-build1-unsigned.ipa
+ditto -c -k --keepParent Payload ../artifacts/V19Probe-build2-unsigned.ipa
 cd ../artifacts
-shasum -a 256 V19Probe-build1-unsigned.ipa > V19Probe-build1-unsigned.ipa.sha256
+shasum -a 256 V19Probe-build2-unsigned.ipa > V19Probe-build2-unsigned.ipa.sha256
 printf '%s\n' 'Compiled and packaged only. User performs all inference and device measurements.' > STATUS.txt

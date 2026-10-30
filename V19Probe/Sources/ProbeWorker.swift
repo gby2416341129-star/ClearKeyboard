@@ -60,7 +60,7 @@ final class ProbeWorker: @unchecked Sendable {
             let manifest=try JSONDecoder().decode(ResourceManifest.self,from:Data(contentsOf:asset("resource_manifest.json")))
             for item in manifest.files {
                 try checkStop(); let hash=try fileSHA256(asset(item.path))
-                guard hash==item.sha256 else { throw ProbeError.invalid("Resource SHA256 mismatch: \(item.path)") }
+                guard hash==item.sha256 else { throw ProbeError.invalid("Resource SHA256 mismatch: \(item.path); expected=\(item.sha256), actual=\(hash)") }
                 report.resourceSHA256[item.path]=hash
             }
             let fixtures=try JSONDecoder().decode(ProbeFixtureFile.self,from:Data(contentsOf:asset("fixtures.json")))

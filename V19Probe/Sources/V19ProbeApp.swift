@@ -76,7 +76,7 @@ struct ProbeScreen: View {
                     VStack(alignment:.leading,spacing:8) {
                         Text("澈 · V19 本地测试").font(.system(size:29,weight:.bold))
                         Text("CPU / GPU / NPU").font(.headline).foregroundStyle(.blue)
-                        Text("V19 · step 38750 · 原生 Core ML + 拼音拆分解码")
+                        Text("V19 · step 38750 · build 2 · 原生拆分解码")
                             .font(.subheadline).foregroundStyle(.secondary)
                         Text("点一次开始，自动测完四种配置。保持App在前台，完成后导出记录。")
                             .font(.subheadline)

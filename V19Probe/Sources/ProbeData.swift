@@ -115,7 +115,7 @@ struct SuiteReport: Codable, Sendable {
     let sourceStep = 38750
     let parameterCount = 20730368
     let checkpointSHA256 = "d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7"
-    let probeBuild = 1
+    let probeBuild = 2
     let startedAt: Date
     var finishedAt: Date?
     var status = "running"

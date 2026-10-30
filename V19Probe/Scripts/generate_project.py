@@ -40,7 +40,7 @@ for mode in ['Debug','Release']:
         'INFOPLIST_KEY_UIApplicationSceneManifest_Generation':'YES',
         'INFOPLIST_KEY_UIFileSharingEnabled':'YES',
         'INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace':'YES',
-        'TARGETED_DEVICE_FAMILY':'1,2','CURRENT_PROJECT_VERSION':'1','MARKETING_VERSION':'1.0',
+        'TARGETED_DEVICE_FAMILY':'1,2','CURRENT_PROJECT_VERSION':'2','MARKETING_VERSION':'1.0',
         'ENABLE_USER_SCRIPT_SANDBOXING':'YES',
         'SWIFT_OBJC_BRIDGING_HEADER':'Sources/V19Bridge.h',
         'HEADER_SEARCH_PATHS':'$(SRCROOT)/Native/include',

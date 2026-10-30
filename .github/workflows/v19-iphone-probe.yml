@@ -22,7 +22,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: V19Probe-build1-IPA
+          name: V19Probe-build2-IPA
           path: V19Probe/work/artifacts/
           compression-level: 0
           retention-days: 14

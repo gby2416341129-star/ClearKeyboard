@@ -1,4 +1,8 @@
 {
+  "schemaVersion": 2,
+  "source_checkpoint_sha256": "d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7",
+  "seal_stage": "actual CI checkout bytes before Xcode resource copy",
+  "self_included": false,
   "files": [
     {
       "path": "delivery_manifest.json",
@@ -14,11 +18,6 @@
       "path": "MODEL_CONTRACT.json",
       "bytes": 9070,
       "sha256": "4b508eb3a90e7110b09da9091789744f8c2e11bccbc4ef4300f4667de8452da8"
-    },
-    {
-      "path": "resource_manifest.json",
-      "bytes": 831,
-      "sha256": "d035bfabc7056fd03ef29a16ce0efef585d9585096473211c72b38f7fef83f2a"
     },
     {
       "path": "Runtime/runtime_config.json",
