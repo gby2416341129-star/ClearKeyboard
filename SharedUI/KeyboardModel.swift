@@ -403,7 +403,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func stopClipboardCapture() { clipboardActive = false; clipboardCapture.stop() }
     func moveCursor(_ offset: Int) {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        if !isMovingCursor { if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return } }
+        if !isMovingCursor { if awaitingCommit { finishCompositionAsTyped() } else if !finishForDocumentAction() { return } }
         phraseLearning.reset(); finishNumericRun()
         document?.moveCursor(offset)
         if !isMovingCursor { refreshCandidates() }
@@ -411,7 +411,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func beginCursorMovement() {
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard !isMovingCursor else { return }
-        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return }
+        if awaitingCommit { finishCompositionAsTyped() } else if !finishForDocumentAction() { return }
         phraseLearning.reset(); finishNumericRun()
         isMovingCursor = true; deletionUndo = nil
         cancellation.cancel(); work?.cancel(); refinementCancellation.cancel(); refinementWork?.cancel()
@@ -462,7 +462,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     func toggleLanguage() {
         beginDocumentEdit(); defer { endDocumentEdit() }
         finishNumericRun()
-        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return }
+        if awaitingCommit { finishCompositionAsTyped() } else if !finishForDocumentAction() { return }
         settings.language = settings.language == .chinese ? .english : .chinese
         if document?.prefersEnglish == true { fieldLanguageOverride = settings.language }
         page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
@@ -512,7 +512,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         var inputOnly = false
         switch action {
         case .literal(let text):
-            guard commitComposition() else { return }
+            guard finishForDocumentAction() else { return }
             insertText(text)
             if !capsLocked { shifted = false; manualShift = false }
         case .text(let text):
@@ -520,7 +520,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 !(shifted && page == .letters && text.first?.isLetter == true)
             let mathCharacter = possibleOperator && document?.contextBefore.last.map({ $0.isNumber || $0 == ")" }) == true
             if mathCharacter {
-                guard commitComposition() else { return }
+                guard finishForDocumentAction() else { return }
                 insertText(text)
             } else if settings.language == .chinese && page == .letters && !shifted && text.first?.isLetter == true {
                 finishNumericRun()
@@ -532,7 +532,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 prepared = prepareCandidates(for: composition.raw)
                 inputOnly = true; syncMarkedText()
             } else {
-                guard commitComposition() else { return }
+                guard finishForDocumentAction() else { return }
                 let decimal = page == .numbers && text == "."
                 insertText(shifted && page == .letters ? text.uppercased() : decimal ? text : punctuation(text))
                 if !capsLocked { shifted = false; manualShift = false }
@@ -575,7 +575,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
             if composition.isEmpty {insertText("\n")}
             else if commitComposition(flushRemainder:false) {onCandidateSelection?()}
         case .page(let next): page = next
-        case .globe: commitComposition(); finishNumericRun(); phraseLearning.reset(); document?.nextKeyboard()
+        case .globe: finishForDocumentAction(); finishNumericRun(); phraseLearning.reset(); document?.nextKeyboard()
         case .language: toggleLanguage(); return
         }
         refreshCandidates(using: prepared, inputOnly: inputOnly)
@@ -586,7 +586,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func beginClipboardSelection() -> ClipboardTextSession? {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        if awaitingCommit { finishCompositionAsTyped() } else { commitComposition() }
+        if awaitingCommit { finishCompositionAsTyped() } else { finishForDocumentAction() }
         guard let document else { return nil }
         return ClipboardTextSession(document: document)
     }
@@ -597,7 +597,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     func insertLiteral(_ text: String) {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        if awaitingCommit { finishCompositionAsTyped() } else if !commitComposition() { return }
+        if awaitingCommit { finishCompositionAsTyped() } else if !finishForDocumentAction() { return }
         insertText(text); refreshCandidates()
     }
     func chooseArithmetic(_ text: String) {
@@ -607,6 +607,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
         numericRun.reset(); phraseLearning.reset()
         for _ in arithmetic.expression { document.deleteBackward() }
         document.insert(text); onCandidateSelection?(); refreshCandidates()
+    }
+    /// Explicit cursor, language, literal and document actions preserve an
+    /// unconverted draft as typed. An empty SDK result itself never commits it.
+    @discardableResult private func finishForDocumentAction() -> Bool {
+        if !composition.isEmpty && !automaticChoiceIsReady {
+            finishCompositionAsTyped(); return true
+        }
+        return commitComposition()
     }
     @discardableResult private func commitComposition(flushRemainder: Bool = true) -> Bool {
         guard !composition.isEmpty else {composition.clear();return true}
