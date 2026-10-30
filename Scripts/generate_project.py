@@ -45,7 +45,7 @@ if __name__ == "__main__":
     ui_product = obj("product:ui-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardUITests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product, ui_product]) + "; name = Products; sourceTree = \"<group>\"; }"
     group = obj("group:main", "PBXGroup", children=arr(list(refs.values()) + [products]), sourceTree=q("<group>"))
-    common_settings = {"SDKROOT":"iphoneos", "CLANG_ENABLE_OBJC_ARC":"YES", "GCC_C_LANGUAGE_STANDARD":"gnu17", "SWIFT_VERSION":"5.0", "SWIFT_OBJC_BRIDGING_HEADER":"Native/V19NativeIME/Sources/CV19IMECore/include/V19IMECore.h", "GCC_ENABLE_CPP_EXCEPTIONS":"YES", "CLANG_CXX_LANGUAGE_STANDARD":"c++17", "OTHER_LDFLAGS":"$(inherited) -lc++ -framework CoreML"}
+    common_settings = {"SDKROOT":"iphoneos", "CLANG_ENABLE_OBJC_ARC":"YES", "GCC_C_LANGUAGE_STANDARD":"gnu17", "SWIFT_VERSION":"5.0", "SWIFT_OBJC_BRIDGING_HEADER":"Native/V19NativeIME/Sources/CV19IMECore/include/V19IMECore.h", "HEADER_SEARCH_PATHS":"$(inherited) $(SRCROOT)/Native/V19NativeIME/Sources/CV19IMECore/include", "GCC_ENABLE_CPP_EXCEPTIONS":"YES", "CLANG_CXX_LANGUAGE_STANDARD":"c++17", "OTHER_LDFLAGS":"$(inherited) -lc++ -framework CoreML"}
     def configurations(target, extra):
         values = []
         for mode in ["Debug", "Release"]:
