@@ -39,5 +39,6 @@
   ],
   "statistical_resources_refitted": false,
   "language_policy_version": "clear-v22-word-reading-1",
-  "language_data_sha256": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215"
+  "language_data_sha256": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215",
+  "ranking_policy_version": "clear-v22-homophone-prior-1"
 }

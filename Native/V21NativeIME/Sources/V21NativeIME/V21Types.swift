@@ -168,7 +168,19 @@ public struct V21MemorySample: Codable, Sendable {
     public let uptimeNS: UInt64
     public let processFootprintBytes: UInt64
 }
+public struct V21CandidateScoreSample: Codable, Sendable {
+    public let id: String
+    public let path: Int
+    public let model_mean_logp: Double
+    public let character_mean_logp: Double
+    public let word_backoff_mean_logp: Double
+    public let segmentation_log_prior: Double
+    public let score: Double
+    public let complete_word_log_prior: Double?
+}
 public struct V21CertificationSample: Codable, Sendable {
+    public let ranking_policy: String?
+    public internal(set) var candidate_scores: [V21CandidateScoreSample]?
     public let completed_paths: Int
     public let total_paths: Int
     public let certification: String

@@ -55,6 +55,7 @@ private struct V21Manifest: Decodable {
     let statistics_sha256: String
     let language_data_sha256: String
     let language_policy_version: String
+    let ranking_policy_version: String
     let score_version: String
     let max_segmentations: Int
     let context_length: Int
@@ -95,7 +96,7 @@ private final class V21NativePreparation: @unchecked Sendable {
               manifest.max_segmentations == 8, manifest.context_length == 32,
               manifest.maximum_target_length == 64, manifest.max_legal_characters == 136 else { throw V21Error.resource("V21 resource identity/score contract mismatch") }
         let language = try Data(contentsOf: directory.appendingPathComponent("V22Language.bin"), options: .mappedIfSafe)
-        guard manifest.language_policy_version == "clear-v22-word-reading-1",digest(language) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
+        guard manifest.language_policy_version == "clear-v22-word-reading-1",manifest.ranking_policy_version == "clear-v22-homophone-prior-1",digest(language) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
         let readEnd = tick()
         let words = try JSONDecoder().decode(V21Vocabulary.self, from: Data(contentsOf: directory.appendingPathComponent("vocabulary.json")))
         guard words.syllables.count == 411 else { throw V21Error.resource("Wrong syllable IDs") }
@@ -285,7 +286,7 @@ private final class V21Runner: @unchecked Sendable {
             "graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1",
             "compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:weights.units),
             "model_load_recovery":weights.recovery,"load_adapter":"clear-v22-load-plan-recovery-1",
-            "execution_adapter":"clear-v22-word-reading-3","language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
+            "execution_adapter":"clear-v22-homophone-prior-4","ranking_policy":manifest.ranking_policy_version,"language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
             "model_load_api":"compiled_model_initializer_off_main",
             "score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
     }
@@ -432,7 +433,12 @@ private final class V21Runner: @unchecked Sendable {
                 job.signal.record("decode",times)
                 guard status == 0 else { throw V21Error.model(String(cString: v21_error(request))) }
                 if measureCurrentJob, let data = String(cString:v21_runtime_json(request)).data(using:.utf8),
-                   let value = try? JSONDecoder().decode(V21CertificationSample.self,from:data) { times.certification.append(value) }
+                   let value = try? JSONDecoder().decode(V21CertificationSample.self,from:data) {
+                    // Keep path-bound evidence, but only the latest eight score
+                    // summaries per request so shared-Keychain exports stay bounded.
+                    for i in times.certification.indices { times.certification[i].candidate_scores=nil }
+                    times.certification.append(value)
+                }
                 job.signal.record("search_completed",times)
                 if !job.capture,p+1<paths {
                     let exact=v21_finish_if_rank_certified(request,Int32(min(8,job.limit)))

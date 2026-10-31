@@ -44,7 +44,7 @@ struct V21Resources {
  std::vector<uint8_t> bytes;std::array<uint16_t,65536> cmap;std::array<std::string,8192> chars;std::vector<std::string> py;
  std::array<std::vector<uint16_t>,512> legal;std::array<int32_t,8192> defaults;std::vector<uint32_t> phraseHash,phraseSorted;std::vector<Trie> trie;
  std::vector<double> cu,pu,pyLogs;std::vector<uint64_t> ct;std::vector<uint32_t> ci,cc,pb;std::vector<uint16_t> cj;std::array<uint64_t,512> pt;double charMass,pyMass,charWeight,priorWeight;
- std::vector<LexicalWord> words;std::vector<uint32_t> wordPinyinOrder;
+ std::vector<LexicalWord> words;std::vector<uint32_t> wordPinyinOrder;std::vector<double> wordPinyinLogMass;
  int lexicalWord(const uint16_t* ids,size_t n)const{
   if(n<2||n>12||words.empty())return -1;
   auto it=std::lower_bound(words.begin(),words.end(),std::make_pair(ids,n),[](const LexicalWord&w,const auto& key){return std::lexicographical_compare(w.chars.begin(),w.chars.begin()+w.width,key.first,key.first+key.second);});
@@ -168,6 +168,19 @@ void parse(V21Request& q,bool completion){
  q.decoded.assign(q.paths.size(),false);q.captures.resize(q.paths.size());
 }
 
+// A whole-word prior is conditional on its exact pronunciation bucket,
+// including every indexed homophone, not merely the displayed candidates.
+// Do not favor an alternate split of a single complete syllable, or promote
+// an untyped completion as though it were a complete word supplied by the user.
+bool fullWordPriorEligible(const V21Request&q,const Path&path,size_t length){
+ return length==path.parts.size()&&path.completion.empty()&&!std::any_of(q.paths.begin(),q.paths.end(),[](const Path&p){return p.parts.size()==1&&p.completion.empty();});
+}
+double fullWordLogPrior(const V21Request&q,const std::vector<uint16_t>&ids,const Path&path){
+ if(!fullWordPriorEligible(q,path,ids.size()))return -INFINITY;
+ int at=q.r->lexicalWord(ids.data(),ids.size());if(at<0)return -INFINITY;const auto&w=q.r->words[at];
+ for(size_t i=0;i<ids.size();i++)if(w.pinyin[i]!=path.parts[i].id)return -INFINITY;
+ return std::min(0.0,w.logp-q.r->wordPinyinLogMass[at]);
+}
 // General word/character backoff; data is independent of any reported input.
 double wordBackoff(const V21Request&q,const std::vector<uint16_t>&ids,const Path&path){
  std::array<double,65> dp;dp.fill(-INFINITY);dp[0]=0;
@@ -176,7 +189,11 @@ double wordBackoff(const V21Request&q,const std::vector<uint16_t>&ids,const Path
   for(size_t n=2;n<=std::min<size_t>(12,end);n++){
    int at=q.r->lexicalWord(ids.data()+end-n,n);if(at<0)continue;const auto&w=q.r->words[at];bool same=true;
    for(size_t i=0;i<n;i++)if(w.pinyin[i]!=path.parts[end-n+i].id){same=false;break;}
-   if(same)dp[end]=std::max(dp[end],dp[end-n]+w.logp);
+   if(same){
+    double probability=w.logp;
+    if(end==ids.size()&&n==end&&fullWordPriorEligible(q,path,ids.size()))probability=std::min(0.0,w.logp-q.r->wordPinyinLogMass[at]);
+    dp[end]=std::max(dp[end],dp[end-n]+probability);
+   }
   }
  }return dp[ids.size()];
 }
@@ -239,6 +256,15 @@ int32_t v21_resources_load_language(V21Resources*r,const uint8_t*data,size_t siz
  for(size_t i=1;i<count;i++)if(!less(r->words[i-1],r->words[i]))throw std::runtime_error("Unsorted/duplicate lexical entries");
  r->wordPinyinOrder.resize(count);std::vector<bool> seen(count);for(auto&i:r->wordPinyinOrder){i=u32(b,at);at+=4;if(i>=count||seen[i])throw std::runtime_error("Invalid lexical index");seen[i]=true;}
  for(size_t k=1;k<count;k++){const auto&a=r->words[r->wordPinyinOrder[k-1]],&c=r->words[r->wordPinyinOrder[k]];if(std::lexicographical_compare(c.pinyin.begin(),c.pinyin.begin()+c.width,a.pinyin.begin(),a.pinyin.begin()+a.width))throw std::runtime_error("Unsorted syllable index");}
+ // The persisted index is already sorted. Build one bounded normalization
+ // value per word once; no per-keystroke regrouping or frequency summation.
+ r->wordPinyinLogMass.resize(count);
+ for(size_t begin=0;begin<count;){size_t end=begin+1;const auto&first=r->words[r->wordPinyinOrder[begin]];
+  while(end<count){const auto&w=r->words[r->wordPinyinOrder[end]];if(w.width!=first.width||!std::equal(first.pinyin.begin(),first.pinyin.begin()+first.width,w.pinyin.begin()))break;end++;}
+  double largest=-INFINITY;for(size_t k=begin;k<end;k++)largest=std::max(largest,r->words[r->wordPinyinOrder[k]].logp);
+  double sum=0;for(size_t k=begin;k<end;k++)sum+=std::exp(r->words[r->wordPinyinOrder[k]].logp-largest);
+  double mass=largest+std::log(sum);for(size_t k=begin;k<end;k++)r->wordPinyinLogMass[r->wordPinyinOrder[k]]=mass;begin=end;
+ }
  return 0;
  }catch(const std::exception&e){message(error,capacity,e.what());return -1;}}
 void v21_resources_destroy(V21Resources*r){delete r;}
@@ -287,7 +313,11 @@ int32_t v21_finish_if_rank_certified(V21Request*q,int32_t requested){
 }
 const char *v21_runtime_json(V21Request*q){if(!q)return "{}";double bound=-INFINITY,leading=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);for(const auto& c:q->all)leading=std::max(leading,c.score);
  std::string state=q->all.empty()?"no_candidate_yet":(leading>bound?"rank_certified":"candidate_exists_bound_not_passed");
- std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<"}";q->runtimeJSON=o.str();return q->runtimeJSON.c_str();
+ std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<",\"ranking_policy\":\"clear-v22-homophone-prior-1\",\"candidate_scores\":[";
+ std::vector<size_t> order;for(size_t i=0;i<q->all.size();i++)order.push_back(i);top(order,order.size(),[&](size_t i){return q->all[i].score;});std::unordered_set<std::string> seen;int emitted=0;
+ for(size_t i:order){const auto&c=q->all[i];if(!seen.insert(c.text).second)continue;if(emitted++)o<<',';const auto&path=q->paths[c.path];double word=fullWordLogPrior(*q,c.chars,path);
+  o<<"{\"id\":"<<quote(c.id)<<",\"path\":"<<c.path<<",\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"word_backoff_mean_logp\":"<<c.backoffLanguage<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"score\":"<<c.score<<",\"complete_word_log_prior\":";if(std::isfinite(word))o<<word;else o<<"null";o<<'}';if(emitted==8)break;
+ }o<<"]}";q->runtimeJSON=o.str();return q->runtimeJSON.c_str();
 }
 const char *v21_error(const V21Request*q){return q?q->error.c_str():"Invalid request";}
 int32_t v21_candidate_count(const V21Request*q){return q?int(q->visible.size()):0;}
@@ -311,7 +341,7 @@ const char *v21_diagnostic_json(V21Request*q,const char *targetText){try{
   }
   for(auto item:frontier){while(item.at<q->normalized.size()&&(q->normalized[item.at]==' '||q->normalized[item.at]=='\''))item.at++;if(item.at==q->normalized.size()&&item.path.parts.size()==target.size()&&r.reading(target,item.path,true))reachable++;}
  }
- std::ostringstream o;o<<std::setprecision(17)<<"{\"score_version\":\"v21-prior-sequence-energy-1\",\"raw_input\":"<<quote(q->raw)<<",\"normalized_input\":"<<quote(q->normalized)<<",\"target_diagnostic_only\":"<<(targetText?quote(targetText):"null")<<",\"target_in_vocab\":"<<(validTarget?"true":"false")<<",\"completed_paths\":"<<v21_completed_paths(q)<<",\"paths\":[";
+ std::ostringstream o;o<<std::setprecision(17)<<"{\"score_version\":\"v21-prior-sequence-energy-1\",\"ranking_policy\":\"clear-v22-homophone-prior-1\",\"raw_input\":"<<quote(q->raw)<<",\"normalized_input\":"<<quote(q->normalized)<<",\"target_diagnostic_only\":"<<(targetText?quote(targetText):"null")<<",\"target_in_vocab\":"<<(validTarget?"true":"false")<<",\"completed_paths\":"<<v21_completed_paths(q)<<",\"paths\":[";
  for(size_t i=0;i<q->paths.size();i++){if(i)o<<',';const auto& path=q->paths[i];o<<"{\"index\":"<<i<<",\"segmentation_log_weight\":"<<path.logWeight<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"completion_suffix\":"<<quote(path.completion)<<",\"decoded\":"<<(q->decoded[i]?"true":"false")<<",\"segments\":[";
   for(size_t k=0;k<path.parts.size();k++){if(k)o<<',';const auto& s=path.parts[k];o<<"{\"id\":"<<s.id<<",\"syllable\":"<<quote(r.py[s.id])<<",\"normalized_range\":["<<s.start<<','<<s.end<<"],\"original_utf8_range\":["<<q->starts[s.start]<<','<<q->ends[s.end-1]<<"]}";}o<<']';
   if(!q->captures[i].logits.empty()){
@@ -325,7 +355,7 @@ const char *v21_diagnostic_json(V21Request*q,const char *targetText){try{
     if(found){size_t j=it-ids.begin();int rank=1;double max=*std::max_element(xs.begin(),xs.end()),sum=0;for(size_t t=0;t<xs.size();t++){sum+=std::exp(double(xs[t])-max);if(xs[t]>xs[j]||(xs[t]==xs[j]&&ids[t]<target[k]))rank++;}double z=max+std::log(sum);model+=double(xs[j])-z;language+=r.charLog(k?target[k-1]:q->contextLast,target[k]);o<<",\"target_logit\":"<<xs[j]<<",\"legal_rank\":"<<rank<<",\"model_top8_contains_target\":"<<(rank<=8?"true":"false")<<",\"legal_log_z\":"<<z;if(k<q->captures[i].fullZ.size()){o<<",\"full8192_log_z\":";if(std::isfinite(q->captures[i].fullZ[k]))o<<q->captures[i].fullZ[k];else o<<"null";}}else legal=false;o<<'}';
    }o<<"],\"target_reading_accepted\":"<<(legal&&r.reading(target,path,true)?"true":"false");
    o<<",\"target_reading_rules\":"<<readingTrace(r,target,path);
-   if(legal){std::vector<std::string> stages;auto beam=search(*q,int(i),q->captures[i].logits,&stages,&target);bool baseSurvived=false;for(const auto& b:beam)if(b.chars==target)baseSurvived=true;bool wordSurvived=false;for(const auto&c:q->all)if(c.path==int(i)&&c.chars==target)wordSurvived=true;bool survived=baseSurvived||wordSurvived;o<<",\"target_model_mean_logp\":"<<model/target.size()<<",\"target_character_mean_logp\":"<<language/target.size()<<",\"target_word_backoff_mean_logp\":"<<wordBackoff(*q,target,path)/target.size()<<",\"target_joint_energy\":"<<model/target.size()+r.charWeight*wordBackoff(*q,target,path)/target.size()+r.priorWeight*path.logPrior<<",\"base_character_beam_survived\":"<<(baseSurvived?"true":"false")<<",\"word_index_rescued\":"<<(!baseSurvived&&wordSurvived?"true":"false")<<",\"target_survived_search\":"<<(survived?"true":"false")<<",\"first_drop\":"<<(stages.empty()?"null":quote(stages[0]));}
+   if(legal){std::vector<std::string> stages;auto beam=search(*q,int(i),q->captures[i].logits,&stages,&target);bool baseSurvived=false;for(const auto& b:beam)if(b.chars==target)baseSurvived=true;bool wordSurvived=false;for(const auto&c:q->all)if(c.path==int(i)&&c.chars==target)wordSurvived=true;bool survived=baseSurvived||wordSurvived;o<<",\"target_model_mean_logp\":"<<model/target.size()<<",\"target_character_mean_logp\":"<<language/target.size()<<",\"target_word_backoff_mean_logp\":"<<wordBackoff(*q,target,path)/target.size()<<",\"target_complete_word_log_prior\":";double fullPrior=fullWordLogPrior(*q,target,path);if(std::isfinite(fullPrior))o<<fullPrior;else o<<"null";o<<",\"target_joint_energy\":"<<model/target.size()+r.charWeight*wordBackoff(*q,target,path)/target.size()+r.priorWeight*path.logPrior<<",\"base_character_beam_survived\":"<<(baseSurvived?"true":"false")<<",\"word_index_rescued\":"<<(!baseSurvived&&wordSurvived?"true":"false")<<",\"target_survived_search\":"<<(survived?"true":"false")<<",\"first_drop\":"<<(stages.empty()?"null":quote(stages[0]));}
   }o<<'}';
  }o<<"],\"candidates\":[";for(size_t i=0;i<q->visible.size();i++){if(i)o<<',';const auto&c=q->visible[i];const auto& path=q->paths[c.path];o<<"{\"id\":"<<quote(c.id)<<",\"text\":"<<quote(c.text)<<",\"reading\":"<<quote(c.reading)<<",\"path\":"<<c.path<<",\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"word_backoff_mean_logp\":"<<c.backoffLanguage<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"score\":"<<c.score<<",\"consumed_original_utf8_range\":[0,"<<q->raw.size()<<"],\"full_consumption\":true,\"complete_pinyin_input\":"<<(path.completion.empty()?"true":"false")<<",\"completion_suffix\":"<<quote(path.completion)<<",\"remaining_pinyin\":\"\",\"alignment\":[";for(size_t k=0;k<path.parts.size();k++){if(k)o<<',';auto s=path.parts[k];o<<"{\"character_utf16_range\":["<<k<<','<<k+1<<"],\"raw_utf8_range\":["<<q->starts[s.start]<<','<<q->ends[s.end-1]<<"],\"syllable\":"<<quote(r.py[s.id])<<'}';}o<<"]}";}
  o<<"],\"is_final\":"<<(v21_completed_paths(q)==int(q->paths.size())?"true":"false")<<",\"recommended_id\":"<<(q->visible.empty()?"null":quote(q->visible[0].id))<<",\"target_reachability_diagnostic_only\":{\"complete_paths_found\":"<<reachable<<",\"enumeration_capped\":"<<(reachCapped?"true":"false")<<",\"target_compatible_mobile_path_retained\":"<<(compatibleRetained?"true":"false")<<",\"target_survived_any_path_beam\":"<<(targetInBeam?"true":"false")<<",\"target_in_final_top8\":"<<(targetVisible?"true":"false")<<",\"not_used_to_expand_mobile_search\":true},\"target_used_in_model_or_search\":false,\"full_logits_exported\":false}";q->json=o.str();return q->json.c_str();

@@ -14,8 +14,9 @@
   "runtime_dependencies_added": false,
   "weights_changed": false,
   "phonetic_lookup": "exact syllable IDs; no fuzzy edit or answer overrides",
-  "score_policy": "neural mean logp + existing 0.25 * best word/character-backoff mean logp + unchanged segmentation log prior",
+  "score_policy": "unchanged neural mean logp + 0.25 * word/character backoff mean logp + unchanged path prior; complete lexeme frequencies normalized within the full exact pronunciation bucket; incomplete/single-syllable ambiguity retains prior behavior",
   "neural_pruning_unchanged": true,
   "whole_word_seed_limit_per_path": 64,
-  "tests_executed": false
+  "tests_executed": false,
+  "ranking_policy_version": "clear-v22-homophone-prior-1"
 }
