@@ -34,6 +34,8 @@ V21_API const char *v21_path_completion(const V21Request*,int32_t);
 V21_API int32_t v21_decode_path(V21Request*,int32_t,const float*,size_t,int32_t,int32_t,const float*,size_t,int32_t);
 /* A non-final snapshot exposes only candidates provably above all unprocessed-path bounds. */
 V21_API int32_t v21_snapshot(V21Request*,int32_t,int32_t);
+/* Finalize only when ALL requested candidates pass the unchanged strict score bound. */
+V21_API int32_t v21_finish_if_rank_certified(V21Request*,int32_t);
 V21_API int32_t v21_completed_paths(const V21Request*);
 V21_API const char *v21_error(const V21Request*);
 V21_API int32_t v21_candidate_count(const V21Request*);

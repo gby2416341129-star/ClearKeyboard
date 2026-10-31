@@ -60,6 +60,9 @@ public struct V21Timings: Codable, Sendable {
     public internal(set) var firstPredictionForShape: Bool = false
     public internal(set) var candidateConversionMS: Double = 0
     public internal(set) var otherSDKMS: Double = 0
+    public internal(set) var scoreBoundSkippedPaths: Int = 0
+    public internal(set) var tensorScoreCacheHits: Int = 0
+    public internal(set) var tensorScoreCacheMisses: Int = 0
     public internal(set) var inferenceCalls: Int = 0
     public internal(set) var modelBatch: Int = 0
     /// Maximum width across this request; predictionShapes records each actual call.
@@ -122,9 +125,10 @@ public enum V21Error: Error, LocalizedError {
 public struct V21Configuration: @unchecked Sendable {
     public var computeUnits: MLComputeUnits
     public var performanceSink: (@Sendable (V21PerformanceRecord) -> Void)?
+    public var performanceCaptureEnabled: (@Sendable () -> Bool)?
     public var allowIncompleteTail: Bool
-    public init(computeUnits: MLComputeUnits = .all, allowIncompleteTail: Bool = true, performanceSink: (@Sendable (V21PerformanceRecord) -> Void)? = nil) {
-        self.performanceSink=performanceSink; self.computeUnits = computeUnits; self.allowIncompleteTail = allowIncompleteTail
+    public init(computeUnits: MLComputeUnits = .all, allowIncompleteTail: Bool = true, performanceSink: (@Sendable (V21PerformanceRecord) -> Void)? = nil, performanceCaptureEnabled: (@Sendable () -> Bool)? = nil) {
+        self.performanceCaptureEnabled=performanceCaptureEnabled; self.performanceSink=performanceSink; self.computeUnits = computeUnits; self.allowIncompleteTail = allowIncompleteTail
     }
 }
 public struct V21DiagnosticReport: Sendable {

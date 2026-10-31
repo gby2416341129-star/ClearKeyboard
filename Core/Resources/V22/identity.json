@@ -11,29 +11,34 @@
   "score_version": "v21-prior-sequence-energy-1",
   "sdk_version": "v22-bounded-native-1",
   "graph_export_version": "v22-b1-enumerated-1",
-  "execution_adapter": "v22-finite-b1-runtime-1",
+  "execution_adapter": "clear-v22-exact-latency-1",
   "sdk_adaptations": [
     {
       "revision": "clear-v22-load-plan-recovery-1",
       "upstream_kernel_sha256": "a801275150a5b98f86c3024f380c7a4c72d82218a5b2032c4d5d65da77fb2ee1",
       "scope": "CPU-first App loading as explicitly requested; same-model CPU+GPU retry only for Core ML execution-plan status -14; no model graph, weights, input constraint or decoder change"
+    },
+    {
+      "revision": "clear-v22-exact-latency-1",
+      "scope": "Parallel async model/native preparation; strict existing score-bound top-K completion; bounded exact four-tensor raw-logit LRU; full-key character cache hashing; optional performance capture. Weights, graph, input shapes, parser/search limits, scoring and candidate receipts unchanged."
     }
   ],
   "files": {
     "Native/V21NativeIME/Package.swift": "d0207fe9f447c71a2d2dc9814be0afb8cfaa0e264a4d095543b50eaeffe94cae",
-    "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "09538c550455b2f495e0a9778b3a672368dda7b9b3f55f651dc5a9d854b0d592",
-    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "2a0216b891109a6d7c0817abe9cd606a33b47f4361f8d79e5b9cc3a05f20581c",
+    "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "25d3d66d4e6dd68413483d5c8ca904454a8c50ac3c5344092a18c3bdc208e8f3",
+    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "9bfedf3e91d1cd56c1e70b77e3cd617646542e448996b2017670188e51703c4e",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "016108d6e244e49f53bda4cbfbfb20b55b5a71ff3256dfa41d962f76b3c0c16b",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/vocabulary.json": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "23ccde7ccfd76023a846a6b8e74d5df0b81cc2b6585dfb0e3c81448bcfed6d2c",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "772a2611da555a06cd399d6252d644c8b332a09277771a0ae0e0197abf3f6a2e",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Input.swift": "cd7a1a11b01d287b28a6ac184f91547745c16c1b64395a0660bf92eed07514aa",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "a0f3d73ff86e7058755bceb9d53a025b96aeea66840d9b90e44fcf9769b830de",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "4e8cf55a6f3995cb22a9641c4d774979fd03965c6905dc39172a1d902d14bd05",
     "Native/V21NativeIME/Sources/V21NativeIME/V22Measurement.swift": "45b1cf4fc8772449cfd4bf70c0e6161a5e1053b143658129f8e7d51125ba486c",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Data/com.apple.CoreML/model.mlmodel": "9600ea293e6e8da0244cc96bf6612f89a731a8960b6fab5a8b11f2fe150d9a13",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin": "d5055ba8da86a40c2cb0bba1bebf997141cbd7bed2afeada02c9e11a5d6e585c",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Manifest.json": "4845a7ed45d64c5335cb0e0b9b9c7313ae3a2899e2cb55eb3fae18563999273f",
     "Core/Resources/V22/ordinary_probes_160.json": "38626257e91fcdfe74dc22fe04c1041768dc212821174be31162d5a7656348f2"
-  }
+  },
+  "upstream_execution_adapter": "v22-finite-b1-runtime-1"
 }

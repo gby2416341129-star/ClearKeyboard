@@ -32,15 +32,17 @@ import Accelerate
     override func layoutSubviews() { super.layoutSubviews(); [soft, middle, sharp].forEach { $0.frame = bounds } }
     func run(appearing: Bool, completion: (() -> Void)? = nil) {
         self.completion = completion
-        sharp.alpha = appearing ? 0.85 : 1; middle.alpha = 0; soft.alpha = appearing ? 0.2 : 0
+        // On arrival the real UILabel remains visible. Only transparent blur
+        // halos animate over it; there is no snapshot-to-live-text handoff.
+        sharp.alpha = appearing ? 0 : 1; middle.alpha = appearing ? 0.35 : 0; soft.alpha = appearing ? 0.35 : 0
         UIView.animateKeyframes(withDuration: appearing ? 0.11 : 0.10, delay: 0,
                                options: [.calculationModeLinear, .allowUserInteraction], animations: {
             UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.5) {
-                self.sharp.alpha = appearing ? 0.95 : 0.3
+                self.sharp.alpha = appearing ? 0 : 0.3
                 self.middle.alpha = appearing ? 0.2 : 0.55; self.soft.alpha = 0.15
             }
             UIView.addKeyframe(withRelativeStartTime: 0.5, relativeDuration: 0.5) {
-                self.sharp.alpha = appearing ? 1 : 0
+                self.sharp.alpha = 0
                 self.middle.alpha = 0; self.soft.alpha = 0
             }
         }, completion: { [weak self] _ in self?.finish() })

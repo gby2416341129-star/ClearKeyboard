@@ -22,7 +22,7 @@ actor V21InputService {
                 throw V21Error.resource("V22 model/resources are unavailable")
             }
             return try await V21IMEKernel.prepare(compiledModelURL: model,
-                resourceDirectory: config.deletingLastPathComponent(), configuration: V21Configuration(computeUnits: .cpuOnly, performanceSink: { KernelMeasurement.shared.receive($0) }))
+                resourceDirectory: config.deletingLastPathComponent(), configuration: V21Configuration(computeUnits: .cpuOnly, performanceSink: { KernelMeasurement.shared.receive($0) }, performanceCaptureEnabled: { KernelMeasurement.shared.isRecording() }))
         }
         initialization = task
         do { return try await task.value }

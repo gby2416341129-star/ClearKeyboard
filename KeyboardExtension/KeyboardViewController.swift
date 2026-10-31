@@ -63,6 +63,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         NSLog("CLEAR66_STARTUP load.begin")
 #endif
         super.viewDidLoad()
+        Task.detached(priority:.userInitiated) { _ = try? await V21InputService.shared.prepare() }
         // One continuous receiving surface, including gaps. Per-key and per-row
         // translucent backings created visible rectangular bands.
         view.backgroundColor = UIColor(white: 0.5, alpha: 0.01); view.isOpaque = false

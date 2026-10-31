@@ -118,7 +118,7 @@ import os
         // A new spelling's first result is already on the main thread. Publish
         // it in this turn instead of waiting for a remote-view display callback.
         // Same-query decoder refinements still share one presentation per frame.
-        if presentation == nil || !sameQuery(presentation, next) {
+        if presentation == nil || !sameQuery(presentation, next) || (presentation?.items.isEmpty == true && !next.items.isEmpty) {
             frameValue.discard(); displayFrame.cancel()
             apply(next, accent: accent)
             return
@@ -149,6 +149,7 @@ import os
         }
     }
     private func finishIncomingInk() {
+        inkAnimator?.stopAnimation(true); inkAnimator = nil
         incomingInk?.finish(); incomingInk = nil
         buttons.forEach { $0.setInkOpacity(1) }
     }
@@ -181,7 +182,13 @@ import os
         if animation == .blur, let image = inkSnapshot() {
             let effect = CandidateInkMotion(image: image)
             effect.frame = bounds; addSubview(effect); incomingInk = effect
-            buttons.forEach { $0.setInkOpacity(0) }
+            // Keep live glyphs readable underneath the transparent blur layers.
+            // Cancelling/replacing a snapshot must never expose an empty row.
+            buttons.forEach { $0.setInkOpacity(0.92) }
+            let animator = UIViewPropertyAnimator(duration: 0.11, curve: .easeOut) { [weak self] in
+                self?.buttons.forEach { $0.setInkOpacity(1) }
+            }
+            inkAnimator = animator; animator.startAnimation()
             effect.run(appearing: true) { [weak self, weak effect] in
                 guard self?.incomingInk === effect else { return }
                 self?.incomingInk = nil; self?.buttons.forEach { $0.setInkOpacity(1) }
@@ -553,7 +560,15 @@ import os
         guard rect.intersects(CGRect(origin: .zero, size: view.bounds.size)) else { return }
         context.saveGState()
         context.translateBy(x: rect.minX, y: rect.minY)
-        label.drawText(in: CGRect(origin: .zero, size: label.bounds.size))
+        // Offscreen UIKit drawing does not inherit the view's appearance scope.
+        // Resolve dynamic ink in its actual traits instead of briefly drawing
+        // the light-appearance (black) label color on a dark keyboard.
+        let color = label.textColor ?? .label
+        label.textColor = color.resolvedColor(with: label.traitCollection)
+        label.traitCollection.performAsCurrent {
+            label.drawText(in: CGRect(origin: .zero, size: label.bounds.size))
+        }
+        label.textColor = color
         context.restoreGState()
     }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false,

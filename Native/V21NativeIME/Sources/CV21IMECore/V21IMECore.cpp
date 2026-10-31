@@ -65,13 +65,13 @@ struct V21Resources {
  }
 };
 struct V21Request {
- const V21Resources *r;std::string raw,normalized,error,json;std::vector<int32_t> starts,ends;std::vector<Path> paths;std::vector<bool> decoded;std::vector<Candidate> all,visible;std::vector<Capture> captures;int contextLast=8192;bool capture=false;std::atomic<bool> cancelled{false};bool completion=true,prepared=false;
+ const V21Resources *r;std::string raw,normalized,error,json;std::vector<int32_t> starts,ends;std::vector<Path> paths;std::vector<bool> decoded;std::vector<Candidate> all,visible;std::vector<Capture> captures;int contextLast=8192;bool capture=false;std::atomic<bool> cancelled{false};bool completion=true,prepared=false;int certifiedLimit=0;
  struct PairEntry{uint32_t key=Empty;double value=0;};
  // Direct-mapped, request-local, 256KiB; collisions replace entries, never change scores.
  mutable std::array<PairEntry,16384> pairs;
  mutable uint64_t pairHits=0,pairMisses=0,readingChecks=0;
  std::string runtimeJSON;
- double charLog(int prev,int id)const{uint32_t key=(uint32_t(prev)<<13)|uint32_t(id);auto& entry=pairs[(key*2654435761U)&16383];if(entry.key==key){pairHits++;return entry.value;}pairMisses++;entry.key=key;entry.value=r->charLog(prev,id);return entry.value;}
+ double charLog(int prev,int id)const{uint32_t key=(uint32_t(prev)<<13)|uint32_t(id);uint32_t mixed=key;mixed^=mixed>>16;mixed*=0x7feb352dU;mixed^=mixed>>15;mixed*=0x846ca68bU;mixed^=mixed>>16;auto& entry=pairs[mixed&16383];if(entry.key==key){pairHits++;return entry.value;}pairMisses++;entry.key=key;entry.value=r->charLog(prev,id);return entry.value;}
 
 };
 namespace {
@@ -214,9 +214,18 @@ int32_t v21_decode_path(V21Request*q,int32_t p,const float *logits,size_t count,
  }catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
 int32_t v21_completed_paths(const V21Request*q){return q?int(std::count(q->decoded.begin(),q->decoded.end(),true)):0;}
 int32_t v21_snapshot(V21Request*q,int32_t requested,int32_t final){try{
- if(!q||requested<1)throw std::runtime_error("Invalid candidate limit");bool done=v21_completed_paths(q)==int(q->paths.size());if(final&&!done)throw std::runtime_error("Incomplete final decode");top(q->all,q->all.size(),[](const Candidate&c){return c.score;});q->visible.clear();std::unordered_set<std::string> seen;double bound=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);
+ if(!q||requested<1)throw std::runtime_error("Invalid candidate limit");bool done=v21_completed_paths(q)==int(q->paths.size());if(final&&!done&&q->certifiedLimit<std::min(requested,8))throw std::runtime_error("Incomplete final decode");top(q->all,q->all.size(),[](const Candidate&c){return c.score;});q->visible.clear();std::unordered_set<std::string> seen;double bound=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);
  for(const auto& c:q->all){if(!seen.insert(c.text).second)continue;if(!done&&!(c.score>bound))break;q->visible.push_back(c);if(q->visible.size()>=size_t(std::min(requested,8)))break;}return int(q->visible.size());
  }catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
+// Exact branch-and-bound completion: every returned item must be strictly above
+// every unprocessed path's existing upper bound. This cannot discard a top-K item,
+// alter a tie, or let a lower-scoring duplicate replace its better receipt.
+int32_t v21_finish_if_rank_certified(V21Request*q,int32_t requested){
+ if(!q||q->capture)return 0;
+ int32_t count=v21_snapshot(q,requested,0);if(count<0)return -1;
+ if(count<std::min(requested,8))return 0;
+ q->certifiedLimit=std::min(requested,8);return 1;
+}
 const char *v21_runtime_json(V21Request*q){if(!q)return "{}";double bound=-INFINITY,leading=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);for(const auto& c:q->all)leading=std::max(leading,c.score);
  std::string state=q->all.empty()?"no_candidate_yet":(leading>bound?"rank_certified":"candidate_exists_bound_not_passed");
  std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<"}";q->runtimeJSON=o.str();return q->runtimeJSON.c_str();

@@ -12,11 +12,11 @@ def verify(path):
         for prefix,exe in [(BASE,'ClearKeyboard'),(EXT,'ClearKeyboardExtension')]:
             data=ipa.read(prefix+exe)
             assert struct.unpack_from('<II',data)==(0xfeedfacf,0x100000c)
-            assert b'v21_decode_path' in data and b'V21IMEKernel' in data,'V21 SDK not linked'
+            assert b'v21_decode_path' in data and b'v21_finish_if_rank_certified' in data and b'V21IMEKernel' in data,'V21 SDK not linked'
             for old in [b'v19_decode_path',b'V19IMEKernel',b'ck_native_decode',b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime',b'ClearV10Scorer',b'ClearV10Model',b'clear-v19-score-domain-stream-2']:
                 assert old not in data,'Retired runtime linked: '+str(old)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='96' and info['CFBundleShortVersionString']=='0.1.93'
+            assert str(info['CFBundleVersion'])=='97' and info['CFBundleShortVersionString']=='0.1.94'
         assert plistlib.loads(ipa.read(BASE+'Info.plist'))['CFBundleIdentifier']=='com.example.clearkeyboard'
         info=plistlib.loads(ipa.read(EXT+'Info.plist'))
         assert info['CFBundleIdentifier']=='com.example.clearkeyboard.Keyboard'
@@ -36,7 +36,7 @@ def verify(path):
         assert identity['neural_weights_changed'] is False
         assert identity['score_version']=='v21-prior-sequence-energy-1'
         assert identity['sdk_version']=='v22-bounded-native-1' and identity['graph_export_version']=='v22-b1-enumerated-1'
-        assert identity['execution_adapter']=='v22-finite-b1-runtime-1'
+        assert identity['execution_adapter']=='clear-v22-exact-latency-1'
         assert not any('V21PinyinCompactFP16' in n or '/V21/' in n for n in names)
         assert hashlib.sha256(ipa.read(EXT+'V22/ordinary_probes_160.json')).hexdigest()==identity['files']['Core/Resources/V22/ordinary_probes_160.json']
         config=json.loads(ipa.read(EXT+'V22/runtime_config.json'))
@@ -52,5 +52,5 @@ def verify(path):
         expected={n[len(EXT):] for n in names if n.startswith((EXT+'V22/',EXT+MODEL+'/')) and not n.endswith('/') and n!=EXT+'V22/packaged_manifest.json'}
         assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
         for name,digest in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+name)).hexdigest()==digest,name
-    print('Build96 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
+    print('Build97 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
 if __name__=='__main__':verify(sys.argv[1])

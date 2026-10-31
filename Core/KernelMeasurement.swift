@@ -1,5 +1,6 @@
 import Foundation
 import Dispatch
+import CoreFoundation
 #if canImport(V21NativeIME)
 import V21NativeIME
 #endif
@@ -15,6 +16,17 @@ final class KernelMeasurement: @unchecked Sendable {
     private var pendingWrite = false
     private var acceptedRecords = 0
     private var receivedKeys = Set<String>()
+    private static let notification = "com.clearkeyboard.v22.measurement.changed"
+    private struct Capture { let id:String;let start:UInt64;let stop:UInt64?;let expiry:Double }
+    private var capture:Capture?
+    private init() {
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, pointer, _, _, _ in
+            guard let pointer else { return }
+            Unmanaged<KernelMeasurement>.fromOpaque(pointer).takeUnretainedValue().refreshCapture()
+        }, Self.notification as CFString, nil, .deliverImmediately)
+        refreshCapture()
+    }
+    deinit { CFNotificationCenterRemoveEveryObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque()) }
     var directory: URL {
         #if SWIFT_PACKAGE
         let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -25,19 +37,25 @@ final class KernelMeasurement: @unchecked Sendable {
     }
     private var role: String { Bundle.main.bundleURL.pathExtension == "appex" ? "keyboard" : "app" }
     private var commandURL: URL { directory.appendingPathComponent("session.json") }
-    private func command(inputNS: UInt64) -> String? {
-        guard let data = try? Data(contentsOf: commandURL), data.count < 2048,
+    private func refreshCapture() {
+        var next:Capture?
+        if let data = try? Data(contentsOf: commandURL), data.count < 2048,
               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let expiry = value["expires"] as? Double, expiry > Date().timeIntervalSince1970 else { return nil }
-        guard let start = value["startNS"] as? UInt64, inputNS >= start else { return nil }
-        if let stop = value["stopNS"] as? UInt64, inputNS > stop { return nil }
-        return value["id"] as? String
+              let expiry=value["expires"] as? Double,let start=value["startNS"] as? UInt64,let id=value["id"] as? String {
+            next=Capture(id:id,start:start,stop:value["stopNS"] as? UInt64,expiry:expiry)
+        }
+        lock.lock();capture=next;lock.unlock()
+    }
+    private func notifyCaptureChanged() {
+        refreshCapture()
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(rawValue:Self.notification as CFString), nil, nil, true)
     }
     @discardableResult func startCapture() throws -> String {
         let id = UUID().uuidString
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: ["id": id, "expires": Date().timeIntervalSince1970 + 1800, "startNS": DispatchTime.now().uptimeNanoseconds] as [String: Any])
         try data.write(to: commandURL, options: .atomic)
+        notifyCaptureChanged()
         return id
     }
     func stopCapture() throws {
@@ -45,17 +63,20 @@ final class KernelMeasurement: @unchecked Sendable {
             value["stopNS"] = DispatchTime.now().uptimeNanoseconds
             try JSONSerialization.data(withJSONObject: value).write(to: commandURL, options: .atomic)
         }
+        notifyCaptureChanged()
         scheduleWrite()
     }
     private func captureEnabled(inputNS: UInt64) -> Bool {
-        let id = command(inputNS: inputNS)
         lock.lock(); defer { lock.unlock() }
-        guard let id else { return false }
+        guard let capture,capture.expiry>Date().timeIntervalSince1970,inputNS>=capture.start,
+              capture.stop.map({inputNS <= $0}) ?? true else {return false}
+        let id=capture.id
         if currentID != id {
             currentID = id; lastID = id; acceptedRecords = 0; receivedKeys.removeAll(); recorder.clear()
         }
         return acceptedRecords < 200
     }
+    func isRecording() -> Bool { captureEnabled(inputNS:DispatchTime.now().uptimeNanoseconds) }
     func receive(_ value: V21PerformanceRecord) {
         guard captureEnabled(inputNS: value.timings.sdkEntryUptimeNS) else { return }
         lock.lock(); acceptedRecords += 1; lock.unlock()
