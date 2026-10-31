@@ -132,6 +132,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var deletionUndo: (DeletedInput, String, String, String, Composition)?
     var canUndoClearInput: Bool { deletionUndo != nil }
     var candidatesAreCurrent: Bool { candidateGeneration == generation }
+    // Display phase only. Candidate storage, input versions and commit guards
+    // still reject the previous input's candidates while this request is pending.
+    var isAwaitingFirstCandidate: Bool {
+        guard let query = activeCandidates else { return false }
+        return query.result == nil && !query.token.isCancelled
+    }
     private var automaticChoiceIsReady: Bool {
         candidatesAreCurrent && candidateContext == activeCandidateContext() && recommendedCandidate?.canConsume(composition.raw) == true
     }
