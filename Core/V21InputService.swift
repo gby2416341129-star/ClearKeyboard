@@ -22,10 +22,6 @@ actor V21InputService {
         do { return try await task.value }
         catch { initialization = nil; throw error }
     }
-    private func cancel(_ requested: UInt64) async {
-        guard requested == version, let initialization else { return }
-        if let kernel = try? await initialization.value, requested == version { await kernel.cancelPending() }
-    }
     private func convert(_ result: V21Result, requested: UInt64,
                          characters: Bool) throws -> V21CandidateBatch {
         guard requested == version, !Task.isCancelled else { throw CancellationError() }
@@ -54,15 +50,15 @@ actor V21InputService {
         let requested = version
         let kernel = try await prepare()
         guard requested == version, !Task.isCancelled else { throw CancellationError() }
-        return try await withTaskCancellationHandler(operation: {
-            guard let result = try await kernel.candidates(rawPinyin: raw,
-                    committedLeftContext: context, inputVersion: requested, requestedCount: 8,
-                    onUpdate: { result in
-                        _ = Task<Void, Never> { await self.progress(result, requested: requested,
-                            characters: characters, updated: updated) }
-                    }), requested == version, !Task.isCancelled else { throw CancellationError() }
-            return try convert(result, requested: requested, characters: characters)
-        }, onCancel: { Task { await self.cancel(requested) } })
+        // The SDK binds cancellation to this task's own signal. A global cancel here
+        // could arrive after another request and invalidate its newer receipt.
+        guard let result = try await kernel.candidates(rawPinyin: raw,
+                committedLeftContext: context, inputVersion: requested, requestedCount: 8,
+                onUpdate: { result in
+                    _ = Task<Void, Never> { await self.progress(result, requested: requested,
+                        characters: characters, updated: updated) }
+                }), requested == version, !Task.isCancelled else { throw CancellationError() }
+        return try convert(result, requested: requested, characters: characters)
     }
 }
 

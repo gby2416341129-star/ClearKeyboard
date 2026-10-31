@@ -49,12 +49,15 @@ public struct V21Timings: Codable, Sendable {
     public internal(set) var firstSDKResultMS: Double? = nil
     public internal(set) var finalSDKResultMS: Double? = nil
     public internal(set) var firstPredictionInThisInstance: Bool = false
+    /// True when at least one call in this request uses a previously unseen shape.
     public internal(set) var firstPredictionForShape: Bool = false
     public internal(set) var candidateConversionMS: Double = 0
     public internal(set) var otherSDKMS: Double = 0
     public internal(set) var inferenceCalls: Int = 0
     public internal(set) var modelBatch: Int = 0
+    /// Maximum width across this request; predictionShapes records each actual call.
     public internal(set) var targetWidth: Int = 0
+    public internal(set) var predictionShapes: [String] = []
     public internal(set) var diagnosticPackagingMS: Double = 0
     public internal(set) var cacheState: String = "no cross-input result cache; CoreML internal cache unknown"
 }

@@ -68,7 +68,7 @@ private final class V21Runner: @unchecked Sendable {
     let preparation: [String: Double]
     let identity: [String: String]
     private var hasPredicted = false // The single drain worker is its only caller.
-    private var seenShapes: Set<String> = [] // B<=8, T in8/16/32/64: at most32 entries.
+    private var seenShapes: Set<String> = [] // B=1, T in8/16/32/64: at most4 entries.
     init(modelURL: URL, directory supplied: URL?, configuration: V21Configuration) throws {
         let begin = tick(), directory: URL
         if let supplied { directory = supplied }
@@ -113,7 +113,7 @@ private final class V21Runner: @unchecked Sendable {
             }
             self.resources = handle; self.model = loaded; self.syllables = words.syllables; self.config = configuration
             self.preparation = ["resource_read_hash_ms": milliseconds(begin, readEnd), "native_index_ms": milliseconds(readEnd, indexEnd), "model_load_ms": milliseconds(indexEnd), "total_prepare_ms": milliseconds(begin)]
-            self.identity = ["checkpoint_sha256":Self.sourceSHA,"source_step":"38750","resource_sha256":manifest.resource_binary_sha256,"statistics_sha256":manifest.statistics_sha256,"kernel_version":"v21_native_kernel_repair","score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
+            self.identity = ["checkpoint_sha256":Self.sourceSHA,"source_step":"38750","resource_sha256":manifest.resource_binary_sha256,"statistics_sha256":manifest.statistics_sha256,"kernel_version":"v21_native_kernel_repair","execution_adapter":"clear-v21-bounded-runtime-1","score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
         } catch { v21_resources_destroy(handle); throw error }
     }
     deinit { v21_resources_destroy(resources) }
@@ -144,60 +144,87 @@ private final class V21Runner: @unchecked Sendable {
         let paths = Int(v21_path_count(request)); times.parseMS = milliseconds(parseStart)
         job.signal.record("encoding",times)
         if paths == 0 { return empty(job, normalized: input.normalized, status: job.raw.isEmpty ? .emptyInput : .noSyllablePath, reason: "No bounded exact/completable full-pinyin path", times: times) }
-        try job.signal.check()
-        let encodeStart = tick()
-        let longest = (0..<paths).map { Int(v21_path_length(request, Int32($0))) }.max()!
-        let width = [8,16,32,64].first(where: { $0 >= longest })!
-        times.modelBatch = paths; times.targetWidth = width
-        var py = [Int32](repeating: 0, count: paths*width), pm = py, cx = [Int32](), masks = [Int32]()
-        for p in 0..<paths {
-            cx.append(contentsOf: context); masks.append(contentsOf: cm)
-            for k in 0..<Int(v21_path_length(request, Int32(p))) { py[p*width+k] = v21_path_syllable(request, Int32(p), Int32(k)); pm[p*width+k] = 1 }
-        }
-        let features = try MLDictionaryFeatureProvider(dictionary: ["context_ids": MLFeatureValue(multiArray: tensor(cx, rows: paths, width: 32)), "context_mask": MLFeatureValue(multiArray: tensor(masks, rows: paths, width: 32)), "pinyin_ids": MLFeatureValue(multiArray: tensor(py, rows: paths, width: width)), "pinyin_mask": MLFeatureValue(multiArray: tensor(pm, rows: paths, width: width))])
-        times.encodeMS = milliseconds(encodeStart)
-        if job.capture {
-            job.signal.captureDetails(["raw_input":job.raw,"normalized_input":input.normalized,"context_used":String(String.UnicodeScalarView(scalars)),"model_inputs":["context_ids":cx,"context_mask":masks,"pinyin_ids":py,"pinyin_mask":pm],"model_input_shapes":["context_ids":[paths,32],"pinyin_ids":[paths,width]],"target_used_in_model_or_search":false])
-        }
-        try job.signal.check()
-        let predictStart = tick(); times.firstPredictionInThisInstance = !hasPredicted
-        let shapeKey = "\(paths)x\(width)"
-        times.firstPredictionForShape = !seenShapes.contains(shapeKey)
-        times.cacheState = "result cache disabled; shape previously seen=\(!times.firstPredictionForShape); CoreML internal cache unknown"
-        job.signal.record("prediction",times)
-        let output = try model.prediction(from: features); hasPredicted = true
-        seenShapes.insert(shapeKey)
-        times.predictionMS = milliseconds(predictStart); times.inferenceCalls = 1
-        job.signal.record("decode",times)
-        try job.signal.check()
-        guard let compact = output.featureValue(for: "compact_legal_logits")?.multiArrayValue,
-              compact.dataType == .float32,
-              compact.shape.map({ $0.intValue }) == [paths,width,136] else { throw V21Error.model("Compact tensor shape/dtype mismatch") }
-        let logits = compact.dataPointer.assumingMemoryBound(to: Float.self)
+        // Keep every parser path, but bound each Core ML allocation to one row.
+        // Only four B/T combinations can occur; the native prior/search is unchanged.
+        times.modelBatch = 1
+        times.firstPredictionInThisInstance = !hasPredicted
+        times.cacheState = "single-path B1 execution; at most4 T buckets; no result cache; CoreML internal cache unknown"
+        var capturedCalls: [[String: Any]] = []
         var published = false
         for p in 0..<paths {
-            try job.signal.check(); let decodeStart = tick(); let n = Int(v21_path_length(request, Int32(p))); let status: Int32
-            if compact.strides.map({ $0.intValue }) == [width*136,136,1] {
-                status = v21_decode_path(request, Int32(p), logits+p*width*136, width*136,136,1,nil,0,1)
-            } else {
-                var contiguous = [Float](repeating: 0, count: n*136)
-                for i in 0..<n {
-                    for c in 0..<136 { contiguous[i*136+c] = logits[p*compact.strides[0].intValue+i*compact.strides[1].intValue+c*compact.strides[2].intValue] }
+            try job.signal.check()
+            try autoreleasepool {
+                let encodeStart = tick()
+                let n = Int(v21_path_length(request, Int32(p)))
+                let width = [8,16,32,64].first(where: { $0 >= n })!
+                times.targetWidth = max(times.targetWidth, width)
+                var py = [Int32](repeating: 0, count: width), pm = py
+                for k in 0..<n { py[k] = v21_path_syllable(request, Int32(p), Int32(k)); pm[k] = 1 }
+                let features = try MLDictionaryFeatureProvider(dictionary: [
+                    "context_ids": MLFeatureValue(multiArray: tensor(context, rows: 1, width: 32)),
+                    "context_mask": MLFeatureValue(multiArray: tensor(cm, rows: 1, width: 32)),
+                    "pinyin_ids": MLFeatureValue(multiArray: tensor(py, rows: 1, width: width)),
+                    "pinyin_mask": MLFeatureValue(multiArray: tensor(pm, rows: 1, width: width))])
+                times.encodeMS += milliseconds(encodeStart)
+                let shapeKey = "1x\(width)"
+                times.predictionShapes.append(shapeKey)
+                times.firstPredictionForShape = times.firstPredictionForShape || !seenShapes.contains(shapeKey)
+                if job.capture {
+                    capturedCalls.append(["path_index":p,
+                        "inputs":["context_ids":context,"context_mask":cm,"pinyin_ids":py,"pinyin_mask":pm],
+                        "input_shapes":["context_ids":[1,32],"context_mask":[1,32],"pinyin_ids":[1,width],"pinyin_mask":[1,width]],
+                        "output_shape":[1,width,136]])
+                    job.signal.captureDetails(["raw_input":job.raw,"normalized_input":input.normalized,
+                        "context_used":String(String.UnicodeScalarView(scalars)),
+                        "actual_model_calls":capturedCalls,"target_used_in_model_or_search":false])
                 }
-                status = contiguous.withUnsafeBufferPointer { a in v21_decode_path(request,Int32(p),a.baseAddress,a.count,136,1,nil,0,1) }
-            }
-            times.decodeMS += milliseconds(decodeStart); try job.signal.check()
-            job.signal.record("decode",times)
-            guard status == 0 else { throw V21Error.model(String(cString: v21_error(request))) }
-            if let progress, !published, p+1 < paths {
-                let count = v21_snapshot(request,Int32(min(8,job.limit)),0)
-                guard count >= 0 else { throw V21Error.model(String(cString: v21_error(request))) }
-                if count > 0 {
-                    times.firstCandidateReadyMS = milliseconds(job.entryNS)
-                    progress(try snapshot(job, input: input, request: request, count: count, paths: paths, final: false, times: times, diagnostic: nil)); published = true
+                try job.signal.check()
+                times.inferenceCalls += 1
+                job.signal.record("prediction",times)
+                let predictStart = tick()
+                let output: MLFeatureProvider
+                do { output = try model.prediction(from: features) }
+                catch {
+                    times.predictionMS += milliseconds(predictStart)
+                    job.signal.record("prediction_failed",times)
+                    throw error
+                }
+                hasPredicted = true
+                seenShapes.insert(shapeKey)
+                times.predictionMS += milliseconds(predictStart)
+                job.signal.record("decode",times)
+                try job.signal.check()
+                guard let compact = output.featureValue(for: "compact_legal_logits")?.multiArrayValue,
+                      compact.dataType == .float32,
+                      compact.shape.map({ $0.intValue }) == [1,width,136] else { throw V21Error.model("Compact tensor shape/dtype mismatch") }
+                let logits = compact.dataPointer.assumingMemoryBound(to: Float.self)
+                let decodeStart = tick()
+                let status: Int32
+                if compact.strides[1].intValue == 136 && compact.strides[2].intValue == 1 {
+                    status = v21_decode_path(request, Int32(p), logits, width*136,136,1,nil,0,1)
+                } else {
+                    var contiguous = [Float](repeating: 0, count: n*136)
+                    for i in 0..<n {
+                        for c in 0..<136 { contiguous[i*136+c] = logits[i*compact.strides[1].intValue+c*compact.strides[2].intValue] }
+                    }
+                    status = contiguous.withUnsafeBufferPointer { a in v21_decode_path(request,Int32(p),a.baseAddress,a.count,136,1,nil,0,1) }
+                }
+                times.decodeMS += milliseconds(decodeStart)
+                try job.signal.check()
+                job.signal.record("decode",times)
+                guard status == 0 else { throw V21Error.model(String(cString: v21_error(request))) }
+                if let progress, !published, p+1 < paths {
+                    let count = v21_snapshot(request,Int32(min(8,job.limit)),0)
+                    guard count >= 0 else { throw V21Error.model(String(cString: v21_error(request))) }
+                    if count > 0 {
+                        times.firstCandidateReadyMS = milliseconds(job.entryNS)
+                        progress(try snapshot(job, input: input, request: request, count: count, paths: paths, final: false, times: times, diagnostic: nil))
+                        published = true
+                    }
                 }
             }
         }
+
         let count = v21_snapshot(request,Int32(min(8,job.limit)),1)
         guard count >= 0 else { throw V21Error.model(String(cString: v21_error(request))) }
         if count > 0 && times.firstCandidateReadyMS == nil { times.firstCandidateReadyMS = milliseconds(job.entryNS) }
@@ -211,9 +238,9 @@ private final class V21Runner: @unchecked Sendable {
             object["checkpoint_sha256"] = Self.sourceSHA; object["source_step"] = 38750; object["neural_weights_updated"] = false
             object["identity"] = identity
             object["input_version"] = job.version; object["context_used"] = String(String.UnicodeScalarView(scalars))
-            object["model_inputs"] = ["context_ids": cx, "context_mask": masks, "pinyin_ids": py, "pinyin_mask": pm]
-            object["model_input_shapes"] = ["context_ids": [paths,32], "context_mask": [paths,32], "pinyin_ids": [paths,width], "pinyin_mask": [paths,width]]
-            object["model_output_shapes"] = ["compact_legal_logits": [paths,width,136]]
+            object["actual_model_calls"] = capturedCalls
+            object["execution_adapter"] = "clear-v21-bounded-runtime-1"
+            object["prediction_batch_limit"] = 1
             object["full8192_partition"] = "Not computed by regular phone inference; historical Build92 domain comparison is an explicit source diagnostic"
             object["preparation_ms"] = preparation; object["compute_units_requested"] = String(describing: config.computeUnits)
             object["actual_hardware_assignment"] = "not measured"; object["screen_visible_latency"] = "requires App supplied timestamp"
@@ -265,7 +292,7 @@ public actor V21IMEKernel {
     private var deliveries: [[String: String]] = []
     private init(_ runner: V21Runner) { self.runner = runner }
     public static func prepare(compiledModelURL: URL, resourceDirectory: URL? = nil, configuration: V21Configuration = V21Configuration()) async throws -> V21IMEKernel {
-        let runner = try await Task.detached(priority: .userInitiated) { try V21Runner(modelURL:compiledModelURL,directory:resourceDirectory,configuration:configuration) }.value
+        let runner = try await Task.detached(priority: .userInitiated) { try autoreleasepool { try V21Runner(modelURL:compiledModelURL,directory:resourceDirectory,configuration:configuration) } }.value
         try Task.checkCancellation()
         return V21IMEKernel(runner)
     }
