@@ -55,6 +55,8 @@ actor V21InputService {
         return V21CandidateBatch(items:output,completedPaths:result.completedPaths,isFinal:result.isFinal,timing:timing)
     }
     func candidates(raw:String,context:String,characters:Bool,inputNS:UInt64,updated:@escaping @Sendable(V21CandidateBatch)->Void) async throws -> V21CandidateBatch {
+        // An already-cancelled caller must not invalidate a newer delivery.
+        try Task.checkCancellation()
         guard !measurementRunning else {throw V21Error.contract("Stop manual SDK measurement before live App preview input")}
         delivery?.invalidate();version &+= 1
         let requested=version,waitStart=DispatchTime.now().uptimeNanoseconds

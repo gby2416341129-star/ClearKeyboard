@@ -241,6 +241,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
         runtimeTimer?.invalidate(); runtimeTimer = nil
 #endif
         hostRefreshGeneration += 1; hostRefresh?.invalidate(); hostRefresh = nil
+        KernelMeasurement.shared.keyboardWillHide()
         super.viewWillDisappear(animated)
     }
     override func textDidChange(_ textInput: UITextInput?) {

@@ -130,6 +130,10 @@ final class KernelMeasurement: @unchecked Sendable {
         lock.lock();pendingWrite?.cancel();pendingWrite=nil;lock.unlock()
         writer.async{[weak self] in self?.writeSnapshot()}
     }
+    func keyboardWillHide() {
+        lock.lock();let active=capture.map{$0.stop == nil && $0.expiry>Date().timeIntervalSince1970} ?? false;lock.unlock()
+        if active {flushNow()}
+    }
     private func writeSnapshot() {
         lock.lock()
         guard let id=lastID else{lock.unlock();return}
