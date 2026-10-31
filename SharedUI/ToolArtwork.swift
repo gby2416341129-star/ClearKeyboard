@@ -302,9 +302,15 @@ struct ToolIcon: UIViewRepresentable {
         if abs(contentSize.width - expectedContentWidth) > 0.5 || contentSize.height != bounds.height {
             contentSize = CGSize(width: expectedContentWidth, height: bounds.height)
         }
-        if let saved = pendingOffset, bounds.width > 0, expectedContentWidth > 0, !isTracking, !isDecelerating {
+        // Pending positions belong to structural row rebuilds. Apply them with
+        // the new extent, even if an old row was still decelerating; otherwise
+        // its old offset can point outside the entire replacement row.
+        if let saved = pendingOffset, bounds.width > 0, expectedContentWidth > 0 {
             pendingOffset = nil
             setContentOffset(CGPoint(x: clampedOffset(saved), y: 0), animated: false)
+        }
+        if !isLooping, bounds.width > 0, expectedContentWidth <= bounds.width + 0.5, contentOffset.x != 0 {
+            setContentOffset(.zero, animated: false)
         }
         if isLooping, !recentering, bounds.width > 0, abs(contentOffset.x - loopCenter) > loopPeriod {
             recentering = true
@@ -314,11 +320,18 @@ struct ToolIcon: UIViewRepresentable {
         updateEdges()
     }
     func clampedOffset(_ proposed: CGFloat) -> CGFloat {
-        min(max(0, proposed), max(0, expectedContentWidth - bounds.width))
+        min(max(0, proposed.isFinite ? proposed : 0), max(0, expectedContentWidth - bounds.width))
     }
     func refreshEdgeAppearance() { updateEdges() }
     private func updateEdges() {
         let overflow = max(0, expectedContentWidth - bounds.width)
+        if !isLooping, overflow <= 0.5 {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            layer.mask = nil
+            CATransaction.commit()
+            edgeIcons.forEach { $0.softenEdge(0) }
+            return
+        }
         let left = isLooping || contentOffset.x > 0.5, right = isLooping || contentOffset.x < overflow - 0.5 || contentOffset.x < -0.5
         let fade = min(26, bounds.width / 3)
         CATransaction.begin(); CATransaction.setDisableActions(true)

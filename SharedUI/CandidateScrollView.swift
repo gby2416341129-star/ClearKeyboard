@@ -14,7 +14,6 @@ import os
         let animation: CandidateAnimation
     }
     private var presentation: Presentation?
-    private var waitingForResult = false
     private var pending: (Presentation, UIColor)?
     private var frameValue = LatestValue<(Presentation, UIColor)>()
     private let displayFrame = DisplayFrameTask()
@@ -91,27 +90,10 @@ import os
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
     func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool,
-                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil, animation: CandidateAnimation = .blur, awaitingResults: Bool = false) {
+                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil, animation: CandidateAnimation = .blur) {
         var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize,
                                 textColor: textColor?.resolvedColor(with: traitCollection), animation: animation)
         let resolved = accent.resolvedColor(with: traitCollection)
-        if awaitingResults, items.isEmpty, let current = presentation, !current.items.isEmpty,
-           let old = current.context, let context, !old.raw.isEmpty, !context.raw.isEmpty,
-           old.document == context.document, old.after == context.after,
-           old.language == context.language, old.characters == context.characters {
-            // Keep the last painted row through the decoder's transient empty
-            // state. These are visual remnants, never selectable candidates.
-            waitingForResult = true; isUserInteractionEnabled = false; accessibilityElementsHidden = true
-            pending = nil; frameValue.discard(); displayFrame.cancel()
-            return
-        }
-        if waitingForResult {
-            waitingForResult = false; pending = nil; browsed = nil
-            frameValue.discard(); displayFrame.cancel()
-            defer { isUserInteractionEnabled = true; accessibilityElementsHidden = false }
-            apply(next, accent: resolved, force: true)
-            return
-        }
         if UIAccessibility.isReduceMotionEnabled || UIAccessibility.isVoiceOverRunning {
             buttons.forEach { $0.finishTransition() }
         }
@@ -161,7 +143,7 @@ import os
     }
     private func inkSnapshot() -> UIImage? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
-        let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 2; format.preferredRange = .standard
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 2
         return UIGraphicsImageRenderer(size: bounds.size, format: format).image { renderer in
             for button in buttons where !button.isHidden { button.drawInk(in: renderer.cgContext, relativeTo: self) }
         }
@@ -202,7 +184,11 @@ import os
             effect.frame = bounds; addSubview(effect); incomingInk = effect
             // Keep live glyphs readable underneath the transparent blur layers.
             // Cancelling/replacing a snapshot must never expose an empty row.
-            buttons.forEach { $0.setInkOpacity(1) }
+            buttons.forEach { $0.setInkOpacity(0.92) }
+            let animator = UIViewPropertyAnimator(duration: 0.11, curve: .easeOut) { [weak self] in
+                self?.buttons.forEach { $0.setInkOpacity(1) }
+            }
+            inkAnimator = animator; animator.startAnimation()
             effect.run(appearing: true) { [weak self, weak effect] in
                 guard self?.incomingInk === effect else { return }
                 self?.incomingInk = nil; self?.buttons.forEach { $0.setInkOpacity(1) }
@@ -214,7 +200,6 @@ import os
         }
     }
     func prepareToDisappear() {
-        waitingForResult = false; isUserInteractionEnabled = true; accessibilityElementsHidden = false
         guard presentation?.items.isEmpty == false else { return }
         transitionInk(presentation?.animation ?? .blur, disappearing: true, appearing: false)
         finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
@@ -263,8 +248,8 @@ import os
         // Empty-spelling predictions belong to the surrounding text.
         return rhs.context?.raw.isEmpty == false || lhs.context == rhs.context
     }
-    private func apply(_ next: Presentation, accent: UIColor, force: Bool = false) {
-        guard force || next != presentation || !ink.isEqual(accent) else { return }
+    private func apply(_ next: Presentation, accent: UIColor) {
+        guard next != presentation || !ink.isEqual(accent) else { return }
         applyingPresentation = true
         defer { applyingPresentation = false }
         let event = OSSignpostID(log: frameLog)
@@ -273,13 +258,10 @@ import os
         let changedQuery = !sameQuery(presentation, next)
         let previous = presentation?.items ?? []
         let changedItems = previous.map(\.text) != next.items.map(\.text)
-        let appendOnly = next.items.count >= previous.count &&
-            zip(previous, next.items).allSatisfy { $0.text == $1.text }
-        let replacesInk = changedItems && (!appendOnly || previous.isEmpty)
         let changedColor = !ink.isEqual(accent) || presentation?.textColor != next.textColor
         let changedFont = presentation?.textSize != next.textSize
         let changedAnimation = presentation?.animation != next.animation
-        if replacesInk || next.items.isEmpty {
+        if changedItems {
             finishIncomingInk(); outgoingInk?.removeFromSuperview(); outgoingInk = nil
         }
         if changedAnimation {
@@ -291,6 +273,8 @@ import os
             normalFont = .systemFont(ofSize: CGFloat(next.textSize.points))
             firstFont = .systemFont(ofSize: CGFloat(next.textSize.points), weight: .medium)
         }
+        let appendOnly = next.items.count >= previous.count &&
+            zip(previous, next.items).allSatisfy { $0.text == $1.text }
         if changedQuery { browsed = nil; requestedCount = -1 }
         if changedItems, !holdsCandidateUpdates {
             let deleting = next.items.isEmpty || (next.context?.raw.count ?? 0) < (presentation?.context?.raw.count ?? 0)
@@ -309,7 +293,7 @@ import os
                       animateChanges: changedItems && (!changedFont || previous.isEmpty) &&
                           !holdsCandidateUpdates && !sameQuery(browsed, next),
                       firstAppearance: previous.isEmpty && !next.items.isEmpty)
-        if replacesInk || changedAnimation, !holdsCandidateUpdates, !next.items.isEmpty {
+        if changedItems || changedAnimation, !holdsCandidateUpdates, !next.items.isEmpty {
             transitionInk(next.animation, disappearing: false, appearing: true)
         }
         if changedItems || changedQuery { updateAccessibility() }
@@ -407,14 +391,13 @@ import os
         return UIAccessibility.convertToScreenCoordinates(frames[index], in: strip)
     }
     fileprivate func focusCandidate(_ index: Int) {
-        guard !waitingForResult else { return }
         if let current = presentation, current.items.indices.contains(index) { extendLayout(through: index) }
         guard frames.indices.contains(index) else { return }
         beginBrowsing(); scrollRectToVisible(frames[index], animated: false)
         requestMoreIfNeeded(); scheduleIdle()
     }
     private func requestMoreIfNeeded() {
-        guard !waitingForResult, let current = presentation, current.hasMore, !current.arithmetic,
+        guard let current = presentation, current.hasMore, !current.arithmetic,
               frames.count == current.items.count,
               sameQuery(browsed, current),
               current.context?.raw.isEmpty == false, bounds.width > 0,
@@ -422,7 +405,7 @@ import os
               requestedCount != current.items.count else { return }
         requestedCount = current.items.count
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.waitingForResult, self.sameQuery(self.presentation, current) else { return }
+            guard let self, self.sameQuery(self.presentation, current) else { return }
             self.onLoadMore?(current.context)
         }
     }
@@ -466,7 +449,7 @@ import os
         scheduleIdle()
     }
     fileprivate func activate(_ index: Int) {
-        guard !waitingForResult, let current = presentation, current.items.indices.contains(index) else { return }
+        guard let current = presentation, current.items.indices.contains(index) else { return }
         buttons.forEach { $0.finishTransition() }
         selectionFeedback(index)
         onSelect?(current.items[index], current.context, current.arithmetic)
@@ -580,12 +563,12 @@ import os
         // Offscreen UIKit drawing does not inherit the view's appearance scope.
         // Resolve dynamic ink in its actual traits instead of briefly drawing
         // the light-appearance (black) label color on a dark keyboard.
-        let color = (label.textColor ?? .label).resolvedColor(with: label.traitCollection)
-        let textRect = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 1)
-        context.clip(to: label.bounds)
-        // Capture resolved glyphs without mutating/redrawing the live UILabel.
-        ((label.text ?? "") as NSString).draw(at: textRect.origin,
-            withAttributes: [.font: label.font ?? UIFont.systemFont(ofSize: 19), .foregroundColor: color])
+        let color = label.textColor ?? .label
+        label.textColor = color.resolvedColor(with: label.traitCollection)
+        label.traitCollection.performAsCurrent {
+            label.drawText(in: CGRect(origin: .zero, size: label.bounds.size))
+        }
+        label.textColor = color
         context.restoreGState()
     }
     func configure(_ candidate: Candidate, first: Bool, accent: UIColor, font: UIFont, animate: Bool = false,

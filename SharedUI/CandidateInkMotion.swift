@@ -10,9 +10,6 @@ import Accelerate
     private static let blurQueue = DispatchQueue(label: "clear.candidate.ink", qos: .userInitiated)
     private var blurWork: DispatchWorkItem?
     private var finished = false
-    private var blurReady = false
-    private var appearance: Bool?
-    private var motionStarted = false
     init(image: UIImage) {
         sharp = UIImageView(image: image)
         middle = UIImageView(); soft = UIImageView()
@@ -27,8 +24,6 @@ import Accelerate
             DispatchQueue.main.async {
                 guard let self, !self.finished else { return }
                 self.middle.image = medium; self.soft.image = blurred
-                self.blurReady = true
-                self.startMotionIfReady()
             }
         }
         blurWork = work; Self.blurQueue.async(execute: work)
@@ -37,17 +32,9 @@ import Accelerate
     override func layoutSubviews() { super.layoutSubviews(); [soft, middle, sharp].forEach { $0.frame = bounds } }
     func run(appearing: Bool, completion: (() -> Void)? = nil) {
         self.completion = completion
-        appearance = appearing
         // On arrival the real UILabel remains visible. Only transparent blur
         // halos animate over it; there is no snapshot-to-live-text handoff.
-        sharp.alpha = appearing ? 0 : 1; middle.alpha = 0; soft.alpha = 0
-        startMotionIfReady()
-    }
-    private func startMotionIfReady() {
-        guard blurReady, !finished, !motionStarted, let appearing = appearance else { return }
-        motionStarted = true
-        // Images arrive while their layers are transparent. Fade from that
-        // state, rather than inserting a bitmap midway through its opacity ramp.
+        sharp.alpha = appearing ? 0 : 1; middle.alpha = appearing ? 0.35 : 0; soft.alpha = appearing ? 0.35 : 0
         UIView.animateKeyframes(withDuration: appearing ? 0.11 : 0.10, delay: 0,
                                options: [.calculationModeLinear, .allowUserInteraction], animations: {
             UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.5) {
