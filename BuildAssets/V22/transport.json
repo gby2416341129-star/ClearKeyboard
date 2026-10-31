@@ -78,6 +78,19 @@
         "BuildAssets/V22/statistics.0012",
         "BuildAssets/V22/statistics.0013"
       ]
+    },
+    {
+      "path": "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.bin",
+      "sha256": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215",
+      "bytes": 3016408,
+      "parts": [
+        "BuildAssets/V22/language.0000",
+        "BuildAssets/V22/language.0001",
+        "BuildAssets/V22/language.0002",
+        "BuildAssets/V22/language.0003",
+        "BuildAssets/V22/language.0004",
+        "BuildAssets/V22/language.0005"
+      ]
     }
   ]
 }

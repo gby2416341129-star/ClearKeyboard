@@ -1,0 +1,21 @@
+{
+  "version": "clear-v22-word-reading-1",
+  "data_sha256": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215",
+  "default_reading_changes": 119,
+  "word_count": 50000,
+  "word_limit": 50000,
+  "max_word_characters": 12,
+  "minimum_frequency": 3.162277660168379e-07,
+  "reading_source": "pypinyin 0.55.0 phrase-aware primary readings intersected with unchanged model legal rows",
+  "frequency_source": "wordfreq 3.1.1 Chinese best wordlist",
+  "frequency_data_license": "CC-BY-SA-4.0",
+  "frequency_source_url": "https://github.com/rspeer/wordfreq",
+  "reading_source_url": "https://github.com/mozillazg/python-pinyin",
+  "runtime_dependencies_added": false,
+  "weights_changed": false,
+  "phonetic_lookup": "exact syllable IDs; no fuzzy edit or answer overrides",
+  "score_policy": "neural mean logp + existing 0.25 * best word/character-backoff mean logp + unchanged segmentation log prior",
+  "neural_pruning_unchanged": true,
+  "whole_word_seed_limit_per_path": 64,
+  "tests_executed": false
+}

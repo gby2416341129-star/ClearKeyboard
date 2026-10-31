@@ -11,7 +11,7 @@
   "score_version": "v21-prior-sequence-energy-1",
   "sdk_version": "v22-bounded-native-1",
   "graph_export_version": "v22-b1-enumerated-1",
-  "execution_adapter": "clear-v22-first-delivery-2",
+  "execution_adapter": "clear-v22-word-reading-3",
   "sdk_adaptations": [
     {
       "revision": "clear-v22-load-plan-recovery-1",
@@ -25,24 +25,31 @@
     {
       "revision": "clear-v22-first-delivery-2",
       "scope": "Dedicated off-main CPU compiled-model load, earlier extension bootstrap, at most one idle CPU 1x8 stateless preparation with discarded output, direct immutable receipt delivery, opt-in process/draw/commit/refresh timing. Weights, graph, input shapes, parser/search limits, scores, candidate order and learning unchanged."
+    },
+    {
+      "revision": "clear-v22-word-reading-3",
+      "scope": "Primary and word-level pronunciation policy; generic exact full-word recall and word/character backoff from attributed public language data; bounded exact-result/context reuse; acknowledged numeric cross-process measurement. Neural weights/graph/legal logits, context encoding, raw normalization, consumption, base score weights and path bounds unchanged. Actual quality/speed validation remains user-owned."
     }
   ],
   "files": {
     "Native/V21NativeIME/Package.swift": "d0207fe9f447c71a2d2dc9814be0afb8cfaa0e264a4d095543b50eaeffe94cae",
-    "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "25d3d66d4e6dd68413483d5c8ca904454a8c50ac3c5344092a18c3bdc208e8f3",
-    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "9bfedf3e91d1cd56c1e70b77e3cd617646542e448996b2017670188e51703c4e",
-    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "016108d6e244e49f53bda4cbfbfb20b55b5a71ff3256dfa41d962f76b3c0c16b",
+    "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "7d89457687d3207cb2fe6d7d4cac035cc3b4f494c4f21ed77976a3700a40d242",
+    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "3da8aee0935e643957e5c181dd10e077877bf576f06a2cd94fe9047558b58948",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "56cbbd86e3709c0f5e210a5695d4abc5827dcd156c53dc8d85ffa0e27d4d9374",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/vocabulary.json": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "4a4dc043d8b0f506f4095108c8fcb4a9300bdf50bb0f0bf42caf215de1ba29a8",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "0253d27380c02064f893e17eb204091a8ca757393688ff5a5a4106f353170b34",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Input.swift": "cd7a1a11b01d287b28a6ac184f91547745c16c1b64395a0660bf92eed07514aa",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "4eb9d29036b171d8dd9bf13d59949a163d04555b333d68a3d6c143fef6bfd571",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "e1464b15dc5a5e3305349bc6155c4ec09774c6824bbbc72cd184c2fdbc38e3d8",
     "Native/V21NativeIME/Sources/V21NativeIME/V22Measurement.swift": "3741bc31d3d0e2b237b451a26f206f79d9adf037ff1c0de62ceae3a3252da013",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Data/com.apple.CoreML/model.mlmodel": "9600ea293e6e8da0244cc96bf6612f89a731a8960b6fab5a8b11f2fe150d9a13",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin": "d5055ba8da86a40c2cb0bba1bebf997141cbd7bed2afeada02c9e11a5d6e585c",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Manifest.json": "4845a7ed45d64c5335cb0e0b9b9c7313ae3a2899e2cb55eb3fae18563999273f",
-    "Core/Resources/V22/ordinary_probes_160.json": "38626257e91fcdfe74dc22fe04c1041768dc212821174be31162d5a7656348f2"
+    "Core/Resources/V22/ordinary_probes_160.json": "38626257e91fcdfe74dc22fe04c1041768dc212821174be31162d5a7656348f2",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.bin": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.json": "8a65aaacbdcc6b0d9b27c55376f015a89c8bb6323fd969cb77f995f5d31d9a9b"
   },
-  "upstream_execution_adapter": "v22-finite-b1-runtime-1"
+  "upstream_execution_adapter": "v22-finite-b1-runtime-1",
+  "language_policy": "clear-v22-word-reading-1"
 }

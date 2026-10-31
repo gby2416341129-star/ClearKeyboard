@@ -15,24 +15,28 @@ struct KernelMeasurementControls: View {
         AppCard {
             Text(status).font(.caption).foregroundStyle(.secondary)
             Button("开始记录实际输入") {
-                do { sessionID = try KernelMeasurement.shared.startCapture(); recording = true; exported = nil; status = "已开始。可切到微信或备忘录使用澈；最多记录 200 次，包含候选绘制、画面提交及刷新阶段，不记录输入正文。" }
-                catch { status = error.localizedDescription }
+                busy=true
+                Task { @MainActor in
+                    do { sessionID = try await KernelMeasurement.shared.startCapture(); recording = true; exported = nil; status = "已开始实际输入记录。切到微信或备忘录使用澈，随后返回这里停止、导出；最多 200 次，不记录输入正文。" }
+                    catch { status = error.localizedDescription }
+                    busy=false
+                }
             }.disabled(recording || busy)
             Button("开始 160 次 SDK 测量") {
                 busy = true
                 Task { @MainActor in
                     do {
-                        sessionID = try KernelMeasurement.shared.startCapture(); recording = true
+                        sessionID = try await KernelMeasurement.shared.startCapture(); recording = true
                         exported = nil
                         try await V21InputService.shared.startMeasurement()
-                        status = "已手动启动有限 SDK 测量。可以停止并导出；SDK 结果不代表屏幕显示时间。"
+                        status = "已启动主 App 的 160 次 SDK 测量。若要测微信或备忘录的键盘，请改用“开始记录实际输入”。"
                     } catch { status = error.localizedDescription }
                     busy = false
                 }
             }.disabled(busy)
             Button("停止") {
                 Task { @MainActor in
-                    do { try KernelMeasurement.shared.stopCapture(); await V21InputService.shared.stopMeasurement(); recording = false; status = "已请求停止；正在执行的同步预测仍需返回。可立即导出。" }
+                    do { try await KernelMeasurement.shared.stopCapture(); await V21InputService.shared.stopMeasurement(); recording = false; status = "已请求停止；正在执行的同步预测仍需返回。可立即导出。" }
                     catch { status = error.localizedDescription }
                 }
             }.disabled(sessionID == nil)
@@ -47,7 +51,7 @@ struct KernelMeasurementControls: View {
                 }
             }.disabled(sessionID == nil)
             if let exported { ShareLink("分享记录", item: exported) }
-            Text("键盘记录通过现有 App Group 共享。容器不可用时会标注缺少键盘记录。优先 CPU；加载遇到执行计划 -14 时，仅同模型重试一次 CPU+GPU。导出会记录实际采用的配置。")
+            Text("键盘记录优先通过 App Group 共享；容器不可用时使用签名授权的共享钥匙串。导出会核对键盘回执；两种权限均缺失时明确显示缺失原因。优先 CPU；加载遇到执行计划 -14 时，仅同模型重试一次 CPU+GPU。导出会记录实际采用的配置。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

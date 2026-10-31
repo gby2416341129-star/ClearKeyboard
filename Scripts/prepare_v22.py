@@ -37,7 +37,7 @@ def main():
         p=(ROOT/name).resolve();assert p.is_relative_to(ROOT) and digest(p)==expected,name
     runtime=ROOT/'Core/Resources/Runtime/V22';runtime.mkdir(parents=True,exist_ok=True)
     source=ROOT/'Native/V21NativeIME/Sources/V21NativeIME/Resources'
-    for name in ['V19Resources.bin','V21Statistics.bin','runtime_config.json','vocabulary.json']:shutil.copyfile(source/name,runtime/name)
+    for name in ['V19Resources.bin','V21Statistics.bin','runtime_config.json','vocabulary.json','V22Language.bin','V22Language.json']:shutil.copyfile(source/name,runtime/name)
     shutil.copyfile(ROOT/'Core/Resources/V22/identity.json',runtime/'identity.json')
     shutil.copyfile(ROOT/'Core/Resources/V22/ordinary_probes_160.json',runtime/'ordinary_probes_160.json')
     print('V22 model/resources and versioned SDK source hashes matched; Xcode will compile the supplied mlpackage.')

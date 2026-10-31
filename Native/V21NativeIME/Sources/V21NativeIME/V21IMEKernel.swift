@@ -53,6 +53,8 @@ private struct V21Manifest: Decodable {
     let source_checkpoint_sha256: String
     let resource_binary_sha256: String
     let statistics_sha256: String
+    let language_data_sha256: String
+    let language_policy_version: String
     let score_version: String
     let max_segmentations: Int
     let context_length: Int
@@ -92,6 +94,8 @@ private final class V21NativePreparation: @unchecked Sendable {
               digest(statistics) == manifest.statistics_sha256, manifest.score_version == "v21-prior-sequence-energy-1",
               manifest.max_segmentations == 8, manifest.context_length == 32,
               manifest.maximum_target_length == 64, manifest.max_legal_characters == 136 else { throw V21Error.resource("V21 resource identity/score contract mismatch") }
+        let language = try Data(contentsOf: directory.appendingPathComponent("V22Language.bin"), options: .mappedIfSafe)
+        guard manifest.language_policy_version == "clear-v22-word-reading-1",digest(language) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
         let readEnd = tick()
         let words = try JSONDecoder().decode(V21Vocabulary.self, from: Data(contentsOf: directory.appendingPathComponent("vocabulary.json")))
         guard words.syllables.count == 411 else { throw V21Error.resource("Wrong syllable IDs") }
@@ -100,6 +104,10 @@ private final class V21NativePreparation: @unchecked Sendable {
             v21_resources_create(a.bindMemory(to: UInt8.self).baseAddress, a.count, b.bindMemory(to: UInt8.self).baseAddress, b.count, e.baseAddress, e.count)
         } } }
         guard let handle else { throw V21Error.resource(error.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }) }
+        let policyStatus = language.withUnsafeBytes { bytes in error.withUnsafeMutableBufferPointer { e in
+            v21_resources_load_language(handle,bytes.bindMemory(to:UInt8.self).baseAddress,bytes.count,e.baseAddress,e.count)
+        } }
+        guard policyStatus == 0 else {v21_resources_destroy(handle);throw V21Error.resource(error.withUnsafeBufferPointer {String(cString:$0.baseAddress!)})}
         let indexEnd = tick(), indexMemory = v21_process_memory_bytes()
         self.resources=handle;self.syllables=words.syllables;self.manifest=manifest
         self.readMS=milliseconds(begin,readEnd);self.indexMS=milliseconds(readEnd,indexEnd)
@@ -147,6 +155,22 @@ private final class V21Runner: @unchecked Sendable {
         }
         tensorScores[key]=value;tensorAge.append(key);tensorBytes+=bytes
     }
+    private struct ResultKey: Hashable {let raw:String,context:String;let count:Int}
+    private var resultCache:[ResultKey:V21Result]=[:]
+    private var resultAge:[ResultKey]=[]
+    private var resultBytes=0
+    private func resultSize(_ result:V21Result)->Int {result.candidates.reduce(512+result.rawInput.utf8.count){$0+$1.text.utf8.count+$1.reading.utf8.count+$1.alignment.count*96+256}}
+    private func storeResult(_ result:V21Result,key:ResultKey) {
+        guard result.status == .ok,result.isFinal,result.diagnosticData == nil else{return}
+        let bytes=resultSize(result);guard bytes<=262144 else{return}
+        if let old=resultCache.removeValue(forKey:key){resultBytes-=resultSize(old);resultAge.removeAll{$0==key}}
+        while resultAge.count>=24 || resultBytes+bytes>262144 {
+            guard !resultAge.isEmpty else{break};if let old=resultCache.removeValue(forKey:resultAge.removeFirst()){resultBytes-=resultSize(old)}
+        }
+        resultCache[key]=result;resultAge.append(key);resultBytes+=bytes
+    }
+    private var lastContext:[Int32]?,lastContextMask:[Int32]?
+    private var retainedContextIDs:MLMultiArray?,retainedContextMask:MLMultiArray?
     private var hasPredicted = false // The single drain worker is its only caller.
     private var seenShapes: Set<String> = [] // B=1, T in8/16/32/64: at most4 entries.
     /// Loading compatibility only. The model graph, weights, tensors and decoder stay identical.
@@ -261,7 +285,7 @@ private final class V21Runner: @unchecked Sendable {
             "graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1",
             "compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:weights.units),
             "model_load_recovery":weights.recovery,"load_adapter":"clear-v22-load-plan-recovery-1",
-            "execution_adapter":"clear-v22-first-delivery-2","preparation_mode":"parallel_dedicated_cpu_load",
+            "execution_adapter":"clear-v22-word-reading-3","language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
             "model_load_api":"compiled_model_initializer_off_main",
             "score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
     }
@@ -279,7 +303,7 @@ private final class V21Runner: @unchecked Sendable {
             // One valid, stateless 1x8 tensor call, not an IME request. Its
             // output is discarded: no candidates, learning or score cache.
             let zeros=[Int32](repeating:0,count:32)
-            var ids=[Int32](repeating:0,count:8),mask=ids;ids[0]=1;mask[0]=1
+            var ids=[Int32](repeating:0,count:8),mask=ids;ids[0]=2;mask[0]=1
             let features=try MLDictionaryFeatureProvider(dictionary:[
                 "context_ids":MLFeatureValue(multiArray:try tensor(zeros,rows:1,width:32)),
                 "context_mask":MLFeatureValue(multiArray:try tensor(zeros,rows:1,width:32)),
@@ -303,6 +327,16 @@ private final class V21Runner: @unchecked Sendable {
         var times = job.signal.timings(); times.sdkEntryUptimeNS = job.entryNS; times.queueMS = milliseconds(job.entryNS)
         times.queueOverlapWithPreviousPredictionStageMS = job.blocker?.predictionStageOverlap(from:job.entryNS,to:tick()) ?? 0
         sampleMemory("request_start", into:&times)
+        // Immutable SDK result reuse is instance-local: exact original input,
+        // actual model context, requested count, and this instance's resource policy.
+        let resultKey=ResultKey(raw:job.raw,context:String(String.UnicodeScalarView(job.context.unicodeScalars.suffix(32))),count:job.limit)
+        if !job.capture,let cached=resultCache[resultKey] {
+            try job.signal.check();resultAge.removeAll{$0==resultKey};resultAge.append(resultKey)
+            times.candidateResultCacheHit=true;times.cacheState="exact immutable result; same model/context/input/policy"
+            times.firstCandidateReadyMS=milliseconds(job.entryNS);times.finalCandidateReadyMS=times.firstCandidateReadyMS
+            job.signal.record("candidate_cache_hit",times)
+            return cached.rebased(version:job.version,generation:job.generation,timings:times)
+        }
         job.signal.record("parsing",times)
         let parseStart = tick()
         let input: V21Input
@@ -351,7 +385,12 @@ private final class V21Runner: @unchecked Sendable {
                     times.encodeMS+=milliseconds(encodeStart)
                 } else {
                     times.tensorScoreCacheMisses+=1
-                    if contextIDs==nil { contextIDs=try tensor(context,rows:1,width:32);contextMask=try tensor(cm,rows:1,width:32) }
+                    if contextIDs==nil {
+                        if lastContext != context || lastContextMask != cm || retainedContextIDs == nil {
+                            retainedContextIDs=try tensor(context,rows:1,width:32);retainedContextMask=try tensor(cm,rows:1,width:32);lastContext=context;lastContextMask=cm
+                        }
+                        contextIDs=retainedContextIDs;contextMask=retainedContextMask
+                    }
                     let features=try MLDictionaryFeatureProvider(dictionary:[
                         "context_ids":MLFeatureValue(multiArray:contextIDs!),"context_mask":MLFeatureValue(multiArray:contextMask!),
                         "pinyin_ids":MLFeatureValue(multiArray:try tensor(py,rows:1,width:width)),
@@ -445,6 +484,7 @@ private final class V21Runner: @unchecked Sendable {
             object["normalization_map"] = try JSONSerialization.jsonObject(with:JSONEncoder().encode(input.map))
             result.diagnosticData = try JSONSerialization.data(withJSONObject:object,options:[.sortedKeys])
         }
+        if !job.capture {storeResult(result,key:resultKey)}
         return result
     }
     private func sampleMemory(_ phase: String, shape: String? = nil, into timings: inout V21Timings) {

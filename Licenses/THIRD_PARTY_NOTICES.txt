@@ -2,3 +2,5 @@ ClearKeyboard uses the supplied V22 bounded native runtime SDK (V21NativeIME com
 Checkpoint SHA256: d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7.
 V19Resources.bin and V21Statistics.bin are the matching inherited V22 runtime resources.
 No external input engine or inference runtime is included.
+
+V22 word/reading data: wordfreq 3.1.1 Chinese best list (Robyn Speer et al.; https://github.com/rspeer/wordfreq), derived V22Language.bin under CC BY-SA 4.0; see wordfreq-NOTICE.txt and wordfreq-DATA-LICENSE.txt. Phrase-aware primary readings: pypinyin 0.55.0 (https://github.com/mozillazg/python-pinyin), MIT; see pypinyin-LICENSE.txt. Generator: Scripts/build_v22_language_data.py. Only static data is bundled, not Python.

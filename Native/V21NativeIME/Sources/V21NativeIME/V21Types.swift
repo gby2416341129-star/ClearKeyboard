@@ -62,6 +62,7 @@ public struct V21Timings: Codable, Sendable {
     public internal(set) var candidateConversionMS: Double = 0
     public internal(set) var otherSDKMS: Double = 0
     public internal(set) var scoreBoundSkippedPaths: Int = 0
+    public internal(set) var candidateResultCacheHit: Bool? = nil
     public internal(set) var tensorScoreCacheHits: Int = 0
     public internal(set) var tensorScoreCacheMisses: Int = 0
     public internal(set) var inferenceCalls: Int = 0
@@ -102,6 +103,10 @@ public struct V21Result: Sendable {
     internal let generation: UInt64
     internal let instanceID: UUID
     internal var diagnosticData: Data?
+    internal func rebased(version:UInt64,generation:UInt64,timings:V21Timings)->V21Result {
+        let items=candidates.map {c in V21Candidate(id:c.id,text:c.text,reading:c.reading,score:c.score,consumedRawUTF8Range:c.consumedRawUTF8Range,consumedRawUTF16Range:c.consumedRawUTF16Range,fullConsumption:c.fullConsumption,remainingPinyin:c.remainingPinyin,matchType:c.matchType,alignment:c.alignment,inputVersion:version,pathIndex:c.pathIndex,completionSuffix:c.completionSuffix)}
+        return V21Result(inputVersion:version,rawInput:rawInput,normalizedPinyin:normalizedPinyin,normalizationMap:normalizationMap,candidates:items,recommendedID:recommendedID,status:status,reason:reason,syllablePathsExamined:syllablePathsExamined,completedPaths:completedPaths,isFinal:isFinal,previewRecommendationIsFinalRankCertified:previewRecommendationIsFinalRankCertified,requestedCount:requestedCount,timings:timings,generation:generation,instanceID:instanceID,diagnosticData:nil)
+    }
     /// Pure immutable conversion: render an entire batch without per-candidate actor hops.
     public func selections(prefixCharacterCount: Int? = nil) throws -> [V21Selection] {
         try candidates.map { try selection(candidateID: $0.id, prefixCharacterCount: prefixCharacterCount) }

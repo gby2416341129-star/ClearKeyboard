@@ -1,0 +1,7 @@
+V22Language.bin is an adaptation of the Chinese best wordlist from wordfreq 3.1.1, Robyn Speer et al.
+The derived frequency dataset is licensed under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+License and legal terms: https://creativecommons.org/licenses/by-sa/4.0/ and https://creativecommons.org/licenses/by-sa/4.0/legalcode
+Source: https://github.com/rspeer/wordfreq
+Changes: filtered to 50,000 in-vocabulary Chinese words; encoded exact pronunciations/IDs, logarithmic frequencies and lookup indices.
+Readings: pypinyin 0.55.0, MIT; see pypinyin-LICENSE.txt.
+See wordfreq-NOTICE.txt for upstream data sources, citations and attribution.
