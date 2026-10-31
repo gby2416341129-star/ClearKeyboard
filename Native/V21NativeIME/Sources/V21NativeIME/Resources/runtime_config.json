@@ -29,7 +29,7 @@
   "neural_source": "V19 best step38750",
   "graph_export_version": "v22-b1-enumerated-1",
   "SDK_version": "v22-bounded-native-1",
-  "execution_adapter": "v22-finite-b1-runtime-1",
+  "execution_adapter": "clear-v22-word-lattice-5",
   "prediction_batch": 1,
   "target_buckets": [
     8,
@@ -38,7 +38,10 @@
     64
   ],
   "statistical_resources_refitted": false,
-  "language_policy_version": "clear-v22-word-reading-1",
-  "language_data_sha256": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215",
-  "ranking_policy_version": "clear-v22-homophone-prior-1"
+  "language_policy_version": "clear-v22-word-lattice-data-2",
+  "language_data_sha256": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
+  "ranking_policy_version": "clear-v22-word-lattice-mixture-2",
+  "word_character_beam": 32,
+  "word_edges_per_position": 32,
+  "word_candidates_per_span": 8
 }

@@ -1,0 +1,5 @@
+Additional static language sources for V22 word lattice:
+CC-CEDICT contributors and MDBG, verified export: https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz ; CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/ .
+Chinese Wikipedia contributors, main-namespace article titles: https://dumps.wikimedia.org/zhwiki/latest/zhwiki-latest-all-titles-in-ns0.gz ; attribution/terms: https://zh.wikipedia.org/wiki/Wikipedia:Copyrights ; CC BY-SA 4.0. Only filtered, simplified, phonetic-ID records are derived; article bodies are not bundled.
+Jieba contributors: https://github.com/fxsjy/jieba/blob/master/extra_dict/dict.txt.big ; MIT. OpenCC dictionary simplification for offline generation only: https://github.com/BYVoid/OpenCC ; Apache 2.0 / MIT; Python/OpenCC are not installed in the iPhone App.
+V22Language.bin is an adapted database distributed under CC BY-SA 4.0. Source hashes and known-vs-unobserved frequency provenance appear in V22Language.json. Unobserved entries use marked smoothing priors; they are not described as training counts.

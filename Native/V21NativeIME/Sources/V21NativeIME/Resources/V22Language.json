@@ -1,22 +1,26 @@
 {
-  "version": "clear-v22-word-reading-1",
-  "data_sha256": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215",
-  "default_reading_changes": 119,
-  "word_count": 50000,
-  "word_limit": 50000,
-  "max_word_characters": 12,
-  "minimum_frequency": 3.162277660168379e-07,
-  "reading_source": "pypinyin 0.55.0 phrase-aware primary readings intersected with unchanged model legal rows",
-  "frequency_source": "wordfreq 3.1.1 Chinese best wordlist",
-  "frequency_data_license": "CC-BY-SA-4.0",
-  "frequency_source_url": "https://github.com/rspeer/wordfreq",
-  "reading_source_url": "https://github.com/mozillazg/python-pinyin",
-  "runtime_dependencies_added": false,
+  "version": "clear-v22-word-lattice-data-2",
+  "data_sha256": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
+  "word_reading_records": 1949655,
+  "distinct_words": 1949577,
+  "bytes": 80833116,
+  "sources": {
+    "wordfreq": "3.1.1 Chinese best, CC-BY-SA-4.0",
+    "pypinyin": "0.55.0 primary readings, MIT",
+    "jieba": "official dict.txt.big, MIT",
+    "CC-CEDICT": "MDBG verified export, CC-BY-SA-4.0",
+    "Wikipedia": "zhwiki namespace-0 titles, CC-BY-SA-4.0"
+  },
+  "source_sha256": {
+    "cedict.txt.gz": "014fcac31706affb535661d50eec0d70c6aa416b96fe3cab1dbc64095c200552",
+    "wiki-titles.gz": "016e97bf584196a0eb0522ab9b6300ffccae6fb64d2188bd81a53182a28d6d67",
+    "jieba-big.txt": "b16011275c42955ccd81fc1adecc93a59dbb7926af69d93fc95d4943d40f6aad"
+  },
+  "unobserved_frequency": "explicit smoothing floor, not corpus counts",
+  "frequency_floor": 1.0232929922807536e-08,
+  "omitted_incompatible_readings": 5995,
+  "runtime": "mapped variable-length records and prebuilt lexical/phonetic indices; no Python or tokenizer runtime",
+  "ranking_policy_version": "clear-v22-word-lattice-mixture-2",
   "weights_changed": false,
-  "phonetic_lookup": "exact syllable IDs; no fuzzy edit or answer overrides",
-  "score_policy": "unchanged neural mean logp + 0.25 * word/character backoff mean logp + unchanged path prior; complete lexeme frequencies normalized within the full exact pronunciation bucket; incomplete/single-syllable ambiguity retains prior behavior",
-  "neural_pruning_unchanged": true,
-  "whole_word_seed_limit_per_path": 64,
-  "tests_executed": false,
-  "ranking_policy_version": "clear-v22-homophone-prior-1"
+  "actual_input_tests_run": false
 }

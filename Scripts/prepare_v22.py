@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Validate the supplied model/resources and versioned SDK sources; stage only required runtime data. No inference."""
 from pathlib import Path
-import hashlib,json,shutil
+import hashlib,json,shutil,gzip,lzma
+from validate_v22_language import validate as validate_language
 ROOT=Path(__file__).resolve().parents[1]
 SHA='d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7'
 def digest(p):
@@ -21,11 +22,15 @@ def main():
         if not destination.exists():
             destination.parent.mkdir(parents=True,exist_ok=True)
             temporary=destination.with_name(destination.name+'.assembling')
-            with temporary.open('wb') as out:
+            joined=temporary.with_suffix('.transport') if target.get('compression') in ('gzip','xz') else temporary
+            with joined.open('wb') as out:
                 for name in target['parts']:
                     part=(ROOT/name).resolve()
                     assert part.is_relative_to(ROOT/'BuildAssets/V22')
                     with part.open('rb') as source:shutil.copyfileobj(source,out)
+            if target.get('compression') in ('gzip','xz'):
+                with (lzma.open(joined,'rb') if target.get('compression')=='xz' else gzip.open(joined,'rb')) as source,temporary.open('wb') as out:shutil.copyfileobj(source,out)
+                joined.unlink()
             assert temporary.stat().st_size==target['bytes'] and digest(temporary)==target['sha256']
             temporary.replace(destination)
         assert destination.stat().st_size==target['bytes'] and digest(destination)==target['sha256']
@@ -35,6 +40,7 @@ def main():
             if part.exists():part.unlink()
     for name,expected in identity['files'].items():
         p=(ROOT/name).resolve();assert p.is_relative_to(ROOT) and digest(p)==expected,name
+    validate_language(ROOT)
     runtime=ROOT/'Core/Resources/Runtime/V22';runtime.mkdir(parents=True,exist_ok=True)
     source=ROOT/'Native/V21NativeIME/Sources/V21NativeIME/Resources'
     for name in ['V19Resources.bin','V21Statistics.bin','runtime_config.json','vocabulary.json','V22Language.bin','V22Language.json']:shutil.copyfile(source/name,runtime/name)

@@ -11,7 +11,7 @@
   "score_version": "v21-prior-sequence-energy-1",
   "sdk_version": "v22-bounded-native-1",
   "graph_export_version": "v22-b1-enumerated-1",
-  "execution_adapter": "clear-v22-homophone-prior-4",
+  "execution_adapter": "clear-v22-word-lattice-5",
   "sdk_adaptations": [
     {
       "revision": "clear-v22-load-plan-recovery-1",
@@ -33,28 +33,32 @@
     {
       "revision": "clear-v22-homophone-prior-4",
       "scope": "Condition complete-word frequency on the entire exact homophone bucket rather than the whole corpus; retain incomplete-tail and single-syllable ambiguity policy. Precompute normalization per instance. Preserve neural weights, base score coefficient, segmentation, context, receipts and UI. Opt-in numeric candidate score breakdown capped to final eight summaries per request. No input/accuracy/performance tests executed."
+    },
+    {
+      "revision": "clear-v22-word-lattice-5",
+      "scope": "Mapped, attributed word/pronunciation coverage with declared frequency provenance. One bounded character/word lattice searches exact words at every real syllable position before pruning. Final token probability fusion depends on homophone-bucket and neural confidence; no per-word answer mapping, length/word-count bonus or second App reorder. Readings, real consumption, V19 weights, Core ML graph, context encoding, cancellation, final limit eight, UI and user data preserved. Static full dictionary validation occurs during build and strict runtime SHA validation remains. Numeric diagnostics expose the real lexical mixture contribution. Actual input/quality/performance tests remain user-owned."
     }
   ],
   "files": {
     "Native/V21NativeIME/Package.swift": "d0207fe9f447c71a2d2dc9814be0afb8cfaa0e264a4d095543b50eaeffe94cae",
     "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "7d89457687d3207cb2fe6d7d4cac035cc3b4f494c4f21ed77976a3700a40d242",
-    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "fb7e209af69ee36e4c7465e30086026225da929191a51b962cd56583cf181880",
-    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "d6dfafad4452a03b1a462d202984558592734c2370cf4f72cea00d0148dd7b11",
+    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "a084e38050add3dfd2297382133840801ac602f112f66254c863c11bd3d8aa29",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "09b4be896c151594cce811064fd75233a5923d104a2753074c16a6957395531a",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/vocabulary.json": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "f1dee0ecd68de407d7da289ac376bf7041af54e29ae305b8da83b20dc1fc02f7",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "8780f7aa67786157a1e01efd9aa1216b77f8f7c8ce14ff7f8f9b86bbf319eb1e",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Input.swift": "cd7a1a11b01d287b28a6ac184f91547745c16c1b64395a0660bf92eed07514aa",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "dd480e1649045841b77dce6c555fafff9ef6c923998a876346679460d421a2e2",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "fcd659610a8d5a6e0bd478e6d2d2fb4f3f953dcc150d4792d11ee21f125b11ef",
     "Native/V21NativeIME/Sources/V21NativeIME/V22Measurement.swift": "3741bc31d3d0e2b237b451a26f206f79d9adf037ff1c0de62ceae3a3252da013",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Data/com.apple.CoreML/model.mlmodel": "9600ea293e6e8da0244cc96bf6612f89a731a8960b6fab5a8b11f2fe150d9a13",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin": "d5055ba8da86a40c2cb0bba1bebf997141cbd7bed2afeada02c9e11a5d6e585c",
     "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Manifest.json": "4845a7ed45d64c5335cb0e0b9b9c7313ae3a2899e2cb55eb3fae18563999273f",
     "Core/Resources/V22/ordinary_probes_160.json": "38626257e91fcdfe74dc22fe04c1041768dc212821174be31162d5a7656348f2",
-    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.bin": "d30e8403e123a3a4ca12ca7843c2915a331f6f1e391407ac27901c9a174f5215",
-    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.json": "65b3d64d2380290946982eec790aac974fa409bb543b014b9762065ab948a43c"
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.bin": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.json": "b2a80430f916d5b6d503542a134d4d195e59505589928658840640f0e8bbe107"
   },
   "upstream_execution_adapter": "v22-finite-b1-runtime-1",
-  "language_policy": "clear-v22-word-reading-1",
-  "ranking_policy": "clear-v22-homophone-prior-1"
+  "language_policy": "clear-v22-word-lattice-data-2",
+  "ranking_policy": "clear-v22-word-lattice-mixture-2"
 }

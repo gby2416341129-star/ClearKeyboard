@@ -85,6 +85,7 @@ private final class V21NativePreparation: @unchecked Sendable {
     let manifest: V21Manifest
     let readMS: Double, indexMS: Double
     let memory: [V21MemorySample]
+    private let languageStorage: NSData
     init(directory: URL) throws {
         let begin=tick(),initialMemory=v21_process_memory_bytes()
         let manifest = try JSONDecoder().decode(V21Manifest.self, from: Data(contentsOf: directory.appendingPathComponent("runtime_config.json")))
@@ -95,8 +96,8 @@ private final class V21NativePreparation: @unchecked Sendable {
               digest(statistics) == manifest.statistics_sha256, manifest.score_version == "v21-prior-sequence-energy-1",
               manifest.max_segmentations == 8, manifest.context_length == 32,
               manifest.maximum_target_length == 64, manifest.max_legal_characters == 136 else { throw V21Error.resource("V21 resource identity/score contract mismatch") }
-        let language = try Data(contentsOf: directory.appendingPathComponent("V22Language.bin"), options: .mappedIfSafe)
-        guard manifest.language_policy_version == "clear-v22-word-reading-1",manifest.ranking_policy_version == "clear-v22-homophone-prior-1",digest(language) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
+        let language = try NSData(contentsOf: directory.appendingPathComponent("V22Language.bin"), options: .alwaysMapped)
+        guard manifest.language_policy_version == "clear-v22-word-lattice-data-2",manifest.ranking_policy_version == "clear-v22-word-lattice-mixture-2",digest(Data(referencing:language)) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
         let readEnd = tick()
         let words = try JSONDecoder().decode(V21Vocabulary.self, from: Data(contentsOf: directory.appendingPathComponent("vocabulary.json")))
         guard words.syllables.count == 411 else { throw V21Error.resource("Wrong syllable IDs") }
@@ -105,11 +106,12 @@ private final class V21NativePreparation: @unchecked Sendable {
             v21_resources_create(a.bindMemory(to: UInt8.self).baseAddress, a.count, b.bindMemory(to: UInt8.self).baseAddress, b.count, e.baseAddress, e.count)
         } } }
         guard let handle else { throw V21Error.resource(error.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }) }
-        let policyStatus = language.withUnsafeBytes { bytes in error.withUnsafeMutableBufferPointer { e in
-            v21_resources_load_language(handle,bytes.bindMemory(to:UInt8.self).baseAddress,bytes.count,e.baseAddress,e.count)
-        } }
+        let policyStatus = error.withUnsafeMutableBufferPointer { e in
+            v21_resources_load_language(handle,language.bytes.assumingMemoryBound(to:UInt8.self),language.length,e.baseAddress,e.count)
+        }
         guard policyStatus == 0 else {v21_resources_destroy(handle);throw V21Error.resource(error.withUnsafeBufferPointer {String(cString:$0.baseAddress!)})}
         let indexEnd = tick(), indexMemory = v21_process_memory_bytes()
+        self.languageStorage=language
         self.resources=handle;self.syllables=words.syllables;self.manifest=manifest
         self.readMS=milliseconds(begin,readEnd);self.indexMS=milliseconds(readEnd,indexEnd)
         self.memory=[("prepare_entry",begin,initialMemory),("native_ready",indexEnd,indexMemory)].compactMap { phase,time,bytes in
@@ -286,7 +288,7 @@ private final class V21Runner: @unchecked Sendable {
             "graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1",
             "compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:weights.units),
             "model_load_recovery":weights.recovery,"load_adapter":"clear-v22-load-plan-recovery-1",
-            "execution_adapter":"clear-v22-homophone-prior-4","ranking_policy":manifest.ranking_policy_version,"language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
+            "execution_adapter":"clear-v22-word-lattice-5","ranking_policy":manifest.ranking_policy_version,"language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
             "model_load_api":"compiled_model_initializer_off_main",
             "score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
     }

@@ -177,6 +177,7 @@ public struct V21CandidateScoreSample: Codable, Sendable {
     public let segmentation_log_prior: Double
     public let score: Double
     public let complete_word_log_prior: Double?
+    public let lexical_fusion_gain_mean: Double?
 }
 public struct V21CertificationSample: Codable, Sendable {
     public let ranking_policy: String?

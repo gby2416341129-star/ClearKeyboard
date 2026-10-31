@@ -16,7 +16,7 @@ def verify(path):
             for old in [b'v19_decode_path',b'V19IMEKernel',b'ck_native_decode',b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime',b'ClearV10Scorer',b'ClearV10Model',b'clear-v19-score-domain-stream-2']:
                 assert old not in data,'Retired runtime linked: '+str(old)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='103' and info['CFBundleShortVersionString']=='0.1.100'
+            assert str(info['CFBundleVersion'])=='104' and info['CFBundleShortVersionString']=='0.1.101'
         assert plistlib.loads(ipa.read(BASE+'Info.plist'))['CFBundleIdentifier']=='com.example.clearkeyboard'
         info=plistlib.loads(ipa.read(EXT+'Info.plist'))
         assert info['CFBundleIdentifier']=='com.example.clearkeyboard.Keyboard'
@@ -39,7 +39,7 @@ def verify(path):
         assert identity['neural_weights_changed'] is False
         assert identity['score_version']=='v21-prior-sequence-energy-1'
         assert identity['sdk_version']=='v22-bounded-native-1' and identity['graph_export_version']=='v22-b1-enumerated-1'
-        assert identity['execution_adapter']=='clear-v22-homophone-prior-4'
+        assert identity['execution_adapter']=='clear-v22-word-lattice-5'
         assert not any('V21PinyinCompactFP16' in n or '/V21/' in n for n in names)
         assert hashlib.sha256(ipa.read(EXT+'V22/ordinary_probes_160.json')).hexdigest()==identity['files']['Core/Resources/V22/ordinary_probes_160.json']
         config=json.loads(ipa.read(EXT+'V22/runtime_config.json'))
@@ -48,8 +48,8 @@ def verify(path):
             actual=hashlib.sha256(ipa.read(EXT+'V22/'+name)).hexdigest()
             assert actual==identity['files']['Native/V21NativeIME/Sources/V21NativeIME/Resources/'+name],name
         assert hashlib.sha256(ipa.read(EXT+'V22/V22Language.bin')).hexdigest()==config['language_data_sha256']
-        assert config['language_policy_version']=='clear-v22-word-reading-1'
-        assert config['ranking_policy_version']=='clear-v22-homophone-prior-1'
+        assert config['language_policy_version']=='clear-v22-word-lattice-data-2'
+        assert config['ranking_policy_version']=='clear-v22-word-lattice-mixture-2'
         assert hashlib.sha256(ipa.read(EXT+'V22/V21Statistics.bin')).hexdigest()==config['statistics_sha256']
         assert hashlib.sha256(ipa.read(EXT+MODEL+'/weights/weight.bin')).hexdigest()==WEIGHTS
         manifest=json.loads(ipa.read(EXT+'V22/packaged_manifest.json'))
@@ -58,5 +58,5 @@ def verify(path):
         expected={n[len(EXT):] for n in names if n.startswith((EXT+'V22/',EXT+MODEL+'/')) and not n.endswith('/') and n!=EXT+'V22/packaged_manifest.json'}
         assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
         for name,digest in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+name)).hexdigest()==digest,name
-    print('Build103 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
+    print('Build104 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
 if __name__=='__main__':verify(sys.argv[1])
