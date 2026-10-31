@@ -87,7 +87,7 @@ actor V21InputService {
             guard (1...200).contains(probes.count) else { throw V21Error.contract("Invalid finite measurement count") }
             let kernel = try await prepare()
             guard !measurementStopRequested else { throw CancellationError() }
-            let session = V22MeasurementSession(kernel: kernel, recorder: KernelMeasurement.shared.recorder, configurationLabel: "all; user-started; main-App process")
+            let session = V22MeasurementSession(kernel: kernel, recorder: KernelMeasurement.shared.recorder, configurationLabel: "requested .all; effective configuration in record identity; user-started; main-App process")
             let first = version + 1; version += UInt64(probes.count)
             measurement = session
             measurementTask = Task {

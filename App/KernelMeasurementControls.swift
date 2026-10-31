@@ -46,7 +46,7 @@ struct KernelMeasurementControls: View {
                 }
             }.disabled(sessionID == nil)
             if let exported { ShareLink("分享记录", item: exported) }
-            Text("键盘记录通过现有 App Group 共享。重新签名后若容器不可用，导出会明确标注缺少键盘记录。测量不会自动更换计算配置。")
+            Text("键盘记录通过现有 App Group 共享。容器不可用时会标注缺少键盘记录。默认配置加载遇到执行计划 -14 时，仅同模型重试一次 CPU+GPU；导出会记录实际采用的配置。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
