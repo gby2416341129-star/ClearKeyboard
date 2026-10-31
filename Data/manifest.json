@@ -1,6 +1,7 @@
 {
-  "engine": "V19NativeIME",
-  "model": "V19FullPinyinFP16",
+  "engine": "V21NativeIME",
+  "model": "V21PinyinCompactFP16",
+  "neural_source": "V19 best",
   "step": 38750,
   "maximum_candidates": 8
 }

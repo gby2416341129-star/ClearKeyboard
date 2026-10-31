@@ -26,14 +26,14 @@ def phase(target, name, isa, files, **fields):
 
 if __name__ == "__main__":
     sources = sorted(p.relative_to(ROOT).as_posix() for directory in ["App", "Core", "SharedUI", "KeyboardExtension"] for p in (ROOT / directory).glob("*.swift"))
-    sources += sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Native/V19NativeIME/Sources/V19NativeIME").glob("*.swift"))
-    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Config/PrivacyInfo.xcprivacy", "Core/Resources/Runtime/V19", "Core/Resources/V19/V19FullPinyinFP16.mlpackage"]
+    sources += sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Native/V21NativeIME/Sources/V21NativeIME").glob("*.swift"))
+    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Config/PrivacyInfo.xcprivacy", "Core/Resources/Runtime/V21", "Core/Resources/V21/V21PinyinCompactFP16.mlpackage"]
     licenses = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Licenses").glob("*.txt"))
     config = ["Config/Project.xcconfig", "Config/App-Info.plist", "Config/Keyboard-Info.plist", "Config/App.entitlements", "Config/Keyboard.entitlements"]
     asset = "App/Assets.xcassets"
     app_icon = "App/ClearAppIcon.icon"
-    bridge = ["Native/V19NativeIME/Sources/CV19IMECore/V19IMECore.cpp"]
-    refs = {path: reference(path, "folder" if path in ("Core/Resources/Runtime/V19", "SharedUI/Resources/ToolIcons") else None) for path in sources + resources + licenses + config + [asset, app_icon] + bridge}
+    bridge = ["Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp"]
+    refs = {path: reference(path, "folder" if path in ("Core/Resources/Runtime/V21", "SharedUI/Resources/ToolIcons") else None) for path in sources + resources + licenses + config + [asset, app_icon] + bridge}
     app_product = obj("product:app", "PBXFileReference", explicitFileType=q("wrapper.application"), path=q("ClearKeyboard.app"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     ext_product = obj("product:extension", "PBXFileReference", explicitFileType=q("wrapper.app-extension"), path=q("ClearKeyboardExtension.appex"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     products = obj("group:products", "PBXGroup", children=arr([app_product, ext_product]), name=q("Products"), sourceTree=q("<group>"))
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     ui_product = obj("product:ui-tests", "PBXFileReference", explicitFileType=q("wrapper.cfbundle"), path=q("ClearKeyboardUITests.xctest"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     objects[products] = "{ isa = PBXGroup; children = " + arr([app_product, ext_product, test_product, ui_product]) + "; name = Products; sourceTree = \"<group>\"; }"
     group = obj("group:main", "PBXGroup", children=arr(list(refs.values()) + [products]), sourceTree=q("<group>"))
-    common_settings = {"SDKROOT":"iphoneos", "CLANG_ENABLE_OBJC_ARC":"YES", "GCC_C_LANGUAGE_STANDARD":"gnu17", "SWIFT_VERSION":"5.0", "SWIFT_OBJC_BRIDGING_HEADER":"Native/V19NativeIME/Sources/CV19IMECore/include/V19IMECore.h", "HEADER_SEARCH_PATHS":"$(inherited) $(SRCROOT)/Native/V19NativeIME/Sources/CV19IMECore/include", "GCC_ENABLE_CPP_EXCEPTIONS":"YES", "CLANG_CXX_LANGUAGE_STANDARD":"c++17", "OTHER_LDFLAGS":"$(inherited) -lc++ -framework CoreML"}
+    common_settings = {"SDKROOT":"iphoneos", "CLANG_ENABLE_OBJC_ARC":"YES", "GCC_C_LANGUAGE_STANDARD":"gnu17", "SWIFT_VERSION":"5.0", "SWIFT_OBJC_BRIDGING_HEADER":"Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h", "HEADER_SEARCH_PATHS":"$(inherited) $(SRCROOT)/Native/V21NativeIME/Sources/CV21IMECore/include", "GCC_ENABLE_CPP_EXCEPTIONS":"YES", "CLANG_CXX_LANGUAGE_STANDARD":"c++17", "OTHER_LDFLAGS":"$(inherited) -lc++ -framework CoreML"}
     def configurations(target, extra):
         values = []
         for mode in ["Debug", "Release"]:

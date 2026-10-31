@@ -7,7 +7,7 @@ struct CandidateRequestKey: Hashable {
 
 enum CandidateLanguageContext {
     static func tail(_ text: String) -> String {
-        // V19 takes the actual last32 committed Unicode scalars.
+        // V21 takes the actual last32 committed Unicode scalars.
         String(String.UnicodeScalarView(text.unicodeScalars.suffix(32)))
     }
 

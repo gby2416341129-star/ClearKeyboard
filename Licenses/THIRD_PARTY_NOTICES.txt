@@ -1,3 +1,4 @@
-ClearKeyboard uses the supplied V19 native input SDK and matching V19 Core ML model.
+ClearKeyboard uses the supplied V21 native input SDK and compact Core ML export of unchanged V19 best weights.
 Checkpoint step 38750: d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7.
+Matching V21Statistics.bin and V19Resources.bin are required by the V21 SDK.
 No external input-method engine or execution runtime is included.

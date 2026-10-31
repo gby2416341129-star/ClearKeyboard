@@ -1,6 +1,6 @@
 import Foundation
 
-/// Host editing state only. All linguistic normalization and segmentation belong to V19.
+/// Host editing state only. All linguistic normalization and segmentation belong to V21.
 public struct Composition: Equatable {
     public static let maximumQueryLength = 384
     public private(set) var raw = ""

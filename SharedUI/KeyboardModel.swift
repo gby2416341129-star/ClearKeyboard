@@ -138,7 +138,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var recommendedCandidate: Candidate? {
         candidates.first{$0.nativeChoice?.recommended == true} ?? candidates.first
     }
-    private(set) var engineState = "V19 原生内核加载中…"
+    private(set) var engineState = "V21 原生内核加载中…"
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
     var onCandidateSelection: (() -> Void)?
@@ -209,7 +209,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         discardPreparedCandidates(); refreshCandidates()
     }
     func loadMoreCandidates(context: CandidateContext?) {
-        // V19 Trial 1 returns at most8 real candidates; no synthetic pages.
+        // V21 Trial 1 returns at most8 real candidates; no synthetic pages.
     }
     func prepare(_ action: KeyAction) {
         // Submit only accepted raw input. A cancelled contact must not supersede
@@ -236,7 +236,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let characters=query.characters
         refinementWork=Task { [weak self] in
             do {
-                let result=try await V19InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters,
+                let result=try await V21InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters,
                     updated: { [weak self] batch in
                         Task { @MainActor [weak self] in
                             guard let self,!token.isCancelled,!query.token.isCancelled,
@@ -249,7 +249,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 if query.publish(result) {self.presentCandidates(query)}
             } catch {
                 guard let self, !Task.isCancelled, !token.isCancelled, self.activeCandidates === query else{return}
-                _ = query.publish(V19CandidateBatch(items:[],completedPaths:Int.max,isFinal:true));self.engineState="V19 暂未返回候选："+error.localizedDescription
+                _ = query.publish(V21CandidateBatch(items:[],completedPaths:Int.max,isFinal:true));self.engineState="V21 暂未返回候选："+error.localizedDescription
                 self.presentCandidates(query)
             }
         }
@@ -304,17 +304,17 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if document.fullAccess { self.appearanceLink?.activate() }
         startup=Task { [weak self] in
             do {
-                _ = try await V19InputService.shared.prepare()
+                _ = try await V21InputService.shared.prepare()
                 guard let self else{return}
                 if self.awaitingCommit {
                     if self.deferredVisibleContext == self.activeCandidateContext() {self.deferredContext=self.deferredVisibleContext}
                     else {self.cancelDeferredActions()}
                 }
-                self.engineReady=true;self.engineState="V19 离线就绪";self.refreshCandidates()
+                self.engineReady=true;self.engineState="V21 离线就绪";self.refreshCandidates()
             } catch {
                 guard let self else{return}
                 // Preserve the draft and editing on loading failure.
-                self.engineState="V19 加载失败："+error.localizedDescription;self.onChange?()
+                self.engineState="V21 加载失败："+error.localizedDescription;self.onChange?()
             }
         }
     }
@@ -867,7 +867,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 
 /// A version-scoped SDK response; no host scoring or candidate merging.
 private final class PreparedCandidates {
-    typealias Result = V19CandidateBatch
+    typealias Result = V21CandidateBatch
     let raw:String
     let generation:Int
     let origin:KeyboardModel.CandidateContext
@@ -878,7 +878,7 @@ private final class PreparedCandidates {
     init(raw:String,generation:Int,origin:KeyboardModel.CandidateContext,preceding:String,characters:Bool) {
         self.raw=raw;self.generation=generation;self.origin=origin;self.preceding=preceding;self.characters=characters
     }
-    @discardableResult func publish(_ batch:V19CandidateBatch)->Bool {
+    @discardableResult func publish(_ batch:V21CandidateBatch)->Bool {
         if let old=result,old.isFinal || (!batch.isFinal && batch.completedPaths<=old.completedPaths) {return false}
         result=batch;return true
     }
