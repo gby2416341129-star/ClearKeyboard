@@ -27,13 +27,13 @@ def phase(target, name, isa, files, **fields):
 if __name__ == "__main__":
     sources = sorted(p.relative_to(ROOT).as_posix() for directory in ["App", "Core", "SharedUI", "KeyboardExtension"] for p in (ROOT / directory).glob("*.swift"))
     sources += sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Native/V21NativeIME/Sources/V21NativeIME").glob("*.swift"))
-    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Config/PrivacyInfo.xcprivacy", "Core/Resources/Runtime/V21", "Core/Resources/V21/V21PinyinCompactFP16.mlpackage"]
+    resources = ["SharedUI/Resources/ToolIcons", "SharedUI/Resources/BrandMark.png", "Config/PrivacyInfo.xcprivacy", "Core/Resources/Runtime/V22", "Core/Resources/V22/V22PinyinB1FP16.mlpackage"]
     licenses = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "Licenses").glob("*.txt"))
     config = ["Config/Project.xcconfig", "Config/App-Info.plist", "Config/Keyboard-Info.plist", "Config/App.entitlements", "Config/Keyboard.entitlements"]
     asset = "App/Assets.xcassets"
     app_icon = "App/ClearAppIcon.icon"
     bridge = ["Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp"]
-    refs = {path: reference(path, "folder" if path in ("Core/Resources/Runtime/V21", "SharedUI/Resources/ToolIcons") else None) for path in sources + resources + licenses + config + [asset, app_icon] + bridge}
+    refs = {path: reference(path, "folder" if path in ("Core/Resources/Runtime/V22", "SharedUI/Resources/ToolIcons") else None) for path in sources + resources + licenses + config + [asset, app_icon] + bridge}
     app_product = obj("product:app", "PBXFileReference", explicitFileType=q("wrapper.application"), path=q("ClearKeyboard.app"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     ext_product = obj("product:extension", "PBXFileReference", explicitFileType=q("wrapper.app-extension"), path=q("ClearKeyboardExtension.appex"), sourceTree=q("BUILT_PRODUCTS_DIR"))
     products = obj("group:products", "PBXGroup", children=arr([app_product, ext_product]), name=q("Products"), sourceTree=q("<group>"))

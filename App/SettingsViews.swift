@@ -264,12 +264,13 @@ struct InputAboutView: View {
             }
             AppSectionTitle(title: "离线引擎")
             AppCard {
-                Text("V21 原生全拼内核").font(.system(size: 16, weight: .medium))
-                Text("V21 原生内核沿用 V19 权重，在本机处理连续全拼、解码及候选推荐，支持部分未完成尾音节。本试用版暂不支持简拼、模糊音、纠错、中英混输和联想；学习记录保留，但不参与 SDK 排序。")
+                Text("V22 原生全拼内核").font(.system(size: 16, weight: .medium))
+                Text("V22 原生内核沿用 V19 权重，在本机处理连续全拼、解码及候选推荐，支持部分未完成尾音节。本试用版暂不支持简拼、模糊音、纠错、中英混输和联想；学习记录保留，但不参与 SDK 排序。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Divider()
                 AppNavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
             }
+            KernelMeasurementControls()
             AppSectionTitle(title: "使用手势")
             AppCard {
                 Label("长按空格，滑动定位光标", systemImage: "cursorarrow.motionlines")

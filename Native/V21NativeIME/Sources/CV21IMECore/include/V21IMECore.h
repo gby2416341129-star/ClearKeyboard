@@ -10,12 +10,16 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+V21_API uint64_t v21_process_memory_bytes(void);
 typedef struct V21Resources V21Resources;
 typedef struct V21Request V21Request;
 V21_API V21Resources *v21_resources_create(const uint8_t*,size_t,const uint8_t*,size_t,char*,size_t);
 V21_API void v21_resources_destroy(V21Resources*);
 V21_API uint16_t v21_character_id(const V21Resources*,uint32_t);
 /* All maps use original raw UTF8 bytes. Context-last ID is8192(BOS) if unavailable. */
+V21_API V21Request *v21_request_allocate(const V21Resources*,const char*,size_t,const char*,size_t,const int32_t*,const int32_t*,int32_t,int32_t,int32_t,char*,size_t);
+V21_API int32_t v21_request_prepare(V21Request*);
+V21_API const char *v21_runtime_json(V21Request*);
 V21_API V21Request *v21_request_create(const V21Resources*,const char*,size_t,const char*,size_t,const int32_t*,const int32_t*,int32_t,int32_t,int32_t,char*,size_t);
 V21_API void v21_request_destroy(V21Request*);
 V21_API void v21_cancel_request(V21Request*);

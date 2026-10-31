@@ -14,6 +14,9 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
 
 namespace {
 constexpr uint32_t Empty=0xffffffffU;
@@ -30,7 +33,7 @@ std::string quote(const std::string& s){std::ostringstream o;o<<'"';for(unsigned
 template<class T,class F>void top(std::vector<T>& v,size_t n,F score){std::stable_sort(v.begin(),v.end(),[&](const T&a,const T&b){return score(a)>score(b);});if(v.size()>n)v.resize(n);}
 struct Segment{uint16_t id;int32_t start,end;};
 struct Path{std::vector<Segment> parts;double logWeight=0,logPrior=0;std::string completion;};
-struct Prefix{std::vector<uint16_t> chars;double model=0,language=0,energy=0;};
+struct Prefix{std::vector<uint16_t> chars;double model=0,language=0,energy=0;size_t validated=0;};
 struct Candidate{std::string id,text,reading;double score,model,language;int path;std::vector<uint16_t> chars;};
 struct Trie{std::array<int32_t,26> next;int id=-1;Trie(){next.fill(-1);}};
 struct Capture{std::vector<std::vector<float>> logits;std::vector<float> fullZ;};
@@ -38,8 +41,8 @@ struct Capture{std::vector<std::vector<float>> logits;std::vector<float> fullZ;}
 struct V21Resources {
  std::vector<uint8_t> bytes;std::array<uint16_t,65536> cmap;std::array<std::string,8192> chars;std::vector<std::string> py;
  std::array<std::vector<uint16_t>,512> legal;std::array<int32_t,8192> defaults;std::vector<uint32_t> phraseHash,phraseSorted;std::vector<Trie> trie;
- std::vector<double> cu,pu;std::vector<uint64_t> ct;std::vector<uint32_t> ci,cc,pb;std::vector<uint16_t> cj;std::array<uint64_t,512> pt;double charMass,pyMass,charWeight,priorWeight;
- double pyLog(int prev,int id)const{return std::log((pb[prev*512+id]+pyMass*pu[id])/(pt[prev]+pyMass));}
+ std::vector<double> cu,pu,pyLogs;std::vector<uint64_t> ct;std::vector<uint32_t> ci,cc,pb;std::vector<uint16_t> cj;std::array<uint64_t,512> pt;double charMass,pyMass,charWeight,priorWeight;
+ double pyLog(int prev,int id)const{return pyLogs[prev*512+id];}
  double charLog(int prev,int id)const{size_t a=ci[prev],b=ci[prev+1];auto begin=cj.begin()+a,end=cj.begin()+b;auto it=std::lower_bound(begin,end,uint16_t(id));uint32_t n=it!=end&&*it==id?cc[size_t(it-cj.begin())]:0;return std::log((n+charMass*cu[id])/(ct[prev]+charMass));}
  bool same(uint32_t at,const uint16_t *ids,size_t n)const{if(bytes[at]!=n)return false;for(size_t i=0;i<n;i++)if(u16(bytes,at+1+2*i)!=ids[i])return false;return true;}
  uint32_t phrase(const uint16_t *ids,size_t n)const{size_t mask=phraseHash.size()-1,slot=hashIDs(ids,n)&mask;while(phraseHash[slot]!=Empty){if(same(phraseHash[slot],ids,n))return phraseHash[slot];slot=(slot+1)&mask;}return Empty;}
@@ -48,17 +51,28 @@ struct V21Resources {
   if(it==phraseSorted.end()||bytes[*it]<=n)return false;for(size_t i=0;i<n;i++)if(u16(bytes,*it+1+2*i)!=ids[i])return false;return true;
  }
  bool reading(const std::vector<uint16_t>& ids,const Path& path,bool final)const{
-  size_t pos=0;while(pos<ids.size()){
+  size_t checked=0;return readingFrom(ids,path,final,0,checked);
+ }
+ bool readingFrom(const std::vector<uint16_t>& ids,const Path& path,bool final,size_t begin,size_t& checked)const{
+  size_t pos=begin;checked=begin;while(pos<ids.size()){
    size_t remaining=ids.size()-pos;
    // Delay a decision only while a longer phrase can still supersede its reading.
    if(!final&&remaining<24&&longerPrefix(ids.data()+pos,remaining))return true;
    bool found=false;for(size_t width=std::min<size_t>(24,remaining);width>=2;width--){uint32_t at=phrase(ids.data()+pos,width);if(at==Empty)continue;for(size_t i=0;i<width;i++)if(u16(bytes,at+1+2*width+2*i)!=path.parts[pos+i].id)return false;pos+=width;found=true;break;}
    if(!found){if(defaults[ids[pos]]!=path.parts[pos].id)return false;pos++;}
+   checked=pos;
   }return true;
  }
 };
 struct V21Request {
- const V21Resources *r;std::string raw,normalized,error,json;std::vector<int32_t> starts,ends;std::vector<Path> paths;std::vector<bool> decoded;std::vector<Candidate> all,visible;std::vector<Capture> captures;int contextLast=8192;bool capture=false;std::atomic<bool> cancelled{false};
+ const V21Resources *r;std::string raw,normalized,error,json;std::vector<int32_t> starts,ends;std::vector<Path> paths;std::vector<bool> decoded;std::vector<Candidate> all,visible;std::vector<Capture> captures;int contextLast=8192;bool capture=false;std::atomic<bool> cancelled{false};bool completion=true,prepared=false;
+ struct PairEntry{uint32_t key=Empty;double value=0;};
+ // Direct-mapped, request-local, 256KiB; collisions replace entries, never change scores.
+ mutable std::array<PairEntry,16384> pairs;
+ mutable uint64_t pairHits=0,pairMisses=0,readingChecks=0;
+ std::string runtimeJSON;
+ double charLog(int prev,int id)const{uint32_t key=(uint32_t(prev)<<13)|uint32_t(id);auto& entry=pairs[(key*2654435761U)&16383];if(entry.key==key){pairHits++;return entry.value;}pairMisses++;entry.key=key;entry.value=r->charLog(prev,id);return entry.value;}
+
 };
 namespace {
 std::string readingTrace(const V21Resources& r,const std::vector<uint16_t>& ids,const Path& path){
@@ -94,24 +108,49 @@ void loadStats(V21Resources& r,const uint8_t *data,size_t size){
  auto validOffset=[&](uint32_t p){return p<r.bytes.size()&&r.bytes[p]>=2&&r.bytes[p]<=24&&size_t(p)+1+4*r.bytes[p]<=r.bytes.size();};size_t filled=0;
  for(uint32_t i=0;i<capacity;i++){uint32_t p=u32(b,at);at+=4;if(p!=Empty){if(!validOffset(p))throw std::runtime_error("Invalid phrase hash offset");filled++;}r.phraseHash.push_back(p);}
  if(filled!=phrases)throw std::runtime_error("Invalid phrase hash population");for(uint32_t i=0;i<phrases;i++){uint32_t p=u32(b,at);at+=4;if(!validOffset(p))throw std::runtime_error("Invalid sorted phrase offset");r.phraseSorted.push_back(p);}if(at!=b.size())throw std::runtime_error("Trailing statistics bytes");
+ r.pyLogs.resize(512*512);
+ for(int prev=0;prev<512;prev++)for(int id=0;id<512;id++)r.pyLogs[prev*512+id]=std::log((r.pb[prev*512+id]+r.pyMass*r.pu[id])/(r.pt[prev]+r.pyMass));
+ std::vector<uint32_t>().swap(r.pb); // Replaced by bounded immutable precomputed logs.
+
 }
 void parse(V21Request& q,bool completion){
- const auto& r=*q.r;size_t size=q.normalized.size();std::vector<std::vector<Path>> states(size+1);states[0].push_back(Path{});
+ const auto& r=*q.r;const size_t size=q.normalized.size();
+ struct Node{Segment part{};uint32_t parent=0;uint16_t depth=0;double weight=0;};
+ std::vector<Node> pool(1);pool.reserve((size+1)*6*32+1);
+ std::vector<std::vector<uint32_t>> states(size+1);states[0].push_back(0);
+ auto check=[&](){if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled during parsing");};
+ auto retain=[&](std::vector<uint32_t>& row){top(row,32,[&](uint32_t id){return pool[id].weight;});};
  for(size_t start=0;start<size;start++){
-  if(states[start].empty())continue;if(q.normalized[start]==' '||q.normalized[start]=='\''){states[start+1].insert(states[start+1].end(),states[start].begin(),states[start].end());top(states[start+1],32,[](const Path&p){return p.logWeight;});continue;}
-  int node=0;for(size_t end=start;end<std::min(size,start+6);end++){char c=q.normalized[end];if(c<'a'||c>'z'||r.trie[node].next[c-'a']<0)break;node=r.trie[node].next[c-'a'];int id=r.trie[node].id;if(id<0)continue;
-   for(const auto& state:states[start])if(state.parts.size()<64){Path p=state;int prev=p.parts.empty()?511:p.parts.back().id;p.logWeight+=r.pyLog(prev,id);p.parts.push_back(Segment{uint16_t(id),int(start),int(end+1)});states[end+1].push_back(std::move(p));}top(states[end+1],32,[](const Path&p){return p.logWeight;});
+  check();if(states[start].empty())continue;
+  if(q.normalized[start]==' '||q.normalized[start]=='\''){states[start+1].insert(states[start+1].end(),states[start].begin(),states[start].end());retain(states[start+1]);continue;}
+  int node=0;for(size_t end=start;end<std::min(size,start+6);end++){
+   check();char c=q.normalized[end];if(c<'a'||c>'z'||r.trie[node].next[c-'a']<0)break;node=r.trie[node].next[c-'a'];int id=r.trie[node].id;if(id<0)continue;
+   for(uint32_t parent:states[start])if(pool[parent].depth<64){
+    const Node state=pool[parent];int prev=state.depth?state.part.id:511;
+    if(pool.size()>=(size+1)*6*32+1)throw std::runtime_error("Parser workspace bound");
+    pool.push_back(Node{Segment{uint16_t(id),int(start),int(end+1)},parent,uint16_t(state.depth+1),state.weight+r.pyLog(prev,id)});states[end+1].push_back(uint32_t(pool.size()-1));
+   }retain(states[end+1]);
   }
  }
- for(auto p:states[size])if(!p.parts.empty()){p.logWeight+=r.pyLog(p.parts.back().id,510);q.paths.push_back(std::move(p));}
- // Completion is a distinct mode only when no exact complete path exists.
- if(q.paths.empty()&&completion&&size&&q.normalized.back()!=' '&&q.normalized.back()!='\''){
+ struct Final{uint32_t node;int id=-1,start=0;double weight;std::string completion;};
+ std::vector<Final> finals;finals.reserve(32);
+ for(uint32_t node:states[size])if(pool[node].depth)finals.push_back(Final{node,-1,0,pool[node].weight+r.pyLog(pool[node].part.id,510),""});
+ if(finals.empty()&&completion&&size&&q.normalized.back()!=' '&&q.normalized.back()!='\''){
   for(size_t start=size>6?size-6:0;start<size;start++)if(!states[start].empty()){
-   std::string tail=q.normalized.substr(start);if(tail.find_first_not_of("abcdefghijklmnopqrstuvwxyz")!=std::string::npos)continue;
-   for(int id=2;id<411;id++)if(r.py[id].size()>tail.size()&&r.py[id].compare(0,tail.size(),tail)==0)for(const auto& state:states[start])if(state.parts.size()<64){Path p=state;int prev=p.parts.empty()?511:p.parts.back().id;p.logWeight+=r.pyLog(prev,id)+r.pyLog(id,510);p.parts.push_back(Segment{uint16_t(id),int(start),int(size)});p.completion=r.py[id].substr(tail.size());q.paths.push_back(std::move(p));}
+   check();std::string tail=q.normalized.substr(start);if(tail.find_first_not_of("abcdefghijklmnopqrstuvwxyz")!=std::string::npos)continue;
+   for(int id=2;id<411;id++)if(r.py[id].size()>tail.size()&&r.py[id].compare(0,tail.size(),tail)==0)for(uint32_t node:states[start])if(pool[node].depth<64){
+    int prev=pool[node].depth?pool[node].part.id:511;
+    // Preserve the original addition grouping for completion scores.
+    finals.push_back(Final{node,id,int(start),pool[node].weight+(r.pyLog(prev,id)+r.pyLog(id,510)),r.py[id].substr(tail.size())});
+   }
   }
  }
- top(q.paths,8,[](const Path&p){return p.logWeight;});if(!q.paths.empty()){double max=q.paths[0].logWeight,sum=0;for(auto& p:q.paths)sum+=std::exp(p.logWeight-max);double z=max+std::log(sum);for(auto& p:q.paths)p.logPrior=p.logWeight-z;}
+ top(finals,8,[](const Final& f){return f.weight;});
+ for(const auto& f:finals){check();Path p;p.logWeight=f.weight;p.completion=f.completion;uint32_t node=f.node;p.parts.resize(pool[node].depth);
+  for(size_t i=p.parts.size();i>0;i--){p.parts[i-1]=pool[node].part;node=pool[node].parent;}
+  if(f.id>=0)p.parts.push_back(Segment{uint16_t(f.id),f.start,int(size)});q.paths.push_back(std::move(p));
+ }
+ if(!q.paths.empty()){double max=q.paths[0].logWeight,sum=0;for(auto& p:q.paths)sum+=std::exp(p.logWeight-max);double z=max+std::log(sum);for(auto& p:q.paths)p.logPrior=p.logWeight-z;}
  q.decoded.assign(q.paths.size(),false);q.captures.resize(q.paths.size());
 }
 std::vector<Prefix> search(const V21Request& q,int p,const std::vector<std::vector<float>>& values,std::vector<std::string>* stages=nullptr,const std::vector<uint16_t>* target=nullptr){
@@ -122,11 +161,11 @@ std::vector<Prefix> search(const V21Request& q,int p,const std::vector<std::vect
   std::vector<Prefix> expanded;expanded.reserve(256);std::string reason;struct Choice{uint16_t id;double model,language,energy;};std::unordered_map<int,std::vector<Choice>> cached;
   for(const auto& b:beam){
    if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled");int prev=b.chars.empty()?q.contextLast:b.chars.back();auto found=cached.find(prev);
-   if(found==cached.end()){std::vector<Choice> choices;choices.reserve(legal.size());for(size_t j=0;j<legal.size();j++){double m=double(xs[j])-z,l=r.charLog(prev,legal[j]);choices.push_back(Choice{legal[j],m,l,m+r.charWeight*l});}top(choices,choices.size(),[](const Choice& c){return c.energy;});found=cached.emplace(prev,std::move(choices)).first;}
-   const auto& choices=found->second;
+   if(found==cached.end()){std::vector<Choice> choices;choices.reserve(legal.size());for(size_t j=0;j<legal.size();j++){double m=double(xs[j])-z,l=q.charLog(prev,legal[j]);choices.push_back(Choice{legal[j],m,l,m+r.charWeight*l});}top(choices,choices.size(),[](const Choice& c){return c.energy;});found=cached.emplace(prev,std::move(choices)).first;}
+   const auto& choices=found->second;std::vector<uint16_t> probe=b.chars;probe.reserve(64);
    int accepted=0;bool targetPrefix=targetAlive&&std::equal(b.chars.begin(),b.chars.end(),target->begin());bool wantedSeen=false;
-   for(const auto& c:choices){if(accepted>=8&&!targetPrefix)break;if(accepted>=8&&targetPrefix&&c.id!=(*target)[pos])continue;Prefix n=b;n.chars.push_back(c.id);bool valid=r.reading(n.chars,path,pos+1==path.parts.size());if(targetPrefix&&c.id==(*target)[pos]){wantedSeen=true;if(!valid)reason="reading_constraint";else if(accepted>=8)reason="per_prefix_top8";}
-    if(!valid)continue;if(accepted++>=8)continue;n.model+=c.model;n.language+=c.language;n.energy=n.model+r.charWeight*n.language;expanded.push_back(std::move(n));
+   for(const auto& c:choices){if(accepted>=8&&!targetPrefix)break;if(accepted>=8&&targetPrefix&&c.id!=(*target)[pos])continue;probe.push_back(c.id);size_t validated=b.validated;q.readingChecks++;bool valid=r.readingFrom(probe,path,pos+1==path.parts.size(),b.validated,validated);probe.pop_back();if(targetPrefix&&c.id==(*target)[pos]){wantedSeen=true;if(!valid)reason="reading_constraint";else if(accepted>=8)reason="per_prefix_top8";}
+    if(!valid)continue;if(accepted++>=8)continue;Prefix n=b;n.chars.push_back(c.id);n.validated=validated;n.model+=c.model;n.language+=c.language;n.energy=n.model+r.charWeight*n.language;expanded.push_back(std::move(n));
    }
    if(targetPrefix&&!wantedSeen)reason="target_not_in_legal_characters";
   }
@@ -137,13 +176,25 @@ std::vector<Prefix> search(const V21Request& q,int p,const std::vector<std::vect
 }
 }
 extern "C" {
+uint64_t v21_process_memory_bytes(){
+#if defined(__APPLE__)
+ task_vm_info_data_t info{};mach_msg_type_number_t count=TASK_VM_INFO_COUNT;
+ if(task_info(mach_task_self(),TASK_VM_INFO,reinterpret_cast<task_info_t>(&info),&count)==KERN_SUCCESS)return info.phys_footprint;
+#endif
+ return 0;
+}
+
 V21Resources *v21_resources_create(const uint8_t *b,size_t n,const uint8_t *s,size_t m,char *error,size_t capacity){try{auto r=std::make_unique<V21Resources>();loadTables(*r,b,n);loadStats(*r,s,m);return r.release();}catch(const std::exception&e){message(error,capacity,e.what());return nullptr;}}
 void v21_resources_destroy(V21Resources*r){delete r;}
 uint16_t v21_character_id(const V21Resources*r,uint32_t c){return r&&c<65536?r->cmap[c]:1;}
-V21Request *v21_request_create(const V21Resources*r,const char *raw,size_t rawSize,const char *norm,size_t size,const int32_t *starts,const int32_t *ends,int32_t last,int32_t completion,int32_t capture,char*error,size_t capacity){try{
+V21Request *v21_request_allocate(const V21Resources*r,const char *raw,size_t rawSize,const char *norm,size_t size,const int32_t *starts,const int32_t *ends,int32_t last,int32_t completion,int32_t capture,char*error,size_t capacity){try{
  if(!r||!raw||!norm||rawSize>4096||size>384||(!starts&&size)||(!ends&&size))throw std::runtime_error("Invalid input buffer");auto q=std::make_unique<V21Request>();q->r=r;q->raw.assign(raw,rawSize);q->normalized.assign(norm,size);q->contextLast=last>=2&&last<8192?last:8192;q->capture=capture!=0;
- for(size_t i=0;i<size;i++){char c=norm[i];if(!((c>='a'&&c<='z')||c==' '||c=='\'')||starts[i]<0||ends[i]<=starts[i]||size_t(ends[i])>rawSize||(i&&starts[i]<starts[i-1]))throw std::runtime_error("Unsupported normalization/map");q->starts.push_back(starts[i]);q->ends.push_back(ends[i]);}parse(*q,completion!=0);return q.release();
+ for(size_t i=0;i<size;i++){char c=norm[i];if(!((c>='a'&&c<='z')||c==' '||c=='\'')||starts[i]<0||ends[i]<=starts[i]||size_t(ends[i])>rawSize||(i&&starts[i]<starts[i-1]))throw std::runtime_error("Unsupported normalization/map");q->starts.push_back(starts[i]);q->ends.push_back(ends[i]);}q->completion=completion!=0;return q.release();
  }catch(const std::exception&e){message(error,capacity,e.what());return nullptr;}}
+int32_t v21_request_prepare(V21Request*q){try{if(!q||q->prepared)throw std::runtime_error("Invalid/duplicate parse");parse(*q,q->completion);q->prepared=true;return 0;}catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
+V21Request *v21_request_create(const V21Resources*r,const char *raw,size_t rawSize,const char *norm,size_t size,const int32_t *starts,const int32_t *ends,int32_t last,int32_t completion,int32_t capture,char*error,size_t capacity){
+ auto q=v21_request_allocate(r,raw,rawSize,norm,size,starts,ends,last,completion,capture,error,capacity);if(q&&v21_request_prepare(q)){message(error,capacity,q->error);delete q;return nullptr;}return q;
+}
 void v21_request_destroy(V21Request*q){delete q;}
 void v21_cancel_request(V21Request*q){if(q)q->cancelled.store(true,std::memory_order_relaxed);}
 int32_t v21_path_count(const V21Request*q){return q?int(q->paths.size()):0;}
@@ -166,6 +217,10 @@ int32_t v21_snapshot(V21Request*q,int32_t requested,int32_t final){try{
  if(!q||requested<1)throw std::runtime_error("Invalid candidate limit");bool done=v21_completed_paths(q)==int(q->paths.size());if(final&&!done)throw std::runtime_error("Incomplete final decode");top(q->all,q->all.size(),[](const Candidate&c){return c.score;});q->visible.clear();std::unordered_set<std::string> seen;double bound=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);
  for(const auto& c:q->all){if(!seen.insert(c.text).second)continue;if(!done&&!(c.score>bound))break;q->visible.push_back(c);if(q->visible.size()>=size_t(std::min(requested,8)))break;}return int(q->visible.size());
  }catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
+const char *v21_runtime_json(V21Request*q){if(!q)return "{}";double bound=-INFINITY,leading=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);for(const auto& c:q->all)leading=std::max(leading,c.score);
+ std::string state=q->all.empty()?"no_candidate_yet":(leading>bound?"rank_certified":"candidate_exists_bound_not_passed");
+ std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<"}";q->runtimeJSON=o.str();return q->runtimeJSON.c_str();
+}
 const char *v21_error(const V21Request*q){return q?q->error.c_str():"Invalid request";}
 int32_t v21_candidate_count(const V21Request*q){return q?int(q->visible.size()):0;}
 const char *v21_candidate_id(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->visible.size())?q->visible[i].id.c_str():"";}

@@ -1,6 +1,7 @@
 {
-  "engine": "V21NativeIME",
-  "model": "V21PinyinCompactFP16",
+  "engine": "V22",
+  "compatibility_module": "V21NativeIME",
+  "model": "V22PinyinB1FP16",
   "neural_source": "V19 best",
   "step": 38750,
   "maximum_candidates": 8

@@ -1,5 +1,5 @@
 {
-  "version": "v21_native_kernel_repair",
+  "version": "v22_bounded_runtime",
   "source_checkpoint_sha256": "d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7",
   "source_step": 38750,
   "source_parameters": 20730368,
@@ -20,10 +20,22 @@
   "pinyin_backoff_mass": 32.0,
   "character_score_weight": 0.25,
   "segmentation_score_weight": 1.0,
-  "minimum_iOS": "16.0",
+  "minimum_iOS": "18.0",
   "partial_tail_completion": true,
   "score_version": "v21-prior-sequence-energy-1",
   "quality_passed": false,
   "deployment_ready": false,
-  "prebuilt_phrase_indices": true
+  "prebuilt_phrase_indices": true,
+  "neural_source": "V19 best step38750",
+  "graph_export_version": "v22-b1-enumerated-1",
+  "SDK_version": "v22-bounded-native-1",
+  "execution_adapter": "v22-finite-b1-runtime-1",
+  "prediction_batch": 1,
+  "target_buckets": [
+    8,
+    16,
+    32,
+    64
+  ],
+  "statistical_resources_refitted": false
 }

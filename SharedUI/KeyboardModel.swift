@@ -138,7 +138,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var recommendedCandidate: Candidate? {
         candidates.first{$0.nativeChoice?.recommended == true} ?? candidates.first
     }
-    private(set) var engineState = "V21 原生内核加载中…"
+    private(set) var engineState = "V22 原生内核加载中…"
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
     var onCandidateSelection: (() -> Void)?
@@ -236,7 +236,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let characters=query.characters
         refinementWork=Task { [weak self] in
             do {
-                let result=try await V21InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters,
+                let result=try await V21InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters,inputNS:query.createdNS,
                     updated: { [weak self] batch in
                         Task { @MainActor [weak self] in
                             guard let self,!token.isCancelled,!query.token.isCancelled,
@@ -249,7 +249,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 if query.publish(result) {self.presentCandidates(query)}
             } catch {
                 guard let self, !Task.isCancelled, !token.isCancelled, self.activeCandidates === query else{return}
-                _ = query.publish(V21CandidateBatch(items:[],completedPaths:Int.max,isFinal:true));self.engineState="V21 暂未返回候选："+error.localizedDescription
+                _ = query.publish(V21CandidateBatch(items:[],completedPaths:Int.max,isFinal:true));self.engineState="V22 暂未返回候选："+error.localizedDescription
                 self.presentCandidates(query)
             }
         }
@@ -260,6 +260,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
               let result=query.result else{return}
         candidates=result.items;hasMoreCandidates=false
         candidateGeneration=generation;candidateContext=requestedContext
+        if let timing=result.timing {
+            KernelMeasurement.shared.appReceived(V22AppTiming(inputVersion:timing.inputVersion,inputNS:timing.inputNS,
+                prepareWaitStartNS:timing.prepareWaitStartNS,prepareWaitEndNS:timing.prepareWaitEndNS,
+                receivedNS:DispatchTime.now().uptimeNanoseconds,phase:timing.phase))
+        }
         if notify {notifyCandidates();completeDeferredActions(for:requestedContext)}
     }
 
@@ -310,11 +315,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     if self.deferredVisibleContext == self.activeCandidateContext() {self.deferredContext=self.deferredVisibleContext}
                     else {self.cancelDeferredActions()}
                 }
-                self.engineReady=true;self.engineState="V21 离线就绪";self.refreshCandidates()
+                self.engineReady=true;self.engineState="V22 离线就绪";self.refreshCandidates()
             } catch {
                 guard let self else{return}
                 // Preserve the draft and editing on loading failure.
-                self.engineState="V21 加载失败："+error.localizedDescription;self.onChange?()
+                self.engineState="V22 加载失败："+error.localizedDescription;self.onChange?()
             }
         }
     }
@@ -868,6 +873,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 /// A version-scoped SDK response; no host scoring or candidate merging.
 private final class PreparedCandidates {
     typealias Result = V21CandidateBatch
+    let createdNS=DispatchTime.now().uptimeNanoseconds
     let raw:String
     let generation:Int
     let origin:KeyboardModel.CandidateContext

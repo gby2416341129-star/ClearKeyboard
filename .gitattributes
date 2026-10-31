@@ -1,4 +1,4 @@
 *.sh text eol=lf
 Native/V21NativeIME/** -text
-Core/Resources/V21/** -text
-BuildAssets/V21/** -text
+Core/Resources/V22/** -text
+BuildAssets/V22/** -text

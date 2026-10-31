@@ -17,13 +17,29 @@ private final class V21Cancellation: @unchecked Sendable {
     private var cancelledNS: UInt64?
     private var telemetry = V21Timings()
     private var phaseNS = tick()
+    private var predictionStartNS: UInt64?
+    private var predictionIntervals: [(UInt64,UInt64)] = []
     private var details: [String: Any] = [:]
     func cancel(_ reason: String) { lock.lock(); defer { lock.unlock() }; if message == nil { message = reason; cancelledPhase = phase; cancelledNS = tick() }; if let request { v21_cancel_request(request) } }
+    func timings() -> V21Timings { lock.lock(); defer { lock.unlock() }; return telemetry }
+    func stage() -> String { lock.lock(); defer { lock.unlock() }; return phase }
     func reason() -> String? { lock.lock(); defer { lock.unlock() }; return message }
     func check() throws { if reason() != nil { throw CancellationError() } }
     func attach(_ value: OpaquePointer) { lock.lock(); defer { lock.unlock() }; request = value; if message != nil { v21_cancel_request(value) } }
     func detach() { lock.lock(); request = nil; lock.unlock() }
-    func record(_ stage: String, _ timings: V21Timings) { lock.lock(); phase = stage; phaseNS = tick(); telemetry = timings; lock.unlock() }
+    func stageAgeMS() -> Double {lock.lock();defer {lock.unlock()};return milliseconds(phaseNS)}
+    func predictionStageOverlap(from start: UInt64, to end: UInt64) -> Double {
+        lock.lock();defer {lock.unlock()};var total:UInt64=0
+        for (a,b) in predictionIntervals {let low=max(a,start),high=min(b,end);if high>low {total+=high-low}}
+        if let a=predictionStartNS {let low=max(a,start);if end>low {total+=end-low}}
+        return Double(total)/1_000_000
+    }
+    func record(_ stage: String, _ timings: V21Timings) {
+        lock.lock();defer {lock.unlock()};let now=tick()
+        if stage != "prediction",let start=predictionStartNS {if predictionIntervals.count<8 {predictionIntervals.append((start,now))};predictionStartNS=nil}
+        if stage == "prediction",predictionStartNS==nil {predictionStartNS=now}
+        phase=stage;phaseNS=now;telemetry=timings
+    }
     func captureDetails(_ value: [String: Any]) { lock.lock(); details = value; lock.unlock() }
     func diagnostic() -> [String: Any] {
         lock.lock(); let p = phase, cp = cancelledPhase, cn = cancelledNS, t = telemetry, start = phaseNS, captured = details; lock.unlock()
@@ -52,6 +68,7 @@ private struct V21Job: @unchecked Sendable {
     let limit: Int
     let entryNS: UInt64
     let signal: V21Cancellation
+    let blocker: V21Cancellation?
     let capture: Bool
     let diagnosticTarget: String?
     let update: (@Sendable (V21Result) -> Void)?
@@ -66,11 +83,12 @@ private final class V21Runner: @unchecked Sendable {
     let syllables: [String]
     let config: V21Configuration
     let preparation: [String: Double]
+    let preparationMemory: [V21MemorySample]
     let identity: [String: String]
     private var hasPredicted = false // The single drain worker is its only caller.
     private var seenShapes: Set<String> = [] // B=1, T in8/16/32/64: at most4 entries.
     init(modelURL: URL, directory supplied: URL?, configuration: V21Configuration) throws {
-        let begin = tick(), directory: URL
+        let begin = tick(), initialMemory = v21_process_memory_bytes(), directory: URL
         if let supplied { directory = supplied }
         else {
             #if SWIFT_PACKAGE
@@ -96,14 +114,14 @@ private final class V21Runner: @unchecked Sendable {
             v21_resources_create(a.bindMemory(to: UInt8.self).baseAddress, a.count, b.bindMemory(to: UInt8.self).baseAddress, b.count, e.baseAddress, e.count)
         } } }
         guard let handle else { throw V21Error.resource(error.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }) }
-        let indexEnd = tick()
+        let indexEnd = tick(), indexMemory = v21_process_memory_bytes()
         do {
-            guard modelURL.pathExtension == "mlmodelc" else { throw V21Error.resource("Pass Xcode-compiled V21PinyinCompactFP16.mlmodelc") }
+            guard modelURL.pathExtension == "mlmodelc" else { throw V21Error.resource("Pass Xcode-compiled V22PinyinB1FP16.mlmodelc") }
             let mlconfig = MLModelConfiguration(); mlconfig.computeUnits = configuration.computeUnits
             let loaded = try MLModel(contentsOf: modelURL, configuration: mlconfig)
             let metadata = loaded.modelDescription.metadata[.creatorDefinedKey] as? [String: String]
             guard metadata?["checkpoint_sha256"] == Self.sourceSHA, metadata?["source_step"] == "38750",
-                  metadata?["kernel_version"] == "v21_native_kernel_repair", metadata?["score_version"] == manifest.score_version else { throw V21Error.model("Wrong model/compact interface") }
+                  metadata?["kernel_version"] == "v22_bounded_runtime", metadata?["score_version"] == manifest.score_version else { throw V21Error.model("Wrong model/compact interface") }
             for name in ["context_ids", "pinyin_ids", "context_mask", "pinyin_mask"] {
                 guard let c = loaded.modelDescription.inputDescriptionsByName[name]?.multiArrayConstraint,
                       c.dataType == .int32, c.shape.count == 2 else { throw V21Error.model("Invalid input \(name)") }
@@ -113,7 +131,8 @@ private final class V21Runner: @unchecked Sendable {
             }
             self.resources = handle; self.model = loaded; self.syllables = words.syllables; self.config = configuration
             self.preparation = ["resource_read_hash_ms": milliseconds(begin, readEnd), "native_index_ms": milliseconds(readEnd, indexEnd), "model_load_ms": milliseconds(indexEnd), "total_prepare_ms": milliseconds(begin)]
-            self.identity = ["checkpoint_sha256":Self.sourceSHA,"source_step":"38750","resource_sha256":manifest.resource_binary_sha256,"statistics_sha256":manifest.statistics_sha256,"kernel_version":"v21_native_kernel_repair","execution_adapter":"clear-v21-bounded-runtime-1","score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
+            self.preparationMemory = [("prepare_entry",begin,initialMemory),("native_ready",indexEnd,indexMemory),("model_loaded",tick(),v21_process_memory_bytes())].compactMap { phase,time,bytes in bytes > 0 ? V21MemorySample(phase:phase,shape:nil,uptimeNS:time,processFootprintBytes:bytes) : nil }
+            self.identity = ["checkpoint_sha256":Self.sourceSHA,"source_step":"38750","resource_sha256":manifest.resource_binary_sha256,"statistics_sha256":manifest.statistics_sha256,"kernel_version":"v22_bounded_runtime","neural_source":"V19 best","graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1","compute_units_requested":String(describing:configuration.computeUnits),"execution_adapter":"v22-finite-b1-runtime-1","score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
         } catch { v21_resources_destroy(handle); throw error }
     }
     deinit { v21_resources_destroy(resources) }
@@ -124,24 +143,29 @@ private final class V21Runner: @unchecked Sendable {
     }
     func run(_ job: V21Job, progress: (@Sendable (V21Result) -> Void)?) throws -> V21Result {
         try job.signal.check()
-        var times = V21Timings(); times.sdkEntryUptimeNS = job.entryNS; times.queueMS = milliseconds(job.entryNS)
+        var times = job.signal.timings(); times.sdkEntryUptimeNS = job.entryNS; times.queueMS = milliseconds(job.entryNS)
+        times.queueOverlapWithPreviousPredictionStageMS = job.blocker?.predictionStageOverlap(from:job.entryNS,to:tick()) ?? 0
+        sampleMemory("request_start", into:&times)
         job.signal.record("parsing",times)
         let parseStart = tick()
         let input: V21Input
         do { input = try V21Input.normalize(job.raw) }
-        catch { return empty(job, normalized: "", status: .unsupportedInput, reason: error.localizedDescription, times: times) }
+        catch { times.parseMS = milliseconds(parseStart); return empty(job, normalized: "", status: .unsupportedInput, reason: error.localizedDescription, times: times) }
         let scalars = Array(job.context.unicodeScalars.suffix(32))
         var context = [Int32](repeating: 0, count: 32), cm = context
         for (i, c) in scalars.enumerated() { context[i] = Int32(v21_character_id(resources, c.value)); cm[i] = 1 }
         let contextLast = scalars.isEmpty ? Int32(8192) : context[scalars.count-1]
         var error = [CChar](repeating: 0, count: 1024)
         let request = job.raw.withCString { raw in input.normalized.withCString { norm in input.starts.withUnsafeBufferPointer { a in input.ends.withUnsafeBufferPointer { b in error.withUnsafeMutableBufferPointer { e in
-            v21_request_create(resources, raw, job.raw.utf8.count, norm, input.normalized.utf8.count, a.baseAddress, b.baseAddress, contextLast, config.allowIncompleteTail ? 1 : 0, job.capture ? 1 : 0, e.baseAddress, e.count)
+            v21_request_allocate(resources, raw, job.raw.utf8.count, norm, input.normalized.utf8.count, a.baseAddress, b.baseAddress, contextLast, config.allowIncompleteTail ? 1 : 0, job.capture ? 1 : 0, e.baseAddress, e.count)
         } } } } }
         guard let request else { throw V21Error.contract(error.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }) }
         job.signal.attach(request)
         defer { job.signal.detach(); v21_request_destroy(request) }
-        let paths = Int(v21_path_count(request)); times.parseMS = milliseconds(parseStart)
+        // Attach before parsing; the cancellation lock protects destruction/detachment.
+        try job.signal.check()
+        guard v21_request_prepare(request) == 0 else { try job.signal.check(); throw V21Error.contract(String(cString:v21_error(request))) }
+        let paths = Int(v21_path_count(request)); times.parsedPathCount=paths; times.parseMS = milliseconds(parseStart)
         job.signal.record("encoding",times)
         if paths == 0 { return empty(job, normalized: input.normalized, status: job.raw.isEmpty ? .emptyInput : .noSyllablePath, reason: "No bounded exact/completable full-pinyin path", times: times) }
         // Keep every parser path, but bound each Core ML allocation to one row.
@@ -149,6 +173,9 @@ private final class V21Runner: @unchecked Sendable {
         times.modelBatch = 1
         times.firstPredictionInThisInstance = !hasPredicted
         times.cacheState = "single-path B1 execution; at most4 T buckets; no result cache; CoreML internal cache unknown"
+        // Identical context tensors are allocated once per request, not once per path.
+        let contextIDs = try tensor(context,rows:1,width:32)
+        let contextMask = try tensor(cm,rows:1,width:32)
         var capturedCalls: [[String: Any]] = []
         var published = false
         for p in 0..<paths {
@@ -161,14 +188,14 @@ private final class V21Runner: @unchecked Sendable {
                 var py = [Int32](repeating: 0, count: width), pm = py
                 for k in 0..<n { py[k] = v21_path_syllable(request, Int32(p), Int32(k)); pm[k] = 1 }
                 let features = try MLDictionaryFeatureProvider(dictionary: [
-                    "context_ids": MLFeatureValue(multiArray: tensor(context, rows: 1, width: 32)),
-                    "context_mask": MLFeatureValue(multiArray: tensor(cm, rows: 1, width: 32)),
+                    "context_ids": MLFeatureValue(multiArray: contextIDs),
+                    "context_mask": MLFeatureValue(multiArray: contextMask),
                     "pinyin_ids": MLFeatureValue(multiArray: tensor(py, rows: 1, width: width)),
                     "pinyin_mask": MLFeatureValue(multiArray: tensor(pm, rows: 1, width: width))])
                 times.encodeMS += milliseconds(encodeStart)
                 let shapeKey = "1x\(width)"
                 times.predictionShapes.append(shapeKey)
-                times.firstPredictionForShape = times.firstPredictionForShape || !seenShapes.contains(shapeKey)
+                // First-shape status is recorded at the actual prediction attempt below.
                 if job.capture {
                     capturedCalls.append(["path_index":p,
                         "inputs":["context_ids":context,"context_mask":cm,"pinyin_ids":py,"pinyin_mask":pm],
@@ -182,16 +209,24 @@ private final class V21Runner: @unchecked Sendable {
                 times.inferenceCalls += 1
                 job.signal.record("prediction",times)
                 let predictStart = tick()
+                let firstInstance = !hasPredicted, firstShape = !seenShapes.contains(shapeKey)
+                times.firstPredictionForShape = times.firstPredictionForShape || firstShape
+                hasPredicted = true; seenShapes.insert(shapeKey)
+                sampleMemory("before_prediction",shape:shapeKey,into:&times)
                 let output: MLFeatureProvider
                 do { output = try model.prediction(from: features) }
                 catch {
-                    times.predictionMS += milliseconds(predictStart)
+                    let duration = milliseconds(predictStart)
+                    times.predictionMS += duration
+                    times.predictions.append(V21PredictionTiming(ordinal:times.inferenceCalls,pathIndex:p,shape:shapeKey,durationMS:duration,firstInInstance:firstInstance,firstForShape:firstShape,status:"error"))
+                    sampleMemory("prediction_failed",shape:shapeKey,into:&times)
                     job.signal.record("prediction_failed",times)
                     throw error
                 }
-                hasPredicted = true
-                seenShapes.insert(shapeKey)
-                times.predictionMS += milliseconds(predictStart)
+                let duration = milliseconds(predictStart)
+                times.predictionMS += duration
+                times.predictions.append(V21PredictionTiming(ordinal:times.inferenceCalls,pathIndex:p,shape:shapeKey,durationMS:duration,firstInInstance:firstInstance,firstForShape:firstShape,status:"completed"))
+                sampleMemory("after_prediction",shape:shapeKey,into:&times)
                 job.signal.record("decode",times)
                 try job.signal.check()
                 guard let compact = output.featureValue(for: "compact_legal_logits")?.multiArrayValue,
@@ -213,6 +248,9 @@ private final class V21Runner: @unchecked Sendable {
                 try job.signal.check()
                 job.signal.record("decode",times)
                 guard status == 0 else { throw V21Error.model(String(cString: v21_error(request))) }
+                if let data = String(cString:v21_runtime_json(request)).data(using:.utf8),
+                   let value = try? JSONDecoder().decode(V21CertificationSample.self,from:data) { times.certification.append(value) }
+                job.signal.record("search_completed",times)
                 if let progress, !published, p+1 < paths {
                     let count = v21_snapshot(request,Int32(min(8,job.limit)),0)
                     guard count >= 0 else { throw V21Error.model(String(cString: v21_error(request))) }
@@ -239,7 +277,7 @@ private final class V21Runner: @unchecked Sendable {
             object["identity"] = identity
             object["input_version"] = job.version; object["context_used"] = String(String.UnicodeScalarView(scalars))
             object["actual_model_calls"] = capturedCalls
-            object["execution_adapter"] = "clear-v21-bounded-runtime-1"
+            object["execution_adapter"] = "v22-finite-b1-runtime-1"
             object["prediction_batch_limit"] = 1
             object["full8192_partition"] = "Not computed by regular phone inference; historical Build92 domain comparison is an explicit source diagnostic"
             object["preparation_ms"] = preparation; object["compute_units_requested"] = String(describing: config.computeUnits)
@@ -247,6 +285,9 @@ private final class V21Runner: @unchecked Sendable {
             diagnostic = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
             times.diagnosticPackagingMS = milliseconds(diagnosticStart)
         }
+        times.finalCandidateReadyMS = milliseconds(job.entryNS)
+        sampleMemory("final_candidate_ready",into:&times)
+        job.signal.record("final_candidate_ready",times)
         var result = try snapshot(job,input:input,request:request,count:count,paths:paths,final:true,times:times,diagnostic:diagnostic)
         if let data = result.diagnosticData, var object = (try? JSONSerialization.jsonObject(with:data)) as? [String:Any] {
             object["api_candidates"] = try JSONSerialization.jsonObject(with:JSONEncoder().encode(result.candidates))
@@ -255,7 +296,23 @@ private final class V21Runner: @unchecked Sendable {
         }
         return result
     }
+    private func sampleMemory(_ phase: String, shape: String? = nil, into timings: inout V21Timings) {
+        guard timings.memorySamples.count < 24 else { return }
+        let bytes = v21_process_memory_bytes()
+        if bytes > 0 { timings.memorySamples.append(V21MemorySample(phase:phase,shape:shape,uptimeNS:tick(),processFootprintBytes:bytes)) }
+    }
+    func emit(_ job: V21Job, result: V21Result?, error: String? = nil) {
+        guard let sink=config.performanceSink else { return }
+        let t=result?.timings ?? job.signal.timings()
+        sink(V21PerformanceRecord(processID:ProcessInfo.processInfo.processIdentifier,instanceID:instanceID.uuidString,inputVersion:job.version,
+             rawUTF8Length:job.raw.utf8.count,contextScalarLength:min(32,job.context.unicodeScalars.count),
+             status:result?.status.rawValue ?? (job.signal.reason() == nil ? "error" : "cancelled"),
+             cancellationReason:job.signal.reason(),error:error,stage:job.signal.stage(),unfinishedStageElapsedMS:job.signal.stageAgeMS(),pathCount:result?.syllablePathsExamined ?? t.parsedPathCount,
+             completedPaths:result?.completedPaths ?? t.certification.last?.completed_paths ?? 0,recommendedID:result?.recommendedID,
+             sdkElapsedMS:milliseconds(job.entryNS),timings:t,preparationMS:preparation,preparationMemory:preparationMemory,identity:identity))
+    }
     private func empty(_ job: V21Job, normalized: String, status: V21ResultStatus, reason: String, times: V21Timings) -> V21Result {
+        var times=times; times.finalCandidateReadyMS=milliseconds(job.entryNS); job.signal.record("empty_result",times)
         var diagnostic: Data?
         if job.capture { diagnostic = try? JSONSerialization.data(withJSONObject: ["raw_input":job.raw,"normalized_input":normalized,"status":status.rawValue,"reason":reason,"model_executed":false,"target_used_in_model_or_search":false,"checkpoint_sha256":Self.sourceSHA]) }
         return V21Result(inputVersion:job.version,rawInput:job.raw,normalizedPinyin:normalized,normalizationMap:[],candidates:[],recommendedID:nil,status:status,reason:reason,syllablePathsExamined:0,completedPaths:0,isFinal:true,previewRecommendationIsFinalRankCertified:true,requestedCount:job.limit,timings:times,generation:job.generation,instanceID:instanceID,diagnosticData:diagnostic)
@@ -318,13 +375,14 @@ public actor V21IMEKernel {
         guard limit > 0 else { throw V21Error.contract("requestedCount must be positive; output is capped to8") }
         guard version >= latestVersion else { signal.cancel("older_input_version"); return nil }
         latestVersion = version; generation &+= 1; let token = generation, entry = tick()
-        var queued = V21Timings(); queued.sdkEntryUptimeNS = entry; signal.record("queued",queued)
+        var queued = V21Timings(); queued.sdkEntryUptimeNS = entry; queued.waitingForPreviousPrediction = active?.stage() == "prediction"; signal.record("queued",queued)
+        let blocker=active
         active?.cancel("superseded_while_running")
-        if let old = pending { old.signal.cancel("superseded_before_execution"); old.continuation.resume(returning:nil); pending = nil }
+        if let old = pending { old.signal.cancel("superseded_before_execution"); runner?.emit(old,result:nil); old.continuation.resume(returning:nil); pending = nil }
         finalPublished = false; publishedPaths = 0; firstDeliveredMS = nil; deliveries = []
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
-                pending = V21Job(raw:raw,context:context,version:version,generation:token,limit:limit,entryNS:entry,signal:signal,capture:capture,diagnosticTarget:target,update:update,continuation:continuation)
+                pending = V21Job(raw:raw,context:context,version:version,generation:token,limit:limit,entryNS:entry,signal:signal,blocker:blocker,capture:capture,diagnosticTarget:target,update:update,continuation:continuation)
                 if !workerRunning, let runner { workerRunning = true; Task.detached(priority:.userInitiated) { await Self.drain(owner:self,runner:runner) } }
             }
         }, onCancel: { signal.cancel("caller_cancelled") })
@@ -339,7 +397,7 @@ public actor V21IMEKernel {
                 let callback: (@Sendable (V21Result) -> Void)?
                 if job.update != nil { callback = { snapshot in _ = Task<Void, Never> { await owner.publish(snapshot,job:job) } } }
                 else { callback = nil }
-                let result = try runner.run(job,progress:callback)
+                let result = try autoreleasepool { try runner.run(job,progress:callback) }
                 await owner.finished(job,outcome:.success(result))
             } catch { await owner.finished(job,outcome:.failure(error)) }
         }
@@ -353,9 +411,11 @@ public actor V21IMEKernel {
         update(value)
     }
     private func finished(_ job: V21Job, outcome: Result<V21Result, Error>) {
-        guard runner != nil, job.generation == generation, job.version == latestVersion, job.signal.reason() == nil else { job.continuation.resume(returning:nil); return }
+        guard runner != nil, job.generation == generation, job.version == latestVersion, job.signal.reason() == nil else {
+            runner?.emit(job,result:nil); job.continuation.resume(returning:nil); return
+        }
         switch outcome {
-        case .failure(let error): job.continuation.resume(throwing:error)
+        case .failure(let error): runner?.emit(job,result:nil,error:error.localizedDescription); job.continuation.resume(throwing:error)
         case .success(var result):
             let elapsed = milliseconds(job.entryNS); result.timings.firstSDKResultMS = firstDeliveredMS ?? elapsed; result.timings.finalSDKResultMS = elapsed; finalPublished = true
             let t = result.timings
@@ -366,12 +426,12 @@ public actor V21IMEKernel {
                 object["sdk_deliveries"] = deliveries
                 result.diagnosticData = try? JSONSerialization.data(withJSONObject:object,options:[.sortedKeys])
             }
-            job.continuation.resume(returning:result)
+            runner?.emit(job,result:result); job.continuation.resume(returning:result)
         }
     }
     public func cancelPending() {
         generation &+= 1; active?.cancel("explicit_cancel")
-        if let old = pending { old.signal.cancel("cancelled_before_execution"); old.continuation.resume(returning:nil); pending = nil }
+        if let old = pending { old.signal.cancel("cancelled_before_execution"); runner?.emit(old,result:nil); old.continuation.resume(returning:nil); pending = nil }
     }
     public func resetComposition(inputVersion: UInt64) { latestVersion = max(latestVersion,inputVersion); cancelPending() }
     public func releaseResources() { cancelPending(); runner = nil }

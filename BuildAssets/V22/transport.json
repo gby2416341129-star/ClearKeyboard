@@ -1,0 +1,83 @@
+{
+  "targets": [
+    {
+      "path": "Core/Resources/V22/V22PinyinB1FP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+      "sha256": "d5055ba8da86a40c2cb0bba1bebf997141cbd7bed2afeada02c9e11a5d6e585c",
+      "bytes": 41606848,
+      "parts": [
+        "BuildAssets/V22/weights.0000",
+        "BuildAssets/V22/weights.0001",
+        "BuildAssets/V22/weights.0002",
+        "BuildAssets/V22/weights.0003",
+        "BuildAssets/V22/weights.0004",
+        "BuildAssets/V22/weights.0005",
+        "BuildAssets/V22/weights.0006",
+        "BuildAssets/V22/weights.0007",
+        "BuildAssets/V22/weights.0008",
+        "BuildAssets/V22/weights.0009",
+        "BuildAssets/V22/weights.0010",
+        "BuildAssets/V22/weights.0011",
+        "BuildAssets/V22/weights.0012",
+        "BuildAssets/V22/weights.0013",
+        "BuildAssets/V22/weights.0014",
+        "BuildAssets/V22/weights.0015",
+        "BuildAssets/V22/weights.0016",
+        "BuildAssets/V22/weights.0017",
+        "BuildAssets/V22/weights.0018",
+        "BuildAssets/V22/weights.0019",
+        "BuildAssets/V22/weights.0020",
+        "BuildAssets/V22/weights.0021",
+        "BuildAssets/V22/weights.0022",
+        "BuildAssets/V22/weights.0023",
+        "BuildAssets/V22/weights.0024",
+        "BuildAssets/V22/weights.0025",
+        "BuildAssets/V22/weights.0026",
+        "BuildAssets/V22/weights.0027",
+        "BuildAssets/V22/weights.0028",
+        "BuildAssets/V22/weights.0029",
+        "BuildAssets/V22/weights.0030",
+        "BuildAssets/V22/weights.0031",
+        "BuildAssets/V22/weights.0032",
+        "BuildAssets/V22/weights.0033",
+        "BuildAssets/V22/weights.0034",
+        "BuildAssets/V22/weights.0035",
+        "BuildAssets/V22/weights.0036",
+        "BuildAssets/V22/weights.0037",
+        "BuildAssets/V22/weights.0038",
+        "BuildAssets/V22/weights.0039"
+      ]
+    },
+    {
+      "path": "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin",
+      "sha256": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
+      "bytes": 3711204,
+      "parts": [
+        "BuildAssets/V22/resources.0000",
+        "BuildAssets/V22/resources.0001",
+        "BuildAssets/V22/resources.0002",
+        "BuildAssets/V22/resources.0003"
+      ]
+    },
+    {
+      "path": "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin",
+      "sha256": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
+      "bytes": 14154158,
+      "parts": [
+        "BuildAssets/V22/statistics.0000",
+        "BuildAssets/V22/statistics.0001",
+        "BuildAssets/V22/statistics.0002",
+        "BuildAssets/V22/statistics.0003",
+        "BuildAssets/V22/statistics.0004",
+        "BuildAssets/V22/statistics.0005",
+        "BuildAssets/V22/statistics.0006",
+        "BuildAssets/V22/statistics.0007",
+        "BuildAssets/V22/statistics.0008",
+        "BuildAssets/V22/statistics.0009",
+        "BuildAssets/V22/statistics.0010",
+        "BuildAssets/V22/statistics.0011",
+        "BuildAssets/V22/statistics.0012",
+        "BuildAssets/V22/statistics.0013"
+      ]
+    }
+  ]
+}

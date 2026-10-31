@@ -39,6 +39,13 @@ public enum V21ResultStatus: String, Codable, Sendable {
     case ok, emptyInput, unsupportedInput, noSyllablePath, noCandidateAfterConstraints
 }
 public struct V21Timings: Codable, Sendable {
+    public internal(set) var queueOverlapWithPreviousPredictionStageMS: Double = 0
+    public internal(set) var parsedPathCount: Int? = nil
+    public internal(set) var waitingForPreviousPrediction: Bool = false
+    public internal(set) var finalCandidateReadyMS: Double? = nil
+    public internal(set) var predictions: [V21PredictionTiming] = []
+    public internal(set) var memorySamples: [V21MemorySample] = []
+    public internal(set) var certification: [V21CertificationSample] = []
     public internal(set) var sdkEntryUptimeNS: UInt64 = 0
     public internal(set) var queueMS: Double = 0
     public internal(set) var parseMS: Double = 0
@@ -114,9 +121,10 @@ public enum V21Error: Error, LocalizedError {
 }
 public struct V21Configuration: @unchecked Sendable {
     public var computeUnits: MLComputeUnits
+    public var performanceSink: (@Sendable (V21PerformanceRecord) -> Void)?
     public var allowIncompleteTail: Bool
-    public init(computeUnits: MLComputeUnits = .all, allowIncompleteTail: Bool = true) {
-        self.computeUnits = computeUnits; self.allowIncompleteTail = allowIncompleteTail
+    public init(computeUnits: MLComputeUnits = .all, allowIncompleteTail: Bool = true, performanceSink: (@Sendable (V21PerformanceRecord) -> Void)? = nil) {
+        self.performanceSink=performanceSink; self.computeUnits = computeUnits; self.allowIncompleteTail = allowIncompleteTail
     }
 }
 public struct V21DiagnosticReport: Sendable {
@@ -132,4 +140,53 @@ public struct V21DiagnosticReport: Sendable {
         object["app_evidence"] = app
         try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]).write(to: url, options: .atomic)
     }
+}
+
+// V22 runtime-only additions. Compatibility names preserve the existing App's thin API.
+public struct V21PredictionTiming: Codable, Sendable {
+    public let ordinal: Int
+    public let pathIndex: Int
+    public let shape: String
+    public let durationMS: Double
+    public let firstInInstance: Bool
+    public let firstForShape: Bool
+    public let status: String
+}
+public struct V21MemorySample: Codable, Sendable {
+    public let phase: String
+    public let shape: String?
+    public let uptimeNS: UInt64
+    public let processFootprintBytes: UInt64
+}
+public struct V21CertificationSample: Codable, Sendable {
+    public let completed_paths: Int
+    public let total_paths: Int
+    public let certification: String
+    public let remaining_score_upper_bound: Double?
+    public let leading_score: Double?
+    public let char_log_cache_hits: UInt64
+    public let char_log_cache_misses: UInt64
+    public let char_log_cache_slots: Int
+    public let reading_checks: UInt64
+}
+/// Bounded lengths/status only. No raw text, target, context, candidates or tensors.
+public struct V21PerformanceRecord: Codable, Sendable {
+    public let processID: Int32
+    public let instanceID: String
+    public let inputVersion: UInt64
+    public let rawUTF8Length: Int
+    public let contextScalarLength: Int
+    public let status: String
+    public let cancellationReason: String?
+    public let error: String?
+    public let stage: String
+    public let unfinishedStageElapsedMS: Double
+    public let pathCount: Int?
+    public let completedPaths: Int
+    public let recommendedID: String?
+    public let sdkElapsedMS: Double
+    public let timings: V21Timings
+    public let preparationMS: [String:Double]
+    public let preparationMemory: [V21MemorySample]
+    public let identity: [String:String]
 }
