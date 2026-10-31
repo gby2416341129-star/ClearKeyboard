@@ -12,7 +12,13 @@
   "sdk_version": "v22-bounded-native-1",
   "graph_export_version": "v22-b1-enumerated-1",
   "execution_adapter": "v22-finite-b1-runtime-1",
-  "sdk_adaptations": [],
+  "sdk_adaptations": [
+    {
+      "revision": "clear-v22-load-plan-recovery-1",
+      "upstream_kernel_sha256": "a801275150a5b98f86c3024f380c7a4c72d82218a5b2032c4d5d65da77fb2ee1",
+      "scope": "Only same-model load recovery after default Core ML execution-plan error -14; at most one CPU+GPU retry; no graph/input/weight/decoder change"
+    }
+  ],
   "files": {
     "Native/V21NativeIME/Package.swift": "d0207fe9f447c71a2d2dc9814be0afb8cfaa0e264a4d095543b50eaeffe94cae",
     "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "09538c550455b2f495e0a9778b3a672368dda7b9b3f55f651dc5a9d854b0d592",
@@ -21,7 +27,7 @@
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/vocabulary.json": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "a801275150a5b98f86c3024f380c7a4c72d82218a5b2032c4d5d65da77fb2ee1",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "8203429694624b5337551bd90ae981d6cc6a72169560d99f6829c3be1b57a48b",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Input.swift": "cd7a1a11b01d287b28a6ac184f91547745c16c1b64395a0660bf92eed07514aa",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "a0f3d73ff86e7058755bceb9d53a025b96aeea66840d9b90e44fcf9769b830de",
     "Native/V21NativeIME/Sources/V21NativeIME/V22Measurement.swift": "45b1cf4fc8772449cfd4bf70c0e6161a5e1053b143658129f8e7d51125ba486c",

@@ -87,6 +87,36 @@ private final class V21Runner: @unchecked Sendable {
     let identity: [String: String]
     private var hasPredicted = false // The single drain worker is its only caller.
     private var seenShapes: Set<String> = [] // B=1, T in8/16/32/64: at most4 entries.
+    /// Loading compatibility only. The model graph, weights, tensors and decoder stay identical.
+    private static func loadErrorDetails(_ error: Error, depth: Int = 0) -> String {
+        let value = error as NSError
+        var details = "[" + value.domain + ":" + String(value.code) + "] " + value.localizedDescription
+        if let debug = value.userInfo[NSDebugDescriptionErrorKey] as? String { details += " | " + debug }
+        if depth < 3 {
+            if let underlying = value.userInfo[NSUnderlyingErrorKey] as? NSError {
+                details += " | underlying: " + loadErrorDetails(underlying, depth: depth + 1)
+            }
+            if let multiple = value.userInfo["NSMultipleUnderlyingErrors"] as? [NSError] {
+                for nested in multiple.prefix(3) { details += " | nested: " + loadErrorDetails(nested, depth: depth + 1) }
+            }
+        }
+        return String(details.prefix(6000))
+    }
+    private static func isExecutionPlanFailure(_ error: Error, depth: Int = 0) -> Bool {
+        let value = error as NSError
+        if value.domain == "com.apple.CoreML", value.code == -14 { return true }
+        let message = value.localizedDescription.lowercased()
+        // Core ML can wrap Espresso status -14 in NSError code 0, as on the reported phone.
+        if value.domain == "com.apple.CoreML", message.contains("execution plan"),
+           message.contains("-14") { return true }
+        if depth < 3 {
+            if let nested = value.userInfo[NSUnderlyingErrorKey] as? NSError,
+               isExecutionPlanFailure(nested, depth: depth + 1) { return true }
+            if let errors = value.userInfo["NSMultipleUnderlyingErrors"] as? [NSError],
+               errors.prefix(3).contains(where: { isExecutionPlanFailure($0, depth: depth + 1) }) { return true }
+        }
+        return false
+    }
     init(modelURL: URL, directory supplied: URL?, configuration: V21Configuration) throws {
         let begin = tick(), initialMemory = v21_process_memory_bytes(), directory: URL
         if let supplied { directory = supplied }
@@ -118,7 +148,26 @@ private final class V21Runner: @unchecked Sendable {
         do {
             guard modelURL.pathExtension == "mlmodelc" else { throw V21Error.resource("Pass Xcode-compiled V22PinyinB1FP16.mlmodelc") }
             let mlconfig = MLModelConfiguration(); mlconfig.computeUnits = configuration.computeUnits
-            let loaded = try MLModel(contentsOf: modelURL, configuration: mlconfig)
+            let loaded: MLModel
+            var recovery = "not_needed"
+            do {
+                loaded = try autoreleasepool { try MLModel(contentsOf: modelURL, configuration: mlconfig) }
+            } catch {
+                // One conditional retry of this same V22 file; no predictions, cache deletion,
+                // alternative model or persistent hardware selection is performed here.
+                guard configuration.computeUnits == .all, Self.isExecutionPlanFailure(error) else {
+                    throw V21Error.model("V22 model load failed: " + Self.loadErrorDetails(error))
+                }
+                let firstFailure = Self.loadErrorDetails(error)
+                mlconfig.computeUnits = .cpuAndGPU
+                do {
+                    loaded = try autoreleasepool { try MLModel(contentsOf: modelURL, configuration: mlconfig) }
+                    recovery = "default_execution_plan_failed; same_V22_cpuAndGPU_loaded; " + firstFailure
+                } catch {
+                    throw V21Error.model("V22 model could not load. Default .all: " + firstFailure +
+                        " | Same-model CPU+GPU retry: " + Self.loadErrorDetails(error))
+                }
+            }
             let metadata = loaded.modelDescription.metadata[.creatorDefinedKey] as? [String: String]
             guard metadata?["checkpoint_sha256"] == Self.sourceSHA, metadata?["source_step"] == "38750",
                   metadata?["kernel_version"] == "v22_bounded_runtime", metadata?["score_version"] == manifest.score_version else { throw V21Error.model("Wrong model/compact interface") }
@@ -132,7 +181,7 @@ private final class V21Runner: @unchecked Sendable {
             self.resources = handle; self.model = loaded; self.syllables = words.syllables; self.config = configuration
             self.preparation = ["resource_read_hash_ms": milliseconds(begin, readEnd), "native_index_ms": milliseconds(readEnd, indexEnd), "model_load_ms": milliseconds(indexEnd), "total_prepare_ms": milliseconds(begin)]
             self.preparationMemory = [("prepare_entry",begin,initialMemory),("native_ready",indexEnd,indexMemory),("model_loaded",tick(),v21_process_memory_bytes())].compactMap { phase,time,bytes in bytes > 0 ? V21MemorySample(phase:phase,shape:nil,uptimeNS:time,processFootprintBytes:bytes) : nil }
-            self.identity = ["checkpoint_sha256":Self.sourceSHA,"source_step":"38750","resource_sha256":manifest.resource_binary_sha256,"statistics_sha256":manifest.statistics_sha256,"kernel_version":"v22_bounded_runtime","neural_source":"V19 best","graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1","compute_units_requested":String(describing:configuration.computeUnits),"execution_adapter":"v22-finite-b1-runtime-1","score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
+            self.identity = ["checkpoint_sha256":Self.sourceSHA,"source_step":"38750","resource_sha256":manifest.resource_binary_sha256,"statistics_sha256":manifest.statistics_sha256,"kernel_version":"v22_bounded_runtime","neural_source":"V19 best","graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1","compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:mlconfig.computeUnits),"model_load_recovery":recovery,"load_adapter":"clear-v22-load-plan-recovery-1","execution_adapter":"v22-finite-b1-runtime-1","score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
         } catch { v21_resources_destroy(handle); throw error }
     }
     deinit { v21_resources_destroy(resources) }

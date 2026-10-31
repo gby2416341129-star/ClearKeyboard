@@ -16,7 +16,7 @@ def verify(path):
             for old in [b'v19_decode_path',b'V19IMEKernel',b'ck_native_decode',b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime',b'ClearV10Scorer',b'ClearV10Model',b'clear-v19-score-domain-stream-2']:
                 assert old not in data,'Retired runtime linked: '+str(old)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='95' and info['CFBundleShortVersionString']=='0.1.92'
+            assert str(info['CFBundleVersion'])=='96' and info['CFBundleShortVersionString']=='0.1.93'
         assert plistlib.loads(ipa.read(BASE+'Info.plist'))['CFBundleIdentifier']=='com.example.clearkeyboard'
         info=plistlib.loads(ipa.read(EXT+'Info.plist'))
         assert info['CFBundleIdentifier']=='com.example.clearkeyboard.Keyboard'
@@ -52,5 +52,5 @@ def verify(path):
         expected={n[len(EXT):] for n in names if n.startswith((EXT+'V22/',EXT+MODEL+'/')) and not n.endswith('/') and n!=EXT+'V22/packaged_manifest.json'}
         assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
         for name,digest in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+name)).hexdigest()==digest,name
-    print('Build95 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
+    print('Build96 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
 if __name__=='__main__':verify(sys.argv[1])

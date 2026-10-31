@@ -94,12 +94,12 @@ final class KernelMeasurement: @unchecked Sendable {
                 processes[role] = try JSONSerialization.jsonObject(with: data)
             }
         }
-        var result: [String: Any] = ["schema": "clear-v22-user-export-1", "build": "95", "kernel": "V22",
+        var result: [String: Any] = ["schema": "clear-v22-user-export-1", "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown", "kernel": "V22",
             "session_id": id, "processes": processes, "keyboard_evidence_available": processes["keyboard"] != nil,
             "screen_visible_latency": "unmeasured; App receipt is not screen visibility",
             "capture_limit_per_process": 200, "capture_expiry_seconds": 1800, "tests_passed": false]
         if let finiteSession { result["finite_sdk_session"] = try JSONSerialization.jsonObject(with: Data(contentsOf: finiteSession)) }
-        let out = FileManager.default.temporaryDirectory.appendingPathComponent("ClearKeyboard-V22-build95-\(id).json")
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("ClearKeyboard-V22-\(id).json")
         try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: out, options: .atomic)
         return out
     }
