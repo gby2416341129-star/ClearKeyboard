@@ -155,16 +155,16 @@ private final class V21Runner: @unchecked Sendable {
             } catch {
                 // One conditional retry of this same V22 file; no predictions, cache deletion,
                 // alternative model or persistent hardware selection is performed here.
-                guard configuration.computeUnits == .all, Self.isExecutionPlanFailure(error) else {
+                guard (configuration.computeUnits == .cpuOnly || configuration.computeUnits == .all), Self.isExecutionPlanFailure(error) else {
                     throw V21Error.model("V22 model load failed: " + Self.loadErrorDetails(error))
                 }
                 let firstFailure = Self.loadErrorDetails(error)
                 mlconfig.computeUnits = .cpuAndGPU
                 do {
                     loaded = try autoreleasepool { try MLModel(contentsOf: modelURL, configuration: mlconfig) }
-                    recovery = "default_execution_plan_failed; same_V22_cpuAndGPU_loaded; " + firstFailure
+                    recovery = "requested_" + String(describing:configuration.computeUnits) + "_execution_plan_failed; same_V22_cpuAndGPU_loaded; " + firstFailure
                 } catch {
-                    throw V21Error.model("V22 model could not load. Default .all: " + firstFailure +
+                    throw V21Error.model("V22 model could not load. Requested " + String(describing:configuration.computeUnits) + ": " + firstFailure +
                         " | Same-model CPU+GPU retry: " + Self.loadErrorDetails(error))
                 }
             }

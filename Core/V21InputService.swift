@@ -22,7 +22,7 @@ actor V21InputService {
                 throw V21Error.resource("V22 model/resources are unavailable")
             }
             return try await V21IMEKernel.prepare(compiledModelURL: model,
-                resourceDirectory: config.deletingLastPathComponent(), configuration: V21Configuration(performanceSink: { KernelMeasurement.shared.receive($0) }))
+                resourceDirectory: config.deletingLastPathComponent(), configuration: V21Configuration(computeUnits: .cpuOnly, performanceSink: { KernelMeasurement.shared.receive($0) }))
         }
         initialization = task
         do { return try await task.value }
@@ -87,7 +87,7 @@ actor V21InputService {
             guard (1...200).contains(probes.count) else { throw V21Error.contract("Invalid finite measurement count") }
             let kernel = try await prepare()
             guard !measurementStopRequested else { throw CancellationError() }
-            let session = V22MeasurementSession(kernel: kernel, recorder: KernelMeasurement.shared.recorder, configurationLabel: "requested .all; effective configuration in record identity; user-started; main-App process")
+            let session = V22MeasurementSession(kernel: kernel, recorder: KernelMeasurement.shared.recorder, configurationLabel: "CPU first (.cpuOnly); effective configuration in record identity; user-started; main-App process")
             let first = version + 1; version += UInt64(probes.count)
             measurement = session
             measurementTask = Task {
