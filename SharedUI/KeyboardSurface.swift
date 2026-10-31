@@ -2,7 +2,7 @@ import UIKit
 import ImageIO
 import SwiftUI
 
-@MainActor final class KeyboardSurface: UIView, UIScrollViewDelegate {
+@MainActor final class KeyboardSurface: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     let model: KeyboardModel
     let systemBacked: Bool
     var onHeightChange: ((CGFloat) -> Void)?
@@ -18,6 +18,7 @@ import SwiftUI
     private var toolbarMiddleCopy = 0
     private let toolbarEffects = ToolbarTapEffects()
     private var toolbarBrand: UIButton?
+    private var toolbarManagementHold: UILongPressGestureRecognizer?
     private let selectionDone = FeedbackButton(type: .system)
     private var toolbarNavigationState = ""
     private var editorTiles: [ToolbarTool: ToolTileButton] = [:]
@@ -104,6 +105,10 @@ import SwiftUI
         if #available(iOS 26.0, *) { cornerConfiguration = .corners(radius: .fixed(systemBacked ? 0 : 28)) }
         toolbar.axis = .horizontal; toolbar.distribution = .fill; toolbar.alignment = .center; toolbar.spacing = 10
         addSubview(toolbar)
+        let managementHold = UILongPressGestureRecognizer(target: self, action: #selector(toolbarManagementHeld(_:)))
+        managementHold.minimumPressDuration = 0.4; managementHold.allowableMovement = 12
+        managementHold.delegate = self; toolbar.addGestureRecognizer(managementHold)
+        toolbarManagementHold = managementHold
         toolbarScroll.accessibilityIdentifier = "toolbar.shortcuts"
         toolbarScroll.showsHorizontalScrollIndicator = false; toolbarScroll.showsVerticalScrollIndicator = false
         toolbarScroll.delaysContentTouches = false; toolbarScroll.canCancelContentTouches = true
@@ -264,14 +269,16 @@ import SwiftUI
         var panelFrame = layout.panel
         panelFrame.size.height = max(0, bounds.height - panelFrame.minY)
         panel?.frame = panelFrame
-        let contentWidth = CGFloat(toolbarInstances.count * 44 + 1)
         // The completion action shares the existing header. The words start
         // directly below it; no second empty header is reserved by the panel.
         let available = max(0, fullHeader.width - (selectionDone.isHidden ? 54 : 108))
         let width = available
-        toolbarScroll.expectedContentWidth = max(contentWidth, width)
         toolbarLeading?.constant = 4
-        if toolbarWidth?.constant != width { toolbarWidth?.constant = width }
+        if toolbarWidth?.constant != width {
+            toolbarWidth?.constant = width
+            rebuildToolbar()
+        }
+        toolbarScroll.expectedContentWidth = max(CGFloat(toolbarInstances.count * 44 + 1), width)
         toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
     }
     func render() {
@@ -547,15 +554,23 @@ import SwiftUI
             toolbar.addArrangedSubview(spacer); toolbar.addArrangedSubview(toolbarScroll); toolbar.addArrangedSubview(selectionDone)
         }
         let tools = (toolbarDragOrder ?? model.settings.toolbar).filter { $0 != .language }
-        guard tools != toolbarRenderedTools || toolbarInstances.isEmpty else { updateToolbarState(); return }
+        let uniqueWidth = CGFloat(tools.count * 44 + 1)
+        let viewportWidth = toolbarWidth?.constant ?? 0
+        let looping = tools.count > 1 && viewportWidth > 0 && uniqueWidth > viewportWidth + 0.5
+        // A complete set that fits is shown once. Repeating a short list creates
+        // visible duplicate icons; virtual copies are only for actual overflow.
+        let copies = looping ? 5 : 1
+        guard tools != toolbarRenderedTools || toolbarInstances.count != tools.count * copies || toolbarScroll.isLooping != looping else { updateToolbarState(); return }
+        let suppressed = toolbarScroll.suppressScrollFeedback
+        toolbarScroll.suppressScrollFeedback = true
+        defer { toolbarScroll.suppressScrollFeedback = suppressed }
+        toolbarScroll.pendingOffset = nil
+        toolbarScroll.setContentOffset(toolbarScroll.contentOffset, animated: false)
         toolbarRenderedTools = tools
         let originals = toolbarButtons
         toolbarShortcuts.arrangedSubviews.forEach { toolbarShortcuts.removeArrangedSubview($0); $0.removeFromSuperview() }
         toolbarButtons = [:]; toolbarInstances = []
-        let period = CGFloat(tools.count) * 44
-        let screen = window?.screen.bounds.size ?? UIScreen.main.bounds.size
-        let visibleCycles = period > 0 ? Int(ceil(max(bounds.width, max(screen.width, screen.height)) / period)) : 0
-        let copies = tools.isEmpty ? 1 : max(3, visibleCycles * 2 + 3)
+        let period = looping ? CGFloat(tools.count) * 44 : 0
         toolbarMiddleCopy = copies / 2
         func makeButton(_ tool: ToolbarTool) -> FeedbackButton {
             let button = circleButton(symbol: tool.symbol, label: tool.title, shortcut: true) { [weak self] in
@@ -577,7 +592,10 @@ import SwiftUI
             }
         }
         toolbarScroll.loopPeriod = period; toolbarScroll.loopCenter = CGFloat(toolbarMiddleCopy) * period
-        toolbarScroll.pendingOffset = period > 0 ? toolbarScroll.loopCenter + toolbarOffset.truncatingRemainder(dividingBy: period) : 0
+        toolbarScroll.alwaysBounceHorizontal = looping
+        toolbarScroll.expectedContentWidth = max(CGFloat(toolbarInstances.count * 44 + 1), viewportWidth)
+        let phase = toolbarOffset.isFinite ? toolbarOffset : 0
+        toolbarScroll.pendingOffset = looping ? toolbarScroll.loopCenter + phase.truncatingRemainder(dividingBy: period) : 0
         toolbarScroll.edgeIcons = toolbarInstances.compactMap { $0.button.subviews.compactMap { $0 as? ToolIconView }.first }
         updateToolbarState(); setNeedsLayout()
     }
@@ -630,7 +648,13 @@ import SwiftUI
         for (tool, tile) in editorTiles { tile.configureManagement(title: tool.title, pinned: model.settings.toolbar.contains(tool)) }
     }
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if scrollView === toolbarScroll { toolbarScroll.updateScrollFeedback() }
+        if scrollView === toolbarScroll {
+            // The mask uses scroll-content coordinates. Offset changes can
+            // precede the next layout pass, especially during recentering or
+            // deceleration; leaving its old frame can mask the entire row.
+            toolbarScroll.refreshEdgeAppearance()
+            toolbarScroll.updateScrollFeedback()
+        }
     }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if scrollView === toolbarScroll, !decelerate { rememberToolbarOffset() }
@@ -665,6 +689,23 @@ import SwiftUI
         toolbarScroll.pendingOffset = nil
         toolbarOffset = toolbarScroll.isLooping ? toolbarScroll.phaseOffset : toolbarScroll.clampedOffset(toolbarScroll.contentOffset.x)
         UserDefaults.standard.set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === toolbarManagementHold else { return true }
+        // Logo and blank header space open management. Shortcut controls keep
+        // their own long-press reorder gesture and normal horizontal scrolling.
+        var view = touch.view
+        while let current = view, current !== toolbar {
+            if current === toolbarBrand { return true }
+            if current is UIControl { return false }
+            view = current.superview
+        }
+        return view === toolbar
+    }
+    @objc private func toolbarManagementHeld(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, !toolbarDragActive, !toolbarScroll.isDragging else { return }
+        prepareToolbarNavigation()
+        showToolbarEditor()
     }
     private func editorPulse() {
         toolbarPulse()

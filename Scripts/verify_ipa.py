@@ -16,7 +16,7 @@ def verify(path):
             for old in [b'v19_decode_path',b'V19IMEKernel',b'ck_native_decode',b'ck_qwen_',b'llama_model_load',b'ggml_backend_metal_reg',b'librime',b'ClearV10Scorer',b'ClearV10Model',b'clear-v19-score-domain-stream-2']:
                 assert old not in data,'Retired runtime linked: '+str(old)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='97' and info['CFBundleShortVersionString']=='0.1.94'
+            assert str(info['CFBundleVersion'])=='98' and info['CFBundleShortVersionString']=='0.1.95'
         assert plistlib.loads(ipa.read(BASE+'Info.plist'))['CFBundleIdentifier']=='com.example.clearkeyboard'
         info=plistlib.loads(ipa.read(EXT+'Info.plist'))
         assert info['CFBundleIdentifier']=='com.example.clearkeyboard.Keyboard'
@@ -26,6 +26,9 @@ def verify(path):
             assert not retired.search(name),name
             assert not name.lower().endswith(('.pt','.pth','.onnx','.py','.pyc','.dll','.mlpackage/manifest.json')),name
             assert '/Diagnostics/' not in name and '/Provenance/' not in name and '/BuildAssets/' not in name,name
+        app_icons={n[len(BASE+'ToolIcons/'):]:hashlib.sha256(ipa.read(n)).hexdigest() for n in names if n.startswith(BASE+'ToolIcons/') and n.endswith('.png')}
+        extension_icons={n[len(EXT+'ToolIcons/'):]:hashlib.sha256(ipa.read(n)).hexdigest() for n in names if n.startswith(EXT+'ToolIcons/') and n.endswith('.png')}
+        assert app_icons and app_icons==extension_icons,'App/keyboard icon resources differ or are missing'
         roots={n.split('.mlmodelc/')[0]+'.mlmodelc' for n in names if '.mlmodelc/' in n}
         assert roots=={EXT+MODEL},roots
         for name in ['V19Resources.bin','V21Statistics.bin','runtime_config.json','vocabulary.json']:
@@ -52,5 +55,5 @@ def verify(path):
         expected={n[len(EXT):] for n in names if n.startswith((EXT+'V22/',EXT+MODEL+'/')) and not n.endswith('/') and n!=EXT+'V22/packaged_manifest.json'}
         assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
         for name,digest in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+name)).hexdigest()==digest,name
-    print('Build97 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
+    print('Build98 App/keyboard, V22 identity, inherited V19 weights, single model and final resource hashes checked.')
 if __name__=='__main__':verify(sys.argv[1])
