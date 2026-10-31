@@ -59,6 +59,8 @@ struct DeletedInput { let text: String; let selection: NSRange }
         var characters: Bool = false
     }
     private(set) var candidateContext: CandidateContext?
+    private var lastCandidateDisplayTiming:V22AppTiming?
+    var candidateDisplayTiming:V22AppTiming? {candidatesAreCurrent ? lastCandidateDisplayTiming:nil}
     private var requestedContext: CandidateContext?
     private var awaitingCommit = false
     private var selectionRevision = 0
@@ -261,10 +263,12 @@ struct DeletedInput { let text: String; let selection: NSRange }
         candidates=result.items;hasMoreCandidates=false
         candidateGeneration=generation;candidateContext=requestedContext
         if let timing=result.timing {
-            KernelMeasurement.shared.appReceived(V22AppTiming(inputVersion:timing.inputVersion,inputNS:timing.inputNS,
-                prepareWaitStartNS:timing.prepareWaitStartNS,prepareWaitEndNS:timing.prepareWaitEndNS,
-                receivedNS:DispatchTime.now().uptimeNanoseconds,phase:timing.phase))
-        }
+            if lastCandidateDisplayTiming?.inputVersion != timing.inputVersion || lastCandidateDisplayTiming?.phase != timing.phase+"_received" || lastCandidateDisplayTiming?.sdkReturnedNS != timing.sdkReturnedNS {
+                var observed=V22AppTiming(inputVersion:timing.inputVersion,inputNS:timing.inputNS,prepareWaitStartNS:timing.prepareWaitStartNS,prepareWaitEndNS:timing.prepareWaitEndNS,receivedNS:DispatchTime.now().uptimeNanoseconds,phase:timing.phase+"_received")
+                observed.sdkReturnedNS=timing.sdkReturnedNS;lastCandidateDisplayTiming=observed
+                KernelMeasurement.shared.appReceived(observed)
+            }
+        } else {lastCandidateDisplayTiming=nil}
         if notify {notifyCandidates();completeDeferredActions(for:requestedContext)}
     }
 
@@ -764,6 +768,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if composition.isEmpty || settings.language != .chinese { characterSelectionMode = false }
         if prepared == nil { discardPreparedCandidates() }
         generation += 1; let requestedGeneration = generation
+        lastCandidateDisplayTiming=nil
         cancellation.cancel(); activeCandidates = nil; presentedRevision = 0
         let token = prepared?.token ?? QueryCancellation(); cancellation = token
         refinementCancellation.cancel();refinementWork?.cancel()

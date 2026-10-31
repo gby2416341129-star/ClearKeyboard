@@ -4,75 +4,71 @@ import Dispatch
 import V21NativeIME
 #endif
 
-/// One formal SDK/model owner per process. UIKit never enters preparation or inference.
+private final class CandidateDeliveryLease: @unchecked Sendable {
+    private let lock=NSLock();private var valid=true
+    let version:UInt64,input:UInt64,waitStart:UInt64,waitEnd:UInt64
+    init(version:UInt64,input:UInt64,waitStart:UInt64,waitEnd:UInt64) {self.version=version;self.input=input;self.waitStart=waitStart;self.waitEnd=waitEnd}
+    func invalidate(){lock.lock();valid=false;lock.unlock()}
+    var isValid:Bool {lock.lock();defer{lock.unlock()};return valid}
+}
+
+/// One formal SDK/model owner per process. No UIKit work on its worker.
 actor V21InputService {
-    static let shared = V21InputService()
-    private var initialization: Task<V21IMEKernel, Error>?
-    private var version: UInt64 = 0
-    private var measurement: V22MeasurementSession?
-    private var measurementTask: Task<Void, Never>?
-    private var measurementRunning = false
-    private var measurementStopRequested = false
-    private var clocks: [UInt64: (input: UInt64, waitStart: UInt64, waitEnd: UInt64)] = [:]
+    static let shared=V21InputService()
+    static func startPreparing() {
+        Task.detached(priority:.userInitiated) {
+            do {let kernel=try await shared.prepare();await kernel.prepareFirstInputIfIdle();KernelMeasurement.shared.noteStartup("first_input_preparation_finished_or_skipped")}
+            catch { /* Normal input reports preparation failure through existing UI. */ }
+        }
+    }
+    private var initialization:Task<V21IMEKernel,Error>?
+    private var version:UInt64=0
+    private var delivery:CandidateDeliveryLease?
+    private var measurementCaptureID:String?
+    private var measurement:V22MeasurementSession?
+    private var measurementTask:Task<Void,Never>?
+    private var measurementRunning=false
+    private var measurementStopRequested=false
     func prepare() async throws -> V21IMEKernel {
-        if let initialization { return try await initialization.value }
-        let task = Task.detached(priority: .userInitiated) {
-            guard let model = InputResources.url("V22PinyinB1FP16", extension: "mlmodelc"),
-                  let config = InputResources.url("runtime_config", extension: "json", directory: "V22") else {
-                throw V21Error.resource("V22 model/resources are unavailable")
-            }
-            return try await V21IMEKernel.prepare(compiledModelURL: model,
-                resourceDirectory: config.deletingLastPathComponent(), configuration: V21Configuration(computeUnits: .cpuOnly, performanceSink: { KernelMeasurement.shared.receive($0) }, performanceCaptureEnabled: { KernelMeasurement.shared.isRecording() }))
+        if let initialization {return try await initialization.value}
+        KernelMeasurement.shared.noteStartup("prepare_requested")
+        let task=Task.detached(priority:.userInitiated) {
+            guard let model=InputResources.url("V22PinyinB1FP16",extension:"mlmodelc"),
+                  let config=InputResources.url("runtime_config",extension:"json",directory:"V22") else {throw V21Error.resource("V22 model/resources are unavailable")}
+            return try await V21IMEKernel.prepare(compiledModelURL:model,resourceDirectory:config.deletingLastPathComponent(),configuration:V21Configuration(computeUnits:.cpuOnly,performanceSink:{KernelMeasurement.shared.receive($0)},performanceCaptureEnabled:{KernelMeasurement.shared.isRecording()}))
         }
-        initialization = task
-        do { return try await task.value }
-        catch { initialization = nil; KernelMeasurement.shared.preparationFailed(error); throw error }
+        initialization=task
+        do {let result=try await task.value;KernelMeasurement.shared.noteStartup("prepare_ready");return result}
+        catch {initialization=nil;KernelMeasurement.shared.preparationFailed(error);throw error}
     }
-    private func convert(_ result: V21Result, requested: UInt64,
-                         characters: Bool) throws -> V21CandidateBatch {
-        guard requested == version, !Task.isCancelled else { throw CancellationError() }
-        let receipts = try result.selections(prefixCharacterCount: characters ? 1 : nil)
-        var output: [Candidate] = [], seen = Set<String>()
-        for (item, selection) in zip(result.candidates, receipts) {
+    private static func convert(_ result:V21Result,lease:CandidateDeliveryLease,characters:Bool,returned:UInt64) throws -> V21CandidateBatch {
+        guard lease.isValid else {throw CancellationError()}
+        let receipts=try result.selections(prefixCharacterCount:characters ? 1:nil)
+        var output:[Candidate]=[],seen=Set<String>()
+        for (item,selection) in zip(result.candidates,receipts) {
             if !characters || seen.insert(selection.selectedText).inserted {
-                output.append(Candidate(text: selection.selectedText, reading: selection.selectedReading,
-                    consumed: selection.consumedRawUTF16Range.length, score: item.score,
-                    nativeChoice: V21Choice(raw: result.rawInput, selection: selection,
-                        recommended: item.id == result.recommendedID, completionSuffix: item.completionSuffix)))
+                output.append(Candidate(text:selection.selectedText,reading:selection.selectedReading,consumed:selection.consumedRawUTF16Range.length,score:item.score,nativeChoice:V21Choice(raw:result.rawInput,selection:selection,recommended:item.id == result.recommendedID,completionSuffix:item.completionSuffix)))
             }
         }
-        let timing = clocks[requested].map { clock in
-            V22AppTiming(inputVersion: requested, inputNS: clock.input, prepareWaitStartNS: clock.waitStart,
-                prepareWaitEndNS: clock.waitEnd, phase: result.isFinal ? "final_applied" : "preview_applied")
-        }
-        return V21CandidateBatch(items: output, completedPaths: result.completedPaths, isFinal: result.isFinal, timing: timing)
+        var timing=V22AppTiming(inputVersion:lease.version,inputNS:lease.input,prepareWaitStartNS:lease.waitStart,prepareWaitEndNS:lease.waitEnd,phase:result.isFinal ? "final":"preview")
+        timing.sdkReturnedNS=returned
+        return V21CandidateBatch(items:output,completedPaths:result.completedPaths,isFinal:result.isFinal,timing:timing)
     }
-    private func progress(_ result: V21Result, requested: UInt64,
-                          characters: Bool, updated: @Sendable (V21CandidateBatch) -> Void) async {
-        guard requested == version else { return }
-        guard let batch = try? convert(result, requested: requested, characters: characters),
-              requested == version else { return }
-        updated(batch)
-    }
-    func candidates(raw: String, context: String, characters: Bool, inputNS: UInt64,
-                    updated: @escaping @Sendable (V21CandidateBatch) -> Void) async throws -> V21CandidateBatch {
-        guard !measurementRunning else { throw V21Error.contract("Stop manual SDK measurement before live App preview input") }
-        version &+= 1
-        let requested = version
-        let waitStart = DispatchTime.now().uptimeNanoseconds
-        let kernel = try await prepare()
-        clocks[requested] = (inputNS, waitStart, DispatchTime.now().uptimeNanoseconds)
-        if clocks.count > 64 { for key in clocks.keys.sorted().prefix(clocks.count - 64) { clocks[key] = nil } }
-        guard requested == version, !Task.isCancelled else { throw CancellationError() }
-        // The SDK binds cancellation to this task's own signal. A global cancel here
-        // could arrive after another request and invalidate its newer receipt.
-        guard let result = try await kernel.candidates(rawPinyin: raw,
-                committedLeftContext: context, inputVersion: requested, requestedCount: 8,
-                onUpdate: { result in
-                    _ = Task<Void, Never> { await self.progress(result, requested: requested,
-                        characters: characters, updated: updated) }
-                }), requested == version, !Task.isCancelled else { throw CancellationError() }
-        return try convert(result, requested: requested, characters: characters)
+    func candidates(raw:String,context:String,characters:Bool,inputNS:UInt64,updated:@escaping @Sendable(V21CandidateBatch)->Void) async throws -> V21CandidateBatch {
+        guard !measurementRunning else {throw V21Error.contract("Stop manual SDK measurement before live App preview input")}
+        delivery?.invalidate();version &+= 1
+        let requested=version,waitStart=DispatchTime.now().uptimeNanoseconds
+        let kernel=try await prepare()
+        guard requested == version,!Task.isCancelled else {throw CancellationError()}
+        let lease=CandidateDeliveryLease(version:requested,input:inputNS,waitStart:waitStart,waitEnd:DispatchTime.now().uptimeNanoseconds);delivery=lease
+        // Convert immutable receipts directly on the SDK delivery worker. The
+        // UI still validates its query/token on MainActor before accepting them.
+        guard let result=try await kernel.candidates(rawPinyin:raw,committedLeftContext:context,inputVersion:requested,requestedCount:8,onUpdate:{result in
+            let returned=DispatchTime.now().uptimeNanoseconds
+            guard lease.isValid,let batch=try? Self.convert(result,lease:lease,characters:characters,returned:returned),lease.isValid else{return}
+            updated(batch)
+        }),requested == version,lease.isValid,!Task.isCancelled else {throw CancellationError()}
+        return try Self.convert(result,lease:lease,characters:characters,returned:DispatchTime.now().uptimeNanoseconds)
     }
     func startMeasurement() async throws {
         guard !measurementRunning else { throw V21Error.contract("A manual measurement is already running") }
@@ -89,7 +85,7 @@ actor V21InputService {
             guard !measurementStopRequested else { throw CancellationError() }
             let session = V22MeasurementSession(kernel: kernel, recorder: KernelMeasurement.shared.recorder, configurationLabel: "CPU first (.cpuOnly); effective configuration in record identity; user-started; main-App process")
             let first = version + 1; version += UInt64(probes.count)
-            measurement = session
+            measurement = session; measurementCaptureID = KernelMeasurement.shared.activeSessionID()
             measurementTask = Task {
                 do { try await session.run(probes: probes, firstVersion: first) }
                 catch { KernelMeasurement.shared.preparationFailed(error) }
@@ -103,7 +99,7 @@ actor V21InputService {
         if let measurement { await measurement.stop() }
     }
     func exportMeasurement() async throws -> URL? {
-        guard let measurement else { return nil }
+        guard let measurement,measurementCaptureID == KernelMeasurement.shared.activeSessionID() else { return nil }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("V22-finite-session.json")
         try await measurement.export(to: url)
         return url

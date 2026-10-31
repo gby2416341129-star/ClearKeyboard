@@ -1,5 +1,8 @@
 import UIKit
 import os
+#if canImport(V21NativeIME)
+import V21NativeIME
+#endif
 
 /// A paged strip with a bounded pool of visible candidate controls. The whole row is one touch surface;
 /// UIKit owns dragging and momentum, independently of the word under a finger.
@@ -14,6 +17,9 @@ import os
         let animation: CandidateAnimation
     }
     private var presentation: Presentation?
+    private var displayTarget:(items:[Candidate],context:KeyboardModel.CandidateContext?,timing:V22AppTiming)?
+    private var displayTrace:CandidateDisplayProbe?
+    private var displayTraceKey=""
     private var pending: (Presentation, UIColor)?
     private var frameValue = LatestValue<(Presentation, UIColor)>()
     private let displayFrame = DisplayFrameTask()
@@ -90,7 +96,9 @@ import os
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
 
     func update(_ items: [Candidate], context: KeyboardModel.CandidateContext?, arithmetic: Bool,
-                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil, animation: CandidateAnimation = .blur) {
+                accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil, animation: CandidateAnimation = .blur, timing:V22AppTiming? = nil) {
+        if let timing,!items.isEmpty,KernelMeasurement.shared.observes(timing) {displayTarget=(items,context,timing)}
+        else {displayTarget=nil;displayTrace?.cancel(reason:"candidate_input_changed");displayTrace=nil}
         var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize,
                                 textColor: textColor?.resolvedColor(with: traitCollection), animation: animation)
         let resolved = accent.resolvedColor(with: traitCollection)
@@ -113,6 +121,7 @@ import os
         // Word lookup and sentence decoding can both finish within one frame.
         // Measure, lay out and paint only their latest valid row, not both rows.
         if next == presentation, ink.isEqual(accent) {
+            recordDisplayApplication(next)
             frameValue.discard(); displayFrame.cancel(); return
         }
         // A new spelling's first result is already on the main thread. Publish
@@ -140,6 +149,15 @@ import os
                     hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation), accent: color)
             } else { self.apply(next, accent: color) }
         }
+    }
+    private func recordDisplayApplication(_ value:Presentation) {
+        guard let target=displayTarget,target.context == value.context,target.items == value.items,!value.items.isEmpty else{return}
+        let stamp=target.timing,key="\(stamp.inputVersion):\(stamp.phase):\(stamp.sdkReturnedNS ?? 0)"
+        guard displayTraceKey != key else{return};displayTraceKey=key
+        displayTrace?.cancel(reason:"superseded_before_display")
+        let trace=CandidateDisplayProbe(view:self,timing:stamp);displayTrace=trace
+        let visible=buttons.filter {!$0.isHidden && $0.tag>=0 && frames.indices.contains($0.tag) && frames[$0.tag].intersects(CGRect(x:contentOffset.x,y:0,width:bounds.width,height:bounds.height))}.min{$0.tag<$1.tag}
+        visible?.observeNextPaint{[weak trace] time in trace?.painted(time)}
     }
     private func inkSnapshot() -> UIImage? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
@@ -251,7 +269,7 @@ import os
     private func apply(_ next: Presentation, accent: UIColor) {
         guard next != presentation || !ink.isEqual(accent) else { return }
         applyingPresentation = true
-        defer { applyingPresentation = false }
+        defer { applyingPresentation = false; recordDisplayApplication(next) }
         let event = OSSignpostID(log: frameLog)
         os_signpost(.begin, log: frameLog, name: "CandidateFrame", signpostID: event, "count=%d", next.items.count)
         defer { os_signpost(.end, log: frameLog, name: "CandidateFrame", signpostID: event) }
@@ -507,6 +525,7 @@ import os
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window == nil {
+            displayTrace?.cancel(reason:"candidate_window_detached");displayTrace=nil;displayTarget=nil
             displayFrame.cancel(); frameValue.discard()
             finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
             strip.alpha = 1
@@ -522,7 +541,7 @@ import os
         let cache = NSCache<NSString, NSNumber>(); cache.countLimit = 512; return cache
     }()
     private let plate = UIView()
-    private let label = UILabel()
+    private let label = CandidatePaintLabel()
     private(set) var transitionDeadline: CFTimeInterval = 0
     private static let transitionDuration: CFTimeInterval = 0.24
     override init(frame: CGRect) {
@@ -531,6 +550,7 @@ import os
         plate.isUserInteractionEnabled = false
         backgroundColor = .clear
         label.isUserInteractionEnabled = false; label.isAccessibilityElement = false
+        label.isOpaque = false; label.backgroundColor = .clear
         label.numberOfLines = 1; label.lineBreakMode = .byClipping
         label.accessibilityIdentifier = "candidate.currentInk"
         plate.layer.cornerRadius = 8; plate.layer.cornerCurve = .continuous; plate.clipsToBounds = true
@@ -552,6 +572,9 @@ import os
         let width = max(36, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 16)
         measuredWidths.setObject(NSNumber(value: Double(width)), forKey: key)
         return width
+    }
+    func observeNextPaint(_ callback:@escaping(UInt64)->Void) {
+        label.onNextPaint=callback;label.setNeedsDisplay()
     }
     func setInkOpacity(_ value: CGFloat) { label.alpha = value }
     func drawInk(in context: CGContext, relativeTo view: UIView) {
@@ -666,4 +689,61 @@ import os
     }
     override func accessibilityElementDidBecomeFocused() { owner?.focusCandidate(index) }
     override func accessibilityActivate() -> Bool { owner?.activate(index); return owner != nil }
+}
+
+/// Numeric observation of the real candidate UILabel backing draw and UIKit
+/// submission phases. No onscreen physical-present acknowledgement is claimed.
+@MainActor private final class CandidateDisplayProbe {
+    private weak var view:UIView?
+    private let base:V22AppTiming
+    private var state:V22AppTiming
+    private var link:UIUpdateLink?
+    private var done=false
+    init(view:UIView,timing:V22AppTiming) {
+        self.view=view;self.base=timing;self.state=timing
+        state.appliedNS=DispatchTime.now().uptimeNanoseconds
+        event("row_applied",status:"observed")
+        // The caller can unhide its header later in this same render turn.
+        // Actual visibility is checked when the backing draw happens.
+        guard view.window != nil else {cancel(reason:"no_visible_window");return}
+        let updates=UIUpdateLink(view:view)
+        updates.addAction(to:.afterCATransactionCommit){[weak self] _,info in self?.committed(info)}
+        updates.addAction(to:.beforeCADisplayLinkDispatch){[weak self] _,_ in self?.nextRefresh()}
+        updates.requiresContinuousUpdates=true;updates.isEnabled=true;link=updates
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.25){[weak self] in self?.cancel(reason:"display_observation_timeout")}
+    }
+    func painted(_ time:UInt64) {
+        guard !done,state.drawnNS == nil,let view,view.window != nil,!view.isHidden else{return}
+        state.drawnNS=time;event("text_drawn",status:"observed_backing_draw")
+    }
+    private func committed(_ info:UIUpdateInfo) {
+        guard !done,state.drawnNS != nil,state.transactionCommittedNS == nil else{return}
+        state.transactionCommittedNS=DispatchTime.now().uptimeNanoseconds
+        let estimate=Double(DispatchTime.now().uptimeNanoseconds)+(info.estimatedPresentationTime-CACurrentMediaTime())*1_000_000_000
+        if estimate.isFinite,estimate>0,abs(info.estimatedPresentationTime-CACurrentMediaTime())<1 {state.estimatedPresentationNS=UInt64(estimate)}
+        event("transaction_committed",status:"observed_process_commit_estimated_present_separate")
+    }
+    private func nextRefresh() {
+        guard !done,state.transactionCommittedNS != nil else{return}
+        state.nextRefreshNS=DispatchTime.now().uptimeNanoseconds
+        event("next_refresh",status:"observed_callback_physical_host_present_unmeasured");finish()
+    }
+    func cancel(reason:String) {guard !done else{return};event("display_unfinished",status:reason);finish()}
+    private func finish(){done=true;link?.requiresContinuousUpdates=false;link?.isEnabled=false;link=nil}
+    private func event(_ suffix:String,status:String) {
+        var value=V22AppTiming(inputVersion:base.inputVersion,inputNS:base.inputNS,prepareWaitStartNS:base.prepareWaitStartNS,prepareWaitEndNS:base.prepareWaitEndNS,receivedNS:base.receivedNS,phase:base.phase+"_"+suffix)
+        value.sdkReturnedNS=state.sdkReturnedNS;value.appliedNS=state.appliedNS;value.drawnNS=state.drawnNS
+        value.transactionCommittedNS=state.transactionCommittedNS;value.nextRefreshNS=state.nextRefreshNS
+        value.estimatedPresentationNS=state.estimatedPresentationNS;value.displayStatus=status
+        KernelMeasurement.shared.appReceived(value)
+    }
+}
+
+@MainActor private final class CandidatePaintLabel:UILabel {
+    var onNextPaint:((UInt64)->Void)?
+    override func draw(_ rect:CGRect) {
+        super.draw(rect)
+        let callback=onNextPaint;onNextPaint=nil
+        callback?(DispatchTime.now().uptimeNanoseconds)
+    }
 }

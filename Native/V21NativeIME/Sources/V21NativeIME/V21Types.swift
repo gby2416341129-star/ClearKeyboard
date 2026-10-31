@@ -42,6 +42,7 @@ public struct V21Timings: Codable, Sendable {
     public internal(set) var queueOverlapWithPreviousPredictionStageMS: Double = 0
     public internal(set) var parsedPathCount: Int? = nil
     public internal(set) var waitingForPreviousPrediction: Bool = false
+    public internal(set) var waitingForStartupPreparation: Bool? = nil
     public internal(set) var finalCandidateReadyMS: Double? = nil
     public internal(set) var predictions: [V21PredictionTiming] = []
     public internal(set) var memorySamples: [V21MemorySample] = []

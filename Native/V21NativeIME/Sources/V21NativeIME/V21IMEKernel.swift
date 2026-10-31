@@ -114,6 +114,7 @@ private struct V21LoadedModel: @unchecked Sendable {
     let units: MLComputeUnits
     let recovery: String
     let loadMS: Double
+    let queueMS: Double
 }
 
 private final class V21Runner: @unchecked Sendable {
@@ -178,14 +179,24 @@ private final class V21Runner: @unchecked Sendable {
         }
         return false
     }
-    private static func loadModel(_ modelURL: URL, configuration: V21Configuration) async throws -> V21LoadedModel {
-        let start=tick()
+    private static let modelLoader = DispatchQueue(label:"clear.v22.cpu.model-load",qos:.userInitiated)
+    private static func loadModel(_ modelURL:URL,configuration:V21Configuration) async throws -> V21LoadedModel {
+        let queued=tick()
+        return try await withCheckedThrowingContinuation { continuation in
+            modelLoader.async {
+                do { continuation.resume(returning:try autoreleasepool {try loadModelNow(modelURL,configuration:configuration,queued:queued)}) }
+                catch {continuation.resume(throwing:error)}
+            }
+        }
+    }
+    private static func loadModelNow(_ modelURL: URL, configuration: V21Configuration, queued: UInt64) throws -> V21LoadedModel {
+        let start=tick(),queueMS=milliseconds(queued)
         guard modelURL.pathExtension == "mlmodelc" else { throw V21Error.resource("Pass the Xcode-compiled V22 model") }
             let mlconfig = MLModelConfiguration(); mlconfig.computeUnits = configuration.computeUnits
             let loaded: MLModel
             var recovery = "not_needed"
             do {
-                loaded = try await MLModel.load(contentsOf: modelURL, configuration: mlconfig)
+                loaded = try MLModel(contentsOf: modelURL, configuration: mlconfig)
             } catch {
                 // One conditional retry of this same V22 file; no predictions, cache deletion,
                 // alternative model or persistent hardware selection is performed here.
@@ -195,14 +206,14 @@ private final class V21Runner: @unchecked Sendable {
                 let firstFailure = Self.loadErrorDetails(error)
                 mlconfig.computeUnits = .cpuAndGPU
                 do {
-                    loaded = try await MLModel.load(contentsOf: modelURL, configuration: mlconfig)
+                    loaded = try MLModel(contentsOf: modelURL, configuration: mlconfig)
                     recovery = "requested_" + String(describing:configuration.computeUnits) + "_execution_plan_failed; same_V22_cpuAndGPU_loaded; " + firstFailure
                 } catch {
                     throw V21Error.model("V22 model could not load. Requested " + String(describing:configuration.computeUnits) + ": " + firstFailure +
                         " | Same-model CPU+GPU retry: " + Self.loadErrorDetails(error))
                 }
             }
-        return V21LoadedModel(model:loaded,units:mlconfig.computeUnits,recovery:recovery,loadMS:milliseconds(start))
+        return V21LoadedModel(model:loaded,units:mlconfig.computeUnits,recovery:recovery,loadMS:milliseconds(start),queueMS:queueMS)
     }
     static func prepare(modelURL: URL, directory supplied: URL?, configuration: V21Configuration) async throws -> V21Runner {
         let begin=tick(),directory:URL
@@ -239,7 +250,7 @@ private final class V21Runner: @unchecked Sendable {
         self.native=native;self.model=loaded;self.syllables=native.syllables;self.config=configuration
         let total=milliseconds(begin)
         self.preparation=["resource_read_hash_ms":native.readMS,"native_index_ms":native.indexMS,
-            "model_load_ms":weights.loadMS,"total_prepare_ms":total,
+            "model_load_ms":weights.loadMS,"model_loader_queue_ms":weights.queueMS,"total_prepare_ms":total,
             "overlap_ms":max(0,native.readMS+native.indexMS+weights.loadMS-total)]
         var memory=native.memory
         let bytes=v21_process_memory_bytes()
@@ -250,8 +261,36 @@ private final class V21Runner: @unchecked Sendable {
             "graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1",
             "compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:weights.units),
             "model_load_recovery":weights.recovery,"load_adapter":"clear-v22-load-plan-recovery-1",
-            "execution_adapter":"clear-v22-exact-latency-1","preparation_mode":"parallel_async",
+            "execution_adapter":"clear-v22-first-delivery-2","preparation_mode":"parallel_dedicated_cpu_load",
+            "model_load_api":"compiled_model_initializer_off_main",
             "score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
+    }
+    private var startupPrimeMS:Double=0
+    private var startupPrimeStatus="not_attempted"
+    private let startupPrimeLock=NSLock()
+    private func savePrime(_ status:String,_ ms:Double) {startupPrimeLock.lock();startupPrimeStatus=status;startupPrimeMS=ms;startupPrimeLock.unlock()}
+    private var primeSnapshot:(ms:Double,status:String) {startupPrimeLock.lock();defer{startupPrimeLock.unlock()};return(startupPrimeMS,startupPrimeStatus)}
+    func primeFirstShape() {
+        guard !hasPredicted,config.computeUnits == .cpuOnly,identity["model_load_recovery"] == "not_needed" else {
+            savePrime("skipped_already_used_or_non_cpu",0);return
+        }
+        let begin=tick();var status="not_completed"
+        do {
+            // One valid, stateless 1x8 tensor call, not an IME request. Its
+            // output is discarded: no candidates, learning or score cache.
+            let zeros=[Int32](repeating:0,count:32)
+            var ids=[Int32](repeating:0,count:8),mask=ids;ids[0]=1;mask[0]=1
+            let features=try MLDictionaryFeatureProvider(dictionary:[
+                "context_ids":MLFeatureValue(multiArray:try tensor(zeros,rows:1,width:32)),
+                "context_mask":MLFeatureValue(multiArray:try tensor(zeros,rows:1,width:32)),
+                "pinyin_ids":MLFeatureValue(multiArray:try tensor(ids,rows:1,width:8)),
+                "pinyin_mask":MLFeatureValue(multiArray:try tensor(mask,rows:1,width:8))])
+            let output=try model.prediction(from:features)
+            guard let value=output.featureValue(for:"compact_legal_logits")?.multiArrayValue,
+                  value.dataType == .float32,value.shape.map({$0.intValue}) == [1,8,136] else {throw V21Error.model("Startup preparation output contract")}
+            hasPredicted=true;seenShapes.insert("1x8");status="completed_one_cpu_1x8_no_candidates"
+        } catch {status="failed_nonfatal: "+String(error.localizedDescription.prefix(500))}
+        savePrime(status,milliseconds(begin))
     }
     private func tensor(_ values: [Int32], rows: Int, width: Int) throws -> MLMultiArray {
         let a = try MLMultiArray(shape: [NSNumber(value: rows), NSNumber(value: width)], dataType: .int32)
@@ -415,13 +454,14 @@ private final class V21Runner: @unchecked Sendable {
     }
     func emit(_ job: V21Job, result: V21Result?, error: String? = nil) {
         guard job.measurePerformance, let sink=config.performanceSink else { return }
+        let startup=primeSnapshot
         let t=result?.timings ?? job.signal.timings()
         sink(V21PerformanceRecord(processID:ProcessInfo.processInfo.processIdentifier,instanceID:instanceID.uuidString,inputVersion:job.version,
              rawUTF8Length:job.raw.utf8.count,contextScalarLength:min(32,job.context.unicodeScalars.count),
              status:result?.status.rawValue ?? (job.signal.reason() == nil ? "error" : "cancelled"),
              cancellationReason:job.signal.reason(),error:error,stage:job.signal.stage(),unfinishedStageElapsedMS:job.signal.stageAgeMS(),pathCount:result?.syllablePathsExamined ?? t.parsedPathCount,
              completedPaths:result?.completedPaths ?? t.certification.last?.completed_paths ?? 0,recommendedID:result?.recommendedID,
-             sdkElapsedMS:milliseconds(job.entryNS),timings:t,preparationMS:preparation,preparationMemory:preparationMemory,identity:identity))
+             sdkElapsedMS:milliseconds(job.entryNS),timings:t,preparationMS:preparation.merging(["one_shot_cpu_preparation_ms":startup.ms]) {_,new in new},preparationMemory:preparationMemory,identity:identity.merging(["startup_prime_status":startup.status]) {_,new in new}))
     }
     private func empty(_ job: V21Job, normalized: String, status: V21ResultStatus, reason: String, times: V21Timings) -> V21Result {
         var times=times; times.finalCandidateReadyMS=milliseconds(job.entryNS); job.signal.record("empty_result",times)
@@ -465,6 +505,17 @@ public actor V21IMEKernel {
         try Task.checkCancellation()
         return V21IMEKernel(runner)
     }
+    private var startupPrimeAttempted=false
+    private var startupPriming=false
+    public func prepareFirstInputIfIdle() async {
+        guard !startupPrimeAttempted,!workerRunning,active == nil,pending == nil,let runner else {return}
+        startupPrimeAttempted=true;startupPriming=true;workerRunning=true
+        // Share the same single-worker exclusion as real requests. If a real
+        // request is already queued it wins; no repeating idle loop is created.
+        await Task.detached(priority:.userInitiated) { autoreleasepool {runner.primeFirstShape()} }.value
+        startupPriming=false;workerRunning=false
+        if pending != nil {workerRunning=true;Task.detached(priority:.userInitiated) {await Self.drain(owner:self,runner:runner)}}
+    }
     public func candidates(rawPinyin: String, committedLeftContext: String, inputVersion: UInt64, requestedCount: Int = 8, onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21Result? {
         try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:requestedCount,signal:V21Cancellation(),capture:false,target:nil,update:onUpdate)
     }
@@ -487,7 +538,7 @@ public actor V21IMEKernel {
         guard limit > 0 else { throw V21Error.contract("requestedCount must be positive; output is capped to8") }
         guard version >= latestVersion else { signal.cancel("older_input_version"); return nil }
         latestVersion = version; generation &+= 1; let token = generation, entry = tick()
-        var queued = V21Timings(); queued.sdkEntryUptimeNS = entry; queued.waitingForPreviousPrediction = active?.stage() == "prediction"; signal.record("queued",queued)
+        var queued = V21Timings(); queued.sdkEntryUptimeNS = entry; queued.waitingForPreviousPrediction = active?.stage() == "prediction" || startupPriming; queued.waitingForStartupPreparation=startupPriming; signal.record("queued",queued)
         let blocker=active
         active?.cancel("superseded_while_running")
         if let old = pending { old.signal.cancel("superseded_before_execution"); runner?.emit(old,result:nil); old.continuation.resume(returning:nil); pending = nil }

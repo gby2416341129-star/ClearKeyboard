@@ -58,12 +58,22 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
     private var layoutLogCount = 0
     private let hostLog = OSLog(subsystem: "ClearKeyboard", category: "HostWrite")
 
+    override init(nibName:String?,bundle:Bundle?) {
+        V21InputService.startPreparing()
+        super.init(nibName:nibName,bundle:bundle)
+        KernelMeasurement.shared.noteStartup("extension_initialized")
+    }
+    required init?(coder:NSCoder) {
+        V21InputService.startPreparing()
+        super.init(coder:coder)
+        KernelMeasurement.shared.noteStartup("extension_initialized")
+    }
     override func viewDidLoad() {
 #if DEBUG
         NSLog("CLEAR66_STARTUP load.begin")
 #endif
         super.viewDidLoad()
-        Task.detached(priority:.userInitiated) { _ = try? await V21InputService.shared.prepare() }
+        KernelMeasurement.shared.noteStartup("extension_view_loaded")
         // One continuous receiving surface, including gaps. Per-key and per-row
         // translucent backings created visible rectangular bands.
         view.backgroundColor = UIColor(white: 0.5, alpha: 0.01); view.isOpaque = false
@@ -113,7 +123,7 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
 
     }
     override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated); hostActive = true; refreshHostState(refreshTraits: true); model?.reloadSettings()
+        super.viewWillAppear(animated); KernelMeasurement.shared.refreshSession(); KernelMeasurement.shared.noteStartup("extension_view_will_appear"); hostActive = true; refreshHostState(refreshTraits: true); model?.reloadSettings()
         if let surface { updateHeight(surface.desiredHeight) }
     }
     override func updateViewConstraints() {

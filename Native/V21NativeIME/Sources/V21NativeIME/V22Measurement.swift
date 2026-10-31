@@ -14,7 +14,7 @@ public final class V22PerformanceRecorder: @unchecked Sendable {
         if records.count < 256 { records.append(value) } else { dropped += 1 }
     }
     public func receiveAppTiming(_ value:V22AppTiming) {
-        lock.lock();defer {lock.unlock()};if appEvents.count<512 {appEvents.append(value)}
+        lock.lock();defer {lock.unlock()};if appEvents.count<4096 {appEvents.append(value)}
     }
     public func receivePreparationFailure(_ error:Error) {
         let value=error as NSError
@@ -32,7 +32,7 @@ public final class V22PerformanceRecorder: @unchecked Sendable {
             "records":try JSONSerialization.jsonObject(with:encoder.encode(value.records)),
             "app_times":try JSONSerialization.jsonObject(with:encoder.encode(value.appEvents)),
             "preparation_failures":value.preparationFailures,"dropped":value.dropped,"screen_visibility":"App supplied only","tests_passed":false]
-        try JSONSerialization.data(withJSONObject:object,options:[.prettyPrinted,.sortedKeys]).write(to:url,options:.atomic)
+        try JSONSerialization.data(withJSONObject:object,options:[.sortedKeys]).write(to:url,options:.atomic)
     }
 }
 
@@ -56,6 +56,13 @@ public struct V22AppTiming: Codable, Sendable {
     public let prepareWaitEndNS: UInt64?
     public let receivedNS: UInt64?
     public let visibleNS: UInt64?
+    public var sdkReturnedNS:UInt64?=nil
+    public var appliedNS:UInt64?=nil
+    public var drawnNS:UInt64?=nil
+    public var transactionCommittedNS:UInt64?=nil
+    public var nextRefreshNS:UInt64?=nil
+    public var estimatedPresentationNS:UInt64?=nil
+    public var displayStatus:String?=nil
     public let phase: String
     public init(inputVersion: UInt64, inputNS: UInt64, prepareWaitStartNS: UInt64? = nil,
                 prepareWaitEndNS: UInt64? = nil, receivedNS: UInt64? = nil, visibleNS: UInt64? = nil, phase: String) {
