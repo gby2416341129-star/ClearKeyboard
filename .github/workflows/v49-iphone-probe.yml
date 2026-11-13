@@ -25,6 +25,7 @@ jobs:
           for p in Path('V49Probe/Scripts').glob('*.sh'):
               p.write_bytes(p.read_bytes().replace(bytes([13,10]),bytes([10])))
           PY
+          cp Overrides/V49ProbeApp.swift V49Probe/Sources/V49ProbeApp.swift
       - name: Install pinned conversion tooling
         run: python3 -m pip install 'numpy==1.26.4' 'coremltools==9.0'
       - name: Convert, compile and package only; no predictions or tests
