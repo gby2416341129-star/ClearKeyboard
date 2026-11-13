@@ -6,20 +6,34 @@ bool adjacentKey(char a,char b){
 }
 void parse(V21Request&q,bool completion){
  const auto&r=*q.r;const size_t size=q.normalized.size();
- struct Node{Segment part{};uint32_t parent=0;uint16_t depth=0;double lm=0,cost=0;int edits=0;uint32_t modes=0;};
- struct Pending{uint32_t parent;Segment part{};uint16_t depth=0;double lm=0,cost=0;int edits=0;uint32_t modes=0;bool joint=false;Segment first{};double firstLM=0;};
+ struct Node{Segment part{};uint32_t parent=0;uint16_t depth=0;double lm=0,cost=0;int edits=0;uint32_t modes=0;int exactBytes=0;};
+ struct Pending{uint32_t parent;Segment part{};uint16_t depth=0;double lm=0,cost=0;int edits=0;uint32_t modes=0;bool joint=false;Segment first{};double firstLM=0;int exactBytes=0;};
  std::vector<Node> nodes(1);nodes.reserve((size+1)*32+1);std::vector<std::vector<Pending>> states(size+1);states[0].push_back(Pending{0});
  auto check=[&](){if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled during graph parse");};
- auto keep=[&](std::vector<Pending>& row,Pending p){double score=p.lm-p.cost;auto it=std::find_if(row.begin(),row.end(),[&](const Pending& b){return score>b.lm-b.cost;});row.insert(it,std::move(p));if(row.size()>32){if(row.back().modes==1&&std::count_if(row.begin(),row.end(),[](const Pending&x){return x.modes==1;})==1){auto victim=row.end()-2;while(victim!=row.begin()&&victim->modes==1)--victim;row.erase(victim);}else row.pop_back();}};
+ // Raw LM sums penalized every additional intended initial syllable. All
+ // neural/character candidate terms are means, so compare parse LM means too.
+ auto priority=[](const Pending&p){return p.lm/std::max<int>(1,p.depth)-p.cost;};
+ auto clean=[](const Pending&p){return p.edits==0&&!(p.modes&(1U<<V23_INCOMPLETE));};
+ auto keep=[&](std::vector<Pending>&row,Pending p){
+  double score=priority(p);auto it=std::find_if(row.begin(),row.end(),[&](const Pending&b){return score>priority(b);});row.insert(it,std::move(p));
+  if(row.size()<=32)return;
+  size_t exact=row.size(),faithful=row.size();
+  for(size_t i=0;i<row.size();i++){
+   if(exact==row.size()&&row[i].modes==1)exact=i;
+   if(clean(row[i])&&(faithful==row.size()||row[i].exactBytes>row[faithful].exactBytes))faithful=i;
+  }
+  size_t victim=row.size()-1;while(victim>0&&(victim==exact||victim==faithful))--victim;
+  row.erase(row.begin()+victim);
+ };
  auto persist=[&](const Pending&p){if(!p.part.id)return p.parent;uint32_t parent=p.parent;
   if(nodes.size()+2>65536)throw std::runtime_error("Input graph node workspace bound");
-  if(p.joint){nodes.push_back(Node{p.first,parent,uint16_t(p.depth-1),p.firstLM,p.cost,p.edits,p.modes});parent=uint32_t(nodes.size()-1);}
-  nodes.push_back(Node{p.part,parent,p.depth,p.lm,p.cost,p.edits,p.modes});return uint32_t(nodes.size()-1);};
+  if(p.joint){nodes.push_back(Node{p.first,parent,uint16_t(p.depth-1),p.firstLM,p.cost,p.edits,p.modes,p.exactBytes});parent=uint32_t(nodes.size()-1);}
+  nodes.push_back(Node{p.part,parent,p.depth,p.lm,p.cost,p.edits,p.modes,p.exactBytes});return uint32_t(nodes.size()-1);};
  std::vector<uint32_t> terminal;
  for(size_t start=0;start<=size;start++){
   check();if(states[start].empty())continue;std::vector<uint32_t> current;for(const auto&s:states[start])current.push_back(persist(s));
   if(start==size){terminal=std::move(current);break;}
-  if(q.normalized[start]==' '||q.normalized[start]=='\''){for(auto id:current){const auto&n=nodes[id];keep(states[start+1],Pending{id,Segment{},n.depth,n.lm,n.cost,n.edits,n.modes});}continue;}
+  if(q.normalized[start]==' '||q.normalized[start]=='\''){for(auto id:current){const auto&n=nodes[id];Pending p{id,Segment{},n.depth,n.lm,n.cost,n.edits,n.modes};p.exactBytes=n.exactBytes;keep(states[start+1],std::move(p));}continue;}
   std::vector<Segment> edges;edges.reserve(512);
   auto add=[&](int id,size_t end,int kind,double cost,int edits=0,uint16_t fuzzy=0){if(edges.size()>=4096)throw std::runtime_error("Input edge workspace bound");Segment s{uint16_t(id),int(start),int(end)};s.kind=uint8_t(kind);s.cost=cost;s.edits=uint8_t(edits);s.fuzzy=fuzzy;edges.push_back(s);};
   int trie=0;for(size_t end=start;end<std::min(size,start+6);end++){char c=q.normalized[end];if(c<'a'||c>'z'||r.trie[trie].next[c-'a']<0)break;trie=r.trie[trie].next[c-'a'];int id=r.trie[trie].id;if(id>=2)add(id,end+1,V23_EXACT,0);}
@@ -72,19 +86,27 @@ void parse(V21Request&q,bool completion){
   for(auto parent:current){const auto state=nodes[parent];if(state.depth>=64)continue;int previous=state.depth?state.part.id:511;
    if(state.depth+2<=64&&state.edits+1<=q.maxEdits)for(const auto&j:joints){
     double firstLM=state.lm+r.pyLog(previous,j.first.id);Pending p{parent,j.second,uint16_t(state.depth+2),firstLM+r.pyLog(j.first.id,j.second.id),state.cost+1.25,state.edits+1,state.modes|(1U<<V23_TYPO)};
-    p.joint=true;p.first=j.first;p.firstLM=firstLM;keep(states[j.second.end],std::move(p));
+    p.joint=true;p.first=j.first;p.firstLM=firstLM;p.exactBytes=state.exactBytes;keep(states[j.second.end],std::move(p));
    }
-   for(const auto&e:edges){if(state.edits+e.edits>q.maxEdits)continue;keep(states[e.end],Pending{parent,e,uint16_t(state.depth+1),state.lm+r.pyLog(previous,e.id),state.cost+e.cost,state.edits+e.edits,state.modes|(1U<<e.kind)});}
+   for(const auto&e:edges){if(state.edits+e.edits>q.maxEdits)continue;Pending p{parent,e,uint16_t(state.depth+1),state.lm+r.pyLog(previous,e.id),state.cost+e.cost,state.edits+e.edits,state.modes|(1U<<e.kind)};p.exactBytes=state.exactBytes+(e.kind==V23_EXACT?e.end-e.start:0);keep(states[e.end],std::move(p));}
   }
   std::vector<Pending>().swap(states[start]);
  }
  struct Final{uint32_t node;double priority,lm;};std::vector<Final> finals;
- for(auto id:terminal)if(nodes[id].depth){double lm=nodes[id].lm+r.pyLog(nodes[id].part.id,510);finals.push_back({id,lm-nodes[id].cost,lm});}
+ for(auto id:terminal)if(nodes[id].depth){double lm=(nodes[id].lm+r.pyLog(nodes[id].part.id,510))/(nodes[id].depth+1);finals.push_back({id,lm-nodes[id].cost,lm});}
  top(finals,finals.size(),[](const Final&f){return f.priority;});
- // One answer-free EXACT lane survives generalized-mode competition; corrections remain enabled.
- auto exact=std::find_if(finals.begin(),finals.end(),[&](const Final&f){return nodes[f.node].modes==1;});if(exact!=finals.end()&&exact-finals.begin()>=8){Final saved=*exact;finals.erase(exact);finals.insert(finals.begin()+7,saved);}
+ // Keep the best complete exact parse and the most literal no-edit mixed
+ // parse inside the same eight-path budget; typo alternatives stay available.
+ auto preserve=[&](size_t at,size_t slot){if(at>=finals.size()||at<8)return;std::swap(finals[at],finals[std::min(slot,finals.size()-1)]);};
+ auto exact=std::find_if(finals.begin(),finals.end(),[&](const Final&f){return nodes[f.node].modes==1;});
+ if(exact!=finals.end())preserve(size_t(exact-finals.begin()),7);
+ size_t faithful=finals.size();
+ for(size_t i=0;i<finals.size();i++){const auto&n=nodes[finals[i].node];if(n.edits||n.modes&(1U<<V23_INCOMPLETE))continue;
+  if(faithful==finals.size()||n.exactBytes>nodes[finals[faithful].node].exactBytes)faithful=i;
+ }
+ if(faithful<finals.size())preserve(faithful,6);
  std::unordered_set<std::string> canonical;
- for(const auto&f:finals){Path p;p.logWeight=f.lm;p.inputCost=nodes[f.node].cost;p.modeBits=nodes[f.node].modes;uint32_t node=f.node;p.parts.resize(nodes[node].depth);
+ for(const auto&f:finals){Path p;p.logWeight=f.lm;p.rawLogWeight=nodes[f.node].lm+r.pyLog(nodes[f.node].part.id,510);p.inputCost=nodes[f.node].cost;p.modeBits=nodes[f.node].modes;uint32_t node=f.node;p.parts.resize(nodes[node].depth);
   for(size_t i=p.parts.size();i>0;i--){p.parts[i-1]=nodes[node].part;node=nodes[node].parent;}
   std::string key;for(const auto&s:p.parts){key+=char(s.id&255);key+=char(s.id>>8);}if(!canonical.insert(key).second)continue;
   const auto&last=p.parts.back();if(last.kind==V23_INCOMPLETE)p.completion=r.py[last.id].substr(size_t(last.end-last.start));

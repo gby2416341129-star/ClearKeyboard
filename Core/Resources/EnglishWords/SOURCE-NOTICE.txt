@@ -1,0 +1,21 @@
+ClearKeyboard English word recognition data
+
+Ordinary dictionary headwords and source-listed inflections are derived from Alan Beale's
+Alt12Dicts 2020.12.07, distributed by Kevin Atkinson in en-wl/wordlist.
+Frozen upstream commit: 5ef55f9c42730ebe4394a78b77855468a6f15dd2
+Upstream documentation: https://raw.githubusercontent.com/en-wl/wordlist/5ef55f9c42730ebe4394a78b77855468a6f15dd2/alt12dicts/README
+
+The Alt12Dicts README states:
+All of these files have been explicitly placed in the Public Domain by Alan Beale.
+
+The 2of12id inflection revision additionally carries AGID/WordNet notices.
+Those permissive notices are reproduced in AGID-LICENSE.txt in this directory.
+
+ClearKeyboard's pre-existing hand-maintained common English seed words are included
+as a small supplemental vocabulary; no pinyin-specific denylist or example-specific
+allowlist has been added.
+
+Extraction: lowercase ASCII headwords present in at least four source dictionaries;
+capitalized names, abbreviations, multiword entries and annotated unusual forms are
+excluded. Only unmarked source-listed inflections of admitted headwords are included.
+Recognized input is never rewritten or case-folded in the displayed candidate.

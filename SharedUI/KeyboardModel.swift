@@ -138,7 +138,18 @@ struct DeletedInput { let text: String; let selection: NSRange }
         candidatesAreCurrent && candidateContext == activeCandidateContext() && recommendedCandidate?.canConsume(composition.raw) == true
     }
     private var recommendedCandidate: Candidate? {
-        candidates.first{$0.nativeChoice?.recommended == true} ?? candidates.first
+        // English may be visually first, while Space deliberately confirms Chinese.
+        candidates.first{$0.localChoice?.kind == .learned && isChineseChoice($0) && $0.canConsume(composition.raw)} ??
+        candidates.first{$0.nativeChoice?.recommended == true && isChineseChoice($0)} ??
+        candidates.first{isChineseChoice($0) && $0.canConsume(composition.raw)}
+    }
+    private func isChineseChoice(_ candidate:Candidate)->Bool {
+        if candidate.nativeChoice != nil{return true}
+        guard candidate.localChoice?.kind == .learned else{return false}
+        return candidate.text.unicodeScalars.contains {
+            (0x3400...0x4DBF).contains($0.value) || (0x4E00...0x9FFF).contains($0.value) ||
+            (0xF900...0xFAFF).contains($0.value) || (0x20000...0x323AF).contains($0.value)
+        }
     }
     private(set) var engineState = "V49 CPU 模型加载中…"
     var onChange: (() -> Void)?
@@ -211,7 +222,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         discardPreparedCandidates(); refreshCandidates()
     }
     func loadMoreCandidates(context: CandidateContext?) {
-        // V21 Trial 1 returns at most8 real candidates; no synthetic pages.
+        // The current SDK returns up to64 real candidates in one bounded request.
     }
     func prepare(_ action: KeyAction) {
         // Submit only accepted raw input. A cancelled contact must not supersede
@@ -261,7 +272,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard activeCandidates === query, !query.token.isCancelled,
               query.raw==composition.raw, requestedContext?.raw==query.raw,
               let result=query.result else{return}
-        candidates=result.items;hasMoreCandidates=false
+        candidates=combinedCandidates(result.items,raw:query.raw,context:query.preceding,characters:query.characters);hasMoreCandidates=false
         candidateGeneration=generation;candidateContext=requestedContext
         if let timing=result.timing {
             if lastCandidateDisplayTiming?.inputVersion != timing.inputVersion || lastCandidateDisplayTiming?.phase != timing.phase+"_received" || lastCandidateDisplayTiming?.sdkReturnedNS != timing.sdkReturnedNS {
@@ -271,6 +282,49 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
         } else {lastCandidateDisplayTiming=nil}
         if notify {notifyCandidates();completeDeferredActions(for:requestedContext)}
+    }
+
+    private var learningIsCurrent:Bool {store.defaults.string(forKey:"clear.learned.epoch")==learningEpoch}
+    private var learningLockURL:URL? {
+        guard suppliedDefaults==nil,document?.fullAccess==true else{return nil}
+        return SharedStorage.applicationGroup()?.root.appendingPathComponent("Learning/learning.lock")
+    }
+    private func synchronizeLearningNamespace() {
+        let epoch=store.defaults.string(forKey:"clear.learned.epoch")
+        guard epoch != learningEpoch else{return}
+        saveWork?.cancel();learningEpoch=epoch
+        let memory=LearningStore.load(store.defaults,epoch:epoch)
+        learned=memory.learned;personal=memory.personal;numbers=memory.numbers
+        phraseLearning.reset();numericRun.reset();discardPreparedCandidates()
+        if !composition.isEmpty {
+            let native=activeCandidates?.result?.items ?? candidates.filter{$0.nativeChoice != nil}
+            let context=CandidateLanguageContext.preceding(before:document?.contextBefore ?? "",markedDraft:composition.raw)
+            candidates=assembleCandidates(native,raw:composition.raw,context:context,characters:characterSelectionMode)
+        } else {candidates.removeAll{$0.localChoice?.kind == .learned || $0.localChoice?.kind == .numeric}}
+    }
+    private func localCandidate(_ item:Candidate,kind:LocalCandidateKind,raw:String)->Candidate {
+        Candidate(text:item.text,reading:item.reading,consumed:item.consumed,score:item.score,
+                  localChoice:LocalCandidateChoice(kind:kind,raw:raw))
+    }
+    private func combinedCandidates(_ native:[Candidate],raw:String,context:String,characters:Bool)->[Candidate] {
+        synchronizeLearningNamespace()
+        return assembleCandidates(native,raw:raw,context:context,characters:characters)
+    }
+    private func assembleCandidates(_ native:[Candidate],raw:String,context:String,characters:Bool)->[Candidate] {
+        guard !raw.isEmpty else{return native}
+        var values:[Candidate]=[]
+        if !characters,EnglishWordLexicon.shared.isWord(raw) {
+            values.append(Candidate(text:raw,consumed:raw.utf16.count,
+                                    localChoice:LocalCandidateChoice(kind:.english,raw:raw)))
+        }
+        if settings.learnChoices,learningIsCurrent {
+            values += personal.candidates(for:raw,context:context,limit:16)
+                .filter{!characters || $0.text.unicodeScalars.count==1}
+                .map{localCandidate($0,kind:.learned,raw:raw)}
+        }
+        values += native
+        var seen=Set<String>()
+        return Array(values.filter{seen.insert($0.text).inserted}.prefix(64))
     }
 
     init(document: KeyboardDocument, settings: KeyboardSettings? = nil, defaults: UserDefaults? = nil,
@@ -331,6 +385,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
 
     func reloadSettings() {
         guard let document else { return }
+        finishNumericRun();flushLearning()
         store = SettingsStore(defaults: suppliedDefaults ?? SharedStorage.defaults(allowShared: document.fullAccess))
         candidatePreferences = CandidatePreferences(defaults: store.defaults)
         phraseLearning.reset(); numericRun.reset()
@@ -486,6 +541,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         page = .letters; shiftState.reset(); manualShift = false; refreshCandidates()
     }
     func handle(_ action: KeyAction) {
+        synchronizeLearningNamespace()
         switch action {
         case .text, .literal, .space, .enter: onContentKey?()
         default: break
@@ -497,6 +553,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
             pendingDocumentKeys.append((action, document?.documentIdentity ?? "")); return
         }
         beginDocumentEdit(); defer { endDocumentEdit() }
+        if action == .enter,awaitingCommit {
+            // Confirmation is a literal barrier even when an earlier Space is
+            // waiting on decoding. Preserve accepted suffix keys exactly once.
+            finishCompositionAsTyped();refreshCandidates();return
+        }
         if awaitingCommit {
             deferredActions.append(action)
             // Keep letters visible while an earlier Space awaits decoding. The
@@ -534,6 +595,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
             insertText(text)
             if !capsLocked { shifted = false; manualShift = false }
         case .text(let text):
+            let literal=shifted && page == .letters ? text.uppercased():text
+            if settings.learnChoices,composition.isEmpty,let document,document.selectedText.isEmpty,
+               numericRun.canAppendIdentifierSuffix(literal,before:document.contextBefore,after:document.contextAfter,document:document.documentIdentity) {
+                numericRun.append(literal,before:document.contextBefore,after:document.contextAfter,document:document.documentIdentity)
+                document.insert(literal);literalInputRevision += 1
+                finishNumericRun();refreshCandidates();return
+            }
             let possibleOperator = composition.isEmpty && text.count == 1 && "xX+-*/×÷().".contains(text) &&
                 !(shifted && page == .letters && text.first?.isLetter == true)
             let mathCharacter = possibleOperator && document?.contextBefore.last.map({ $0.isNumber || $0 == ")" }) == true
@@ -586,12 +654,17 @@ struct DeletedInput { let text: String; let selection: NSRange }
             }
             if composition.isEmpty { insertText(" ") }
             else {
-                let selecting = automaticChoiceIsReady && candidates.first != nil
-                if commitComposition(flushRemainder: false), selecting { onCandidateSelection?() }
+                if automaticChoiceIsReady {
+                    if commitComposition(flushRemainder:false,explicit:true) {onCandidateSelection?()}
+                    else {finishCompositionAsTyped();insertText(" ")}
+                } else {
+                    // With a completed empty decoder result, a key must not disappear.
+                    finishCompositionAsTyped();insertText(" ")
+                }
             }
         case .enter:
-            if composition.isEmpty {insertText("\n")}
-            else if commitComposition(flushRemainder:false) {onCandidateSelection?()}
+            if composition.isEmpty {finishNumericRun();insertText("\n")}
+            else {finishCompositionAsTyped()}
         case .page(let next): page = next
         case .globe: finishForDocumentAction(); finishNumericRun(); phraseLearning.reset(); document?.nextKeyboard()
         case .language: toggleLanguage(); return
@@ -629,23 +702,47 @@ struct DeletedInput { let text: String; let selection: NSRange }
     /// Explicit cursor, language, literal and document actions preserve an
     /// unconverted draft as typed. An empty SDK result itself never commits it.
     @discardableResult private func finishForDocumentAction() -> Bool {
+        if !composition.isEmpty,!characterSelectionMode,EnglishWordLexicon.shared.isWord(composition.raw) {
+            finishCompositionAsTyped();return true
+        }
         if !composition.isEmpty && !automaticChoiceIsReady {
             finishCompositionAsTyped(); return true
         }
         return commitComposition()
     }
-    @discardableResult private func commitComposition(flushRemainder: Bool = true) -> Bool {
+    @discardableResult private func commitComposition(flushRemainder: Bool = true,explicit:Bool=false) -> Bool {
         guard !composition.isEmpty else {composition.clear();return true}
         guard automaticChoiceIsReady,let document,let candidate=recommendedCandidate,
-              let choice=candidate.nativeChoice, candidateContext == activeCandidateContext() else{return false}
+              candidateContext == activeCandidateContext() else{return false}
+        return commitLanguageCandidate(candidate,document:document,explicit:explicit)
+    }
+    @discardableResult private func commitLanguageCandidate(_ candidate:Candidate,document:KeyboardDocument,explicit:Bool)->Bool {
+        synchronizeLearningNamespace()
+        guard candidatesAreCurrent,candidateContext==activeCandidateContext(),candidate.canConsume(composition.raw) else{return false}
         let spelling=composition.raw,previousLearning=phraseLearning
         let context=CandidateLanguageContext.preceding(before:document.contextBefore,markedDraft:spelling)
-        let phrase=trackPhrase(candidate,explicit:false)
-        guard document.commitMarkedText(choice.selection.selectedText,remaining:choice.selection.remainingPinyin) else {
+        let selected:String,remaining:String,isEnglish:Bool
+        if let choice=candidate.nativeChoice {
+            selected=choice.selection.selectedText;remaining=choice.selection.remainingPinyin;isEnglish=false
+        } else if let local=candidate.localChoice,local.raw==spelling {
+            switch local.kind {
+            case .english:
+                guard candidate.text==spelling,EnglishWordLexicon.shared.isWord(spelling) else{return false}
+                selected=spelling;remaining="";isEnglish=true
+            case .learned:
+                guard settings.learnChoices,learningIsCurrent,
+                      personal.candidates(for:spelling,context:context,limit:64).contains(where:{$0.text==candidate.text && $0.reading==candidate.reading}) else{return false}
+                selected=candidate.text;remaining="";isEnglish=false
+            case .numeric:return false
+            }
+        } else {return false}
+        let phrase=isEnglish ? nil:trackPhrase(candidate,explicit:explicit)
+        guard document.commitMarkedText(selected,remaining:remaining) else {
             phraseLearning=previousLearning;return false
         }
-        composition.replace(with:choice.selection.remainingPinyin)
-        learn(candidate,raw:spelling,phrase:phrase,context:context,explicit:false)
+        composition.replace(with:remaining)
+        if isEnglish {phraseLearning.reset()}
+        else {learn(candidate,raw:spelling,phrase:phrase,context:context,explicit:explicit)}
         return true
     }
 
@@ -697,33 +794,32 @@ struct DeletedInput { let text: String; let selection: NSRange }
     }
     private func commitChoice(_ candidate: Candidate, document: KeyboardDocument, learningRaw: String? = nil, explicit: Bool = false) {
         beginDocumentEdit(); defer { endDocumentEdit() }
-        if composition.isEmpty, candidate.consumed == 0, NumericLexicon.isDigits(candidate.reading) {
-            guard settings.learnChoices, let prefix = numericPrefix(), numbers.candidates(for: prefix).contains(candidate) else { return }
-            insertText(candidate.text); onCandidateSelection?(); refreshCandidates(); return
+        if composition.isEmpty,candidate.localChoice?.kind == .numeric {
+            synchronizeLearningNamespace()
+            guard settings.learnChoices,learningIsCurrent,let prefix=numericPrefix(),candidate.localChoice?.raw==prefix,
+                  let suffix=numbers.completionSuffix(for:candidate,prefix:prefix) else{return}
+            numericRun.reset()
+            document.insert(suffix);literalInputRevision += 1
+            numbers.record(candidate.text);flushLearning()
+            onCandidateSelection?();refreshCandidates();return
         }
         if settings.language == .chinese {
-            guard candidatesAreCurrent,candidateContext == activeCandidateContext(),candidates.contains(candidate),candidate.canConsume(composition.raw),let choice=candidate.nativeChoice else{return}
-            let spelling=composition.raw,previousLearning=phraseLearning
-            let context=CandidateLanguageContext.preceding(before:document.contextBefore,markedDraft:spelling)
-            let phrase=trackPhrase(candidate,explicit:explicit)
-            guard document.commitMarkedText(choice.selection.selectedText,remaining:choice.selection.remainingPinyin) else {
-                phraseLearning=previousLearning;return
-            }
-            composition.replace(with:choice.selection.remainingPinyin)
-            learn(candidate,raw:spelling,phrase:phrase,context:context,explicit:explicit)
+            guard candidates.contains(candidate),commitLanguageCandidate(candidate,document:document,explicit:explicit) else{refreshCandidates();return}
         }
         onCandidateSelection?()
         refreshCandidates()
     }
     private func needsLatestCandidate(for action: KeyAction) -> Bool {
         guard settings.language == .chinese, !composition.isEmpty else { return false }
+        let pending=activeCandidates.map{!$0.token.isCancelled && $0.result==nil} ?? false
         switch action {
         // A long-press choice commits the Chinese draft before its literal
         // suffix, so it must await the same current candidate as punctuation.
-        case .space, .literal, .enter: return requestedContext != nil && activeCandidates?.result == nil
+        case .space, .literal:return pending
+        case .enter:return false // Confirmation submits raw input without waiting for Chinese.
         case .text(let text):
             if page == .letters, !shifted, text.first?.isLetter == true || text == "'" { return false }
-            return requestedContext != nil && activeCandidates?.result == nil
+            return pending
         default: return false // Layout, delete and mode changes do not need a decoded sentence.
         }
     }
@@ -779,6 +875,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let context = composition.isEmpty || settings.language == .english ? (document?.contextBefore ?? "") : ""
         englishSnapshot=context
         arithmetic = composition.isEmpty && selectionIsEmpty ? InlineArithmetic.result(in: context) : nil
+        if composition.isEmpty,selectionIsEmpty,numericPrefix() != nil {arithmetic=nil}
         if arithmetic != nil || !engineReady || !selectionIsEmpty { candidates = [] }
         if settings.language == .english && !capsLocked && !manualShift, let document {
             let trimmed = context.trimmingCharacters(in: .whitespaces)
@@ -796,11 +893,14 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if arithmetic != nil { candidateGeneration = requestedGeneration; candidateContext = queryContext }
         let raw=composition.raw
         if arithmetic == nil, selectionIsEmpty, let prefix=numericPrefix() {
-            candidates=settings.learnChoices ? numbers.candidates(for:prefix):[]
+            candidates=settings.learnChoices && learningIsCurrent ? numbers.candidates(for:prefix,limit:64).map{localCandidate($0,kind:.numeric,raw:prefix)}:[]
             candidateGeneration=requestedGeneration;candidateContext=queryContext;render();return
         }
         if arithmetic != nil {candidateGeneration=requestedGeneration;render();return}
-        candidates=[];candidateContext=queryContext
+        let preceding=CandidateLanguageContext.preceding(before:document?.contextBefore ?? "",markedDraft:raw)
+        candidates=settings.language == .chinese && selectionIsEmpty ? combinedCandidates([],raw:raw,context:preceding,characters:characterSelectionMode):[]
+        candidateContext=queryContext
+        candidateGeneration=requestedGeneration
         guard settings.language == .chinese,!raw.isEmpty,selectionIsEmpty,document != nil,engineReady else {
             candidateGeneration=requestedGeneration;render();return
         }
@@ -825,6 +925,9 @@ struct DeletedInput { let text: String; let selection: NSRange }
         guard let document, document.selectedText.isEmpty else { return nil }
         return numericRun.prefix(before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
     }
+    func preservesOwnedNumericFormatting() -> Bool {
+        composition.isEmpty && !numericRun.isEmpty && numericPrefix() != nil
+    }
     private func insertText(_ text: String) {
         guard let document else { return }
         if settings.learnChoices, document.selectedText.isEmpty, NumericLexicon.isDigits(text) {
@@ -834,13 +937,15 @@ struct DeletedInput { let text: String; let selection: NSRange }
         literalInputRevision += 1
     }
     private func finishNumericRun() {
+        synchronizeLearningNamespace()
         guard !numericRun.isEmpty else { return }
         guard let document, document.selectedText.isEmpty else { numericRun.reset(); return }
         let value = numericRun.complete(before: document.contextBefore, after: document.contextAfter, document: document.documentIdentity)
-        if settings.learnChoices, let value { numbers.record(value); scheduleLearningSave() }
+        if settings.learnChoices,learningIsCurrent,let value {numbers.record(value);flushLearning()}
     }
     private func learn(_ candidate: Candidate, raw: String, phrase: PhraseLearning.Choice? = nil, context: String = "", explicit: Bool = false) {
-        guard settings.learnChoices else { return }
+        synchronizeLearningNamespace()
+        guard settings.learnChoices,learningIsCurrent else { return }
         discardPreparedCandidates()
         let text = candidate.text
         personal.record(candidate,for:raw,context:context,explicit:explicit)
@@ -850,7 +955,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
         let learningKey=raw+"|"+text
         learned[learningKey] = min(10_000, (learned[learningKey] ?? 0) + 1)
         if learned.count > 512, let least = learned.min(by: { $0.value < $1.value })?.key { learned.removeValue(forKey: least) }
-        scheduleLearningSave()
+        if explicit {flushLearning()} else {scheduleLearningSave()}
     }
     private func scheduleLearningSave() {
         saveWork?.cancel()
@@ -861,12 +966,13 @@ struct DeletedInput { let text: String; let selection: NSRange }
         saveWork?.cancel()
         let epoch = store.defaults.string(forKey: "clear.learned.epoch")
         guard epoch == learningEpoch else {
-            learned = [:]; personal = PersonalLexicon(); numbers = NumericLexicon(); learningEpoch = epoch
-            phraseLearning.reset(); numericRun.reset()
-            discardPreparedCandidates()
+            synchronizeLearningNamespace()
             return
         }
-        LearningStore.save(LearningMemory(learned: learned, personal: personal, numbers: numbers), defaults: store.defaults, epoch: learningEpoch)
+        if let merged=LearningStore.save(LearningMemory(learned:learned,personal:personal,numbers:numbers),
+                                         defaults:store.defaults,epoch:learningEpoch,lockURL:learningLockURL) {
+            learned=merged.learned;personal=merged.personal;numbers=merged.numbers
+        } else {synchronizeLearningNamespace()}
     }
     func suspend() {
         if isMovingCursor { document?.endTrackpad(); isMovingCursor = false }

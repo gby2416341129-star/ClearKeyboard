@@ -5,6 +5,8 @@ enum SharedStorage {
     private static let migrationQueue = DispatchQueue(label: "clear.legacy.clipboard", qos: .utility)
     private static let migrationLock = NSLock()
     private static var migrating = Set<String>()
+    private static let defaultsMigrationLock=NSRecursiveLock()
+    private static var defaultsMigrations=Set<String>()
     struct Group { let identifier: String; let root: URL }
     /// Re-signers can rewrite the provisioning group while leaving Info.plist
     /// untouched. Use only a container iOS actually grants this process.
@@ -35,8 +37,40 @@ enum SharedStorage {
     /// A marker in the source domain also prevents a later shared reset from
     /// bringing back old names or numbers that the user deliberately cleared.
     static func migrateLegacyDefaults(from source: UserDefaults, to destination: UserDefaults, groupIdentifier: String) {
+        guard source !== destination else{return}
+        if source.bool(forKey:"clear.shared.migration.v1."+groupIdentifier),
+           source.bool(forKey:"clear.shared.learning-migration.v2."+groupIdentifier) {return}
+        defaultsMigrationLock.lock()
+        guard defaultsMigrations.insert(groupIdentifier).inserted else {defaultsMigrationLock.unlock();return}
+        defer{defaultsMigrations.remove(groupIdentifier);defaultsMigrationLock.unlock()}
+        if let root=FileManager.default.containerURL(forSecurityApplicationGroupIdentifier:groupIdentifier) {
+            // Serialize migration's epoch/payload publication with clear/save.
+            _ = try? SharedFileLock.perform(at:root.appendingPathComponent("Learning/learning.lock")) {
+                migrateDefaultsLocked(from:source,to:destination,groupIdentifier:groupIdentifier)
+            }
+        } else {migrateDefaultsLocked(from:source,to:destination,groupIdentifier:groupIdentifier)}
+    }
+    private static func migrateDefaultsLocked(from source:UserDefaults,to destination:UserDefaults,groupIdentifier:String) {
         guard source !== destination else { return }
+        source.synchronize();destination.synchronize()
         let marker = "clear.shared.migration.v1." + groupIdentifier
+        // Earlier migrations copied only the epoch pointer and legacy keys.
+        // Copy that epoch's current v3 payload once, never a retired namespace.
+        let learningMarker="clear.shared.learning-migration.v2."+groupIdentifier
+        if !source.bool(forKey:learningMarker) {
+            let sourceEpoch=source.string(forKey:"clear.learned.epoch")
+            let sharedEpoch=destination.string(forKey:"clear.learned.epoch")
+            let sharedHasEpoch=destination.object(forKey:"clear.learned.epoch") != nil
+            let sharedLegacyExists=destination.object(forKey:"clear.learning.v3.legacy") != nil
+            if (!sharedHasEpoch && !sharedLegacyExists) || sourceEpoch==sharedEpoch {
+                let key="clear.learning.v3."+(sourceEpoch ?? "legacy")
+                if destination.object(forKey:key)==nil,let value=source.object(forKey:key) {
+                    destination.set(value,forKey:key)
+                    if !sharedHasEpoch,let sourceEpoch {destination.set(sourceEpoch,forKey:"clear.learned.epoch")}
+                }
+            }
+            source.set(true,forKey:learningMarker)
+        }
         guard !source.bool(forKey: marker) else { return }
 
         if destination.object(forKey: "clear.settings.v1") == nil,
@@ -47,7 +81,8 @@ enum SharedStorage {
         let sourceEpoch = source.string(forKey: "clear.learned.epoch")
         let sharedEpoch = destination.string(forKey: "clear.learned.epoch")
         let sharedEpochExists = destination.object(forKey: "clear.learned.epoch") != nil
-        if !sharedEpochExists || (sharedEpoch != nil && sharedEpoch == sourceEpoch) {
+        let sharedLegacyExists=destination.object(forKey:"clear.learning.v3.legacy") != nil
+        if (!sharedEpochExists && !sharedLegacyExists) || (sharedEpoch != nil && sharedEpoch == sourceEpoch) {
             for key in ["clear.learned.v1", "clear.choices.v2", "clear.numbers.v1", "clear.learned.epoch"] {
                 if destination.object(forKey: key) == nil, let value = source.object(forKey: key) {
                     destination.set(value, forKey: key)

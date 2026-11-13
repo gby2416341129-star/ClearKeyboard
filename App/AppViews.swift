@@ -78,7 +78,8 @@ import UIKit
         if active { appearanceLink?.refresh() }
     }
     func clearLearning() {
-        LearningStore.clear(store.defaults)
+        let lock=suppliedStore==nil ? SharedStorage.applicationGroup()?.root.appendingPathComponent("Learning/learning.lock"):nil
+        LearningStore.clear(store.defaults,lockURL:lock)
     }
     func clearClipboard() { clipboardCapture.clearHistory() }
     func activate() {

@@ -154,7 +154,7 @@ struct InputSettingsView: View {
             }
             AppSectionTitle(title: "选词与预测")
             AppCard {
-                PreferenceToggle(title: "记住我的选词", isOn: $preferences.settings.learnChoices).accessibilityIdentifier("input.learning")
+                PreferenceToggle(title: "记住词语和数字", isOn: $preferences.settings.learnChoices).accessibilityIdentifier("input.learning")
                 Divider()
                 PreferenceToggle(title: "续词预测", isOn: $preferences.settings.predictions)
                 Divider()
@@ -169,14 +169,14 @@ struct InputSettingsView: View {
             AppSectionTitle(title: "选词记忆")
             AppCard {
                 Button { confirmClear = true } label: {
-                    AppRow(title: "重置选词记忆", detail: "", symbol: "arrow.counterclockwise")
+                    AppRow(title: "重置词语和数字记忆", detail: "", symbol: "arrow.counterclockwise")
                 }.buttonStyle(AppRowButtonStyle()).accessibilityIdentifier("input.resetLearning")
             }
         }.accessibilityIdentifier("input.page")
-            .alert("清除已记住的选词？", isPresented: $confirmClear) {
+            .alert("清除词语和数字记忆？", isPresented: $confirmClear) {
                 Button("取消", role: .cancel) {}
-                Button("清除选词记忆", role: .destructive) { preferences.clearLearning() }
-            } message: { Text("清除后，之前记住的选词偏好将重新学习。") }.onAppear { preferences.reload() }
+                Button("清除记忆", role: .destructive) { preferences.clearLearning() }
+            } message: { Text("清除后，已记住的词语、选词偏好和连续数字将重新学习。") }.onAppear { preferences.reload() }
     }
 }
 
@@ -265,7 +265,7 @@ struct InputAboutView: View {
             AppSectionTitle(title: "离线引擎")
             AppCard {
                 Text("V49 本地输入模型 · CPU").font(.system(size: 16, weight: .medium))
-                Text("V49 模型、双头评分与配套词库在本机使用 CPU 处理全拼、简拼、混合拼音及输入纠错。模糊音按输入设置中的开关生效。学习记录保留，但暂不参与模型排序。")
+                Text("V49 在本机使用 CPU 处理全拼、简拼、混合拼音及输入纠错。模糊音按输入设置生效。主动确认的词语可记忆，并通过全拼或简拼调出；完整连续数字可按前缀补全。确认键保留原始输入，空格选择中文候选。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Divider()
                 AppNavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)

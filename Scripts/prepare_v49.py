@@ -15,6 +15,7 @@ def main():
     assert identity['checkpoint_sha256']==CHECKPOINT
     assert (identity['local_step'],identity['global_step'],identity['parameters'])==(1408,94661,21020402)
     assert identity['compute_units']=='cpuOnly' and identity['fallback_to_other_compute_units'] is False
+    assert identity['maximum_visible_candidates']==64
     transport=json.loads((ROOT/'BuildAssets/V49/inherited_resources.json').read_bytes())
     for target in transport['targets']:
         dest=(ROOT/target['path']).resolve()
@@ -62,11 +63,15 @@ def main():
     config=json.loads((source/'runtime_config.json').read_bytes())
     assert config['source_checkpoint_sha256']==CHECKPOINT and config['source_step']==94661
     assert config['score_version']==identity['score_version']=='v23-input-sequence-energy-1'
+    assert config['ranking_policy_version']==identity['ranking_policy_version']=='build106-lexical-mixed-recall-1'
+    assert config['topk']==64
+    english=json.loads((ROOT/'Core/Resources/EnglishWords/manifest.json').read_bytes())
+    assert digest(ROOT/'Core/Resources/EnglishWords/words.txt')==english['payload']['sha256']
     for name,key in [('V19Resources.bin','resource_binary_sha256'),('V21Statistics.bin','statistics_sha256'),('V22Language.bin','language_data_sha256')]:
         assert digest(source/name)==config[key],name
     runtime=ROOT/'Core/Resources/Runtime/V49';runtime.mkdir(parents=True,exist_ok=True)
     for name in DATA:shutil.copyfile(source/name,runtime/name)
     for name in ['identity.json','ordinary_probes_160.json']:shutil.copyfile(model_root/name,runtime/name)
-    print('Build105: exact V49 main+aux pair, matching SDK and resources staged; CPU only; no inference executed.')
+    print('Build106: exact V49 pair, revised SDK, local English dictionary staged; CPU only; no inference executed.')
 
 if __name__=='__main__':main()

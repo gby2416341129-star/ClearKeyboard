@@ -1,0 +1,71 @@
+{
+  "schema": "clear-english-exact-words/1",
+  "source_project": "Alt12Dicts / en-wl/wordlist",
+  "source_release": "rel-2020.12.07",
+  "source_commit": "5ef55f9c42730ebe4394a78b77855468a6f15dd2",
+  "source_files": [
+    {
+      "name": "2of12full.txt",
+      "url": "https://raw.githubusercontent.com/en-wl/wordlist/5ef55f9c42730ebe4394a78b77855468a6f15dd2/alt12dicts/2of12full.txt",
+      "git_blob": "20c16da2f0a56d6bc55b934012b1bee420e250c7",
+      "bytes": 1702816,
+      "sha256": "76dc8ed76ada4d4d0a67ffc2b81499a5c8a25f3f741df2f3a3d9bb438bf6eaf2"
+    },
+    {
+      "name": "2of12id.txt",
+      "url": "https://raw.githubusercontent.com/en-wl/wordlist/5ef55f9c42730ebe4394a78b77855468a6f15dd2/alt12dicts/2of12id.txt",
+      "git_blob": "07652ddc2b520788888088ad8197e098b1b766dd",
+      "bytes": 1111965,
+      "sha256": "3e433be47fa0fbb79acd785a65e49b9ebbe9521a2da0bd1631f89658c5a99421"
+    },
+    {
+      "name": "README",
+      "url": "https://raw.githubusercontent.com/en-wl/wordlist/5ef55f9c42730ebe4394a78b77855468a6f15dd2/alt12dicts/README",
+      "git_blob": "8c7984ee06ece7a77936adb62364c20c5bb0780b",
+      "bytes": 9213,
+      "sha256": "4024896326d4972d5fb479a8a34350fe3e636ca26cb8ff5c288a502932a0c706"
+    },
+    {
+      "name": "README-infl",
+      "url": "https://raw.githubusercontent.com/en-wl/wordlist/5ef55f9c42730ebe4394a78b77855468a6f15dd2/alt12dicts/README-infl",
+      "git_blob": "a50d72a90968a72f1bb1dbe733f2a77a834959ae",
+      "bytes": 8638,
+      "sha256": "a26889d27d5f4f332d0cbb5b7f25cd3d645e0ca4bf437fc3ba5823c2203c1919"
+    },
+    {
+      "name": "README-agid",
+      "url": "https://raw.githubusercontent.com/en-wl/wordlist/5ef55f9c42730ebe4394a78b77855468a6f15dd2/alt12dicts/README-agid",
+      "git_blob": "ea7b3d35d47d98c5716b19153ca0d2edb3a2ebeb",
+      "bytes": 10115,
+      "sha256": "57a64a96d7eb9035e697f2bd214439da82d2e3090e4450f9734d2b7bdbb40c1a"
+    }
+  ],
+  "seed_source": {
+    "path": "F:\\Chatgpt\\2026-10-20\\ji-x\\work\\v10-build84\\publish\\Data\\english-common.txt",
+    "bytes": 5409,
+    "sha256": "c13f806ed7c692a3d50184d0d6e6be62e5fedb8ee53de663f1e676c4e53d2dfc",
+    "words": 777
+  },
+  "selection": {
+    "minimum_dictionary_count": 4,
+    "case": "ordinary lowercase source entries only; original user case retained",
+    "maximum_word_bytes": 64,
+    "inflections": "unmarked source-listed forms of admitted headwords",
+    "abbreviations": "exclude colon-tagged upstream abbreviations unless already in the existing project seed",
+    "proper_names": "capitalized source entries excluded",
+    "per_pinyin_allow_or_deny_lists": false
+  },
+  "headwords": 34097,
+  "additional_inflections": 31863,
+  "word_count": 65986,
+  "payload": {
+    "file": "words.txt",
+    "bytes": 618729,
+    "sha256": "d8dd720502b888eedf465c0899ffe137d537cd22527842c2febda2ea4ef2712d"
+  },
+  "license_files": [
+    "SOURCE-NOTICE.txt",
+    "AGID-LICENSE.txt"
+  ],
+  "predictions_or_tests_executed": false
+}

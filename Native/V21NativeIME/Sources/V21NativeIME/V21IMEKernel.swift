@@ -100,7 +100,7 @@ private final class V21NativePreparation: @unchecked Sendable {
               manifest.max_segmentations == 8, manifest.context_length == 32,
               manifest.maximum_target_length == 64, manifest.max_legal_characters == 136 else { throw V21Error.resource("V21 resource identity/score contract mismatch") }
         let language = try NSData(contentsOf: directory.appendingPathComponent("V22Language.bin"), options: .alwaysMapped)
-        guard manifest.language_policy_version == "clear-v22-word-lattice-data-2",manifest.ranking_policy_version == "v23-uniform-lattice-learned-energy-1",digest(Data(referencing:language)) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
+        guard manifest.language_policy_version == "clear-v22-word-lattice-data-2",manifest.ranking_policy_version == "build106-lexical-mixed-recall-1",digest(Data(referencing:language)) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
         let readEnd = tick()
         let words = try JSONDecoder().decode(V21Vocabulary.self, from: Data(contentsOf: directory.appendingPathComponent("vocabulary.json")))
         guard words.syllables.count == 411 else { throw V21Error.resource("Wrong syllable IDs") }
@@ -281,7 +281,7 @@ private final class V21Runner: @unchecked Sendable {
         self.preparationMemory=memory
         self.identity=["checkpoint_sha256":manifest.source_checkpoint_sha256,"source_step":String(manifest.source_step),"resource_sha256":manifest.resource_binary_sha256,
             "statistics_sha256":manifest.statistics_sha256,"kernel_version":"v49_v46_text_rank_initials_10h","neural_parent":"V46 best -> V49 best local1408/global94661",
-            "graph_export_version":"v23-b1-enumerated-1","SDK_version":"v26-input-fidelity-native-1",
+            "graph_export_version":"v23-b1-enumerated-1","SDK_version":"build106-lexical-mixed-recall-1",
             "compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:weights.units),
             "model_load_recovery":weights.recovery,"load_adapter":"clear-v22-load-plan-recovery-1",
             "execution_adapter":"v23-input-graph-sequence-1","ranking_policy":manifest.ranking_policy_version,"language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
@@ -360,6 +360,7 @@ private final class V21Runner: @unchecked Sendable {
         // Attach before parsing; the cancellation lock protects destruction/detachment.
         try job.signal.check()
         guard v23_configure_request(request,(job.settings.allowInitials ? 1:0)|(job.settings.allowTypos ? 2:0),job.settings.fuzzyGroups,Int32(job.settings.maximumEdits)) == 0 else {throw V21Error.contract("Input settings contract")}
+        guard v106_configure_character_selection(request,job.settings.singleCharacterSelection ? 1:0) == 0 else {throw V21Error.contract("Character selection settings contract")}
         guard v21_request_prepare(request) == 0 else { try job.signal.check(); throw V21Error.contract(String(cString:v21_error(request))) }
         let paths = Int(v21_path_count(request)); times.parsedPathCount=paths; times.parseMS = milliseconds(parseStart)
         job.signal.record("encoding",times)
@@ -450,8 +451,10 @@ private final class V21Runner: @unchecked Sendable {
             if certified { times.scoreBoundSkippedPaths=paths-p-1;break }
         }
 
-        try scoreSequencePool(request,job:job,context:context,times:&times)
-        let count = v21_snapshot(request,Int32(min(8,job.limit)),1)
+        if job.settings.singleCharacterSelection {
+            guard v106_finalize_character_selection(request)==0 else {throw V21Error.model(String(cString:v21_error(request)))}
+        } else {try scoreSequencePool(request,job:job,context:context,times:&times)}
+        let count = v21_snapshot(request,Int32(min(64,job.limit)),1)
         guard count >= 0 else { throw V21Error.model(String(cString: v21_error(request))) }
         if count > 0 && times.firstCandidateReadyMS == nil { times.firstCandidateReadyMS = milliseconds(job.entryNS) }
         var diagnostic: Data?
@@ -461,11 +464,13 @@ private final class V21Runner: @unchecked Sendable {
             let text = job.diagnosticTarget.map { target in target.withCString { String(cString: v21_diagnostic_json(request,$0)) } } ?? String(cString: v21_diagnostic_json(request,nil))
             var object = (try JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
             object["kernel_instance"] = instanceID.uuidString; object["process_id"] = ProcessInfo.processInfo.processIdentifier
-            object["sdk_revision"]="v26-input-fidelity-native-1";object["neural_model"]="V34 trained research candidate";object["checkpoint_sha256"] = checkpointSHA; object["source_step"] = sourceStep; object["neural_weights_updated"] = true
+            object["sdk_revision"]="build106-lexical-mixed-recall-1";object["neural_model"]="V49 best local1408/global94661";object["checkpoint_sha256"] = checkpointSHA; object["source_step"] = sourceStep; object["neural_weights_updated"] = true
             object["identity"] = identity
             object["input_version"] = job.version; object["context_used"] = String(String.UnicodeScalarView(scalars))
             object["actual_model_calls"] = capturedCalls
             object["actual_sequence_model_calls"] = sequenceCapture
+            object["selection_scoring_scope"] = job.settings.singleCharacterSelection ? "manual first-syllable model row + character statistics + first-segment input cost; no sequence/channel model call" : "complete word sequence and channel model"
+            object["model_conditioning"] = "actual retained full-path model inputs; manual character menu reuses the first row"
             object["diagnostic_schema"]="clear-ime-flow/2"
             object["request_id"]=requestID
             object["input_settings"] = (try? JSONSerialization.jsonObject(with:JSONEncoder().encode(job.settings)))
@@ -553,7 +558,7 @@ private final class V21Runner: @unchecked Sendable {
              status:result?.status.rawValue ?? (job.signal.reason() == nil ? "error" : "cancelled"),
              cancellationReason:job.signal.reason(),error:error,stage:job.signal.stage(),unfinishedStageElapsedMS:job.signal.stageAgeMS(),pathCount:result?.syllablePathsExamined ?? t.parsedPathCount,
              completedPaths:result?.completedPaths ?? t.certification.last?.completed_paths ?? 0,recommendedID:result?.recommendedID,
-             sdkElapsedMS:milliseconds(job.entryNS),timings:t,preparationMS:preparation.merging(["one_shot_cpu_preparation_ms":startup.ms]) {_,new in new},preparationMemory:preparationMemory,identity:identity.merging(["startup_prime_status":startup.status]) {_,new in new}))
+             sdkElapsedMS:milliseconds(job.entryNS),timings:t,preparationMS:preparation.merging(["one_shot_cpu_preparation_ms":startup.ms]) {_,new in new},preparationMemory:preparationMemory,identity:identity.merging(["startup_prime_status":startup.status,"selection_mode":job.settings.singleCharacterSelection ? "single_character":"complete_word","selection_score_scope":job.settings.singleCharacterSelection ? "first_row_model_plus_character_statistics_no_sequence_head":"complete_word_main_and_aux"]) {_,new in new}))
     }
     private func empty(_ job: V21Job, normalized: String, status: V21ResultStatus, reason: String, times: V21Timings) -> V21Result {
         var times=times; times.finalCandidateReadyMS=milliseconds(job.entryNS); job.signal.record("empty_result",times)
@@ -575,7 +580,10 @@ private final class V21Runner: @unchecked Sendable {
             let evidence=try JSONDecoder().decode(V23PathEvidence.self,from:Data(String(cString:v23_path_evidence(request,p)).utf8))
             let kinds=Set(evidence.edges.map{$0.type})
             let match=kinds.contains("TYPO") ? "TYPO" : kinds.contains("FUZZY") ? "FUZZY" : evidence.mixed ? "MIXED" : kinds.contains("INITIAL") ? "INITIAL" : kinds.contains("INCOMPLETE") ? "INCOMPLETE" : "EXACT"
-            candidates.append(V21Candidate(id:String(cString:v21_candidate_id(request,i)),text:String(cString:v21_candidate_text(request,i)),reading:String(cString:v21_candidate_reading(request,i)),score:v21_candidate_score(request,i),consumedRawUTF8Range:V21Range(start:0,end:job.raw.utf8.count),consumedRawUTF16Range:V21Range(start:0,end:job.raw.utf16.count),fullConsumption:true,remainingPinyin:"",matchType:match,alignment:alignment,inputVersion:job.version,pathIndex:Int(p),completionSuffix:suffix,inputEvidence:evidence))
+            let consumedEnd=Int(v106_candidate_consumed_raw_end(request,i))
+            guard consumedEnd>0,consumedEnd<=job.raw.utf8.count else {throw V21Error.contract("Invalid native candidate consumption")}
+            let consumed=V21Range(start:0,end:consumedEnd)
+            candidates.append(V21Candidate(id:String(cString:v21_candidate_id(request,i)),text:String(cString:v21_candidate_text(request,i)),reading:String(cString:v21_candidate_reading(request,i)),score:v21_candidate_score(request,i),consumedRawUTF8Range:consumed,consumedRawUTF16Range:try V21Input.utf16Range(consumed,in:job.raw),fullConsumption:consumedEnd==job.raw.utf8.count,remainingPinyin:try V21Input.suffix(after:consumedEnd,in:job.raw),matchType:match,alignment:alignment,inputVersion:job.version,pathIndex:Int(p),completionSuffix:suffix,inputEvidence:evidence))
         }
         var measured = times; measured.candidateConversionMS = milliseconds(conversionStart)
         return V21Result(inputVersion:job.version,rawInput:job.raw,normalizedPinyin:input.normalized,normalizationMap:input.map,candidates:candidates,recommendedID:candidates.first?.id,status:candidates.isEmpty ? .noCandidateAfterConstraints : .ok,reason:candidates.isEmpty ? "No candidate survived bounded search/reading constraints" : nil,syllablePathsExamined:paths,completedPaths:Int(v21_completed_paths(request)),isFinal:final,previewRecommendationIsFinalRankCertified:true,requestedCount:job.limit,timings:measured,generation:job.generation,instanceID:instanceID,diagnosticData:diagnostic)
@@ -611,14 +619,14 @@ public actor V21IMEKernel {
         startupPriming=false;workerRunning=false
         if pending != nil {workerRunning=true;Task.detached(priority:.userInitiated) {await Self.drain(owner:self,runner:runner)}}
     }
-    public func candidates(rawPinyin: String, committedLeftContext: String, inputVersion: UInt64, requestedCount: Int = 8, inputSettings:V23InputSettings = V23InputSettings(), onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21Result? {
+    public func candidates(rawPinyin: String, committedLeftContext: String, inputVersion: UInt64, requestedCount: Int = 64, inputSettings:V23InputSettings = V23InputSettings(), onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21Result? {
         try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:requestedCount,settings:inputSettings,signal:V21Cancellation(),capture:false,target:nil,update:onUpdate)
     }
     /// Explicit user-triggered one-case diagnosis. It never starts a persistent logger.
     public func diagnose(rawPinyin: String, committedLeftContext: String, targetText: String? = nil, inputVersion: UInt64, inputSettings:V23InputSettings = V23InputSettings(), onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21DiagnosticReport {
         let signal = V21Cancellation()
         do {
-            let result = try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:8,settings:inputSettings,signal:signal,capture:true,target:targetText,update:onUpdate ?? { _ in })
+            let result = try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:64,settings:inputSettings,signal:signal,capture:true,target:targetText,update:onUpdate ?? { _ in })
             if let data = result?.diagnosticData { return V21DiagnosticReport(json:data) }
         } catch {
             let value = error as NSError
@@ -631,7 +639,7 @@ public actor V21IMEKernel {
     private func enqueue(raw: String, context: String, version: UInt64, limit: Int, settings:V23InputSettings, signal: V21Cancellation, capture: Bool, target: String?, update: (@Sendable (V21Result) -> Void)?) async throws -> V21Result? {
         guard runner != nil else { throw V21Error.released }
         guard settings.segmentState.utf8.count<=128,settings.fuzzyGroups<=255,(0...2).contains(settings.maximumEdits) else {throw V21Error.contract("Input settings bounds")}
-        guard limit > 0 else { throw V21Error.contract("requestedCount must be positive; output is capped to8") }
+        guard limit > 0 else { throw V21Error.contract("requestedCount must be positive; output is capped to64") }
         guard version >= latestVersion else { signal.cancel("older_input_version"); return nil }
         latestVersion = version; generation &+= 1; let token = generation, entry = tick()
         var queued = V21Timings(); queued.sdkEntryUptimeNS = entry; queued.waitingForPreviousPrediction = active?.stage() == "prediction" || active?.stage() == "sequence_prediction" || startupPriming; queued.waitingForStartupPreparation=startupPriming; signal.record("queued",queued)

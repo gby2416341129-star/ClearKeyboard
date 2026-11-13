@@ -103,7 +103,7 @@ public struct V21Result: Sendable {
     public let isFinal: Bool
     public let previewRecommendationIsFinalRankCertified: Bool
     public let requestedCount: Int
-    public var maximumSupportedCount: Int { 8 }
+    public var maximumSupportedCount: Int { 64 }
     public internal(set) var timings: V21Timings
     internal let generation: UInt64
     internal let instanceID: UUID
@@ -120,10 +120,11 @@ public struct V21Result: Sendable {
         guard let c = candidates.first(where: { $0.id == candidateID }) else { throw V21Error.selection("Unknown candidate") }
         let n = prefixCharacterCount ?? c.alignment.count
         guard n > 0 && n <= c.alignment.count else { throw V21Error.selection("Invalid selected prefix length") }
-        let full = n == c.alignment.count, alignment = Array(c.alignment.prefix(n))
-        let end = full ? rawInput.utf8.count : alignment[n-1].rawUTF8Range.end
+        let entireCandidate = n == c.alignment.count, alignment = Array(c.alignment.prefix(n))
+        let end = entireCandidate ? c.consumedRawUTF8Range.end : alignment[n-1].rawUTF8Range.end
+        let full = end == rawInput.utf8.count
         let range = V21Range(start: 0, end: end), text = String(c.text.prefix(n)), reading = alignment.map(\.syllable).joined(separator: " ")
-        return V21Selection(inputVersion: inputVersion, candidateID: full ? c.id : V21Input.candidateID(raw: rawInput, text: text, reading: reading, consumedEnd: end), selectedText: text, selectedReading: reading, consumedRawUTF8Range: range, consumedRawUTF16Range: try V21Input.utf16Range(range, in: rawInput), remainingPinyin: try V21Input.suffix(after: end, in: rawInput), fullConsumption: full, alignment: alignment)
+        return V21Selection(inputVersion: inputVersion, candidateID: entireCandidate ? c.id : V21Input.candidateID(raw: rawInput, text: text, reading: reading, consumedEnd: end), selectedText: text, selectedReading: reading, consumedRawUTF8Range: range, consumedRawUTF16Range: try V21Input.utf16Range(range, in: rawInput), remainingPinyin: try V21Input.suffix(after: end, in: rawInput), fullConsumption: full, alignment: alignment)
     }
 }
 public enum V21Error: Error, LocalizedError {
@@ -141,7 +142,7 @@ public struct V21Configuration: @unchecked Sendable {
     public init(computeUnits: MLComputeUnits = .cpuOnly, allowIncompleteTail: Bool = true, performanceSink: (@Sendable (V21PerformanceRecord) -> Void)? = nil, performanceCaptureEnabled: (@Sendable () -> Bool)? = nil) {
         self.performanceCaptureEnabled=performanceCaptureEnabled
         self.performanceSink=performanceSink
-        self.computeUnits = .cpuOnly // Build105 locks both models to CPU.
+        self.computeUnits = .cpuOnly // CPU-only integration: both learned models stay on CPU.
         self.allowIncompleteTail = allowIncompleteTail
     }
 }
@@ -224,6 +225,7 @@ public struct V21PerformanceRecord: Codable, Sendable {
 }
 
 public struct V23InputSettings: Codable, Hashable, Sendable {
+    public var singleCharacterSelection:Bool=false
     public var preserveLiteral:Bool=false
     public var allowInitials:Bool=true
     public var allowTypos:Bool=true
@@ -233,6 +235,20 @@ public struct V23InputSettings: Codable, Hashable, Sendable {
     public var segmentState:String=""
     public var personalLearningVersion:UInt64=0 // Cache boundary only; no personal weights are trained.
     public init() {}
+    private enum CodingKeys:String,CodingKey {
+        case singleCharacterSelection,preserveLiteral,allowInitials,allowTypos,fuzzyGroups,maximumEdits,segmentState,personalLearningVersion
+    }
+    public init(from decoder:Decoder) throws {
+        let values=try decoder.container(keyedBy:CodingKeys.self)
+        singleCharacterSelection=try values.decodeIfPresent(Bool.self,forKey:.singleCharacterSelection) ?? false
+        preserveLiteral=try values.decodeIfPresent(Bool.self,forKey:.preserveLiteral) ?? false
+        allowInitials=try values.decodeIfPresent(Bool.self,forKey:.allowInitials) ?? true
+        allowTypos=try values.decodeIfPresent(Bool.self,forKey:.allowTypos) ?? true
+        fuzzyGroups=try values.decodeIfPresent(UInt32.self,forKey:.fuzzyGroups) ?? 0
+        maximumEdits=try values.decodeIfPresent(Int.self,forKey:.maximumEdits) ?? 2
+        segmentState=try values.decodeIfPresent(String.self,forKey:.segmentState) ?? ""
+        personalLearningVersion=try values.decodeIfPresent(UInt64.self,forKey:.personalLearningVersion) ?? 0
+    }
 }
 public struct V23Edit: Codable, Sendable {
     public let operation:String

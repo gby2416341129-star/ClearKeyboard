@@ -19,18 +19,18 @@
   "source_model_archive_sha256": "55142f2bb28776107fdf49c9ccb6f53f828f454a6238da1d824efdbaa4c8060e",
   "files": {
     "Native/V21NativeIME/Package.swift": "82d4540a6908f9e37aded6aba9756019b47294f093af05eafa3bb4d541945bd9",
-    "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "3274e480ecaff1cd7f87f66c6d0f7e8c3e931f1cfb3b355c5d611c84adc3a1c2",
-    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "c5c218bf7d94ea9678bc95631c6d12bd09ff556722d9d875cb0fed740e2280fc",
-    "Native/V21NativeIME/Sources/CV21IMECore/v23_parser.inc": "e86816b0376520302c2793ff56395380d989e06d82226a2b292d3d10cefc5991",
-    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "94097341bdeee920114b58135f5e4bd0ea89af321e12b4c74e0060e8e91e092d",
+    "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "422e0e6b50b077964d25ee9a5cfdac04cd20531c0e3bf6593a696e00febfb39e",
+    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "52b949cfdc99e3364359973216e5832451dd3b376ad821c5baf8a192990abd49",
+    "Native/V21NativeIME/Sources/CV21IMECore/v23_parser.inc": "e948d299fbb295bb8cba363783e6ac43e0c818683d6f2c8193d85710739d666c",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "0cad8975dfb8b16a3cdc5099629af59810e1c5f59e7a21552a590969b8969fed",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.bin": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.json": "0862d85946682a75741768ba4f8aa53e7c33a2ac09eb3f799997ded5c52ac976",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/vocabulary.json": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "0d35538874856524934dc4e81062e0bb83ca986254ca248861f57d1e5815963e",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "570413ccad5215a2c20971187edaa2cec04dbebf321cd57806772663da3aea29",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Input.swift": "413e61b99689d089bb1652f4221f23d1d20e94df2a8f761cbae32749d5e2afa8",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "7bed8c64ea3adb822e7767aa250ca7ebe523da745c7b2f48fc9caf890d591bd8",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "7cecef54aec869499ce3e4347da6d2d05329edd6e1ce1b633013c518841fcbc9",
     "Native/V21NativeIME/Sources/V21NativeIME/V22Measurement.swift": "6b8d1f00f79506480a740b0a2f544904fc47035aedd870caff14d1a1dbf5452b",
     "Native/V21NativeIME/Sources/V21NativeIME/V37FuzzySettings.swift": "3fc1925eaad5c0d0de932fdd3ca01a157994dc5aa26276bea34cc446b877d20c",
     "Core/Resources/V49/ordinary_probes_160.json": "38626257e91fcdfe74dc22fe04c1041768dc212821174be31162d5a7656348f2",
@@ -39,12 +39,24 @@
     "Core/Resources/V49/V49InputSequenceFP16.mlpackage/Manifest.json": "f911d4c3cc51f6e4bbc0fbf4cf3f104af4e1da87842798d034b76902144f6876",
     "Core/Resources/V49/V49PinyinB1FP16.mlpackage/Data/com.apple.CoreML/model.mlmodel": "0f5dd4447011d8f104dbd747f26187f38caccca2c1444e71932bdec77a96f78a",
     "Core/Resources/V49/V49PinyinB1FP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin": "747ffa9ff369c4e163908a65cb131d5d683875ff34b11ce41ef974edf981d81c",
-    "Core/Resources/V49/V49PinyinB1FP16.mlpackage/Manifest.json": "8a95f3999fdb3dfb386a0d79d89744ea0cf027725c8e97a2bca87208e98ac045"
+    "Core/Resources/V49/V49PinyinB1FP16.mlpackage/Manifest.json": "8a95f3999fdb3dfb386a0d79d89744ea0cf027725c8e97a2bca87208e98ac045",
+    "Core/Resources/EnglishWords/AGID-LICENSE.txt": "93981b394ba86963592d9b3773bfa19dbca6e842f6ce2d2a3712effd6c442123",
+    "Core/Resources/EnglishWords/manifest.json": "9e1e05a18c7e02bcd1952185bce222b3429c128a1a684a4156d648a291a6fda6",
+    "Core/Resources/EnglishWords/SOURCE-NOTICE.txt": "a0f7f0b7295e034ccdeae2cf40a02f95736c29c9a0e1435b9f90382d31995c25",
+    "Core/Resources/EnglishWords/words.txt": "d8dd720502b888eedf465c0899ffe137d537cd22527842c2febda2ea4ef2712d"
   },
   "sdk_adaptations": [
-    "V49 model metadata binding",
-    "immutable CPU-only configuration; no cross-device recovery",
-    "matching production cache and cancellation logic retained",
-    "App fuzzy toggles use V37FuzzySettings stable ABI bits"
-  ]
+    "CPU only for main and auxiliary models",
+    "build106-lexical-mixed-recall-1",
+    "64 visible / 256 pool; up to32 character expansions per prefix",
+    "full raw with exact first-syllable partial consumption in character mode",
+    "request-bound local learned/English/number candidates; persistent epoch-guarded memory"
+  ],
+  "ranking_policy_version": "build106-lexical-mixed-recall-1",
+  "maximum_visible_candidates": 64,
+  "english_dictionary_words": 65986,
+  "neural_weights_changed_in_this_revision": false,
+  "decoder_policy_changed": true,
+  "learning_enabled_in_final_candidates": true,
+  "manual_character_selection": "real first-syllable receipts; no full-sequence head call"
 }

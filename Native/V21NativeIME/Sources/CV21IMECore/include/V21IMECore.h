@@ -49,6 +49,11 @@ V21_API int32_t v21_candidate_characters(const V21Request*,int32_t);
 /* JSON is generated only on explicit diagnostic requests; target is queried AFTER decoding. */
 V21_API const char *v21_diagnostic_json(V21Request*,const char*);
 /* V23: settings are immutable for a request and set BEFORE prepare. */
+/* Build106 manual character menu: configure before prepare, finalize after all
+ * original paths supplied logits; receipts retain original raw prefix ranges. */
+V21_API int32_t v106_configure_character_selection(V21Request*,int32_t);
+V21_API int32_t v106_finalize_character_selection(V21Request*);
+V21_API int32_t v106_candidate_consumed_raw_end(const V21Request*,int32_t);
 V21_API int32_t v23_configure_request(V21Request*,uint32_t,uint32_t,int32_t);
 V21_API const char *v23_path_evidence(V21Request*,int32_t);
 V21_API int32_t v23_pool_count(const V21Request*);

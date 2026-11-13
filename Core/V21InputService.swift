@@ -33,6 +33,7 @@ actor V21InputService {
         if let initialization {return try await initialization.value}
         KernelMeasurement.shared.noteStartup("prepare_requested")
         let task=Task.detached(priority:.userInitiated) {
+            _ = EnglishWordLexicon.shared.wordCount // Read-only preload off the UI thread.
             guard let model=InputResources.url("V49PinyinB1FP16",extension:"mlmodelc"),
                   let sequence=InputResources.url("V49InputSequenceFP16",extension:"mlmodelc"),
                   let config=InputResources.url("runtime_config",extension:"json",directory:"V49") else {throw V21Error.resource("V49 paired models/resources are unavailable")}
@@ -68,7 +69,8 @@ actor V21InputService {
         // UI still validates its query/token on MainActor before accepting them.
         var inputSettings=V23InputSettings()
         inputSettings.fuzzyGroups=try V37FuzzySettings.mask(enabledUIKeys:fuzzyPairs)
-        guard let result=try await kernel.candidates(rawPinyin:raw,committedLeftContext:context,inputVersion:requested,requestedCount:8,inputSettings:inputSettings,onUpdate:{result in
+        inputSettings.singleCharacterSelection=characters
+        guard let result=try await kernel.candidates(rawPinyin:raw,committedLeftContext:context,inputVersion:requested,requestedCount:64,inputSettings:inputSettings,onUpdate:{result in
             let returned=DispatchTime.now().uptimeNanoseconds
             guard lease.isValid,let batch=try? Self.convert(result,lease:lease,characters:characters,returned:returned),lease.isValid else{return}
             updated(batch)

@@ -359,9 +359,15 @@ class KeyboardViewController: UIInputViewController, KeyboardDocument {
             }
         }
         if case .externalEdit = outcome {
-            discardMarkedDelivery()
-            surface?.closePanel(); model?.cursorChanged(unmarkDraft: false)
-            model?.documentTraitsChanged()
+            if model?.preservesOwnedNumericFormatting()==true {
+                // The field may format the digits just typed with spaces or
+                // hyphens. Only the still-owned, exactly matching run survives.
+                model?.refreshCandidates()
+            } else {
+                discardMarkedDelivery()
+                surface?.closePanel();model?.cursorChanged(unmarkDraft:false)
+                model?.documentTraitsChanged()
+            }
         }
         if case .compositionContextChanged = outcome { model?.refreshCandidates() }
         // A differing snapshot may be an old acknowledgement, but it can also

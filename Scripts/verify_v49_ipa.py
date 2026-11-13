@@ -18,7 +18,7 @@ def verify(path):
             for symbol in [b'v21_decode_path',b'v23_configure_request',b'v24_apply_scores',b'V21IMEKernel']:
                 assert symbol in data,'Paired V49 SDK not linked: '+str(symbol)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='105' and info['CFBundleShortVersionString']=='0.1.102'
+            assert str(info['CFBundleVersion'])=='106' and info['CFBundleShortVersionString']=='0.1.103'
         assert plistlib.loads(ipa.read(BASE+'Info.plist'))['CFBundleIdentifier']=='com.example.clearkeyboard'
         ext_info=plistlib.loads(ipa.read(EXT+'Info.plist'))
         assert ext_info['CFBundleIdentifier']=='com.example.clearkeyboard.Keyboard'
@@ -36,7 +36,12 @@ def verify(path):
         config=json.loads(ipa.read(EXT+'V49/runtime_config.json'))
         assert config['source_checkpoint_sha256']==CHECKPOINT and config['source_step']==94661
         assert config['score_version']==identity['score_version']=='v23-input-sequence-energy-1'
-        assert config['ranking_policy_version']=='v23-uniform-lattice-learned-energy-1'
+        assert config['ranking_policy_version']==identity['ranking_policy_version']=='build106-lexical-mixed-recall-1'
+        assert identity['maximum_visible_candidates']==config['topk']==64
+        english_names=['words.txt','manifest.json','SOURCE-NOTICE.txt','AGID-LICENSE.txt']
+        for name in english_names:
+            assert [n for n in names if n.endswith('/EnglishWords/'+name)]==[EXT+'EnglishWords/'+name],name
+            assert hashlib.sha256(ipa.read(EXT+'EnglishWords/'+name)).hexdigest()==identity['files']['Core/Resources/EnglishWords/'+name],name
         prefix='Native/V21NativeIME/Sources/V21NativeIME/Resources/'
         for name in DATA:
             assert hashlib.sha256(ipa.read(EXT+'V49/'+name)).hexdigest()==identity['files'][prefix+name],name
@@ -46,15 +51,17 @@ def verify(path):
         assert hashlib.sha256(ipa.read(EXT+'V49/ordinary_probes_160.json')).hexdigest()==identity['files']['Core/Resources/V49/ordinary_probes_160.json']
         manifest=json.loads(ipa.read(EXT+'V49/packaged_manifest.json'))
         assert manifest['kernel']=='V49' and manifest['compute_units']=='cpuOnly'
-        expected={n[len(EXT):] for n in names if n.startswith(tuple([EXT+'V49/']+[EXT+m+'/' for m in MODELS])) and not n.endswith('/') and n!=EXT+'V49/packaged_manifest.json'}
+        expected={n[len(EXT):] for n in names if n.startswith(tuple([EXT+'V49/',EXT+'EnglishWords/']+[EXT+m+'/' for m in MODELS])) and not n.endswith('/') and n!=EXT+'V49/packaged_manifest.json'}
         assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
         for name,digest in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+name)).hexdigest()==digest,name
         icons={n[len(BASE+'ToolIcons/'):]:hashlib.sha256(ipa.read(n)).hexdigest() for n in names if n.startswith(BASE+'ToolIcons/') and n.endswith('.png')}
         keyboard_icons={n[len(EXT+'ToolIcons/'):]:hashlib.sha256(ipa.read(n)).hexdigest() for n in names if n.startswith(EXT+'ToolIcons/') and n.endswith('.png')}
         assert icons and icons==keyboard_icons
-    result={'build':105,'version':'0.1.102','kernel':'V49','source_checkpoint_sha256':CHECKPOINT,
+    result={'build':106,'version':'0.1.103','kernel':'V49','source_checkpoint_sha256':CHECKPOINT,
             'source_local_step':1408,'source_global_step':94661,'compute_units':'cpuOnly',
             'paired_compiled_models':MODELS,'compiled_resources_verified':len(manifest['files']),
+            'decoder_policy':'build106-lexical-mixed-recall-1','maximum_visible_candidates':64,
+            'english_dictionary_words':identity['english_dictionary_words'],
             'inference_executed':False,'tests_executed':False,'user_device_acceptance':'pending'}
     Path(path).with_suffix('.verification.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(result))

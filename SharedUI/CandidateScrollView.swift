@@ -17,6 +17,9 @@ import V21NativeIME
         let animation: CandidateAnimation
     }
     private var presentation: Presentation?
+    // Raw latest model presentation is the only selection authority. A row may
+    // keep an obsolete word in place during a gesture, but never its receipt.
+    private var latest: (Presentation, UIColor)?
     private var displayTarget:(items:[Candidate],context:KeyboardModel.CandidateContext?,timing:V22AppTiming)?
     private var displayTrace:CandidateDisplayProbe?
     private var displayTraceKey=""
@@ -99,19 +102,21 @@ import V21NativeIME
                 accent: UIColor, hasMore: Bool = false, textSize: CandidateTextSize = .standard, textColor: UIColor? = nil, animation: CandidateAnimation = .blur, timing:V22AppTiming? = nil) {
         if let timing,!items.isEmpty,KernelMeasurement.shared.observes(timing) {displayTarget=(items,context,timing)}
         else {displayTarget=nil;displayTrace?.cancel(reason:"candidate_input_changed");displayTrace=nil}
-        var next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize,
+        let next = Presentation(items: items, context: context, arithmetic: arithmetic, hasMore: hasMore, textSize: textSize,
                                 textColor: textColor?.resolvedColor(with: traitCollection), animation: animation)
         let resolved = accent.resolvedColor(with: traitCollection)
+        latest = (next, resolved)
+        submit(next, accent: resolved)
+    }
+    private func submit(_ value: Presentation, accent resolved: UIColor) {
+        var next = value
         if UIAccessibility.isReduceMotionEnabled || UIAccessibility.isVoiceOverRunning {
             buttons.forEach { $0.finishTransition() }
         }
         if sameQuery(browsed, next), let current = presentation, sameQuery(current, next) {
-            // Keep every visible target at the same x coordinate, while allowing
-            // unseen alternatives to extend the tail during native momentum.
-            var seen = Set(current.items.map(\.text))
-            let appended = current.items + items.filter { seen.insert($0.text).inserted }
-            next = Presentation(items: appended, context: current.context,
-                                arithmetic: arithmetic, hasMore: hasMore, textSize: textSize, textColor: next.textColor, animation: next.animation)
+            // Keep surviving words at the same x coordinate. Existing text
+            // receives the latest receipt and context, not an old inputVersion.
+            next = refreshed(current, from: next, keepMissing: holdsCandidateUpdates)
             pending = nil; schedule(next, accent: resolved); return
         }
         if holdsCandidateUpdates { pending = (next, resolved); return }
@@ -134,19 +139,17 @@ import V21NativeIME
         }
         frameValue.replace(with: (next, accent))
         displayFrame.schedule(in: self, maximumFramesPerSecond: window?.screen.maximumFramesPerSecond ?? 60) { [weak self] in
-            guard let self, let (next, color) = self.frameValue.take() else { return }
+            guard let self, self.frameValue.take() != nil, let (next, color) = self.latest else { return }
             // A finger may have landed after submission but before this frame.
             // Preserve its visible targets; only appending the same query is safe.
             if self.holdsCandidateUpdates && !self.sameQuery(self.browsed, next) {
                 self.pending = (next, color); return
             }
             // Browsing can also start between submission and this callback.
-            // Recheck the append-only rule at the actual presentation boundary.
+            // Recheck receipt freshness and the ordering lock at the actual
+            // presentation boundary, because a gesture may have started meanwhile.
             if self.sameQuery(self.browsed, next), let current = self.presentation, self.sameQuery(current, next) {
-                var seen = Set(current.items.map(\.text))
-                let merged = current.items + next.items.filter { seen.insert($0.text).inserted }
-                self.apply(Presentation(items: merged, context: current.context, arithmetic: next.arithmetic,
-                    hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation), accent: color)
+                self.apply(self.refreshed(current, from: next, keepMissing: self.holdsCandidateUpdates), accent: color)
             } else { self.apply(next, accent: color) }
         }
     }
@@ -218,23 +221,28 @@ import V21NativeIME
         }
     }
     func prepareToDisappear() {
-        guard presentation?.items.isEmpty == false else { return }
+        latest = nil
+        guard presentation?.items.isEmpty == false else {
+            displayFrame.cancel(); frameValue.discard(); pending = nil; browsed = nil
+            return
+        }
         transitionInk(presentation?.animation ?? .blur, disappearing: true, appearing: false)
         finishIncomingInk(); inkAnimator?.stopAnimation(true); inkAnimator = nil
         strip.alpha = 1
         displayFrame.cancel(); frameValue.discard(); pending = nil
-        presentation = nil; geometry.reset(); visibleRange = 0..<0
+        presentation = nil; browsed = nil; geometry.reset(); visibleRange = 0..<0
         buttons.forEach { $0.finishTransition(); $0.isHidden = true; $0.tag = -1 }
     }
     func dismissManagement() { managementActive = false; scheduleIdle() }
     @objc private func candidateHeld(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, let current = presentation, !current.arithmetic, let context = current.context else { return }
+        guard gesture.state == .began, let current = presentation, !current.arithmetic else { return }
         let point = strip.convert(gesture.location(in: self), from: self)
         let index = firstIndex(at: point.x)
         guard current.items.indices.contains(index), frames.indices.contains(index), frames[index].contains(point) else { return }
-        beginBrowsing(); managementActive = true
+        guard let (candidate, authority) = currentChoice(current.items[index], in: current), let context = authority.context else { return }
+        managementActive = true; beginBrowsing()
         if selectionVibrationEnabled { KeyboardVibration.shared.pulseInterface() }
-        onManage?(current.items[index], context, convert(frames[index], from: strip))
+        onManage?(candidate, context, convert(frames[index], from: strip))
     }
     private func selectionFeedback(_ index: Int) {
         guard let host = superview, frames.indices.contains(index) else { return }
@@ -263,8 +271,33 @@ import V21NativeIME
               lhs.context?.document == rhs.context?.document,
               lhs.context?.characters == rhs.context?.characters,
               lhs.context?.language == rhs.context?.language else { return false }
-        // Empty-spelling predictions belong to the surrounding text.
-        return rhs.context?.raw.isEmpty == false || lhs.context == rhs.context
+        guard let left = lhs.context, let right = rhs.context else { return lhs.context == rhs.context }
+        // Empty-spelling numeric/prediction rows bind the complete editor snapshot.
+        guard !right.raw.isEmpty else { return left == right }
+        // A normal host acknowledgment may add/remove the marked draft in its
+        // reported before-string. Compare the committed model context instead.
+        return committedBefore(left) == committedBefore(right) && left.after == right.after
+    }
+    private func committedBefore(_ context: KeyboardModel.CandidateContext) -> String {
+        let value = context.before.hasSuffix(context.raw) ? String(context.before.dropLast(context.raw.count)) : context.before
+        return CandidateLanguageContext.tail(value)
+    }
+    private func refreshed(_ current: Presentation, from next: Presentation, keepMissing: Bool) -> Presentation {
+        var newest: [String: Candidate] = [:]
+        for item in next.items where newest[item.text] == nil { newest[item.text] = item }
+        var seen = Set<String>(), merged: [Candidate] = []
+        for old in current.items where seen.insert(old.text).inserted {
+            if let replacement = newest[old.text] { merged.append(replacement) }
+            else if keepMissing { merged.append(old) } // Visual placeholder only; currentChoice rejects it.
+        }
+        for item in next.items where seen.insert(item.text).inserted { merged.append(item) }
+        return Presentation(items: merged, context: next.context, arithmetic: next.arithmetic,
+                            hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation)
+    }
+    private func currentChoice(_ shown: Candidate, in current: Presentation) -> (Candidate, Presentation)? {
+        guard let (authority, _) = latest, sameQuery(current, authority),
+              let replacement = authority.items.first(where: { $0.text == shown.text }) else { return nil }
+        return (replacement, authority)
     }
     private func apply(_ next: Presentation, accent: UIColor) {
         guard next != presentation || !ink.isEqual(accent) else { return }
@@ -466,11 +499,14 @@ import V21NativeIME
         super.touchesCancelled(touches, with: event)
         scheduleIdle()
     }
-    fileprivate func activate(_ index: Int) {
-        guard let current = presentation, current.items.indices.contains(index) else { return }
+    @discardableResult fileprivate func activate(_ index: Int, matchingText: String? = nil) -> Bool {
+        guard let current = presentation, current.items.indices.contains(index),
+              matchingText == nil || matchingText == current.items[index].text else { return false }
+        guard let (candidate, authority) = currentChoice(current.items[index], in: current) else { return false }
         buttons.forEach { $0.finishTransition() }
         selectionFeedback(index)
-        onSelect?(current.items[index], current.context, current.arithmetic)
+        onSelect?(candidate, authority.context, authority.arithmetic)
+        return true
     }
     private func setInteraction(_ active: Bool) {
         guard interactionActive != active else { return }
@@ -484,10 +520,9 @@ import V21NativeIME
         strip.alpha = 1; outgoingInk?.removeFromSuperview(); outgoingInk = nil
         browsed = presentation
         setInteraction(true)
-        if let (next, color) = pending, sameQuery(browsed, next) {
+        if pending != nil, let (next, color) = latest, sameQuery(browsed, next) {
             pending = nil
-            update(next.items, context: next.context, arithmetic: next.arithmetic,
-                   accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation)
+            submit(next, accent: color)
         }
         requestedCount = -1; requestMoreIfNeeded()
     }
@@ -500,10 +535,12 @@ import V21NativeIME
                 self.idleScheduled = false
                 guard !self.holdsCandidateUpdates else { return }
                 self.setInteraction(false)
-                if let (next, color) = self.pending {
+                if let (next, color) = self.latest {
                     self.pending = nil
-                    // Recheck the browsing lock after finger-up as well.
-                    self.update(next.items, context: next.context, arithmetic: next.arithmetic, accent: color, hasMore: next.hasMore, textSize: next.textSize, textColor: next.textColor, animation: next.animation)
+                    // Gestures may have kept a removed word as a nonselectable
+                    // placeholder. Prune it after tracking/momentum, or publish
+                    // the latest different query. Never revive an old pending row.
+                    self.submit(next, accent: color)
                 }
             }
         }
@@ -531,7 +568,7 @@ import V21NativeIME
             strip.alpha = 1
             outgoingInk?.removeFromSuperview(); outgoingInk = nil
             buttons.forEach { $0.finishTransition() }
-            pending = nil; browsed = nil; setInteraction(false)
+            pending = nil; latest = nil; browsed = nil; setInteraction(false)
         }
     }
 }
@@ -676,8 +713,9 @@ import V21NativeIME
 @MainActor private final class CandidateAccessibility: UIAccessibilityElement {
     private weak var owner: CandidateScrollView?
     private let index: Int
+    private let text: String
     init(owner: CandidateScrollView, index: Int, text: String) {
-        self.owner = owner; self.index = index
+        self.owner = owner; self.index = index; self.text = text
         super.init(accessibilityContainer: owner)
         accessibilityLabel = "候选：" + text
         accessibilityIdentifier = "candidate." + text
@@ -688,7 +726,7 @@ import V21NativeIME
         set {}
     }
     override func accessibilityElementDidBecomeFocused() { owner?.focusCandidate(index) }
-    override func accessibilityActivate() -> Bool { owner?.activate(index); return owner != nil }
+    override func accessibilityActivate() -> Bool { owner?.activate(index, matchingText: text) ?? false }
 }
 
 /// Numeric observation of the real candidate UILabel backing draw and UIKit
