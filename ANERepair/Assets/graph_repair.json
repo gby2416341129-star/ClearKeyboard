@@ -1,0 +1,20 @@
+{
+  "source_checkpoint_sha256": "6b2a81977f112ebdc1763198dac5e7e68caeef0d4d65fc7819ec3133e5929f58",
+  "graph_revision": "v49-static64-bc1s-2",
+  "legal_ids_sha256": "61a0d677a3f82bb124ddac2cf6ca98e96136d8226ec7eb9030d2d3223f42c439",
+  "weights_changed": false,
+  "new_training": false,
+  "forward_or_tests_run": false,
+  "device_success": "pending user",
+  "native_parser_and_score_unchanged": true,
+  "main_changes": [
+    "fixed64 input; no EnumeratedShapes or dynamic shape arithmetic",
+    "BC1S 1x1 convolutions with unchanged linear weights",
+    "attention split into original six heads",
+    "full8192 output with exact CPU-side legal136 extraction"
+  ],
+  "sources": [
+    "https://machinelearning.apple.com/research/neural-engine-transformers",
+    "https://github.com/apple/coremltools/issues/1909"
+  ]
+}

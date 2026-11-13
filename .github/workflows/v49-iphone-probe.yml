@@ -1,12 +1,12 @@
-name: Build V49 standalone iPhone latency probe
+name: Build V49 ANE compatibility repair2
 on:
   push:
-    branches: [npu/v49-iphone-probe]
+    branches: [npu/v49-iphone-probe-ane2]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: v49-iphone-probe-${{ github.ref }}
+  group: v49-ane2-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:
@@ -17,23 +17,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Restore byte-verified source and parameter archive
+      - name: Restore verified V49 weights and apply graph repair
         run: |
           python3 V49ProbePayload/restore.py
           python3 - <<'PY'
           from pathlib import Path
+          import shutil
+          shutil.copytree('ANERepair','V49Probe',dirs_exist_ok=True)
           for p in Path('V49Probe/Scripts').glob('*.sh'):
               p.write_bytes(p.read_bytes().replace(bytes([13,10]),bytes([10])))
           PY
-          cp Overrides/V49ProbeApp.swift V49Probe/Sources/V49ProbeApp.swift
       - name: Install pinned conversion tooling
         run: python3 -m pip install 'numpy==1.26.4' 'coremltools==9.0'
-      - name: Convert, compile and package only; no predictions or tests
+      - name: Export static BC1S graph, compile and package only
         run: bash V49Probe/Scripts/build_probe.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: V49Probe-build1-IPA
+          name: V49Probe-build2-ANE-IPA
           path: V49Probe/work/artifacts/
           compression-level: 0
           retention-days: 14
