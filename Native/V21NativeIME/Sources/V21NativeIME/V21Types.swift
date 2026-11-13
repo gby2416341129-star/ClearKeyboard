@@ -33,12 +33,17 @@ public struct V21Candidate: Codable, Sendable {
     public let inputVersion: UInt64
     public let pathIndex: Int
     public let completionSuffix: String
+    public let inputEvidence: V23PathEvidence
+    /// Legacy flag: no unfinished tail, not a claim of exact full-pinyin spelling.
     public var isCompletePinyinInput: Bool { completionSuffix.isEmpty }
+    public var isExactFullPinyin:Bool {inputEvidence.edges.allSatisfy{$0.type == "EXACT"}}
 }
 public enum V21ResultStatus: String, Codable, Sendable {
     case ok, emptyInput, unsupportedInput, noSyllablePath, noCandidateAfterConstraints
 }
 public struct V21Timings: Codable, Sendable {
+    public internal(set) var sequencePredictionMS: Double = 0
+    public internal(set) var sequencePredictionCalls: Int = 0
     public internal(set) var queueOverlapWithPreviousPredictionStageMS: Double = 0
     public internal(set) var parsedPathCount: Int? = nil
     public internal(set) var waitingForPreviousPrediction: Bool = false
@@ -104,7 +109,7 @@ public struct V21Result: Sendable {
     internal let instanceID: UUID
     internal var diagnosticData: Data?
     internal func rebased(version:UInt64,generation:UInt64,timings:V21Timings)->V21Result {
-        let items=candidates.map {c in V21Candidate(id:c.id,text:c.text,reading:c.reading,score:c.score,consumedRawUTF8Range:c.consumedRawUTF8Range,consumedRawUTF16Range:c.consumedRawUTF16Range,fullConsumption:c.fullConsumption,remainingPinyin:c.remainingPinyin,matchType:c.matchType,alignment:c.alignment,inputVersion:version,pathIndex:c.pathIndex,completionSuffix:c.completionSuffix)}
+        let items=candidates.map {c in V21Candidate(id:c.id,text:c.text,reading:c.reading,score:c.score,consumedRawUTF8Range:c.consumedRawUTF8Range,consumedRawUTF16Range:c.consumedRawUTF16Range,fullConsumption:c.fullConsumption,remainingPinyin:c.remainingPinyin,matchType:c.matchType,alignment:c.alignment,inputVersion:version,pathIndex:c.pathIndex,completionSuffix:c.completionSuffix,inputEvidence:c.inputEvidence)}
         return V21Result(inputVersion:version,rawInput:rawInput,normalizedPinyin:normalizedPinyin,normalizationMap:normalizationMap,candidates:items,recommendedID:recommendedID,status:status,reason:reason,syllablePathsExamined:syllablePathsExamined,completedPaths:completedPaths,isFinal:isFinal,previewRecommendationIsFinalRankCertified:previewRecommendationIsFinalRankCertified,requestedCount:requestedCount,timings:timings,generation:generation,instanceID:instanceID,diagnosticData:nil)
     }
     /// Pure immutable conversion: render an entire batch without per-candidate actor hops.
@@ -129,12 +134,15 @@ public enum V21Error: Error, LocalizedError {
     }
 }
 public struct V21Configuration: @unchecked Sendable {
-    public var computeUnits: MLComputeUnits
+    public let computeUnits: MLComputeUnits
     public var performanceSink: (@Sendable (V21PerformanceRecord) -> Void)?
     public var performanceCaptureEnabled: (@Sendable () -> Bool)?
     public var allowIncompleteTail: Bool
-    public init(computeUnits: MLComputeUnits = .all, allowIncompleteTail: Bool = true, performanceSink: (@Sendable (V21PerformanceRecord) -> Void)? = nil, performanceCaptureEnabled: (@Sendable () -> Bool)? = nil) {
-        self.performanceCaptureEnabled=performanceCaptureEnabled; self.performanceSink=performanceSink; self.computeUnits = computeUnits; self.allowIncompleteTail = allowIncompleteTail
+    public init(computeUnits: MLComputeUnits = .cpuOnly, allowIncompleteTail: Bool = true, performanceSink: (@Sendable (V21PerformanceRecord) -> Void)? = nil, performanceCaptureEnabled: (@Sendable () -> Bool)? = nil) {
+        self.performanceCaptureEnabled=performanceCaptureEnabled
+        self.performanceSink=performanceSink
+        self.computeUnits = .cpuOnly // Build105 locks both models to CPU.
+        self.allowIncompleteTail = allowIncompleteTail
     }
 }
 public struct V21DiagnosticReport: Sendable {
@@ -177,7 +185,8 @@ public struct V21CandidateScoreSample: Codable, Sendable {
     public let segmentation_log_prior: Double
     public let score: Double
     public let complete_word_log_prior: Double?
-    public let lexical_fusion_gain_mean: Double?
+    public let lexical_fusion_gain_mean: Double? // historical Build104 field only
+    public let input_and_learned_adjustment: Double? // actual V23/V24 score adjustment
 }
 public struct V21CertificationSample: Codable, Sendable {
     public let ranking_policy: String?
@@ -212,4 +221,45 @@ public struct V21PerformanceRecord: Codable, Sendable {
     public let preparationMS: [String:Double]
     public let preparationMemory: [V21MemorySample]
     public let identity: [String:String]
+}
+
+public struct V23InputSettings: Codable, Hashable, Sendable {
+    public var preserveLiteral:Bool=false
+    public var allowInitials:Bool=true
+    public var allowTypos:Bool=true
+    /// bits0..7: zh/z,ch/c,sh/s,n/l,f/h,an/ang,en/eng,in/ing.
+    public var fuzzyGroups:UInt32=0
+    public var maximumEdits:Int=2
+    public var segmentState:String=""
+    public var personalLearningVersion:UInt64=0 // Cache boundary only; no personal weights are trained.
+    public init() {}
+}
+public struct V23Edit: Codable, Sendable {
+    public let operation:String
+    public let cross_syllable_boundary:Bool?
+    public let raw_utf8_range:[Int]?
+    public let charged_once_on_first_segment:Bool?
+    public let raw_utf8_offset:Int
+    public let normalized_offset:Int
+    public let source:String
+    public let target:String
+}
+public struct V23InputEdge: Codable, Sendable {
+    public let type:String
+    public let syllable_id:Int
+    public let syllable:String
+    public let normalized_range:[Int]
+    public let raw_utf8_range:[Int]
+    public let fuzzy_group_bits:UInt32
+    public let edit_count:Int
+    public let cost:Double
+    public let completion:String
+    public let edits:[V23Edit]
+    public let shared_boundary_transpose_offset:Int?
+    public let shared_boundary_side:Int?
+}
+public struct V23PathEvidence: Codable, Sendable {
+    public let input_cost:Double
+    public let mixed:Bool
+    public let edges:[V23InputEdge]
 }

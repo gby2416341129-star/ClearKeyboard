@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 [[ "$(uname -s)" == Darwin ]] || { echo 'macOS and Xcode are required.' >&2; exit 1; }
-python3 Scripts/prepare_v22.py
+python3 Scripts/prepare_v49.py
 mkdir -p .build
 swiftc SharedUI/BrandMaterial.swift Scripts/prepare_app_icon.swift -o .build/prepare-app-icon
 .build/prepare-app-icon
@@ -25,7 +25,8 @@ mkdir "$STAGE/Payload"
 ditto --norsrc --noextattr "$APP" "$STAGE/Payload/ClearKeyboard.app"
 python3 Scripts/seal_ipa_resources.py "$STAGE/Payload/ClearKeyboard.app"
 (cd "$STAGE" && ditto -c -k --norsrc --noextattr --keepParent Payload ClearKeyboard-unsigned.ipa)
-python3 Scripts/verify_ipa.py "$STAGE/ClearKeyboard-unsigned.ipa"
+python3 Scripts/verify_v49_ipa.py "$STAGE/ClearKeyboard-unsigned.ipa"
+cp "$STAGE/ClearKeyboard-unsigned.verification.json" "$OUTPUT_DIR/ClearKeyboard-unsigned.verification.json"
 mv "$STAGE/ClearKeyboard-unsigned.ipa" "$OUTPUT_DIR/ClearKeyboard-unsigned.ipa"
 (cd "$OUTPUT_DIR" && shasum -a 256 ClearKeyboard-unsigned.ipa > ClearKeyboard-unsigned.ipa.sha256)
 stat -f 'IPA bytes: %z' "$OUTPUT_DIR/ClearKeyboard-unsigned.ipa"

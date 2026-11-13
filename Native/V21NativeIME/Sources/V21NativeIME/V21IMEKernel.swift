@@ -36,8 +36,8 @@ private final class V21Cancellation: @unchecked Sendable {
     }
     func record(_ stage: String, _ timings: V21Timings) {
         lock.lock();defer {lock.unlock()};let now=tick()
-        if stage != "prediction",let start=predictionStartNS {if predictionIntervals.count<8 {predictionIntervals.append((start,now))};predictionStartNS=nil}
-        if stage == "prediction",predictionStartNS==nil {predictionStartNS=now}
+        if stage != "prediction" && stage != "sequence_prediction",let start=predictionStartNS {if predictionIntervals.count<8 {predictionIntervals.append((start,now))};predictionStartNS=nil}
+        if (stage == "prediction" || stage == "sequence_prediction"),predictionStartNS==nil {predictionStartNS=now}
         phase=stage;phaseNS=now;telemetry=timings
     }
     func captureDetails(_ value: [String: Any]) { lock.lock(); details = value; lock.unlock() }
@@ -51,6 +51,8 @@ private final class V21Cancellation: @unchecked Sendable {
 }
 private struct V21Manifest: Decodable {
     let source_checkpoint_sha256: String
+    let source_step:Int
+    let neural_parent_sha256:String
     let resource_binary_sha256: String
     let statistics_sha256: String
     let language_data_sha256: String
@@ -69,6 +71,7 @@ private struct V21Job: @unchecked Sendable {
     let version: UInt64
     let generation: UInt64
     let limit: Int
+    let settings:V23InputSettings
     let entryNS: UInt64
     let signal: V21Cancellation
     let blocker: V21Cancellation?
@@ -92,12 +95,12 @@ private final class V21NativePreparation: @unchecked Sendable {
         let old = try Data(contentsOf: directory.appendingPathComponent("V19Resources.bin"), options: .mappedIfSafe)
         let statistics = try Data(contentsOf: directory.appendingPathComponent("V21Statistics.bin"), options: .mappedIfSafe)
         func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
-        guard manifest.source_checkpoint_sha256 == V21Runner.sourceSHA, digest(old) == manifest.resource_binary_sha256,
-              digest(statistics) == manifest.statistics_sha256, manifest.score_version == "v21-prior-sequence-energy-1",
+        guard manifest.neural_parent_sha256 == V21Runner.sourceSHA, digest(old) == manifest.resource_binary_sha256,
+              digest(statistics) == manifest.statistics_sha256, manifest.score_version == "v23-input-sequence-energy-1",
               manifest.max_segmentations == 8, manifest.context_length == 32,
               manifest.maximum_target_length == 64, manifest.max_legal_characters == 136 else { throw V21Error.resource("V21 resource identity/score contract mismatch") }
         let language = try NSData(contentsOf: directory.appendingPathComponent("V22Language.bin"), options: .alwaysMapped)
-        guard manifest.language_policy_version == "clear-v22-word-lattice-data-2",manifest.ranking_policy_version == "clear-v22-word-lattice-mixture-2",digest(Data(referencing:language)) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
+        guard manifest.language_policy_version == "clear-v22-word-lattice-data-2",manifest.ranking_policy_version == "v23-uniform-lattice-learned-energy-1",digest(Data(referencing:language)) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
         let readEnd = tick()
         let words = try JSONDecoder().decode(V21Vocabulary.self, from: Data(contentsOf: directory.appendingPathComponent("vocabulary.json")))
         guard words.syllables.count == 411 else { throw V21Error.resource("Wrong syllable IDs") }
@@ -134,6 +137,9 @@ private final class V21Runner: @unchecked Sendable {
     private let native: V21NativePreparation
     var resources: OpaquePointer { native.resources }
     let model: MLModel
+    let sequenceModel:MLModel
+    let checkpointSHA:String
+    let sourceStep:Int
     let syllables: [String]
     let config: V21Configuration
     let preparation: [String: Double]
@@ -143,6 +149,7 @@ private final class V21Runner: @unchecked Sendable {
     private var tensorScores:[TensorKey:[Float]]=[:]
     private var tensorAge:[TensorKey]=[]
     private var tensorBytes=0
+    private var sequenceCapture:[[String:Any]]=[]
     private var measureCurrentJob=false
     private func cached(_ key:TensorKey) -> [Float]? {
         guard let value=tensorScores[key] else { return nil }
@@ -158,11 +165,11 @@ private final class V21Runner: @unchecked Sendable {
         }
         tensorScores[key]=value;tensorAge.append(key);tensorBytes+=bytes
     }
-    private struct ResultKey: Hashable {let raw:String,context:String;let count:Int}
+    private struct ResultKey: Hashable {let raw:String,context:String;let count:Int;let settings:V23InputSettings}
     private var resultCache:[ResultKey:V21Result]=[:]
     private var resultAge:[ResultKey]=[]
     private var resultBytes=0
-    private func resultSize(_ result:V21Result)->Int {result.candidates.reduce(512+result.rawInput.utf8.count){$0+$1.text.utf8.count+$1.reading.utf8.count+$1.alignment.count*96+256}}
+    private func resultSize(_ result:V21Result)->Int {result.candidates.reduce(512+result.rawInput.utf8.count){$0+$1.text.utf8.count+$1.reading.utf8.count+$1.alignment.count*512+$1.inputEvidence.edges.reduce(0){$0+$1.edits.count*192}+256}}
     private func storeResult(_ result:V21Result,key:ResultKey) {
         guard result.status == .ok,result.isFinal,result.diagnosticData == nil else{return}
         let bytes=resultSize(result);guard bytes<=262144 else{return}
@@ -219,30 +226,13 @@ private final class V21Runner: @unchecked Sendable {
     private static func loadModelNow(_ modelURL: URL, configuration: V21Configuration, queued: UInt64) throws -> V21LoadedModel {
         let start=tick(),queueMS=milliseconds(queued)
         guard modelURL.pathExtension == "mlmodelc" else { throw V21Error.resource("Pass the Xcode-compiled V22 model") }
-            let mlconfig = MLModelConfiguration(); mlconfig.computeUnits = configuration.computeUnits
+            let mlconfig = MLModelConfiguration(); mlconfig.computeUnits = .cpuOnly
             let loaded: MLModel
             var recovery = "not_needed"
-            do {
-                loaded = try MLModel(contentsOf: modelURL, configuration: mlconfig)
-            } catch {
-                // One conditional retry of this same V22 file; no predictions, cache deletion,
-                // alternative model or persistent hardware selection is performed here.
-                guard (configuration.computeUnits == .cpuOnly || configuration.computeUnits == .all), Self.isExecutionPlanFailure(error) else {
-                    throw V21Error.model("V22 model load failed: " + Self.loadErrorDetails(error))
-                }
-                let firstFailure = Self.loadErrorDetails(error)
-                mlconfig.computeUnits = .cpuAndGPU
-                do {
-                    loaded = try MLModel(contentsOf: modelURL, configuration: mlconfig)
-                    recovery = "requested_" + String(describing:configuration.computeUnits) + "_execution_plan_failed; same_V22_cpuAndGPU_loaded; " + firstFailure
-                } catch {
-                    throw V21Error.model("V22 model could not load. Requested " + String(describing:configuration.computeUnits) + ": " + firstFailure +
-                        " | Same-model CPU+GPU retry: " + Self.loadErrorDetails(error))
-                }
-            }
+            loaded = try MLModel(contentsOf: modelURL, configuration: mlconfig)
         return V21LoadedModel(model:loaded,units:mlconfig.computeUnits,recovery:recovery,loadMS:milliseconds(start),queueMS:queueMS)
     }
-    static func prepare(modelURL: URL, directory supplied: URL?, configuration: V21Configuration) async throws -> V21Runner {
+    static func prepare(modelURL: URL, sequenceURL suppliedSequence:URL?, directory supplied: URL?, configuration: V21Configuration) async throws -> V21Runner {
         let begin=tick(),directory:URL
         if let supplied { directory=supplied }
         else {
@@ -259,14 +249,16 @@ private final class V21Runner: @unchecked Sendable {
         async let loaded = loadModel(modelURL,configuration:configuration)
         let (tables,weights)=try await (native,loaded)
         try Task.checkCancellation()
-        return try V21Runner(native:tables,loaded:weights,modelURL:modelURL,configuration:configuration,begin:begin)
+        let auxURL=suppliedSequence ?? modelURL.deletingLastPathComponent().appendingPathComponent("V49InputSequenceFP16.mlmodelc")
+        let scoring=try await Task.detached(priority:.userInitiated) {try autoreleasepool {let c=MLModelConfiguration();c.computeUnits = .cpuOnly;return try MLModel(contentsOf:auxURL,configuration:c)}}.value
+        return try V21Runner(native:tables,loaded:weights,sequence:scoring,modelURL:modelURL,configuration:configuration,begin:begin)
     }
-    private init(native: V21NativePreparation, loaded weights: V21LoadedModel, modelURL: URL,
+    private init(native: V21NativePreparation, loaded weights: V21LoadedModel, sequence:MLModel, modelURL: URL,
                  configuration: V21Configuration, begin: UInt64) throws {
         let loaded=weights.model,manifest=native.manifest
             let metadata = loaded.modelDescription.metadata[.creatorDefinedKey] as? [String: String]
-            guard metadata?["checkpoint_sha256"] == Self.sourceSHA, metadata?["source_step"] == "38750",
-                  metadata?["kernel_version"] == "v22_bounded_runtime", metadata?["score_version"] == manifest.score_version else { throw V21Error.model("Wrong model/compact interface") }
+            guard metadata?["checkpoint_sha256"] == manifest.source_checkpoint_sha256, metadata?["source_step"] == String(manifest.source_step),
+                  metadata?["kernel_version"] == "v49_v46_text_rank_initials_10h", metadata?["score_version"] == manifest.score_version else { throw V21Error.model("Wrong model/compact interface") }
             for name in ["context_ids", "pinyin_ids", "context_mask", "pinyin_mask"] {
                 guard let c = loaded.modelDescription.inputDescriptionsByName[name]?.multiArrayConstraint,
                       c.dataType == .int32, c.shape.count == 2 else { throw V21Error.model("Invalid input \(name)") }
@@ -274,6 +266,10 @@ private final class V21Runner: @unchecked Sendable {
             for name in ["compact_legal_logits"] {
                 guard loaded.modelDescription.outputDescriptionsByName[name]?.multiArrayConstraint?.dataType == .float32 else { throw V21Error.model("Missing FP32 output \(name)") }
             }
+        guard let auxMetadata=sequence.modelDescription.metadata[.creatorDefinedKey] as? [String:String],
+              auxMetadata["checkpoint_sha256"]==manifest.source_checkpoint_sha256,
+              auxMetadata["feature_contract"]=="v23-input-evidence-1" else {throw V21Error.model("Mismatched sequence/input module")}
+        self.sequenceModel=sequence;self.checkpointSHA=manifest.source_checkpoint_sha256;self.sourceStep=manifest.source_step
         self.native=native;self.model=loaded;self.syllables=native.syllables;self.config=configuration
         let total=milliseconds(begin)
         self.preparation=["resource_read_hash_ms":native.readMS,"native_index_ms":native.indexMS,
@@ -283,12 +279,12 @@ private final class V21Runner: @unchecked Sendable {
         let bytes=v21_process_memory_bytes()
         if bytes>0 { memory.append(V21MemorySample(phase:"model_loaded",shape:nil,uptimeNS:tick(),processFootprintBytes:bytes)) }
         self.preparationMemory=memory
-        self.identity=["checkpoint_sha256":Self.sourceSHA,"source_step":"38750","resource_sha256":manifest.resource_binary_sha256,
-            "statistics_sha256":manifest.statistics_sha256,"kernel_version":"v22_bounded_runtime","neural_source":"V19 best",
-            "graph_export_version":"v22-b1-enumerated-1","SDK_version":"v22-bounded-native-1",
+        self.identity=["checkpoint_sha256":manifest.source_checkpoint_sha256,"source_step":String(manifest.source_step),"resource_sha256":manifest.resource_binary_sha256,
+            "statistics_sha256":manifest.statistics_sha256,"kernel_version":"v49_v46_text_rank_initials_10h","neural_parent":"V46 best -> V49 best local1408/global94661",
+            "graph_export_version":"v23-b1-enumerated-1","SDK_version":"v26-input-fidelity-native-1",
             "compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:weights.units),
             "model_load_recovery":weights.recovery,"load_adapter":"clear-v22-load-plan-recovery-1",
-            "execution_adapter":"clear-v22-word-lattice-5","ranking_policy":manifest.ranking_policy_version,"language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
+            "execution_adapter":"v23-input-graph-sequence-1","ranking_policy":manifest.ranking_policy_version,"language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
             "model_load_api":"compiled_model_initializer_off_main",
             "score_version":manifest.score_version,"compiled_model_name":modelURL.lastPathComponent]
     }
@@ -326,13 +322,15 @@ private final class V21Runner: @unchecked Sendable {
     }
     func run(_ job: V21Job, progress: (@Sendable (V21Result) -> Void)?) throws -> V21Result {
         try job.signal.check()
+        guard job.raw.utf8.count<=4096 else {throw V21Error.contract("Raw input byte bound")}
         measureCurrentJob=job.capture || job.measurePerformance
         var times = job.signal.timings(); times.sdkEntryUptimeNS = job.entryNS; times.queueMS = milliseconds(job.entryNS)
         times.queueOverlapWithPreviousPredictionStageMS = job.blocker?.predictionStageOverlap(from:job.entryNS,to:tick()) ?? 0
         sampleMemory("request_start", into:&times)
+        if job.settings.preserveLiteral {return empty(job,normalized:"",status:.unsupportedInput,reason:"Literal mode: preserve original raw input",times:times)}
         // Immutable SDK result reuse is instance-local: exact original input,
         // actual model context, requested count, and this instance's resource policy.
-        let resultKey=ResultKey(raw:job.raw,context:String(String.UnicodeScalarView(job.context.unicodeScalars.suffix(32))),count:job.limit)
+        let resultKey=ResultKey(raw:job.raw,context:String(String.UnicodeScalarView(job.context.unicodeScalars.suffix(32))),count:job.limit,settings:job.settings)
         if !job.capture,let cached=resultCache[resultKey] {
             try job.signal.check();resultAge.removeAll{$0==resultKey};resultAge.append(resultKey)
             times.candidateResultCacheHit=true;times.cacheState="exact immutable result; same model/context/input/policy"
@@ -354,10 +352,14 @@ private final class V21Runner: @unchecked Sendable {
             v21_request_allocate(resources, raw, job.raw.utf8.count, norm, input.normalized.utf8.count, a.baseAddress, b.baseAddress, contextLast, config.allowIncompleteTail ? 1 : 0, job.capture ? 1 : 0, e.baseAddress, e.count)
         } } } } }
         guard let request else { throw V21Error.contract(error.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }) }
+        sequenceCapture=[]
+        let requestID=UUID().uuidString
+        guard requestID.withCString({v25_bind_request_identity(request,job.version,$0,1)}) == 0 else {v21_request_destroy(request);throw V21Error.contract("Request identity scope")}
         job.signal.attach(request)
         defer { job.signal.detach(); v21_request_destroy(request) }
         // Attach before parsing; the cancellation lock protects destruction/detachment.
         try job.signal.check()
+        guard v23_configure_request(request,(job.settings.allowInitials ? 1:0)|(job.settings.allowTypos ? 2:0),job.settings.fuzzyGroups,Int32(job.settings.maximumEdits)) == 0 else {throw V21Error.contract("Input settings contract")}
         guard v21_request_prepare(request) == 0 else { try job.signal.check(); throw V21Error.contract(String(cString:v21_error(request))) }
         let paths = Int(v21_path_count(request)); times.parsedPathCount=paths; times.parseMS = milliseconds(parseStart)
         job.signal.record("encoding",times)
@@ -442,25 +444,13 @@ private final class V21Runner: @unchecked Sendable {
                     times.certification.append(value)
                 }
                 job.signal.record("search_completed",times)
-                if !job.capture,p+1<paths {
-                    let exact=v21_finish_if_rank_certified(request,Int32(min(8,job.limit)))
-                    guard exact>=0 else {throw V21Error.model(String(cString:v21_error(request)))}
-                    if exact==1 { return true }
-                }
-                if let progress, !published, p+1 < paths {
-                    let count = v21_snapshot(request,Int32(min(8,job.limit)),0)
-                    guard count >= 0 else { throw V21Error.model(String(cString: v21_error(request))) }
-                    if count > 0 {
-                        times.firstCandidateReadyMS = milliseconds(job.entryNS)
-                        progress(try snapshot(job, input: input, request: request, count: count, paths: paths, final: false, times: times, diagnostic: nil))
-                        published = true
-                    }
-                }
+                // Learned scores are not known yet; do not certify or early-finish a base-only ranking.
                 return false
             }
             if certified { times.scoreBoundSkippedPaths=paths-p-1;break }
         }
 
+        try scoreSequencePool(request,job:job,context:context,times:&times)
         let count = v21_snapshot(request,Int32(min(8,job.limit)),1)
         guard count >= 0 else { throw V21Error.model(String(cString: v21_error(request))) }
         if count > 0 && times.firstCandidateReadyMS == nil { times.firstCandidateReadyMS = milliseconds(job.entryNS) }
@@ -471,10 +461,16 @@ private final class V21Runner: @unchecked Sendable {
             let text = job.diagnosticTarget.map { target in target.withCString { String(cString: v21_diagnostic_json(request,$0)) } } ?? String(cString: v21_diagnostic_json(request,nil))
             var object = (try JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
             object["kernel_instance"] = instanceID.uuidString; object["process_id"] = ProcessInfo.processInfo.processIdentifier
-            object["checkpoint_sha256"] = Self.sourceSHA; object["source_step"] = 38750; object["neural_weights_updated"] = false
+            object["sdk_revision"]="v26-input-fidelity-native-1";object["neural_model"]="V34 trained research candidate";object["checkpoint_sha256"] = checkpointSHA; object["source_step"] = sourceStep; object["neural_weights_updated"] = true
             object["identity"] = identity
             object["input_version"] = job.version; object["context_used"] = String(String.UnicodeScalarView(scalars))
             object["actual_model_calls"] = capturedCalls
+            object["actual_sequence_model_calls"] = sequenceCapture
+            object["diagnostic_schema"]="clear-ime-flow/2"
+            object["request_id"]=requestID
+            object["input_settings"] = (try? JSONSerialization.jsonObject(with:JSONEncoder().encode(job.settings)))
+            object["allow_incomplete_tail"] = config.allowIncompleteTail
+            object["new_training_performed_in_revision"] = false
             object["execution_adapter"] = identity["execution_adapter"]
             object["prediction_batch_limit"] = 1
             object["full8192_partition"] = "Not computed by regular phone inference; historical Build92 domain comparison is an explicit source diagnostic"
@@ -495,6 +491,54 @@ private final class V21Runner: @unchecked Sendable {
         if !job.capture {storeResult(result,key:resultKey)}
         return result
     }
+    private func floatTensor(_ values:[Float],shape:[Int]) throws -> MLMultiArray {
+        let a=try MLMultiArray(shape:shape.map{NSNumber(value:$0)},dataType:.float32)
+        let p=a.dataPointer.assumingMemoryBound(to:Float.self);for i in values.indices {p[i]=values[i]};return a
+    }
+    private func scoreSequencePool(_ request:OpaquePointer,job:V21Job,context:[Int32],times:inout V21Timings) throws {
+        let total=Int(v23_pool_count(request));guard total<=256 else {throw V21Error.contract("Candidate scorer workspace")}
+        if total==0 {return};var scores=[Float](repeating:0,count:total*2);let ordinals=(0..<total).map {v24_pool_ordinal(request,Int32($0))}
+        for begin in stride(from:0,to:total,by:32) {
+            try job.signal.check()
+            try autoreleasepool {
+                let count=min(32,total-begin)
+                var chars=[Int32](repeating:0,count:32*64),py=chars,raw=[Int32](repeating:0,count:32*384)
+                var cx=[Int32](repeating:0,count:32*32),edge=[Float](repeating:0,count:32*64*12),global=[Float](repeating:0,count:32*24)
+                for row in 0..<count {
+                    let status=chars.withUnsafeMutableBufferPointer {c in py.withUnsafeMutableBufferPointer {p in raw.withUnsafeMutableBufferPointer {r in edge.withUnsafeMutableBufferPointer {e in global.withUnsafeMutableBufferPointer {g in
+                        v23_fill_features(request,Int32(begin+row),c.baseAddress!+row*64,p.baseAddress!+row*64,r.baseAddress!+row*384,e.baseAddress!+row*64*12,g.baseAddress!+row*24)
+                    }}}}}
+                    guard status==0 else {throw V21Error.model(String(cString:v21_error(request)))}
+                    for k in 0..<32 {cx[row*32+k]=context[k]}
+                }
+                let features=try MLDictionaryFeatureProvider(dictionary:[
+                    "candidate_ids":MLFeatureValue(multiArray:try tensor(chars,rows:32,width:64)),
+                    "pinyin_ids":MLFeatureValue(multiArray:try tensor(py,rows:32,width:64)),
+                    "context_ids":MLFeatureValue(multiArray:try tensor(cx,rows:32,width:32)),
+                    "raw_ids":MLFeatureValue(multiArray:try tensor(raw,rows:32,width:384)),
+                    "edge_features":MLFeatureValue(multiArray:try floatTensor(edge,shape:[32,64,12])),
+                    "global_features":MLFeatureValue(multiArray:try floatTensor(global,shape:[32,24]))])
+                var capturedBatch:[String:Any]=[:]
+                if job.capture {
+                    func fingerprint<T>(_ a:[T])->String {a.withUnsafeBufferPointer {buffer in SHA256.hash(data:Data(UnsafeRawBufferPointer(buffer))).map {String(format:"%02x",$0)}.joined()}}
+                    capturedBatch=["begin":begin,"actual_rows":count,"padded_rows":32-count,"pool_ordinals":Array(ordinals[begin..<begin+count]),"input_bytes_encoding":"little-endian INT32/FLOAT32 contiguous",
+                       "input_fingerprints":["candidate_ids":fingerprint(chars),"pinyin_ids":fingerprint(py),"raw_ids":fingerprint(raw),"context_ids":fingerprint(cx),"edge_features":fingerprint(edge),"global_features":fingerprint(global)]]
+                }
+                job.signal.record("sequence_prediction",times);let start=tick()
+                let output=try sequenceModel.prediction(from:features)
+                times.sequencePredictionMS+=milliseconds(start);times.sequencePredictionCalls+=1
+                try job.signal.check()
+                guard let values=output.featureValue(for:"policy_logits")?.multiArrayValue,values.dataType == .float32,
+                      values.shape.map({$0.intValue}) == [32,2] else {throw V21Error.model("Sequence output contract")}
+                let p=values.dataPointer.assumingMemoryBound(to:Float.self)
+                for row in 0..<count {for k in 0..<2 {scores[(begin+row)*2+k]=p[row*values.strides[0].intValue+k*values.strides[1].intValue]}}
+                if job.capture {capturedBatch["actual_logits"]=(0..<count).map {row in Array(scores[(begin+row)*2..<(begin+row+1)*2])};capturedBatch["output_columns"]=["sequence_logit","channel_logit"];sequenceCapture.append(capturedBatch)}
+            }
+        }
+        let result=scores.withUnsafeBufferPointer {s in ordinals.withUnsafeBufferPointer {o in v24_apply_scores(request,s.baseAddress,s.count,o.baseAddress,o.count)}}
+        guard result==0 else {throw V21Error.model(String(cString:v21_error(request)))}
+    }
+
     private func sampleMemory(_ phase: String, shape: String? = nil, into timings: inout V21Timings) {
         guard measureCurrentJob, timings.memorySamples.count < 24 else { return }
         let bytes = v21_process_memory_bytes()
@@ -514,7 +558,7 @@ private final class V21Runner: @unchecked Sendable {
     private func empty(_ job: V21Job, normalized: String, status: V21ResultStatus, reason: String, times: V21Timings) -> V21Result {
         var times=times; times.finalCandidateReadyMS=milliseconds(job.entryNS); job.signal.record("empty_result",times)
         var diagnostic: Data?
-        if job.capture { diagnostic = try? JSONSerialization.data(withJSONObject: ["raw_input":job.raw,"normalized_input":normalized,"status":status.rawValue,"reason":reason,"model_executed":false,"target_used_in_model_or_search":false,"checkpoint_sha256":Self.sourceSHA]) }
+        if job.capture { diagnostic = try? JSONSerialization.data(withJSONObject: ["raw_input":job.raw,"normalized_input":normalized,"status":status.rawValue,"reason":reason,"model_executed":false,"target_used_in_model_or_search":false,"checkpoint_sha256":checkpointSHA]) }
         return V21Result(inputVersion:job.version,rawInput:job.raw,normalizedPinyin:normalized,normalizationMap:[],candidates:[],recommendedID:nil,status:status,reason:reason,syllablePathsExamined:0,completedPaths:0,isFinal:true,previewRecommendationIsFinalRankCertified:true,requestedCount:job.limit,timings:times,generation:job.generation,instanceID:instanceID,diagnosticData:diagnostic)
     }
     private func snapshot(_ job: V21Job, input: V21Input, request: OpaquePointer, count: Int32, paths: Int, final: Bool, times: V21Timings, diagnostic: Data?) throws -> V21Result {
@@ -528,7 +572,10 @@ private final class V21Runner: @unchecked Sendable {
                 alignment.append(V21Alignment(characterUTF16Range:V21Range(start:Int(k),end:Int(k)+1),rawUTF8Range:range,rawUTF16Range:try V21Input.utf16Range(range,in:job.raw),normalizedUTF8Range:V21Range(start:a,end:b),syllable:syllables[pid]))
             }
             let suffix = String(cString:v21_path_completion(request,p))
-            candidates.append(V21Candidate(id:String(cString:v21_candidate_id(request,i)),text:String(cString:v21_candidate_text(request,i)),reading:String(cString:v21_candidate_reading(request,i)),score:v21_candidate_score(request,i),consumedRawUTF8Range:V21Range(start:0,end:job.raw.utf8.count),consumedRawUTF16Range:V21Range(start:0,end:job.raw.utf16.count),fullConsumption:true,remainingPinyin:"",matchType:suffix.isEmpty ? "exact_full_pinyin" : "incomplete_tail_completion",alignment:alignment,inputVersion:job.version,pathIndex:Int(p),completionSuffix:suffix))
+            let evidence=try JSONDecoder().decode(V23PathEvidence.self,from:Data(String(cString:v23_path_evidence(request,p)).utf8))
+            let kinds=Set(evidence.edges.map{$0.type})
+            let match=kinds.contains("TYPO") ? "TYPO" : kinds.contains("FUZZY") ? "FUZZY" : evidence.mixed ? "MIXED" : kinds.contains("INITIAL") ? "INITIAL" : kinds.contains("INCOMPLETE") ? "INCOMPLETE" : "EXACT"
+            candidates.append(V21Candidate(id:String(cString:v21_candidate_id(request,i)),text:String(cString:v21_candidate_text(request,i)),reading:String(cString:v21_candidate_reading(request,i)),score:v21_candidate_score(request,i),consumedRawUTF8Range:V21Range(start:0,end:job.raw.utf8.count),consumedRawUTF16Range:V21Range(start:0,end:job.raw.utf16.count),fullConsumption:true,remainingPinyin:"",matchType:match,alignment:alignment,inputVersion:job.version,pathIndex:Int(p),completionSuffix:suffix,inputEvidence:evidence))
         }
         var measured = times; measured.candidateConversionMS = milliseconds(conversionStart)
         return V21Result(inputVersion:job.version,rawInput:job.raw,normalizedPinyin:input.normalized,normalizationMap:input.map,candidates:candidates,recommendedID:candidates.first?.id,status:candidates.isEmpty ? .noCandidateAfterConstraints : .ok,reason:candidates.isEmpty ? "No candidate survived bounded search/reading constraints" : nil,syllablePathsExamined:paths,completedPaths:Int(v21_completed_paths(request)),isFinal:final,previewRecommendationIsFinalRankCertified:true,requestedCount:job.limit,timings:measured,generation:job.generation,instanceID:instanceID,diagnosticData:diagnostic)
@@ -548,8 +595,8 @@ public actor V21IMEKernel {
     private var firstDeliveredMS: Double?
     private var deliveries: [[String: String]] = []
     private init(_ runner: V21Runner) { self.runner = runner }
-    public static func prepare(compiledModelURL: URL, resourceDirectory: URL? = nil, configuration: V21Configuration = V21Configuration()) async throws -> V21IMEKernel {
-        let runner = try await V21Runner.prepare(modelURL:compiledModelURL,directory:resourceDirectory,configuration:configuration)
+    public static func prepare(compiledModelURL: URL, sequenceModelURL:URL? = nil, resourceDirectory: URL? = nil, configuration: V21Configuration = V21Configuration()) async throws -> V21IMEKernel {
+        let runner = try await V21Runner.prepare(modelURL:compiledModelURL,sequenceURL:sequenceModelURL,directory:resourceDirectory,configuration:configuration)
         try Task.checkCancellation()
         return V21IMEKernel(runner)
     }
@@ -564,14 +611,14 @@ public actor V21IMEKernel {
         startupPriming=false;workerRunning=false
         if pending != nil {workerRunning=true;Task.detached(priority:.userInitiated) {await Self.drain(owner:self,runner:runner)}}
     }
-    public func candidates(rawPinyin: String, committedLeftContext: String, inputVersion: UInt64, requestedCount: Int = 8, onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21Result? {
-        try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:requestedCount,signal:V21Cancellation(),capture:false,target:nil,update:onUpdate)
+    public func candidates(rawPinyin: String, committedLeftContext: String, inputVersion: UInt64, requestedCount: Int = 8, inputSettings:V23InputSettings = V23InputSettings(), onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21Result? {
+        try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:requestedCount,settings:inputSettings,signal:V21Cancellation(),capture:false,target:nil,update:onUpdate)
     }
     /// Explicit user-triggered one-case diagnosis. It never starts a persistent logger.
-    public func diagnose(rawPinyin: String, committedLeftContext: String, targetText: String? = nil, inputVersion: UInt64, onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21DiagnosticReport {
+    public func diagnose(rawPinyin: String, committedLeftContext: String, targetText: String? = nil, inputVersion: UInt64, inputSettings:V23InputSettings = V23InputSettings(), onUpdate: (@Sendable (V21Result) -> Void)? = nil) async throws -> V21DiagnosticReport {
         let signal = V21Cancellation()
         do {
-            let result = try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:8,signal:signal,capture:true,target:targetText,update:onUpdate ?? { _ in })
+            let result = try await enqueue(raw:rawPinyin,context:committedLeftContext,version:inputVersion,limit:8,settings:inputSettings,signal:signal,capture:true,target:targetText,update:onUpdate ?? { _ in })
             if let data = result?.diagnosticData { return V21DiagnosticReport(json:data) }
         } catch {
             let value = error as NSError
@@ -581,19 +628,20 @@ public actor V21IMEKernel {
         let data = try JSONSerialization.data(withJSONObject:["status":"cancelled_or_superseded","reason":signal.reason() ?? "obsolete_input_version","input_version":inputVersion,"target_used_in_model_or_search":false,"cancellation":signal.diagnostic()])
         return V21DiagnosticReport(json:data)
     }
-    private func enqueue(raw: String, context: String, version: UInt64, limit: Int, signal: V21Cancellation, capture: Bool, target: String?, update: (@Sendable (V21Result) -> Void)?) async throws -> V21Result? {
+    private func enqueue(raw: String, context: String, version: UInt64, limit: Int, settings:V23InputSettings, signal: V21Cancellation, capture: Bool, target: String?, update: (@Sendable (V21Result) -> Void)?) async throws -> V21Result? {
         guard runner != nil else { throw V21Error.released }
+        guard settings.segmentState.utf8.count<=128,settings.fuzzyGroups<=255,(0...2).contains(settings.maximumEdits) else {throw V21Error.contract("Input settings bounds")}
         guard limit > 0 else { throw V21Error.contract("requestedCount must be positive; output is capped to8") }
         guard version >= latestVersion else { signal.cancel("older_input_version"); return nil }
         latestVersion = version; generation &+= 1; let token = generation, entry = tick()
-        var queued = V21Timings(); queued.sdkEntryUptimeNS = entry; queued.waitingForPreviousPrediction = active?.stage() == "prediction" || startupPriming; queued.waitingForStartupPreparation=startupPriming; signal.record("queued",queued)
+        var queued = V21Timings(); queued.sdkEntryUptimeNS = entry; queued.waitingForPreviousPrediction = active?.stage() == "prediction" || active?.stage() == "sequence_prediction" || startupPriming; queued.waitingForStartupPreparation=startupPriming; signal.record("queued",queued)
         let blocker=active
         active?.cancel("superseded_while_running")
         if let old = pending { old.signal.cancel("superseded_before_execution"); runner?.emit(old,result:nil); old.continuation.resume(returning:nil); pending = nil }
         finalPublished = false; publishedPaths = 0; firstDeliveredMS = nil; deliveries = []
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
-                pending = V21Job(raw:raw,context:context,version:version,generation:token,limit:limit,entryNS:entry,signal:signal,blocker:blocker,capture:capture,measurePerformance:runner?.config.performanceCaptureEnabled?() ?? (runner?.config.performanceSink != nil),diagnosticTarget:target,update:update,continuation:continuation)
+                pending = V21Job(raw:raw,context:context,version:version,generation:token,limit:limit,settings:settings,entryNS:entry,signal:signal,blocker:blocker,capture:capture,measurePerformance:runner?.config.performanceCaptureEnabled?() ?? (runner?.config.performanceSink != nil),diagnosticTarget:target,update:update,continuation:continuation)
                 if !workerRunning, let runner { workerRunning = true; Task.detached(priority:.userInitiated) { await Self.drain(owner:self,runner:runner) } }
             }
         }, onCancel: { signal.cancel("caller_cancelled") })

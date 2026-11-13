@@ -16,7 +16,7 @@ internal struct V21Input {
             let unit = original.precomposedStringWithCanonicalMapping.lowercased()
             let bytes = Array(unit.utf8)
             guard bytes.allSatisfy({ (97...122).contains($0) || $0 == 39 || $0 == 32 }) else {
-                throw V21Error.contract("Only complete a-z/v pinyin, apostrophes and ASCII spaces are supported")
+                throw V21Error.contract("Only a-z/v letters, apostrophes and ASCII spaces; input modes are parsed separately")
             }
             let first = normalized.utf8.count
             normalized += unit
@@ -27,7 +27,7 @@ internal struct V21Input {
                 originalUTF16Range: V21Range(start: utf16Offset, end: utf16Offset + original.utf16.count)))
             utf8Offset += original.utf8.count; utf16Offset += original.utf16.count
         }
-        guard normalized.utf8.count <= 384 else { throw V21Error.contract("Normalized pinyin exceeds V21's 384-letter limit") }
+        guard normalized.utf8.count <= 384 else { throw V21Error.contract("Normalized pinyin exceeds the 384-letter limit") }
         return V21Input(original: raw, normalized: normalized, starts: starts, ends: ends, map: mapping)
     }
     static func utf16Range(_ bytes: V21Range, in raw: String) throws -> V21Range {

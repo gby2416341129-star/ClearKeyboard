@@ -1,33 +1,50 @@
-name: Build 104 IPA
+name: Build105 V49 CPU paired keyboard IPA
 on:
   push:
-    branches: [codex/repair67-20261026]
+    branches: [codex/v49-cpu-build105]
   workflow_dispatch:
 permissions:
   contents: read
   actions: read
 concurrency:
-  group: clear-ipa-${{ github.ref }}
+  group: clear-v49-cpu-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   ipa:
     runs-on: macos-26
-    timeout-minutes: 60
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compile App and keyboard, package IPA
-        run: bash Scripts/build-ipa.sh dist
-      - name: Return IPA
-        uses: actions/upload-artifact@v4
+      - name: Retrieve the exact CPU-tested V49 Core ML pair
+        uses: actions/download-artifact@v4
         with:
-          name: ClearKeyboard-unsigned-IPA
-          path: |
-            dist/ClearKeyboard-unsigned.ipa
-            dist/ClearKeyboard-unsigned.ipa.sha256
+          name: V49Probe-build1-IPA
+          github-token: ${{ github.token }}
+          run-id: 43366860373
+          path: .build/v49-source
+      - name: Select installed Xcode and normalize shell line endings
+        run: |
+          if [ -d /Applications/Xcode_26.6.app/Contents/Developer ]; then
+            echo 'DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer' >> "$GITHUB_ENV"
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          for p in Path('Scripts').glob('*.sh'):
+              p.write_bytes(p.read_bytes().replace(bytes([13,10]),bytes([10])))
+          PY
+      - name: Compile App and keyboard, then verify artifact bytes only
+        run: |
+          mkdir -p dist
+          xcodebuild -version > dist/apple-toolchain.txt
+          set -o pipefail
+          bash Scripts/build-ipa.sh dist 2>&1 | tee dist/build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClearKeyboard-Build105-V49-CPU-IPA
+          path: dist/
           compression-level: 0
-          retention-days: 7
+          retention-days: 14

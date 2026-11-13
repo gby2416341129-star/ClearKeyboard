@@ -11,7 +11,7 @@ struct KernelMeasurementControls: View {
     @State private var status = "未开始；实际显示延迟尚未测量"
     @State private var exported: URL?
     var body: some View {
-        AppSectionTitle(title: "V22 本地测量")
+        AppSectionTitle(title: "V49 CPU 本地测量")
         AppCard {
             Text(status).font(.caption).foregroundStyle(.secondary)
             Button("开始记录实际输入") {
@@ -51,7 +51,7 @@ struct KernelMeasurementControls: View {
                 }
             }.disabled(sessionID == nil)
             if let exported { ShareLink("分享记录", item: exported) }
-            Text("键盘记录优先通过 App Group 共享；容器不可用时使用签名授权的共享钥匙串。导出会核对键盘回执；两种权限均缺失时明确显示缺失原因。优先 CPU；加载遇到执行计划 -14 时，仅同模型重试一次 CPU+GPU。导出会记录实际采用的配置。")
+            Text("键盘记录优先通过 App Group 共享；容器不可用时使用签名授权的共享钥匙串。导出会核对键盘回执；两种权限均缺失时明确显示缺失原因。主模型和双头模型固定使用 CPU，不切换 GPU 或 ANE。导出记录包含模型身份和实际计算配置。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

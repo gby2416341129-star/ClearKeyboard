@@ -31,11 +31,12 @@ uint64_t hashText(const std::string& s){uint64_t h=14695981039346656037ULL;for(u
 uint64_t hashIDs(const uint16_t *p,size_t n){uint64_t h=14695981039346656037ULL;for(size_t i=0;i<n;i++){h=(h^uint8_t(p[i]))*1099511628211ULL;h=(h^uint8_t(p[i]>>8))*1099511628211ULL;}return h;}
 std::string utf8(uint32_t c){std::string s;if(c<128)s+=char(c);else if(c<2048){s+=char(0xc0|(c>>6));s+=char(0x80|(c&63));}else{s+=char(0xe0|(c>>12));s+=char(0x80|((c>>6)&63));s+=char(0x80|(c&63));}return s;}
 std::string quote(const std::string& s){std::ostringstream o;o<<'"';for(unsigned char c:s){if(c=='"'||c=='\\')o<<'\\'<<c;else if(c<32){char b[7];std::snprintf(b,sizeof(b),"\\u%04x",c);o<<b;}else o<<c;}o<<'"';return o.str();}
+std::string number(double value){if(!std::isfinite(value))return "null";std::ostringstream o;o<<std::setprecision(17)<<value;return o.str();}
 template<class T,class F>void top(std::vector<T>& v,size_t n,F score){std::stable_sort(v.begin(),v.end(),[&](const T&a,const T&b){return score(a)>score(b);});if(v.size()>n)v.resize(n);}
-struct Segment{uint16_t id;int32_t start,end;};
-struct Path{std::vector<Segment> parts;double logWeight=0,logPrior=0;std::string completion;};
-struct Prefix{std::vector<uint16_t> chars;double model=0,language=0,energy=0,backoff=0;size_t validated=0;int words=0;};
-struct Candidate{std::string id,text,reading;double score,model,language,backoffLanguage;int path;std::vector<uint16_t> chars;};
+struct Segment{uint16_t id=0;int32_t start=0,end=0;uint8_t kind=0,edits=0;uint16_t fuzzy=0;double cost=0;int32_t crossSwap=-1;uint8_t crossSide=0;};
+struct Path{std::vector<Segment> parts;double logWeight=0,logPrior=0,inputCost=0;uint32_t modeBits=0;std::string completion;};
+struct Prefix{std::vector<uint16_t> chars;double model=0,language=0,energy=0,backoff=0;size_t validated=0;int words=0;std::array<uint8_t,65> reachable{1};std::vector<std::pair<int,int>> wordSpans;};
+struct Candidate{std::string id,text,reading;double score,model,language,backoffLanguage;int path;std::vector<uint16_t> chars;int ordinal=-1;double baseScore=0,sequenceLogit=0,channelLogit=0,sequenceAdjustment=0,channelAdjustment=0;bool learned=false;std::vector<std::pair<int,int>> wordSpans;};
 struct Trie{std::array<int32_t,26> next;int id=-1;Trie(){next.fill(-1);}};
 struct WordIDs{const uint16_t*p=nullptr;const uint16_t*begin()const{return p;}uint16_t operator[](size_t i)const{return p[i];}};
 struct LexicalWord{WordIDs chars,pinyin;uint8_t width=0,flags=0;double logp=0,logMass=0,confidence=0;};
@@ -76,36 +77,63 @@ struct V21Resources {
  bool reading(const std::vector<uint16_t>& ids,const Path& path,bool final)const{
   size_t checked=0;return readingFrom(ids,path,final,0,checked);
  }
- bool readingFrom(const std::vector<uint16_t>& ids,const Path& path,bool final,size_t begin,size_t& checked)const{
-  size_t pos=begin;checked=begin;while(pos<ids.size()){
-   size_t remaining=ids.size()-pos;
-   // Delay a decision only while a longer phrase can still supersede its reading.
-   if(!final&&remaining<24&&longerPrefix(ids.data()+pos,remaining))return true;
-   bool found=false;for(size_t width=std::min<size_t>(24,remaining);width>=2;width--){int first=lexicalWord(ids.data()+pos,width),word=matchingWord(ids.data()+pos,width,path,pos);uint32_t at=phrase(ids.data()+pos,width);if(first<0&&at==Empty)continue;if(word<0){if(at==Empty)return false;for(size_t i=0;i<width;i++)if(u16(bytes,at+1+2*width+2*i)!=path.parts[pos+i].id)return false;}pos+=width;found=true;break;}
-   if(!found){if(defaults[ids[pos]]!=path.parts[pos].id && !(final&&ids.size()==1&&std::binary_search(legal[path.parts[pos].id].begin(),legal[path.parts[pos].id].end(),ids[pos])))return false;pos++;}
-   checked=pos;
-  }return true;
+ bool readingIncrement(const std::vector<uint16_t>&ids,const Path&path,bool final,size_t previous,std::array<uint8_t,65>&reachable)const{
+  for(size_t end=previous+1;end<=ids.size();end++){
+   reachable[end]=0;
+   for(size_t width=1;width<=std::min<size_t>(24,end);width++){
+    size_t begin=end-width;if(!reachable[begin])continue;bool valid=false;
+    if(width==1)valid=defaults[ids[begin]]==path.parts[begin].id||(final&&ids.size()==1&&std::binary_search(legal[path.parts[begin].id].begin(),legal[path.parts[begin].id].end(),ids[begin]));
+    else {valid=matchingWord(ids.data()+begin,width,path,begin)>=0;uint32_t at=phrase(ids.data()+begin,width);if(!valid&&at!=Empty){valid=true;for(size_t k=0;k<width;k++)if(u16(bytes,at+1+2*width+2*k)!=path.parts[begin+k].id){valid=false;break;}}}
+    if(valid){reachable[end]=1;break;}
+   }
+  }
+  if(reachable[ids.size()])return true;
+  if(!final)for(size_t begin=ids.size()>23?ids.size()-23:0;begin<ids.size();begin++)if(reachable[begin]&&longerPrefix(ids.data()+begin,ids.size()-begin))return true;
+  return false;
  }
+ bool readingFrom(const std::vector<uint16_t>&ids,const Path&path,bool final,size_t,size_t&checked)const{std::array<uint8_t,65> reachable{1};checked=0;return readingIncrement(ids,path,final,0,reachable);}
+
 };
 struct V21Request {
- const V21Resources *r;std::string raw,normalized,error,json;std::vector<int32_t> starts,ends;std::vector<Path> paths;std::vector<bool> decoded;std::vector<Candidate> all,visible;std::vector<Capture> captures;int contextLast=8192;bool capture=false;std::atomic<bool> cancelled{false};bool completion=true,prepared=false;int certifiedLimit=0;
+ const V21Resources *r;std::string raw,normalized,error,json;std::vector<int32_t> starts,ends;std::vector<Path> paths;std::vector<bool> decoded;std::vector<Candidate> all,visible;std::vector<Capture> captures;int contextLast=8192;bool capture=false;std::atomic<bool> cancelled{false};bool completion=true,prepared=false;int certifiedLimit=0;uint32_t inputFlags=3,fuzzyMask=0;int maxEdits=2;bool scored=false,finalized=false;std::string requestID;uint64_t inputVersion=0;bool headEnabled=true;std::string evidenceJSON;
  struct PairEntry{uint32_t key=Empty;double value=0;};
  // Direct-mapped, request-local, 256KiB; collisions replace entries, never change scores.
  mutable std::array<PairEntry,16384> pairs;
  mutable uint64_t pairHits=0,pairMisses=0,readingChecks=0;
+ struct FlowEvent{int path,position;size_t before,after;std::string phase;std::vector<std::vector<uint16_t>> kept;};
+ mutable std::vector<FlowEvent> flowEvents;mutable size_t flowPrefixItems=0;mutable bool flowTruncated=false;
  std::string runtimeJSON;
  double charLog(int prev,int id)const{uint32_t key=(uint32_t(prev)<<13)|uint32_t(id);uint32_t mixed=key;mixed^=mixed>>16;mixed*=0x7feb352dU;mixed^=mixed>>15;mixed*=0x846ca68bU;mixed^=mixed>>16;auto& entry=pairs[mixed&16383];if(entry.key==key){pairHits++;return entry.value;}pairMisses++;entry.key=key;entry.value=r->charLog(prev,id);return entry.value;}
 
 };
 namespace {
-std::string readingTrace(const V21Resources& r,const std::vector<uint16_t>& ids,const Path& path){
- std::ostringstream o;o<<'[';size_t pos=0;bool first=true;while(pos<ids.size()){
-  uint32_t at=Empty;int word=-1;size_t width=1;for(size_t n=std::min<size_t>(24,ids.size()-pos);n>=2;n--){word=r.matchingWord(ids.data()+pos,n,path,pos);at=r.phrase(ids.data()+pos,n);if(word>=0||at!=Empty){width=n;break;}}
-  if(!first)o<<',';first=false;std::string text;for(size_t i=0;i<width;i++)text+=r.chars[ids[pos+i]];
-  o<<"{\"character_span\":["<<pos<<','<<pos+width<<"],\"text\":"<<quote(text)<<",\"rule\":"<<quote(word>=0?"lexical_phrase":at==Empty?"primary_reading":"longest_phrase")<<",\"expected_syllable_ids\":[";
-  bool pass=true;for(size_t i=0;i<width;i++){if(i)o<<',';int expected=word>=0?r.words[word].pinyin[i]:at==Empty?r.defaults[ids[pos]]:u16(r.bytes,at+1+2*width+2*i);if(ids.size()==1&&std::binary_search(r.legal[path.parts[pos].id].begin(),r.legal[path.parts[pos].id].end(),ids[pos]))expected=path.parts[pos].id;o<<expected;pass&=expected==path.parts[pos+i].id;}
-  o<<"],\"actual_syllable_ids\":[";for(size_t i=0;i<width;i++){if(i)o<<',';o<<path.parts[pos+i].id;}o<<"],\"passes\":"<<(pass?"true":"false")<<'}';pos+=width;
- }o<<']';return o.str();
+std::string candidateFlow(const V21Request&q){
+ std::ostringstream o;o<<std::setprecision(17);std::vector<const Candidate*>base,final;for(const auto&c:q.all){base.push_back(&c);final.push_back(&c);}
+ auto rank=[](auto&v,auto value){std::stable_sort(v.begin(),v.end(),[&](const Candidate*a,const Candidate*b){double x=value(*a),y=value(*b);return x==y?a->ordinal<b->ordinal:x>y;});};rank(base,[](const Candidate&c){return c.baseScore;});rank(final,[](const Candidate&c){return c.score;});
+ std::unordered_map<int,int>br,fr,dr,bdr;std::unordered_set<std::string>baseSeen;int baseUnique=0;std::unordered_map<std::string,int>winner;int unique=0;for(size_t i=0;i<base.size();i++){br[base[i]->ordinal]=int(i)+1;if(baseSeen.insert(base[i]->text).second)bdr[base[i]->ordinal]=++baseUnique;}for(size_t i=0;i<final.size();i++){fr[final[i]->ordinal]=int(i)+1;if(!winner.count(final[i]->text)){winner[final[i]->text]=final[i]->ordinal;dr[final[i]->ordinal]=++unique;}}
+ o<<"{\"diagnostic_schema\":\"clear-ime-flow/2\",\"request_id\":"<<quote(q.requestID)<<",\"input_version\":"<<q.inputVersion<<",\"head_enabled\":"<<(q.headEnabled?"true":"false")<<",\"pool_count\":"<<q.all.size()<<",\"objects_truncated\":false,\"revision\":\"v27-input-fidelity-rank-repair-1\",\"pool_stage\":\"all_retained_complete_character_word_beams_before_learned_scores\",\"pool_limit\":256,\"score_direction\":\"higher_is_better\",\"all_paths_decoded\":"<<(std::count(q.decoded.begin(),q.decoded.end(),true)==int(q.paths.size())?"true":"false")<<",\"learned_scores_applied\":"<<(q.scored?"true":"false")<<",\"target_used_in_generation\":false,\"objects\":[";
+ for(size_t i=0;i<q.all.size();i++){const auto&c=q.all[i];const auto&p=q.paths[c.path];if(i)o<<',';o<<"{\"pool_ordinal\":"<<c.ordinal<<",\"candidate_id\":"<<quote(c.id)<<",\"path_id\":"<<c.path<<",\"text\":"<<quote(c.text)<<",\"reading\":"<<quote(c.reading)<<",\"consumed_raw_utf8_range\":[0,"<<q.raw.size()<<"],\"full_consumption\":true,\"remaining_input\":\"\",\"source\":"<<quote(c.wordSpans.empty()?"character_lattice_or_uncaptured_word_route":"word_character_lattice")<<",\"word_character_spans\":[";
+  for(size_t k=0;k<c.wordSpans.size();k++){if(k)o<<',';o<<'['<<c.wordSpans[k].first<<','<<c.wordSpans[k].second<<']';}
+  o<<"],\"syllable_ids\":[";for(size_t k=0;k<p.parts.size();k++){if(k)o<<',';o<<p.parts[k].id;}
+  o<<"],\"alignment\":[";for(size_t k=0;k<p.parts.size();k++){if(k)o<<',';auto s=p.parts[k];o<<"{\"character_utf16_range\":["<<k<<','<<k+1<<"],\"raw_utf8_range\":["<<q.starts[s.start]<<','<<q.ends[s.end-1]<<"]}";}
+  o<<"],\"scores\":{\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"weighted_character_logp\":"<<q.r->charWeight*c.language<<",\"path_log_prior\":"<<p.logPrior<<",\"path_LM_sum\":"<<p.logWeight<<",\"effective_syllables\":"<<p.parts.size()<<",\"weighted_path_log_prior\":"<<q.r->priorWeight*p.logPrior<<",\"input_cost\":"<<p.inputCost<<",\"base_score\":"<<c.baseScore<<",\"sequence_logit\":"<<(q.headEnabled?number(c.sequenceLogit):"null")<<",\"channel_logit\":"<<(q.headEnabled?number(c.channelLogit):"null")<<",\"sequence_adjustment\":"<<c.sequenceAdjustment<<",\"channel_adjustment\":"<<c.channelAdjustment<<",\"logits_origin\":"<<quote(q.headEnabled?"actual_trained_head_output":"synthetic_zero_neutral_constant_not_a_model_measurement")<<",\"final_score\":"<<c.score<<"},\"request_id\":"<<quote(q.requestID)<<",\"input_version\":"<<q.inputVersion<<",\"dedup_retained_ordinal\":"<<winner[c.text]<<",\"dedup_reason\":\"highest_final_score_same_text_then_stable_original_pool_order\",\"base_rank\":"<<br[c.ordinal]<<",\"base_text_dedup_rank\":"<<(bdr.count(c.ordinal)?std::to_string(bdr[c.ordinal]):"null")<<",\"final_object_rank\":"<<fr[c.ordinal]<<",\"text_dedup_rank\":"<<(dr.count(c.ordinal)?std::to_string(dr[c.ordinal]):"null")<<",\"disposition\":"<<quote(winner[c.text]!=c.ordinal?"merged_same_text_different_receipt":dr[c.ordinal]<=int(q.visible.size())?"visible_output":"below_final_limit")<<'}';
+ }
+ o<<"],\"path_evidence\":[";for(size_t i=0;i<q.paths.size();i++){if(i)o<<',';o<<"{\"path_id\":"<<i<<",\"evidence\":"<<v23_path_evidence(const_cast<V21Request*>(&q),int(i))<<'}';}o<<"],\"frontier_trace_truncated\":"<<(q.flowTruncated?"true":"false")<<",\"frontier_events\":[";
+ for(size_t i=0;i<q.flowEvents.size();i++){if(i)o<<',';const auto&e=q.flowEvents[i];o<<"{\"path_id\":"<<e.path<<",\"position\":"<<e.position<<",\"phase\":"<<quote(e.phase)<<",\"before\":"<<e.before<<",\"after\":"<<e.after<<",\"kept_prefix_character_ids\":[";for(size_t j=0;j<e.kept.size();j++){if(j)o<<',';o<<'[';for(size_t k=0;k<e.kept[j].size();k++){if(k)o<<',';o<<e.kept[j][k];}o<<']';}o<<"]}";}
+ o<<"],\"recommended_id\":"<<(q.visible.empty()?"null":quote(q.visible[0].id))<<'}';return o.str();
+}
+std::string readingTrace(const V21Resources&r,const std::vector<uint16_t>&ids,const Path&path){
+ const size_t n=ids.size();std::array<int,65> previous;previous.fill(-1);previous[0]=0;
+ if(n!=path.parts.size())return "{\"algorithm\":\"production_word_reachability_DP\",\"accepted\":false}";
+ for(size_t end=1;end<=n;end++)for(size_t width=1;width<=std::min<size_t>(24,end);width++){
+  size_t begin=end-width;if(previous[begin]<0)continue;bool valid=false;
+  if(width==1)valid=r.defaults[ids[begin]]==path.parts[begin].id||(n==1&&std::binary_search(r.legal[path.parts[begin].id].begin(),r.legal[path.parts[begin].id].end(),ids[begin]));
+  else {valid=r.matchingWord(ids.data()+begin,width,path,begin)>=0;uint32_t at=r.phrase(ids.data()+begin,width);if(!valid&&at!=Empty){valid=true;for(size_t k=0;k<width;k++)if(u16(r.bytes,at+1+2*width+2*k)!=path.parts[begin+k].id){valid=false;break;}}}
+  if(valid){previous[end]=int(begin);break;}
+ }
+ std::vector<std::pair<int,int>> spans;if(previous[n]>=0)for(int end=int(n);end>0;end=previous[end])spans.push_back({previous[end],end});std::reverse(spans.begin(),spans.end());
+ std::ostringstream o;o<<"{\"algorithm\":\"production_word_reachability_DP\",\"accepted\":"<<(previous[n]>=0?"true":"false")<<",\"segments\":[";
+ for(size_t i=0;i<spans.size();i++){if(i)o<<',';auto x=spans[i];o<<"{\"character_span\":["<<x.first<<','<<x.second<<"],\"syllable_ids\":[";for(int k=x.first;k<x.second;k++){if(k>x.first)o<<',';o<<path.parts[k].id;}o<<"]}";}o<<"]}";return o.str();
 }
 void loadTables(V21Resources& r,const uint8_t *data,size_t size){
  if(!data||size<100||size>32*1024*1024)throw std::runtime_error("Invalid V19 table size");r.bytes.assign(data,data+size);auto& b=r.bytes;if(std::memcmp(b.data(),"V19RES01",8))throw std::runtime_error("Wrong V19 table format");
@@ -136,46 +164,7 @@ void loadStats(V21Resources& r,const uint8_t *data,size_t size){
  std::vector<uint32_t>().swap(r.pb); // Replaced by bounded immutable precomputed logs.
 
 }
-void parse(V21Request& q,bool completion){
- const auto& r=*q.r;const size_t size=q.normalized.size();
- struct Node{Segment part{};uint32_t parent=0;uint16_t depth=0;double weight=0;};
- std::vector<Node> pool(1);pool.reserve((size+1)*6*32+1);
- std::vector<std::vector<uint32_t>> states(size+1);states[0].push_back(0);
- auto check=[&](){if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled during parsing");};
- auto retain=[&](std::vector<uint32_t>& row){top(row,32,[&](uint32_t id){return pool[id].weight;});};
- for(size_t start=0;start<size;start++){
-  check();if(states[start].empty())continue;
-  if(q.normalized[start]==' '||q.normalized[start]=='\''){states[start+1].insert(states[start+1].end(),states[start].begin(),states[start].end());retain(states[start+1]);continue;}
-  int node=0;for(size_t end=start;end<std::min(size,start+6);end++){
-   check();char c=q.normalized[end];if(c<'a'||c>'z'||r.trie[node].next[c-'a']<0)break;node=r.trie[node].next[c-'a'];int id=r.trie[node].id;if(id<0)continue;
-   for(uint32_t parent:states[start])if(pool[parent].depth<64){
-    const Node state=pool[parent];int prev=state.depth?state.part.id:511;
-    if(pool.size()>=(size+1)*6*32+1)throw std::runtime_error("Parser workspace bound");
-    pool.push_back(Node{Segment{uint16_t(id),int(start),int(end+1)},parent,uint16_t(state.depth+1),state.weight+r.pyLog(prev,id)});states[end+1].push_back(uint32_t(pool.size()-1));
-   }retain(states[end+1]);
-  }
- }
- struct Final{uint32_t node;int id=-1,start=0;double weight;std::string completion;};
- std::vector<Final> finals;finals.reserve(32);
- for(uint32_t node:states[size])if(pool[node].depth)finals.push_back(Final{node,-1,0,pool[node].weight+r.pyLog(pool[node].part.id,510),""});
- if(finals.empty()&&completion&&size&&q.normalized.back()!=' '&&q.normalized.back()!='\''){
-  for(size_t start=size>6?size-6:0;start<size;start++)if(!states[start].empty()){
-   check();std::string tail=q.normalized.substr(start);if(tail.find_first_not_of("abcdefghijklmnopqrstuvwxyz")!=std::string::npos)continue;
-   for(int id=2;id<411;id++)if(r.py[id].size()>tail.size()&&r.py[id].compare(0,tail.size(),tail)==0)for(uint32_t node:states[start])if(pool[node].depth<64){
-    int prev=pool[node].depth?pool[node].part.id:511;
-    // Preserve the original addition grouping for completion scores.
-    finals.push_back(Final{node,id,int(start),pool[node].weight+(r.pyLog(prev,id)+r.pyLog(id,510)),r.py[id].substr(tail.size())});
-   }
-  }
- }
- top(finals,8,[](const Final& f){return f.weight;});
- for(const auto& f:finals){check();Path p;p.logWeight=f.weight;p.completion=f.completion;uint32_t node=f.node;p.parts.resize(pool[node].depth);
-  for(size_t i=p.parts.size();i>0;i--){p.parts[i-1]=pool[node].part;node=pool[node].parent;}
-  if(f.id>=0)p.parts.push_back(Segment{uint16_t(f.id),f.start,int(size)});q.paths.push_back(std::move(p));
- }
- if(!q.paths.empty()){double max=q.paths[0].logWeight,sum=0;for(auto& p:q.paths)sum+=std::exp(p.logWeight-max);double z=max+std::log(sum);for(auto& p:q.paths)p.logPrior=p.logWeight-z;}
- q.decoded.assign(q.paths.size(),false);q.captures.resize(q.paths.size());
-}
+#include "v23_parser.inc"
 
 // All alternatives consume the same exact phonetic positions. Token scores are
 // per-syllable quantities multiplied by their real span; word count/length is
@@ -185,12 +174,8 @@ std::vector<LogRow> normalizeRows(const V21Resources&r,const Path&path,const std
  std::vector<LogRow> rows;for(size_t i=0;i<values.size();i++){const auto&v=values[i];double m=*std::max_element(v.begin(),v.end()),sum=0;for(float x:v)sum+=std::exp(double(x)-m);double z=m+std::log(sum),entropy=0;LogRow row;for(float x:v){double p=double(x)-z;row.p.push_back(p);entropy-=std::exp(p)*p;}row.certainty=v.size()>1?std::max(0.0,std::min(1.0,1-entropy/std::log(double(v.size())))):1;rows.push_back(std::move(row));}return rows;
 }
 double logAdd(double a,double b){double m=std::max(a,b);return m+std::log(std::exp(a-m)+std::exp(b-m));}
-double tokenEnergy(double model,double language,int width,double prior,double confidence,double neuralCertainty){
- double base=(model+.25*language)/width;
- double mix=confidence/(1+confidence+neuralCertainty);if(mix<=0)return model+.25*language;
- double blended=logAdd(std::log1p(-mix)+base,std::log(mix)+prior/width);
- return width*std::max(base,blended);
-}
+double tokenEnergy(double model,double language,int,double,double,double){return model+.25*language;}
+
 struct WordEdge{uint32_t word;double model=0,inside=0,prior=0,confidence=0,neuralCertainty=0,upper=0;int width=0;};
 std::vector<WordEdge> wordEdges(const V21Request&q,const Path&path,size_t start,const std::vector<LogRow>&rows){
  const auto&r=*q.r;std::vector<WordEdge> result;std::vector<uint16_t> key;
@@ -215,13 +200,15 @@ std::vector<Prefix> search(const V21Request&q,int p,const std::vector<std::vecto
  const auto&r=*q.r;const auto&path=q.paths[p];auto rows=normalizeRows(r,path,values);size_t n=path.parts.size();std::vector<std::vector<Prefix>> frontier(n+1);frontier[0].push_back(Prefix{});
  auto retain=[](std::vector<Prefix>&row){top(row,row.size(),[](const Prefix&x){return x.energy;});std::unordered_set<std::string> seen;size_t out=0;for(size_t i=0;i<row.size();i++){std::string key;if(!row[i].chars.empty())key.assign(reinterpret_cast<const char*>(row[i].chars.data()),row[i].chars.size()*2);if(!seen.insert(key).second)continue;if(out!=i)row[out]=std::move(row[i]);if(++out==32)break;}row.resize(out);};
  for(size_t pos=0;pos<n;pos++){
-  if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled");retain(frontier[pos]);if(frontier[pos].empty())continue;auto edges=wordEdges(q,path,pos,rows);
+  if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled");size_t beforeRetain=frontier[pos].size();retain(frontier[pos]);
+  if(q.capture){if(q.flowEvents.size()<1024){V21Request::FlowEvent event{p,int(pos),beforeRetain,frontier[pos].size(),"frontier_after_retain",{}};for(const auto&item:frontier[pos]){if(q.flowPrefixItems>=4096){q.flowTruncated=true;break;}event.kept.push_back(item.chars);q.flowPrefixItems++;}q.flowEvents.push_back(std::move(event));}else q.flowTruncated=true;}
+  if(frontier[pos].empty())continue;auto edges=wordEdges(q,path,pos,rows);
   std::unordered_map<int,std::vector<size_t>> charOrder;
   for(const auto&b:frontier[pos]){
    if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled");int previous=b.chars.empty()?q.contextLast:b.chars.back();const auto&legal=r.legal[path.parts[pos].id];
    auto found=charOrder.find(previous);if(found==charOrder.end()){std::vector<size_t> order;for(size_t i=0;i<legal.size();i++)order.push_back(i);top(order,order.size(),[&](size_t i){return rows[pos].p[i]+r.charWeight*q.charLog(previous,legal[i]);});found=charOrder.emplace(previous,std::move(order)).first;}
-   int accepted=0;for(size_t i:found->second){Prefix next=b;next.chars.push_back(legal[i]);size_t checked=b.validated;q.readingChecks++;if(!r.readingFrom(next.chars,path,pos+1==n,b.validated,checked))continue;next.validated=checked;double language=q.charLog(previous,legal[i]);next.model+=rows[pos].p[i];next.language+=language;next.energy+=rows[pos].p[i]+r.charWeight*language;frontier[pos+1].push_back(std::move(next));if(++accepted==8)break;}
-   for(const auto&edge:edges){auto w=r.words[edge.word];Prefix next=b;next.chars.insert(next.chars.end(),w.chars.begin(),w.chars.begin()+w.width);size_t checked=b.validated;q.readingChecks++;if(!r.readingFrom(next.chars,path,pos+w.width==n,b.validated,checked))continue;next.validated=checked;double language=edge.inside+q.charLog(previous,w.chars[0]);next.model+=edge.model;next.language+=language;next.backoff+=edge.prior;next.energy+=tokenEnergy(edge.model,language,w.width,edge.prior,edge.confidence,edge.neuralCertainty);next.words++;auto&destination=frontier[pos+w.width];destination.push_back(std::move(next));if(destination.size()>=256)retain(destination);}
+   int accepted=0;for(size_t i:found->second){Prefix next=b;next.chars.push_back(legal[i]);size_t checked=b.validated;q.readingChecks++;if(!r.readingIncrement(next.chars,path,pos+1==n,b.chars.size(),next.reachable))continue;next.validated=checked;double language=q.charLog(previous,legal[i]);next.model+=rows[pos].p[i];next.language+=language;next.energy+=rows[pos].p[i]+r.charWeight*language;frontier[pos+1].push_back(std::move(next));if(++accepted==8)break;}
+   for(const auto&edge:edges){auto w=r.words[edge.word];Prefix next=b;next.chars.insert(next.chars.end(),w.chars.begin(),w.chars.begin()+w.width);size_t checked=b.validated;q.readingChecks++;if(!r.readingIncrement(next.chars,path,pos+w.width==n,b.chars.size(),next.reachable))continue;next.validated=checked;double language=edge.inside+q.charLog(previous,w.chars[0]);next.model+=edge.model;next.language+=language;next.backoff+=edge.prior;next.energy+=tokenEnergy(edge.model,language,w.width,edge.prior,edge.confidence,edge.neuralCertainty);next.words++;if(q.capture)next.wordSpans.push_back({int(pos),int(pos+w.width)});auto&destination=frontier[pos+w.width];destination.push_back(std::move(next));if(destination.size()>=256)retain(destination);}
    if(frontier[pos+1].size()>=256)retain(frontier[pos+1]);
   }
   if(target&&stages&&stages->empty()){bool possible=false;for(size_t end=pos+1;end<=n&&!possible;end++)for(const auto&b:frontier[end])if(b.chars.size()<=target->size()&&std::equal(b.chars.begin(),b.chars.end(),target->begin())){possible=true;break;}if(!possible)stages->push_back("position"+std::to_string(pos)+":word_character_frontier_pruned");}
@@ -282,33 +269,34 @@ int32_t v21_path_end(const V21Request*q,int32_t p,int32_t i){return i>=0&&v21_pa
 double v21_path_log_prior(const V21Request*q,int32_t p){return v21_path_length(q,p)>0?q->paths[p].logPrior:-INFINITY;}
 const char *v21_path_completion(const V21Request*q,int32_t p){return v21_path_length(q,p)>0?q->paths[p].completion.c_str():"";}
 int32_t v21_decode_path(V21Request*q,int32_t p,const float *logits,size_t count,int32_t ps,int32_t cs,const float *fullZ,size_t zCount,int32_t zs){try{
- if(!q||v21_path_length(q,p)<1||!logits||ps<1||cs<1||q->decoded[p])throw std::runtime_error("Invalid/duplicate decode");const auto& path=q->paths[p];std::vector<std::vector<float>> values;Capture capture;
+ if(!q||q->scored||v21_path_length(q,p)<1||!logits||ps<1||cs<1||q->decoded[p])throw std::runtime_error("Invalid/duplicate decode");const auto& path=q->paths[p];std::vector<std::vector<float>> values;Capture capture;
  for(size_t i=0;i<path.parts.size();i++){size_t n=q->r->legal[path.parts[i].id].size();if(!n||i*size_t(ps)+(n-1)*size_t(cs)>=count)throw std::runtime_error("Compact logits bounds mismatch");values.emplace_back();for(size_t j=0;j<n;j++){float x=logits[i*ps+j*cs];if(!std::isfinite(x))throw std::runtime_error("Nonfinite logits");values.back().push_back(x);}if(fullZ&&zs>0&&i*size_t(zs)<zCount)capture.fullZ.push_back(fullZ[i*zs]);}
  auto beam=search(*q,p,values);
- for(const auto& b:beam){Candidate c;c.chars=b.chars;c.path=p;c.model=b.model/path.parts.size();c.language=b.language/path.parts.size();c.backoffLanguage=b.backoff/path.parts.size();c.score=b.energy/path.parts.size()+q->r->priorWeight*path.logPrior;
+ for(const auto& b:beam){Candidate c;c.chars=b.chars;c.path=p;c.model=b.model/path.parts.size();c.language=b.language/path.parts.size();c.backoffLanguage=b.backoff/path.parts.size();c.score=b.energy/path.parts.size()+q->r->priorWeight*path.logPrior-path.inputCost;
+  c.ordinal=int(q->all.size());c.baseScore=c.score;if(q->capture)c.wordSpans=b.wordSpans;
   for(uint16_t id:b.chars)c.text+=q->r->chars[id];for(const auto& part:path.parts){if(!c.reading.empty())c.reading+=' ';c.reading+=q->r->py[part.id];}std::string key=q->raw;key+='\0';key+=c.text;key+='\0';key+=c.reading;key+='\0';key+=std::to_string(q->raw.size());char hex[17];std::snprintf(hex,sizeof(hex),"%016llx",static_cast<unsigned long long>(hashText(key)));c.id=hex;q->all.push_back(std::move(c));
  }if(q->capture){capture.logits=std::move(values);q->captures[p]=std::move(capture);}if(q->all.size()>256)throw std::runtime_error("Candidate workspace bound");q->decoded[p]=true;return 0;
  }catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
 int32_t v21_completed_paths(const V21Request*q){return q?int(std::count(q->decoded.begin(),q->decoded.end(),true)):0;}
 int32_t v21_snapshot(V21Request*q,int32_t requested,int32_t final){try{
- if(!q||requested<1)throw std::runtime_error("Invalid candidate limit");bool done=v21_completed_paths(q)==int(q->paths.size());if(final&&!done&&q->certifiedLimit<std::min(requested,8))throw std::runtime_error("Incomplete final decode");top(q->all,q->all.size(),[](const Candidate&c){return c.score;});q->visible.clear();std::unordered_set<std::string> seen;double bound=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);
- for(const auto& c:q->all){if(!seen.insert(c.text).second)continue;if(!done&&!(c.score>bound))break;q->visible.push_back(c);if(q->visible.size()>=size_t(std::min(requested,8)))break;}return int(q->visible.size());
+ if(!q||requested<1)throw std::runtime_error("Invalid candidate limit");if(!q->all.empty()&&!q->scored)throw std::runtime_error("Cannot publish candidates before complete learned scoring");bool done=v21_completed_paths(q)==int(q->paths.size());if(final&&!done&&q->certifiedLimit<std::min(requested,8))throw std::runtime_error("Incomplete final decode");top(q->all,q->all.size(),[](const Candidate&c){return c.score;});q->visible.clear();std::unordered_set<std::string> seen;double bound=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);
+ for(const auto& c:q->all){if(!seen.insert(c.text).second)continue;if(!done&&!(c.score>bound))break;q->visible.push_back(c);if(q->visible.size()>=size_t(std::min(requested,8)))break;}if(final)q->finalized=true;return int(q->visible.size());
  }catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
 // Exact branch-and-bound completion: every returned item must be strictly above
 // every unprocessed path's existing upper bound. This cannot discard a top-K item,
 // alter a tie, or let a lower-scoring duplicate replace its better receipt.
-int32_t v21_finish_if_rank_certified(V21Request*q,int32_t requested){
+int32_t v21_finish_if_rank_certified(V21Request*q,int32_t requested){if(q&&!q->scored)return 0;
  if(!q||q->capture)return 0;
  int32_t count=v21_snapshot(q,requested,0);if(count<0)return -1;
  if(count<std::min(requested,8))return 0;
  q->certifiedLimit=std::min(requested,8);return 1;
 }
 const char *v21_runtime_json(V21Request*q){if(!q)return "{}";double bound=-INFINITY,leading=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);for(const auto& c:q->all)leading=std::max(leading,c.score);
- std::string state=q->all.empty()?"no_candidate_yet":(leading>bound?"rank_certified":"candidate_exists_bound_not_passed");
- std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<",\"ranking_policy\":\"clear-v22-word-lattice-mixture-2\",\"candidate_scores\":[";
+ std::string state=!q->scored?"awaiting_learned_scores":q->all.empty()?"no_candidate_yet":(leading>bound?"rank_certified":"candidate_exists_bound_not_passed");
+ std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<",\"ranking_policy\":\"v23-uniform-lattice-learned-energy-1\",\"candidate_scores\":[";
  std::vector<size_t> order;for(size_t i=0;i<q->all.size();i++)order.push_back(i);top(order,order.size(),[&](size_t i){return q->all[i].score;});std::unordered_set<std::string> seen;int emitted=0;
  for(size_t i:order){const auto&c=q->all[i];if(!seen.insert(c.text).second)continue;if(emitted++)o<<',';const auto&path=q->paths[c.path];double word=fullWordLogPrior(*q,c.chars,path);
-  o<<"{\"id\":"<<quote(c.id)<<",\"path\":"<<c.path<<",\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"lexical_fusion_gain_mean\":"<<c.score-c.model-q->r->charWeight*c.language-q->r->priorWeight*path.logPrior<<",\"word_backoff_mean_logp\":"<<c.backoffLanguage<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"score\":"<<c.score<<",\"complete_word_log_prior\":";if(std::isfinite(word))o<<word;else o<<"null";o<<'}';if(emitted==8)break;
+  o<<"{\"id\":"<<quote(c.id)<<",\"path\":"<<c.path<<",\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"input_and_learned_adjustment\":"<<c.score-c.model-q->r->charWeight*c.language-q->r->priorWeight*path.logPrior<<",\"word_backoff_mean_logp\":"<<c.backoffLanguage<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"score\":"<<c.score<<",\"complete_word_log_prior\":";if(std::isfinite(word))o<<word;else o<<"null";o<<'}';if(emitted==8)break;
  }o<<"]}";q->runtimeJSON=o.str();return q->runtimeJSON.c_str();
 }
 const char *v21_error(const V21Request*q){return q?q->error.c_str():"Invalid request";}
@@ -320,20 +308,16 @@ double v21_candidate_score(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q
 int32_t v21_candidate_path(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->visible.size())?q->visible[i].path:-1;}
 int32_t v21_candidate_characters(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->visible.size())?int(q->visible[i].chars.size()):0;}
 const char *v21_diagnostic_json(V21Request*q,const char *targetText){try{
- if(!q)throw std::runtime_error("Invalid request");const auto& r=*q->r;std::vector<uint16_t> target;bool validTarget=true;
+ if(!q)throw std::runtime_error("Invalid request");if(targetText&&!q->finalized)throw std::runtime_error("Diagnostic target allowed only after production finalization");const auto& r=*q->r;std::vector<uint16_t> target;bool validTarget=true;
  if(targetText){const unsigned char *p=reinterpret_cast<const unsigned char*>(targetText);while(*p){uint32_t c=*p++;if(c>=0xe0&&c<0xf0){if(!p[0]||!p[1]){validTarget=false;break;}c=((c&15)<<12)|((p[0]&63)<<6)|(p[1]&63);p+=2;}else if(c>=0xc0&&c<0xe0){if(!p[0]){validTarget=false;break;}c=((c&31)<<6)|(p[0]&63);p++;}else if(c>=128){validTarget=false;break;}uint16_t id=c<65536?r.cmap[c]:1;if(id<2)validTarget=false;target.push_back(id);}}
  bool compatibleRetained=false,targetInBeam=false,targetVisible=false;size_t reachable=0;bool reachCapped=false;
  if(targetText&&validTarget&&!target.empty()){
-  for(const auto& path:q->paths)if(path.parts.size()==target.size()){bool legal=true;for(size_t k=0;k<target.size();k++){const auto& ids=r.legal[path.parts[k].id];legal&=std::binary_search(ids.begin(),ids.end(),target[k]);}if(legal&&r.reading(target,path,true))compatibleRetained=true;}
+  for(const auto& path:q->paths)if(path.parts.size()==target.size()){bool legal=true;for(size_t k=0;k<target.size();k++){const auto& ids=r.legal[path.parts[k].id];legal&=std::binary_search(ids.begin(),ids.end(),target[k]);}if(legal&&r.reading(target,path,true)){compatibleRetained=true;reachable++;}}
   for(const auto& c:q->all)if(c.text==targetText)targetInBeam=true;for(const auto& c:q->visible)if(c.text==targetText)targetVisible=true;
-  // Separate bounded answer-path oracle, AFTER final decoding. Never adds paths/candidates.
-  struct Oracle{size_t at=0;Path path;};std::vector<Oracle> frontier(1);
-  for(uint16_t ch:target){std::vector<int> pronunciations;for(int pid=2;pid<411;pid++)if(std::binary_search(r.legal[pid].begin(),r.legal[pid].end(),ch))pronunciations.push_back(pid);std::vector<Oracle> next;
-   for(auto item:frontier){while(item.at<q->normalized.size()&&(q->normalized[item.at]==' '||q->normalized[item.at]=='\''))item.at++;for(int pid:pronunciations){const auto& py=r.py[pid];if(q->normalized.compare(item.at,py.size(),py)!=0)continue;if(next.size()>=4096){reachCapped=true;break;}Oracle n=item;n.path.parts.push_back(Segment{uint16_t(pid),int(n.at),int(n.at+py.size())});n.at+=py.size();next.push_back(std::move(n));}if(reachCapped)break;}frontier=std::move(next);if(frontier.empty())break;
-  }
-  for(auto item:frontier){while(item.at<q->normalized.size()&&(q->normalized[item.at]==' '||q->normalized[item.at]=='\''))item.at++;if(item.at==q->normalized.size()&&item.path.parts.size()==target.size()&&r.reading(target,item.path,true))reachable++;}
+  // Generalized modes report only actually retained mobile paths; no answer-guided oracle.
+
  }
- std::ostringstream o;o<<std::setprecision(17)<<"{\"score_version\":\"v21-prior-sequence-energy-1\",\"ranking_policy\":\"clear-v22-word-lattice-mixture-2\",\"raw_input\":"<<quote(q->raw)<<",\"normalized_input\":"<<quote(q->normalized)<<",\"target_diagnostic_only\":"<<(targetText?quote(targetText):"null")<<",\"target_in_vocab\":"<<(validTarget?"true":"false")<<",\"completed_paths\":"<<v21_completed_paths(q)<<",\"paths\":[";
+ std::ostringstream o;o<<std::setprecision(17)<<"{\"score_version\":\"v23-input-sequence-energy-1\",\"ranking_policy\":\"v23-uniform-lattice-learned-energy-1\",\"raw_input\":"<<quote(q->raw)<<",\"normalized_input\":"<<quote(q->normalized)<<",\"target_diagnostic_only\":"<<(targetText?quote(targetText):"null")<<",\"target_in_vocab\":"<<(validTarget?"true":"false")<<",\"completed_paths\":"<<v21_completed_paths(q)<<",\"paths\":[";
  for(size_t i=0;i<q->paths.size();i++){if(i)o<<',';const auto& path=q->paths[i];o<<"{\"index\":"<<i<<",\"segmentation_log_weight\":"<<path.logWeight<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"completion_suffix\":"<<quote(path.completion)<<",\"decoded\":"<<(q->decoded[i]?"true":"false")<<",\"segments\":[";
   for(size_t k=0;k<path.parts.size();k++){if(k)o<<',';const auto& s=path.parts[k];o<<"{\"id\":"<<s.id<<",\"syllable\":"<<quote(r.py[s.id])<<",\"normalized_range\":["<<s.start<<','<<s.end<<"],\"original_utf8_range\":["<<q->starts[s.start]<<','<<q->ends[s.end-1]<<"]}";}o<<']';
   if(!q->captures[i].logits.empty()){
@@ -347,10 +331,75 @@ const char *v21_diagnostic_json(V21Request*q,const char *targetText){try{
     if(found){size_t j=it-ids.begin();int rank=1;double max=*std::max_element(xs.begin(),xs.end()),sum=0;for(size_t t=0;t<xs.size();t++){sum+=std::exp(double(xs[t])-max);if(xs[t]>xs[j]||(xs[t]==xs[j]&&ids[t]<target[k]))rank++;}double z=max+std::log(sum);model+=double(xs[j])-z;language+=r.charLog(k?target[k-1]:q->contextLast,target[k]);o<<",\"target_logit\":"<<xs[j]<<",\"legal_rank\":"<<rank<<",\"model_top8_contains_target\":"<<(rank<=8?"true":"false")<<",\"legal_log_z\":"<<z;if(k<q->captures[i].fullZ.size()){o<<",\"full8192_log_z\":";if(std::isfinite(q->captures[i].fullZ[k]))o<<q->captures[i].fullZ[k];else o<<"null";}}else legal=false;o<<'}';
    }o<<"],\"target_reading_accepted\":"<<(legal&&r.reading(target,path,true)?"true":"false");
    o<<",\"target_reading_rules\":"<<readingTrace(r,target,path);
-   if(legal){std::vector<std::string> stages;auto beam=search(*q,int(i),q->captures[i].logits,&stages,&target);bool survived=false;for(const auto&b:beam)if(b.chars==target)survived=true;double energy=fixedSequenceEnergy(*q,target,path,q->captures[i].logits),prior=fullWordLogPrior(*q,target,path);o<<",\"target_model_mean_logp\":"<<model/target.size()<<",\"target_character_mean_logp\":"<<language/target.size()<<",\"target_word_lattice_mean_energy\":";if(std::isfinite(energy))o<<energy/target.size();else o<<"null";o<<",\"target_complete_word_log_prior\":";if(std::isfinite(prior))o<<prior;else o<<"null";o<<",\"target_joint_energy\":";if(std::isfinite(energy))o<<energy/target.size()+r.priorWeight*path.logPrior;else o<<"null";o<<",\"target_survived_search\":"<<(survived?"true":"false")<<",\"first_drop\":"<<(stages.empty()?"null":quote(stages[0]));}
+   if(legal){bool survived=targetInBeam;double energy=fixedSequenceEnergy(*q,target,path,q->captures[i].logits),prior=fullWordLogPrior(*q,target,path);o<<",\"target_model_mean_logp\":"<<model/target.size()<<",\"target_character_mean_logp\":"<<language/target.size()<<",\"target_word_lattice_mean_energy\":";if(std::isfinite(energy))o<<energy/target.size();else o<<"null";o<<",\"target_complete_word_log_prior\":";if(std::isfinite(prior))o<<prior;else o<<"null";o<<",\"target_base_energy_before_learned_scores\":";if(std::isfinite(energy))o<<energy/target.size()+r.priorWeight*path.logPrior-path.inputCost;else o<<"null";o<<",\"target_survived_search\":"<<(survived?"true":"false")<<",\"first_drop\":"<<"null";}
 
   }o<<'}';
- }o<<"],\"candidates\":[";for(size_t i=0;i<q->visible.size();i++){if(i)o<<',';const auto&c=q->visible[i];const auto& path=q->paths[c.path];o<<"{\"id\":"<<quote(c.id)<<",\"text\":"<<quote(c.text)<<",\"reading\":"<<quote(c.reading)<<",\"path\":"<<c.path<<",\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"lexical_fusion_gain_mean\":"<<c.score-c.model-q->r->charWeight*c.language-q->r->priorWeight*path.logPrior<<",\"word_backoff_mean_logp\":"<<c.backoffLanguage<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"score\":"<<c.score<<",\"consumed_original_utf8_range\":[0,"<<q->raw.size()<<"],\"full_consumption\":true,\"complete_pinyin_input\":"<<(path.completion.empty()?"true":"false")<<",\"completion_suffix\":"<<quote(path.completion)<<",\"remaining_pinyin\":\"\",\"alignment\":[";for(size_t k=0;k<path.parts.size();k++){if(k)o<<',';auto s=path.parts[k];o<<"{\"character_utf16_range\":["<<k<<','<<k+1<<"],\"raw_utf8_range\":["<<q->starts[s.start]<<','<<q->ends[s.end-1]<<"],\"syllable\":"<<quote(r.py[s.id])<<'}';}o<<"]}";}
- o<<"],\"is_final\":"<<(v21_completed_paths(q)==int(q->paths.size())?"true":"false")<<",\"recommended_id\":"<<(q->visible.empty()?"null":quote(q->visible[0].id))<<",\"target_reachability_diagnostic_only\":{\"complete_paths_found\":"<<reachable<<",\"enumeration_capped\":"<<(reachCapped?"true":"false")<<",\"target_compatible_mobile_path_retained\":"<<(compatibleRetained?"true":"false")<<",\"target_survived_any_path_beam\":"<<(targetInBeam?"true":"false")<<",\"target_in_final_top8\":"<<(targetVisible?"true":"false")<<",\"not_used_to_expand_mobile_search\":true},\"target_used_in_model_or_search\":false,\"full_logits_exported\":false}";q->json=o.str();return q->json.c_str();
+ }o<<"],\"candidates\":[";for(size_t i=0;i<q->visible.size();i++){if(i)o<<',';const auto&c=q->visible[i];const auto& path=q->paths[c.path];o<<"{\"id\":"<<quote(c.id)<<",\"text\":"<<quote(c.text)<<",\"reading\":"<<quote(c.reading)<<",\"path\":"<<c.path<<",\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"input_and_learned_adjustment\":"<<c.score-c.model-q->r->charWeight*c.language-q->r->priorWeight*path.logPrior<<",\"word_backoff_mean_logp\":"<<c.backoffLanguage<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"score\":"<<c.score<<",\"consumed_original_utf8_range\":[0,"<<q->raw.size()<<"],\"full_consumption\":true,\"complete_pinyin_input\":"<<(path.completion.empty()?"true":"false")<<",\"completion_suffix\":"<<quote(path.completion)<<",\"remaining_pinyin\":\"\",\"alignment\":[";for(size_t k=0;k<path.parts.size();k++){if(k)o<<',';auto s=path.parts[k];o<<"{\"character_utf16_range\":["<<k<<','<<k+1<<"],\"raw_utf8_range\":["<<q->starts[s.start]<<','<<q->ends[s.end-1]<<"],\"syllable\":"<<quote(r.py[s.id])<<'}';}o<<"]}";}
+ o<<"],\"candidate_flow\":"<<(q->capture?candidateFlow(*q):"null")<<",\"is_final\":"<<(v21_completed_paths(q)==int(q->paths.size())?"true":"false")<<",\"recommended_id\":"<<(q->visible.empty()?"null":quote(q->visible[0].id))<<",\"target_alignment_in_retained_paths_diagnostic_only\":{\"compatible_retained_paths\":"<<reachable<<",\"answer_guided_oracle_run\":"<<(reachCapped?"true":"false")<<",\"target_compatible_mobile_path_retained\":"<<(compatibleRetained?"true":"false")<<",\"target_survived_any_path_beam\":"<<(targetInBeam?"true":"false")<<",\"target_in_final_top8\":"<<(targetVisible?"true":"false")<<",\"not_used_to_expand_mobile_search\":true},\"target_used_in_model_or_search\":false,\"full_logits_exported\":false}";q->json=o.str();return q->json.c_str();
  }catch(const std::exception&e){if(q){q->json="{\"error\":"+quote(e.what())+"}";return q->json.c_str();}return "{}";}}
+int32_t v23_configure_request(V21Request*q,uint32_t flags,uint32_t fuzzy,int32_t edits){if(!q||q->prepared||edits<0||edits>2)return -1;q->inputFlags=flags&3;q->fuzzyMask=fuzzy&255;q->maxEdits=edits;return 0;}
+int32_t v23_pool_count(const V21Request*q){return q?int(q->all.size()):0;}
+double v23_pool_score(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->all.size())?q->all[i].score:-INFINITY;}
+int32_t v23_pool_path(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->all.size())?q->all[i].path:-1;}
+int32_t v23_pool_length(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->all.size())?int(q->all[i].chars.size()):0;}
+int32_t v23_pool_character(const V21Request*q,int32_t i,int32_t k){return k>=0&&v23_pool_length(q,i)>k?q->all[i].chars[k]:0;}
+const char*v23_path_evidence(V21Request*q,int32_t p){
+ if(!q||p<0||p>=int(q->paths.size()))return "{}";const auto&path=q->paths[p];const char*kinds[]={"EXACT","INITIAL","INCOMPLETE","FUZZY","TYPO"};
+ std::ostringstream o;o<<"{\"input_cost\":"<<path.inputCost<<",\"mixed\":"<<((path.modeBits&2)&&(path.modeBits&~2U)?"true":"false")<<",\"edges\":[";
+ for(size_t k=0;k<path.parts.size();k++){if(k)o<<',';const auto&s=path.parts[k];const auto&target=q->r->py[s.id];std::string source=q->normalized.substr(s.start,s.end-s.start);
+  o<<"{\"type\":"<<quote(kinds[s.kind])<<",\"syllable_id\":"<<s.id<<",\"syllable\":"<<quote(target)<<",\"normalized_range\":["<<s.start<<','<<s.end<<"],\"raw_utf8_range\":["<<q->starts[s.start]<<','<<q->ends[s.end-1]<<"],\"fuzzy_group_bits\":"<<s.fuzzy<<",\"edit_count\":"<<int(s.edits)<<",\"cost\":"<<s.cost<<",\"completion\":"<<quote(s.kind==V23_INCOMPLETE?target.substr(source.size()):"")<<",\"edits\":[";
+  if(s.crossSwap>=0){
+   if(s.crossSide==1){int at=s.crossSwap;std::string from=q->normalized.substr(at,2),to=from;std::swap(to[0],to[1]);from=q->raw.substr(q->starts[at],q->ends[at+1]-q->starts[at]);o<<"{\"operation\":\"transpose\",\"cross_syllable_boundary\":true,\"raw_utf8_offset\":"<<q->starts[at]<<",\"raw_utf8_range\":["<<q->starts[at]<<','<<q->ends[at+1]<<"],\"normalized_offset\":"<<at<<",\"source\":"<<quote(from)<<",\"target\":"<<quote(to)<<",\"charged_once_on_first_segment\":true}";}
+  }else if(s.kind==V23_TYPO){
+   int d[9][7]{};for(size_t i=0;i<=source.size();i++)d[i][0]=int(i);for(size_t j=0;j<=target.size();j++)d[0][j]=int(j);
+   for(size_t i=1;i<=source.size();i++)for(size_t j=1;j<=target.size();j++){int cost=source[i-1]==target[j-1]?0:(adjacentKey(source[i-1],target[j-1])?1:3);d[i][j]=std::min({d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+cost});if(i>1&&j>1&&source[i-1]==target[j-2]&&source[i-2]==target[j-1])d[i][j]=std::min(d[i][j],d[i-2][j-2]+1);}
+   size_t i=source.size(),j=target.size();bool first=true;
+   while(i||j){std::string type,from,to;size_t at=i;
+    if(i&&j&&source[i-1]==target[j-1]&&d[i][j]==d[i-1][j-1]){i--;j--;continue;}
+    if(i>1&&j>1&&source[i-1]==target[j-2]&&source[i-2]==target[j-1]&&d[i][j]==d[i-2][j-2]+1){type="transpose";at=i-2;from=source.substr(i-2,2);to=target.substr(j-2,2);i-=2;j-=2;}
+    else if(i&&j&&d[i][j]==d[i-1][j-1]+1){type="adjacent_substitution";at=i-1;from=source.substr(i-1,1);to=target.substr(j-1,1);i--;j--;}
+    else if(i&&d[i][j]==d[i-1][j]+1){type=(i>1&&source[i-1]==source[i-2])?"duplicate_key":"extra_key";at=i-1;from=source.substr(i-1,1);i--;}
+    else {type="missing_key";at=i;to=target.substr(j-1,1);j--;}
+    int raw=at<source.size()?q->starts[s.start+at]:q->ends[s.end-1];std::string originalFrom=from;if(!from.empty()){size_t finalIndex=std::min<size_t>(s.end-1,s.start+at+from.size()-1);originalFrom=q->raw.substr(raw,q->ends[finalIndex]-raw);}if(!first)o<<',';first=false;o<<"{\"operation\":"<<quote(type)<<",\"raw_utf8_offset\":"<<raw<<",\"normalized_offset\":"<<s.start+at<<",\"source\":"<<quote(originalFrom)<<",\"target\":"<<quote(to)<<"}";
+   }
+  }o<<"]";if(s.crossSwap>=0)o<<",\"shared_boundary_transpose_offset\":"<<s.crossSwap<<",\"shared_boundary_side\":"<<int(s.crossSide);o<<"}";
+ }o<<"]}";q->evidenceJSON=o.str();return q->evidenceJSON.c_str();
+}
+int32_t v25_bind_request_identity(V21Request*q,uint64_t version,const char*id,int32_t headEnabled){
+ if(!q||q->prepared||!id||std::strlen(id)>128||(!headEnabled&&!q->capture)){if(q)q->error="Invalid diagnostic request identity/reference scope";return -1;}
+ q->requestID=id;q->inputVersion=version;q->headEnabled=headEnabled!=0;return 0;
+}
+// Read-only training receipts. Production search, scores, order and limits are unchanged.
+const char*v27_pool_candidate_id(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->all.size())?q->all[i].id.c_str():nullptr;}
+double v27_pool_model_score(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->all.size())?q->all[i].model:NAN;}
+double v27_pool_character_score(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->all.size())?q->all[i].language:NAN;}
+double v27_pool_word_prior(const V21Request*q,int32_t i){if(!q||i<0||i>=int(q->all.size()))return NAN;const auto&c=q->all[i];return fullWordLogPrior(*q,c.chars,q->paths[c.path]);}
+int32_t v24_pool_ordinal(const V21Request*q,int32_t i){return q&&i>=0&&i<int(q->all.size())?q->all[i].ordinal:-1;}
+int32_t v24_apply_scores(V21Request*q,const float*x,size_t n,const int32_t*ordinals,size_t count){
+ if(!q||!ordinals||count!=q->all.size()){if(q)q->error="Score identity vector size mismatch";return -1;}
+ for(size_t i=0;i<count;i++)if(ordinals[i]!=q->all[i].ordinal){q->error="Candidate order changed between feature extraction and score application";return -1;}
+ return v23_apply_scores(q,x,n);
+}
+int32_t v23_fill_features(V21Request*q,int32_t i,int32_t*chars,int32_t*py,int32_t*raw,float*edge,float*global){try{
+ if(!q||i<0||i>=int(q->all.size())||!chars||!py||!raw||!edge||!global)throw std::runtime_error("Feature buffer contract");
+ std::fill(chars,chars+64,0);std::fill(py,py+64,0);std::fill(raw,raw+384,0);std::fill(edge,edge+64*12,0);std::fill(global,global+24,0);
+ const auto&c=q->all[i];const auto&path=q->paths[c.path];const auto&r=*q->r;size_t n=path.parts.size();double typeCounts[5]{},edits=0,completion=0;
+ for(size_t j=0;j<q->normalized.size();j++){char x=q->normalized[j];raw[j]=x>='a'&&x<='z'?x-'a'+1:x==' '?27:28;}
+ for(size_t j=0;j<n;j++){chars[j]=c.chars[j];const auto&s=path.parts[j];py[j]=s.id;edge[j*12+s.kind]=1;edge[j*12+5]=(path.modeBits&2)&&(path.modeBits&~2U)?1:0;edge[j*12+6]=float(s.end-s.start)/6;edge[j*12+7]=float(r.py[s.id].size())/6;edge[j*12+8]=float(s.edits)/2;edge[j*12+9]=float(__builtin_popcount(s.fuzzy))/2;edge[j*12+10]=s.kind==V23_INCOMPLETE?float(r.py[s.id].size()-(s.end-s.start))/6:0;edge[j*12+11]=float(s.cost)/3;typeCounts[s.kind]++;edits+=s.edits;completion+=edge[j*12+10];}
+ auto bounded=[](double x){return float(std::max(-1.0,std::min(1.0,x)));};
+ global[0]=bounded(c.model/20);global[1]=bounded(c.language/20);global[2]=bounded(path.logPrior/20);global[3]=bounded(path.inputCost/8);global[4]=float(n)/64;global[5]=float(q->normalized.size())/384;
+ double wordPrior=fullWordLogPrior(*q,c.chars,path);global[6]=std::isfinite(wordPrior)?bounded(wordPrior/20):-1;global[7]=std::isfinite(wordPrior)?1:0;
+ for(int k=0;k<5;k++)global[8+k]=float(typeCounts[k]/n);global[13]=float(edits)/2;global[14]=float(completion/n);global[15]=(path.modeBits&2)&&(path.modeBits&~2U)?1:0;
+ global[16]=float(__builtin_popcount(q->fuzzyMask))/8;global[17]=((q->inputFlags&2)&&q->maxEdits>0)?1:0;global[18]=(q->inputFlags&1)?1:0;global[19]=q->completion?1:0;
+ global[20]=float(q->paths.size())/8;global[21]=std::isfinite(wordPrior)?bounded(wordPrior/20):0;global[22]=float(q->contextLast!=8192);global[23]=std::isfinite(wordPrior)?bounded((c.model+.25*c.language-wordPrior)/20):0;
+ return 0;
+ }catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
+int32_t v23_apply_scores(V21Request*q,const float*logits,size_t count){try{
+ if(!q||!logits||count!=q->all.size()*2||q->scored||v21_completed_paths(q)!=int(q->paths.size()))throw std::runtime_error("Learned score contract");
+ auto logSigmoid=[](double x){return x>=0?-std::log1p(std::exp(-x)):x-std::log1p(std::exp(x));};
+ for(size_t i=0;i<count;i++)if(!std::isfinite(logits[i]))throw std::runtime_error("Nonfinite learned score vector; no scores committed");
+ for(size_t i=0;i<q->all.size();i++){double a=logits[i*2],b=logits[i*2+1];if(!std::isfinite(a)||!std::isfinite(b))throw std::runtime_error("Nonfinite learned score");auto&c=q->all[i];c.sequenceLogit=a;c.channelLogit=b;c.sequenceAdjustment=.20*logSigmoid(a);c.channelAdjustment=.10*logSigmoid(b);c.score=c.baseScore+(c.sequenceAdjustment+c.channelAdjustment);c.learned=true;}
+ q->scored=true;return 0;
+ }catch(const std::exception&e){if(q)q->error=e.what();return -1;}}
+
 }

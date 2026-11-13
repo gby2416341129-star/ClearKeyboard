@@ -48,6 +48,25 @@ V21_API int32_t v21_candidate_path(const V21Request*,int32_t);
 V21_API int32_t v21_candidate_characters(const V21Request*,int32_t);
 /* JSON is generated only on explicit diagnostic requests; target is queried AFTER decoding. */
 V21_API const char *v21_diagnostic_json(V21Request*,const char*);
+/* V23: settings are immutable for a request and set BEFORE prepare. */
+V21_API int32_t v23_configure_request(V21Request*,uint32_t,uint32_t,int32_t);
+V21_API const char *v23_path_evidence(V21Request*,int32_t);
+V21_API int32_t v23_pool_count(const V21Request*);
+V21_API double v23_pool_score(const V21Request*,int32_t);
+V21_API int32_t v23_pool_path(const V21Request*,int32_t);
+V21_API int32_t v23_pool_length(const V21Request*,int32_t);
+V21_API int32_t v23_pool_character(const V21Request*,int32_t,int32_t);
+/* Arrays: candidate64,pinyin64,raw384,edge64x12,global24. No target input. */
+/* V24: bind every score row to its captured request-local pool ordinal. */
+V21_API int32_t v25_bind_request_identity(V21Request*,uint64_t,const char*,int32_t);
+V21_API int32_t v24_pool_ordinal(const V21Request*,int32_t);
+V21_API int32_t v24_apply_scores(V21Request*,const float*,size_t,const int32_t*,size_t);
+V21_API int32_t v23_fill_features(V21Request*,int32_t,int32_t*,int32_t*,int32_t*,float*,float*);
+V21_API int32_t v23_apply_scores(V21Request*,const float*,size_t);
+V21_API const char*v27_pool_candidate_id(const V21Request*,int32_t);
+V21_API double v27_pool_model_score(const V21Request*,int32_t);
+V21_API double v27_pool_character_score(const V21Request*,int32_t);
+V21_API double v27_pool_word_prior(const V21Request*,int32_t);
 #ifdef __cplusplus
 }
 #endif

@@ -140,7 +140,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
     private var recommendedCandidate: Candidate? {
         candidates.first{$0.nativeChoice?.recommended == true} ?? candidates.first
     }
-    private(set) var engineState = "V22 原生内核加载中…"
+    private(set) var engineState = "V49 CPU 模型加载中…"
     var onChange: (() -> Void)?
     var onCandidatesChange: (() -> Void)?
     var onCandidateSelection: (() -> Void)?
@@ -236,9 +236,10 @@ struct DeletedInput { let text: String; let selection: NSRange }
         refinementCancellation.cancel();refinementWork?.cancel()
         let token=QueryCancellation();refinementCancellation=token;scheduledQuery=query
         let characters=query.characters
+        let fuzzyPairs=settings.fuzzyPairs
         refinementWork=Task { [weak self] in
             do {
-                let result=try await V21InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters,inputNS:query.createdNS,
+                let result=try await V21InputService.shared.candidates(raw:query.raw,context:query.preceding,characters:characters,fuzzyPairs:fuzzyPairs,inputNS:query.createdNS,
                     updated: { [weak self] batch in
                         Task { @MainActor [weak self] in
                             guard let self,!token.isCancelled,!query.token.isCancelled,
@@ -251,7 +252,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 if query.publish(result) {self.presentCandidates(query)}
             } catch {
                 guard let self, !Task.isCancelled, !token.isCancelled, self.activeCandidates === query else{return}
-                _ = query.publish(V21CandidateBatch(items:[],completedPaths:Int.max,isFinal:true));self.engineState="V22 暂未返回候选："+error.localizedDescription
+                _ = query.publish(V21CandidateBatch(items:[],completedPaths:Int.max,isFinal:true));self.engineState="V49 暂未返回候选："+error.localizedDescription
                 self.presentCandidates(query)
             }
         }
@@ -319,11 +320,11 @@ struct DeletedInput { let text: String; let selection: NSRange }
                     if self.deferredVisibleContext == self.activeCandidateContext() {self.deferredContext=self.deferredVisibleContext}
                     else {self.cancelDeferredActions()}
                 }
-                self.engineReady=true;self.engineState="V22 离线就绪";self.refreshCandidates()
+                self.engineReady=true;self.engineState="V49 CPU 离线就绪";self.refreshCandidates()
             } catch {
                 guard let self else{return}
                 // Preserve the draft and editing on loading failure.
-                self.engineState="V22 加载失败："+error.localizedDescription;self.onChange?()
+                self.engineState="V49 加载失败："+error.localizedDescription;self.onChange?()
             }
         }
     }

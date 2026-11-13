@@ -33,9 +33,10 @@ actor V21InputService {
         if let initialization {return try await initialization.value}
         KernelMeasurement.shared.noteStartup("prepare_requested")
         let task=Task.detached(priority:.userInitiated) {
-            guard let model=InputResources.url("V22PinyinB1FP16",extension:"mlmodelc"),
-                  let config=InputResources.url("runtime_config",extension:"json",directory:"V22") else {throw V21Error.resource("V22 model/resources are unavailable")}
-            return try await V21IMEKernel.prepare(compiledModelURL:model,resourceDirectory:config.deletingLastPathComponent(),configuration:V21Configuration(computeUnits:.cpuOnly,performanceSink:{KernelMeasurement.shared.receive($0)},performanceCaptureEnabled:{KernelMeasurement.shared.isRecording()}))
+            guard let model=InputResources.url("V49PinyinB1FP16",extension:"mlmodelc"),
+                  let sequence=InputResources.url("V49InputSequenceFP16",extension:"mlmodelc"),
+                  let config=InputResources.url("runtime_config",extension:"json",directory:"V49") else {throw V21Error.resource("V49 paired models/resources are unavailable")}
+            return try await V21IMEKernel.prepare(compiledModelURL:model,sequenceModelURL:sequence,resourceDirectory:config.deletingLastPathComponent(),configuration:V21Configuration(computeUnits:.cpuOnly,performanceSink:{KernelMeasurement.shared.receive($0)},performanceCaptureEnabled:{KernelMeasurement.shared.isRecording()}))
         }
         initialization=task
         do {let result=try await task.value;KernelMeasurement.shared.noteStartup("prepare_ready");return result}
@@ -54,7 +55,7 @@ actor V21InputService {
         timing.sdkReturnedNS=returned
         return V21CandidateBatch(items:output,completedPaths:result.completedPaths,isFinal:result.isFinal,timing:timing)
     }
-    func candidates(raw:String,context:String,characters:Bool,inputNS:UInt64,updated:@escaping @Sendable(V21CandidateBatch)->Void) async throws -> V21CandidateBatch {
+    func candidates(raw:String,context:String,characters:Bool,fuzzyPairs:Set<String>=[],inputNS:UInt64,updated:@escaping @Sendable(V21CandidateBatch)->Void) async throws -> V21CandidateBatch {
         // An already-cancelled caller must not invalidate a newer delivery.
         try Task.checkCancellation()
         guard !measurementRunning else {throw V21Error.contract("Stop manual SDK measurement before live App preview input")}
@@ -65,7 +66,9 @@ actor V21InputService {
         let lease=CandidateDeliveryLease(version:requested,input:inputNS,waitStart:waitStart,waitEnd:DispatchTime.now().uptimeNanoseconds);delivery=lease
         // Convert immutable receipts directly on the SDK delivery worker. The
         // UI still validates its query/token on MainActor before accepting them.
-        guard let result=try await kernel.candidates(rawPinyin:raw,committedLeftContext:context,inputVersion:requested,requestedCount:8,onUpdate:{result in
+        var inputSettings=V23InputSettings()
+        inputSettings.fuzzyGroups=try V37FuzzySettings.mask(enabledUIKeys:fuzzyPairs)
+        guard let result=try await kernel.candidates(rawPinyin:raw,committedLeftContext:context,inputVersion:requested,requestedCount:8,inputSettings:inputSettings,onUpdate:{result in
             let returned=DispatchTime.now().uptimeNanoseconds
             guard lease.isValid,let batch=try? Self.convert(result,lease:lease,characters:characters,returned:returned),lease.isValid else{return}
             updated(batch)
@@ -85,7 +88,7 @@ actor V21InputService {
             guard (1...200).contains(probes.count) else { throw V21Error.contract("Invalid finite measurement count") }
             let kernel = try await prepare()
             guard !measurementStopRequested else { throw CancellationError() }
-            let session = V22MeasurementSession(kernel: kernel, recorder: KernelMeasurement.shared.recorder, configurationLabel: "CPU first (.cpuOnly); effective configuration in record identity; user-started; main-App process")
+            let session = V22MeasurementSession(kernel: kernel, recorder: KernelMeasurement.shared.recorder, configurationLabel: "CPU only (.cpuOnly); V49 paired models; user-started; main-App process")
             let first = version + 1; version += UInt64(probes.count)
             measurement = session; measurementCaptureID = KernelMeasurement.shared.activeSessionID()
             measurementTask = Task {
@@ -102,7 +105,7 @@ actor V21InputService {
     }
     func exportMeasurement() async throws -> URL? {
         guard let measurement,measurementCaptureID == KernelMeasurement.shared.activeSessionID() else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("V22-finite-session.json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("V49-finite-session.json")
         try await measurement.export(to: url)
         return url
     }

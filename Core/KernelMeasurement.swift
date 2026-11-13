@@ -203,14 +203,14 @@ final class KernelMeasurement: @unchecked Sendable {
         }
         let resultRole=processes["keyboard"] as? [String:Any]
         let keyboardRows=(resultRole?["records"] as? [Any])?.count ?? 0,keyboardFrames=(resultRole?["app_times"] as? [Any])?.count ?? 0
-        var result:[String:Any]=["schema":"clear-v22-user-export-3","build":Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "unknown","kernel":"V22","session_id":id,"processes":processes,
+        var result:[String:Any]=["schema":"clear-v22-user-export-3","build":Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "unknown","kernel":"V49","session_id":id,"processes":processes,
             "measurement_transport":transport.diagnostics,"keyboard_evidence_available":resultRole != nil,"keyboard_request_count":keyboardRows,"keyboard_display_event_count":keyboardFrames,
             "shared_container_available":sharedContainerAvailable,"screen_visible_latency":"drawing, process commit and next-refresh callback measured; physical host/screen presentation unmeasured",
             "input_origin":"accepted composition query creation, not finger-down","estimated_presentation_caveat":"UIKit estimatedPresentationTime converted to monotonic nanoseconds; not physical visibility",
             "export_flush_requested_uptime_ns":requested,"capture_limit_per_process":200,"capture_expiry_seconds":1800,"tests_passed":false]
         if resultRole == nil {result["keyboard_evidence_missing_reason"]="No matching extension acknowledgment. Use actual-input recording; re-signing must retain a common App Group or Keychain access group. A main-App-only measurement is not keyboard evidence."}
         if let finiteSession {result["finite_sdk_session"]=try JSONSerialization.jsonObject(with:Data(contentsOf:finiteSession))}
-        let out=FileManager.default.temporaryDirectory.appendingPathComponent("ClearKeyboard-V22-\(id).json")
+        let out=FileManager.default.temporaryDirectory.appendingPathComponent("ClearKeyboard-V49-\(id).json")
         try JSONSerialization.data(withJSONObject:result,options:[.prettyPrinted,.sortedKeys]).write(to:out,options:.atomic);return out
     }
 }

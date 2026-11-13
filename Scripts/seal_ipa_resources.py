@@ -4,12 +4,12 @@ from pathlib import Path
 import hashlib,json,sys
 def seal(app):
     ext=Path(app)/'PlugIns/ClearKeyboardExtension.appex'
-    model=ext/'V22PinyinB1FP16.mlmodelc';runtime=ext/'V22'
-    assert model.is_dir() and runtime.is_dir()
+    models=[ext/(name+'.mlmodelc') for name in ['V49PinyinB1FP16','V49InputSequenceFP16']];runtime=ext/'V49'
+    assert all(model.is_dir() for model in models) and runtime.is_dir()
     files={}
-    for root in [model,runtime]:
+    for root in models+[runtime]:
         for p in sorted(root.rglob('*')):
             if p.is_file() and p != runtime/'packaged_manifest.json':
                 files[p.relative_to(ext).as_posix()]=hashlib.sha256(p.read_bytes()).hexdigest()
-    (runtime/'packaged_manifest.json').write_text(json.dumps({'kernel':'V22','neural_model':'V19 best','step':38750,'files':files},indent=2)+'\n',encoding='utf8')
+    (runtime/'packaged_manifest.json').write_text(json.dumps({'kernel':'V49','neural_model':'V49 research best','local_step':1408,'global_step':94661,'compute_units':'cpuOnly','files':files},indent=2)+'\n',encoding='utf8')
 if __name__=='__main__':seal(sys.argv[1])

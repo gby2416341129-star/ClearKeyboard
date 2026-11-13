@@ -1,0 +1,50 @@
+{
+  "kernel": "V49",
+  "neural_model": "V49 research best",
+  "checkpoint_sha256": "6b2a81977f112ebdc1763198dac5e7e68caeef0d4d65fc7819ec3133e5929f58",
+  "model_tensor_sha256": "4e4ee48224685fa84e008a21754603d393e9eb9dda798acf02dd2f19a98a3e5c",
+  "local_step": 1408,
+  "global_step": 94661,
+  "optimizer_step": 40494,
+  "parameters": 21020402,
+  "score_version": "v23-input-sequence-energy-1",
+  "graph_export_version": "v23-b1-enumerated-1",
+  "compute_units": "cpuOnly",
+  "fallback_to_other_compute_units": false,
+  "user_tests_pending": true,
+  "models": [
+    "V49PinyinB1FP16",
+    "V49InputSequenceFP16"
+  ],
+  "source_model_archive_sha256": "55142f2bb28776107fdf49c9ccb6f53f828f454a6238da1d824efdbaa4c8060e",
+  "files": {
+    "Native/V21NativeIME/Package.swift": "82d4540a6908f9e37aded6aba9756019b47294f093af05eafa3bb4d541945bd9",
+    "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "3274e480ecaff1cd7f87f66c6d0f7e8c3e931f1cfb3b355c5d611c84adc3a1c2",
+    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "c5c218bf7d94ea9678bc95631c6d12bd09ff556722d9d875cb0fed740e2280fc",
+    "Native/V21NativeIME/Sources/CV21IMECore/v23_parser.inc": "e86816b0376520302c2793ff56395380d989e06d82226a2b292d3d10cefc5991",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "94097341bdeee920114b58135f5e4bd0ea89af321e12b4c74e0060e8e91e092d",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.bin": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.json": "0862d85946682a75741768ba4f8aa53e7c33a2ac09eb3f799997ded5c52ac976",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/vocabulary.json": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "0d35538874856524934dc4e81062e0bb83ca986254ca248861f57d1e5815963e",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21Input.swift": "413e61b99689d089bb1652f4221f23d1d20e94df2a8f761cbae32749d5e2afa8",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "7bed8c64ea3adb822e7767aa250ca7ebe523da745c7b2f48fc9caf890d591bd8",
+    "Native/V21NativeIME/Sources/V21NativeIME/V22Measurement.swift": "6b8d1f00f79506480a740b0a2f544904fc47035aedd870caff14d1a1dbf5452b",
+    "Native/V21NativeIME/Sources/V21NativeIME/V37FuzzySettings.swift": "3fc1925eaad5c0d0de932fdd3ca01a157994dc5aa26276bea34cc446b877d20c",
+    "Core/Resources/V49/ordinary_probes_160.json": "38626257e91fcdfe74dc22fe04c1041768dc212821174be31162d5a7656348f2",
+    "Core/Resources/V49/V49InputSequenceFP16.mlpackage/Data/com.apple.CoreML/model.mlmodel": "44cd8bbec0e0b4747d80ddd47be7690c37ee6839563b2878a48c586afbce5280",
+    "Core/Resources/V49/V49InputSequenceFP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin": "047accc02f427087ed55c87f40c01edcfd5c04bd84dc5a08be25d473153adad5",
+    "Core/Resources/V49/V49InputSequenceFP16.mlpackage/Manifest.json": "f911d4c3cc51f6e4bbc0fbf4cf3f104af4e1da87842798d034b76902144f6876",
+    "Core/Resources/V49/V49PinyinB1FP16.mlpackage/Data/com.apple.CoreML/model.mlmodel": "0f5dd4447011d8f104dbd747f26187f38caccca2c1444e71932bdec77a96f78a",
+    "Core/Resources/V49/V49PinyinB1FP16.mlpackage/Data/com.apple.CoreML/weights/weight.bin": "747ffa9ff369c4e163908a65cb131d5d683875ff34b11ce41ef974edf981d81c",
+    "Core/Resources/V49/V49PinyinB1FP16.mlpackage/Manifest.json": "8a95f3999fdb3dfb386a0d79d89744ea0cf027725c8e97a2bca87208e98ac045"
+  },
+  "sdk_adaptations": [
+    "V49 model metadata binding",
+    "immutable CPU-only configuration; no cross-device recovery",
+    "matching production cache and cancellation logic retained",
+    "App fuzzy toggles use V37FuzzySettings stable ABI bits"
+  ]
+}

@@ -264,8 +264,8 @@ struct InputAboutView: View {
             }
             AppSectionTitle(title: "离线引擎")
             AppCard {
-                Text("V22 原生全拼内核").font(.system(size: 16, weight: .medium))
-                Text("V22 原生内核沿用 V19 权重，在本机处理连续全拼、解码及候选推荐，支持部分未完成尾音节。本试用版暂不支持简拼、模糊音、纠错、中英混输和联想；学习记录保留，但不参与 SDK 排序。")
+                Text("V49 本地输入模型 · CPU").font(.system(size: 16, weight: .medium))
+                Text("V49 模型、双头评分与配套词库在本机使用 CPU 处理全拼、简拼、混合拼音及输入纠错。模糊音按输入设置中的开关生效。学习记录保留，但暂不参与模型排序。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 Divider()
                 AppNavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
