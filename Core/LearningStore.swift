@@ -8,9 +8,13 @@ struct LearningMemory: Codable {
         var counts=learned
         for (key,count) in other.learned {counts[key]=max(counts[key] ?? 0,count)}
         if counts.count>512 {
-            counts=Dictionary(uniqueKeysWithValues:counts.sorted {
-                $0.value == $1.value ? $0.key<$1.key:$0.value>$1.value
-            }.prefix(512))
+            let ordered:[(key:String,value:Int)]=counts.sorted {left,right in
+                if left.value != right.value {return left.value>right.value}
+                return left.key<right.key
+            }
+            var kept:[String:Int]=[:]
+            for entry in ordered.prefix(512) {kept[entry.key]=entry.value}
+            counts=kept
         }
         return LearningMemory(learned:counts,personal:personal.merging(other.personal),numbers:numbers.merging(other.numbers))
     }
