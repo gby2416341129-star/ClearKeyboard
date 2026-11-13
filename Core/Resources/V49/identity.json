@@ -20,7 +20,7 @@
   "files": {
     "Native/V21NativeIME/Package.swift": "82d4540a6908f9e37aded6aba9756019b47294f093af05eafa3bb4d541945bd9",
     "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "422e0e6b50b077964d25ee9a5cfdac04cd20531c0e3bf6593a696e00febfb39e",
-    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "52b949cfdc99e3364359973216e5832451dd3b376ad821c5baf8a192990abd49",
+    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "672d4f0a1bc341e2b3c8965cae439d73472b666139a2b88feb4fd176eeb332ad",
     "Native/V21NativeIME/Sources/CV21IMECore/v23_parser.inc": "e948d299fbb295bb8cba363783e6ac43e0c818683d6f2c8193d85710739d666c",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "0cad8975dfb8b16a3cdc5099629af59810e1c5f59e7a21552a590969b8969fed",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",

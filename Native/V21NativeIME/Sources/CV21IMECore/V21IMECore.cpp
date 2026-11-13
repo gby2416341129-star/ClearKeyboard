@@ -288,7 +288,12 @@ void decodeCharacterRow(V21Request&q,int pathIndex,const std::vector<std::vector
  // A cross-syllable swap borrows a letter beyond this prefix boundary. It is
  // valid for a full word, but not an independently consumable character receipt.
  if(part.crossSwap>=0)return;
- if(q.characterExactPrefix&&!sameCharacterPrefix(path,q.paths[q.characterPrimaryPath]))return;
+ if(q.characterExactPrefix&&!sameCharacterPrefix(path,q.paths[q.characterPrimaryPath])){
+  const auto&literal=q.paths[q.characterPrimaryPath].parts.front();
+  // An explicitly enabled fuzzy sound may share the same independently
+  // consumable boundary; do not mistake it for a shorter initial/typo route.
+  if(part.start!=literal.start||part.end!=literal.end||part.edits!=0||part.kind!=V23_FUZZY)return;
+ }
  const auto&legal=q.r->legal[part.id];const auto&row=values.front();
  double maximum=*std::max_element(row.begin(),row.end()),sum=0;for(float value:row)sum+=std::exp(double(value)-maximum);
  double z=maximum+std::log(sum),prior=(q.r->pyLog(511,part.id)+q.r->pyLog(part.id,510))/2;

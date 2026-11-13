@@ -83,7 +83,7 @@ actor V21InputService {
         measurementRunning = true
         measurementStopRequested = false
         do {
-            guard let url = InputResources.url("ordinary_probes_160", extension: "json", directory: "V22") else {
+            guard let url = InputResources.url("ordinary_probes_160", extension: "json", directory: "V49") else {
                 throw V21Error.resource("Missing supplied finite measurement inputs")
             }
             let probes = try JSONDecoder().decode([V22MeasurementProbe].self, from: Data(contentsOf: url))
