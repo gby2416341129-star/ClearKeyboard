@@ -18,7 +18,13 @@ jobs:
         with:
           python-version: '3.11'
       - name: Restore byte-verified source and parameter archive
-        run: python3 V49ProbePayload/restore.py
+        run: |
+          python3 V49ProbePayload/restore.py
+          python3 - <<'PY'
+          from pathlib import Path
+          for p in Path('V49Probe/Scripts').glob('*.sh'):
+              p.write_bytes(p.read_bytes().replace(bytes([13,10]),bytes([10])))
+          PY
       - name: Install pinned conversion tooling
         run: python3 -m pip install 'numpy==1.26.4' 'coremltools==9.0'
       - name: Convert, compile and package only; no predictions or tests
