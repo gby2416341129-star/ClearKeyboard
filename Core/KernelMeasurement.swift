@@ -208,6 +208,7 @@ final class KernelMeasurement: @unchecked Sendable {
             "shared_container_available":sharedContainerAvailable,"screen_visible_latency":"drawing, process commit and next-refresh callback measured; physical host/screen presentation unmeasured",
             "input_origin":"accepted composition query creation, not finger-down","estimated_presentation_caveat":"UIKit estimatedPresentationTime converted to monotonic nanoseconds; not physical visibility",
             "export_flush_requested_uptime_ns":requested,"capture_limit_per_process":200,"capture_expiry_seconds":1800,"tests_passed":false]
+        result["installation_lifecycle"]=InstallationLifecycle.diagnostics
         if resultRole == nil {result["keyboard_evidence_missing_reason"]="No matching extension acknowledgment. Use actual-input recording; re-signing must retain a common App Group or Keychain access group. A main-App-only measurement is not keyboard evidence."}
         if let finiteSession {result["finite_sdk_session"]=try JSONSerialization.jsonObject(with:Data(contentsOf:finiteSession))}
         let out=FileManager.default.temporaryDirectory.appendingPathComponent("ClearKeyboard-V49-\(id).json")

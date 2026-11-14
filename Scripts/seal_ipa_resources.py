@@ -12,5 +12,5 @@ def seal(app):
         for p in sorted(root.rglob('*')):
             if p.is_file() and p != runtime/'packaged_manifest.json':
                 files[p.relative_to(ext).as_posix()]=hashlib.sha256(p.read_bytes()).hexdigest()
-    (runtime/'packaged_manifest.json').write_text(json.dumps({'kernel':'V49','neural_model':'V49 research best','local_step':1408,'global_step':94661,'compute_units':'cpuOnly','decoder_policy':'build106-lexical-mixed-recall-1','maximum_visible_candidates':64,'files':files},indent=2)+'\n',encoding='utf8')
+    (runtime/'packaged_manifest.json').write_text(json.dumps({'kernel':'V49','neural_model':'V49 research best','local_step':1408,'global_step':94661,'compute_units':'cpuOnly','decoder_policy':'build107-structured-canonical-recall-1','maximum_visible_candidates':64,'files':files},indent=2)+'\n',encoding='utf8')
 if __name__=='__main__':seal(sys.argv[1])

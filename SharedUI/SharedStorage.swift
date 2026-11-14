@@ -14,14 +14,8 @@ enum SharedStorage {
         applicationGroups().first
     }
     static func applicationGroups() -> [Group] {
-        let configured = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String
-        let candidates = [configured].compactMap { $0 } + provisionedGroups
-        var seen = Set<String>()
-        return candidates.compactMap { identifier in
-            guard seen.insert(identifier).inserted,
-                  let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) else { return nil }
-            return Group(identifier: identifier, root: root)
-        }
+        let snapshot=InstallationLifecycle.prepare()
+        return InstallationLifecycle.rawGroups().map {Group(identifier:$0.identifier,root:InstallationLifecycle.sharedRoot($0.root,snapshot:snapshot))}
     }
     private static let provisionedGroups: [String] = {
         guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
@@ -45,7 +39,7 @@ enum SharedStorage {
         defer{defaultsMigrations.remove(groupIdentifier);defaultsMigrationLock.unlock()}
         if let root=FileManager.default.containerURL(forSecurityApplicationGroupIdentifier:groupIdentifier) {
             // Serialize migration's epoch/payload publication with clear/save.
-            _ = try? SharedFileLock.perform(at:root.appendingPathComponent("Learning/learning.lock")) {
+            _ = try? SharedFileLock.perform(at:InstallationLifecycle.sharedRoot(root).appendingPathComponent("Learning/learning.lock")) {
                 migrateDefaultsLocked(from:source,to:destination,groupIdentifier:groupIdentifier)
             }
         } else {migrateDefaultsLocked(from:source,to:destination,groupIdentifier:groupIdentifier)}
@@ -93,25 +87,30 @@ enum SharedStorage {
     }
 
     static func defaults(allowShared: Bool) -> UserDefaults {
+        let local=InstallationLifecycle.privateDefaults()
         guard allowShared, let group = applicationGroup(),
-              let defaults = UserDefaults(suiteName: group.identifier) else { return .standard }
-        migrateLegacyDefaults(from: .standard, to: defaults, groupIdentifier: group.identifier)
+              let backing = UserDefaults(suiteName: group.identifier) else { return local }
+        let defaults=InstallationLifecycle.scopedDefaults(backing,domain:group.identifier)
+        migrateLegacyDefaults(from: local, to: defaults, groupIdentifier: group.identifier)
         return defaults
     }
     /// Adopt the complete legacy folder so attachment paths, dates and pins
     /// remain valid. Existing shared stores merge on a background queue;
     /// exclusive rename handles a new shared directory without copying bytes.
-    static func adoptLegacyClipboardDirectory(from source: URL, to destination: URL, defaults: UserDefaults, groupIdentifier: String) {
+    static func adoptLegacyClipboardDirectory(from source: URL, to destination: URL, defaults: UserDefaults, groupIdentifier: String, sourceTag:String="local",trustedScope:Bool=false) {
+        guard trustedScope || InstallationLifecycle.legacyMigrationAllowed() else{return}
         guard source.isFileURL, destination.isFileURL else { return }
         let source = source.standardizedFileURL, destination = destination.standardizedFileURL
         guard source != destination else { return }
         // The source defaults domain identifies its owning process. Keep this
         // stable when iOS changes that process's absolute container location.
-        let marker = "clear.clipboard.migration.v1." + groupIdentifier
+        let marker = "clear.clipboard.migration.install.v1." + groupIdentifier+"."+sourceTag
         guard !defaults.bool(forKey: marker) else { return }
 
-        var destinationInfo = stat()
-        if destination.path.withCString({ Darwin.lstat($0, &destinationInfo) }) == 0 {
+        // Copy only records/assets owned by ClipboardStore. Never move or erase
+        // an entire shared Private directory, which may contain another App's data.
+        do {try FileManager.default.createDirectory(at:destination,withIntermediateDirectories:true)}catch{return}
+        do {
             migrationLock.lock(); let start = migrating.insert(source.path + destination.path).inserted; migrationLock.unlock()
             guard start else { return }
             migrationQueue.async {
@@ -128,24 +127,6 @@ enum SharedStorage {
             }
             return
         }
-        var sourceInfo = stat()
-        let sourceResult = source.path.withCString { path -> (Int32, Int32) in
-            let status = Darwin.lstat(path, &sourceInfo)
-            return (status, status == 0 ? 0 : errno)
-        }
-        guard sourceResult.0 == 0 else {
-            if sourceResult.1 == ENOENT { defaults.set(true, forKey: marker) }
-            return
-        }
-        guard (sourceInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else { return }
-        let result = source.path.withCString { sourcePath in
-            destination.path.withCString { destinationPath -> (Int32, Int32) in
-                let status = Darwin.renamex_np(sourcePath, destinationPath, UInt32(RENAME_EXCL))
-                return (status, status == 0 ? 0 : errno)
-            }
-        }
-        if result.0 == 0 { defaults.set(true, forKey: marker) }
-        else if result.1 == EEXIST { adoptLegacyClipboardDirectory(from: source, to: destination, defaults: defaults, groupIdentifier: groupIdentifier) }
     }
     static func clipboardURL(allowShared: Bool) -> URL {
         if allowShared, let group = applicationGroup() {
@@ -153,11 +134,25 @@ enum SharedStorage {
             let localRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Clear", isDirectory: true)
             let sharedRoot = root.appendingPathComponent("Private", isDirectory: true)
-            adoptLegacyClipboardDirectory(from: localRoot, to: sharedRoot, defaults: .standard, groupIdentifier: group.identifier)
+            let preferences=defaults(allowShared:true)
+            adoptLegacyClipboardDirectory(from: localRoot, to: sharedRoot, defaults: preferences, groupIdentifier: group.identifier,sourceTag:Bundle.main.bundleIdentifier ?? "local")
+            for raw in InstallationLifecycle.rawGroups() {
+                adoptLegacyClipboardDirectory(from:raw.root.appendingPathComponent("Private"),to:sharedRoot,defaults:preferences,groupIdentifier:group.identifier,sourceTag:"group-"+raw.identifier)
+                let snapshot=InstallationLifecycle.prepare()
+                for prior in InstallationLifecycle.priorRoots(raw.root,snapshot:snapshot) {
+                    adoptLegacyClipboardDirectory(from:prior.appendingPathComponent("Private"),to:sharedRoot,defaults:preferences,groupIdentifier:group.identifier,sourceTag:"prior-"+prior.lastPathComponent,trustedScope:true)
+                }
+            }
             return sharedRoot.appendingPathComponent("clipboard.json")
         }
         let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return root.appendingPathComponent("Clear/clipboard.json")
+        let snapshot=InstallationLifecycle.prepare()
+        let current=root.appendingPathComponent("ClearInstallation/data/"+snapshot.identifier+"/Private",isDirectory:true)
+        adoptLegacyClipboardDirectory(from:root.appendingPathComponent("Clear"),to:current,defaults:InstallationLifecycle.privateDefaults(),groupIdentifier:"private",sourceTag:Bundle.main.bundleIdentifier ?? "local")
+        for prior in snapshot.priorIdentifiers ?? [] {
+            adoptLegacyClipboardDirectory(from:root.appendingPathComponent("ClearInstallation/data/"+prior+"/Private"),to:current,defaults:InstallationLifecycle.privateDefaults(),groupIdentifier:"private",sourceTag:"prior-"+prior,trustedScope:true)
+        }
+        return current.appendingPathComponent("clipboard.json")
     }
 }
 

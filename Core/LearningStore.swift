@@ -25,7 +25,13 @@ struct LearningMemory: Codable {
 enum LearningStore {
     private static let local=NSRecursiveLock()
     private static func key(_ epoch: String?) -> String { "clear.learning.v3." + (epoch ?? "legacy") }
-    static func load(_ defaults: UserDefaults, epoch: String?) -> LearningMemory {
+    static func load(_ defaults: UserDefaults, epoch suppliedEpoch: String?,installationMigration:Bool=true) -> LearningMemory {
+        var epoch=suppliedEpoch
+        if installationMigration,let migration=defaults as? InstallationLearningMigration {
+            let transition=migration.migrateInstallationLearning()
+            guard transition.ready else{return LearningMemory()}
+            epoch=transition.current
+        }
         if let data = defaults.data(forKey: key(epoch)), let value = try? JSONDecoder().decode(LearningMemory.self, from: data) { return value }
         // An explicit epoch is an authoritative namespace, including after a
         // reset. A missing/temporarily unseen new blob must not revive legacy
@@ -38,19 +44,26 @@ enum LearningStore {
     /// A granted shared-container URL serializes App/keyboard writers. Standard
     /// defaults retain a process-local lock and the same epoch guard.
     @discardableResult static func save(_ value: LearningMemory, defaults: UserDefaults, epoch: String?, lockURL:URL?=nil)->LearningMemory? {
+        var expected=epoch
+        if let migration=defaults as? InstallationLearningMigration {
+            let transition=migration.migrateInstallationLearning()
+            guard transition.ready else{return nil}
+            if transition.adoptedLegacyEpoch,transition.previous==epoch {expected=transition.current}
+        }
         do {
             return try locked(at:lockURL) {
                 _ = defaults.synchronize()
-                guard defaults.string(forKey:"clear.learned.epoch")==epoch else{return nil}
-                let next=load(defaults,epoch:epoch).merging(value)
+                guard defaults.string(forKey:"clear.learned.epoch")==expected else{return nil}
+                let next=load(defaults,epoch:expected,installationMigration:false).merging(value)
                 guard let data=try? JSONEncoder().encode(next),
-                      defaults.string(forKey:"clear.learned.epoch")==epoch else{return nil}
-                defaults.set(data,forKey:key(epoch));_ = defaults.synchronize()
+                      defaults.string(forKey:"clear.learned.epoch")==expected else{return nil}
+                defaults.set(data,forKey:key(expected));_ = defaults.synchronize()
                 return next
             }
         } catch{return nil}
     }
     @discardableResult static func clear(_ defaults: UserDefaults,lockURL:URL?=nil)->Bool {
+        if let migration=defaults as? InstallationLearningMigration,!migration.installationStorageReady {return false}
         do {
             return try locked(at:lockURL) {
                 _ = defaults.synchronize()
@@ -69,5 +82,8 @@ enum LearningStore {
         local.lock();defer{local.unlock()}
         if let url{return try SharedFileLock.perform(at:url,body)}
         return body()
+    }
+    static func performInstallationMigration<T>(lockURL:URL?,_ body:()->T)->T? {
+        try? locked(at:lockURL,body)
     }
 }

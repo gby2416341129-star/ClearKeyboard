@@ -8,13 +8,15 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
     private let groupRootProvider: () -> URL?
     private let additionalGroupRootsProvider: () -> [URL]
     private let keychain: AppearanceSyncBackend
+    private let installationReady:Bool
     private(set) var diagnostics: AppearanceBackendDiagnostics
     init(groupRootProvider: @escaping () -> URL?, configuredGroup: String? = nil,
          keychain: AppearanceSyncBackend = AppearanceKeychainBackend(),
-         additionalGroupRootsProvider: @escaping () -> [URL] = { [] }) {
+         additionalGroupRootsProvider: @escaping () -> [URL] = { [] },installationReady:Bool=true) {
         self.groupRootProvider = groupRootProvider
         self.additionalGroupRootsProvider = additionalGroupRootsProvider
         self.keychain = keychain
+        self.installationReady=installationReady
         diagnostics = AppearanceBackendDiagnostics(configuredGroup: configuredGroup)
     }
     convenience init(groupRoot: URL?, keychain: AppearanceSyncBackend = AppearanceKeychainBackend()) {
@@ -38,6 +40,7 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
         return try? AppearanceSyncClient.decodeReceipt(data).get().updatedAt
     }
     func read(account: String) -> Result<AppearanceBackendRecord?, AppearanceSyncError> {
+        guard installationReady else{return .success(nil)}
         guard account == AppearanceSyncClient.settingsAccount || account == AppearanceSyncClient.receiptAccount else { return .failure(.invalidPayload) }
         diagnostics.operation = "read-" + account; diagnostics.fileReadError = nil
         diagnostics.selectedChannel = nil
@@ -89,6 +92,7 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
         return result
     }
     func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
+        guard installationReady else{return .failure(.file(NSFileReadNoPermissionError))}
         guard (account == AppearanceSyncClient.settingsAccount || account == AppearanceSyncClient.receiptAccount),
               timestamp(data, account: account) != nil else { return .failure(.invalidPayload) }
         diagnostics.operation = "write-" + account; diagnostics.fileWriteError = nil
@@ -149,7 +153,11 @@ private enum AppearanceSyncNotification {
     }
     static let notification = AppearanceSyncNotification.name
     private let role: Role
-    private let client: AppearanceSyncClient
+    private var client: AppearanceSyncClient
+    private var installationIdentifier:String?
+    private var installationPolicy:String?
+    private var production=false
+    private var installationReady=true
     private let receiverIdentity: AppearanceReceiverIdentity?
     private let expectedReceiver: AppearanceReceiverIdentity?
     private let includeInputPreferences: Bool
@@ -182,21 +190,89 @@ private enum AppearanceSyncNotification {
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
             receiver: receiverIdentity, expectedReceiver: expectedReceiver)
-        client.observeDiagnostics { [weak self] backend in self?.diagnostics.backend = backend }
+        observeClientDiagnostics()
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(), { _, pointer, _, _, _ in
             guard let pointer else { return }
             let link = Unmanaged<AppearanceSettingsLink>.fromOpaque(pointer).takeUnretainedValue()
-            Task { @MainActor [weak link] in link?.refresh() }
+            Task { @MainActor [weak link] in link?.reconcileInstallationAndRefresh() }
         }, Self.notification as CFString, nil, .deliverImmediately)
     }
     static func production(role: Role) -> AppearanceSettingsLink {
-        let group = Bundle.main.object(forInfoDictionaryKey: "ClearAppGroup") as? String
-        let backend = AppearanceMirroredBackend(groupRootProvider: {
-            SharedStorage.applicationGroup()?.root
-        }, configuredGroup: group, additionalGroupRootsProvider: { SharedStorage.applicationGroups().dropFirst().map(\.root) })
-        return AppearanceSettingsLink(role: role, client: AppearanceSyncClient(backend: backend),
+        let snapshot=InstallationLifecycle.prepare(refresh:true)
+        let link=AppearanceSettingsLink(role: role, client: productionClient(snapshot),
             receiverIdentity: role == .keyboard ? .keyboardBundle(.main) : nil,
             expectedReceiver: role == .app ? .embeddedKeyboard(in: .main) : nil, includeInputPreferences: true)
+        link.production=true;link.installationIdentifier=snapshot.identifier;link.installationPolicy=InstallationLifecycle.policy(snapshot);link.installationReady=snapshot.ready
+        link.observeClientDiagnostics();return link
+    }
+    private static func productionClient(_ snapshot:InstallationLifecycle.Snapshot)->AppearanceSyncClient {
+        let base="com.clearkeyboard.appearance.sync.v1"
+        let groups=InstallationLifecycle.rawGroups()
+        if snapshot.ready,snapshot.legacy || !(snapshot.priorIdentifiers?.isEmpty ?? true) {
+            for group in groups {
+                guard let backing=UserDefaults(suiteName:group.identifier) else{continue}
+                let preferences=InstallationLifecycle.scopedDefaults(backing,domain:group.identifier)
+                let marker="clear.installation.appearance-file-import."+InstallationLifecycle.policy(snapshot)
+                guard !preferences.bool(forKey:marker) else{continue}
+                var sources=InstallationLifecycle.priorRoots(group.root,snapshot:snapshot).map{$0.appendingPathComponent("Appearance-v1/appearance.json")}
+                if snapshot.legacy {sources.append(group.root.appendingPathComponent("Appearance-v1/appearance.json"))}
+                let directory=InstallationLifecycle.sharedRoot(group.root,snapshot:snapshot).appendingPathComponent("Appearance-v1")
+                let destination=directory.appendingPathComponent("appearance.json")
+                do {
+                    try SharedFileLock.perform(at:directory.appendingPathComponent("sync.lock")) {
+                        var envelopes:[AppearanceEnvelope]=[]
+                        // Re-read destination under the normal writer's lock.
+                        for source in sources+[destination] where FileManager.default.fileExists(atPath:source.path) {
+                            let data=try Data(contentsOf:source)
+                            guard data.count<=AppearanceSyncClient.maximumPayloadBytes else{continue}
+                            envelopes.append(try AppearanceSyncClient.decode(data).get())
+                        }
+                        if let merged=AppearanceEnvelope.reconciling(envelopes) {
+                            let data=try AppearanceSyncClient.encode(merged).get()
+                            try data.write(to:destination,options:.atomic)
+                        }
+                    }
+                    // Preferences may enter lifecycle migration; never hold the
+                    // filesystem sync lock while publishing this marker.
+                    preferences.set(true,forKey:marker)
+                } catch { /* Retry only trusted upgrade migration, never fresh recovery. */ }
+            }
+        }
+        // Backends capture this namespace. A queued old write cannot cross into
+        // a replacement installation when the lifecycle is reconciled later.
+        let keychain=AppearanceKeychainBackend(service:InstallationLifecycle.service(base,snapshot:snapshot),
+            installationScoped:false,legacyService:snapshot.ready && snapshot.legacy ? base:nil,
+            previousServices:InstallationLifecycle.priorServices(base,snapshot:snapshot))
+        let backend=AppearanceMirroredBackend(groupRootProvider:{
+            InstallationLifecycle.rawGroups().first.map{InstallationLifecycle.sharedRoot($0.root,snapshot:snapshot)}
+        },configuredGroup:Bundle.main.object(forInfoDictionaryKey:"ClearAppGroup") as? String,keychain:keychain,
+        additionalGroupRootsProvider:{InstallationLifecycle.rawGroups().dropFirst().map{InstallationLifecycle.sharedRoot($0.root,snapshot:snapshot)}},installationReady:snapshot.ready)
+        return AppearanceSyncClient(backend:backend)
+    }
+    private func observeClientDiagnostics() {
+        let namespace=installationIdentifier
+        client.observeDiagnostics { [weak self] backend in
+            guard let self,self.installationIdentifier==namespace else{return}
+            self.diagnostics.backend=backend
+        }
+    }
+    private func reconcileInstallation() {
+        guard production else{return}
+        let snapshot=InstallationLifecycle.prepare(refresh:true)
+        let policy=InstallationLifecycle.policy(snapshot)
+        guard installationIdentifier != snapshot.identifier || installationReady != snapshot.ready || installationPolicy != policy else{return}
+        installationIdentifier=snapshot.identifier;installationPolicy=policy;installationReady=snapshot.ready
+        client=Self.productionClient(snapshot);observeClientDiagnostics()
+        generation += 1;latest=nil;pendingEnvelope=nil;localSnapshot=nil
+        writingRevisions.removeAll();lastDelivered=nil;receiptAttempt=nil
+        if snapshot.ready {
+            let preferences=SharedStorage.defaults(allowShared:role == .app || diagnostics.fullAccess == true)
+            let clean=SettingsStore(defaults:preferences).load()
+            onReceive?(AppearanceSnapshot(settings:clean,includeInputPreferences:includeInputPreferences))
+        }
+    }
+    private func reconcileInstallationAndRefresh() {
+        reconcileInstallation();refresh()
     }
     deinit {
         refreshTimer?.invalidate()
@@ -207,6 +283,7 @@ private enum AppearanceSyncNotification {
         diagnostics.fullAccess = value
     }
     func activate() {
+        reconcileInstallation()
         guard !active else { refresh(); return }
         active = true; receiptAttempt = nil
         // Notifications are hints. Reconcile while visible as well, so a write
@@ -273,6 +350,7 @@ private enum AppearanceSyncNotification {
         }
     }
     func refresh() {
+        if production,!installationReady {reconcileInstallation()}
         guard active else { return }
         if let pendingEnvelope { send(pendingEnvelope); return }
         let request = generation

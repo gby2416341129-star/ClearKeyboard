@@ -265,6 +265,8 @@ extension AppearanceSyncBackend {
 final class AppearanceKeychainBackend: AppearanceSyncBackend {
     private var patchWrites = 0
     let service: String
+    private let legacyServices:[String]
+    private var legacyAttempted=Set<String>()
     private let configuredAccessGroup: String?
     private lazy var sharedAccessGroup: String? = {
         guard let configuredAccessGroup else { return nil }
@@ -288,8 +290,13 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         return configuredAccessGroup.hasPrefix(prefix) ? configuredAccessGroup : prefix + configuredAccessGroup
     }()
     private(set) var diagnostics = AppearanceBackendDiagnostics()
-    init(service: String = "com.clearkeyboard.appearance.sync.v1", accessGroup: String? = Bundle.main.object(forInfoDictionaryKey: "ClearSharedKeychainGroup") as? String) {
-        self.service = service
+    init(service: String = "com.clearkeyboard.appearance.sync.v1", accessGroup: String? = Bundle.main.object(forInfoDictionaryKey: "ClearSharedKeychainGroup") as? String,
+         installationScoped:Bool=true,legacyService:String?=nil,previousServices:[String]=[]) {
+        if installationScoped,service=="com.clearkeyboard.appearance.sync.v1" {
+            let snapshot=InstallationLifecycle.prepare()
+            self.service=InstallationLifecycle.service(service,snapshot:snapshot)
+            self.legacyServices=(snapshot.ready && snapshot.legacy ? [service]:[])+InstallationLifecycle.priorServices(service,snapshot:snapshot)
+        } else {self.service=service;self.legacyServices=previousServices+(legacyService.map{[$0]} ?? [])}
         configuredAccessGroup = accessGroup.flatMap { !$0.isEmpty && !$0.contains("$(") ? $0 : nil }
     }
     private func query(_ account: String) -> [String: Any] {
@@ -310,7 +317,7 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         diagnostics.operation = "keychain-read"; diagnostics.keychainReadStatus = status
-        if status == errSecItemNotFound { return .success(nil) }
+        if status == errSecItemNotFound { return importLegacy(account:account) }
         guard status == errSecSuccess else { return .failure(.keychain(status)) }
         guard let entries = result as? [[String: Any]] else { return .failure(.invalidPayload) }
         if account == AppearanceSyncClient.settingsAccount {
@@ -327,7 +334,7 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
                     guard let name = row[kSecAttrAccount as String] as? String else { return false }
                     return name == account || name.hasPrefix(account + ".patch.")
                 }
-                return attempted ? .failure(.invalidPayload) : .success(nil)
+                return attempted ? .failure(.invalidPayload) : importLegacy(account:account)
             }
             let group = records.first { $0.0.revision == merged.revision }?.1
             diagnostics.keychainAccessGroup = group
@@ -345,6 +352,36 @@ final class AppearanceKeychainBackend: AppearanceSyncBackend {
         guard let newest = records.max(by: { $0.1 < $1.1 })?.0 else { return .failure(.invalidPayload) }
         diagnostics.keychainAccessGroup = newest.accessGroup
         return .success(newest)
+    }
+    private func importLegacy(account:String)->Result<AppearanceBackendRecord?,AppearanceSyncError> {
+        guard account==AppearanceSyncClient.settingsAccount,!legacyServices.isEmpty,
+              legacyAttempted.insert(account).inserted else{return .success(nil)}
+        let preferences=InstallationLifecycle.privateDefaults()
+        let marker="clear.installation.keychain-import."+service+"."+account+"."+legacyServices.joined(separator:"|")
+        guard !preferences.bool(forKey:marker) else{return .success(nil)}
+        var envelopes:[AppearanceEnvelope]=[]
+        var accessGroup:String?
+        for service in legacyServices {
+            let old=AppearanceKeychainBackend(service:service,accessGroup:configuredAccessGroup,installationScoped:false)
+            switch old.read(account:account) {
+            case .success(let record?):
+                if let value=try? AppearanceSyncClient.decode(record.data).get() {envelopes.append(value);accessGroup=record.accessGroup}
+            case .success(nil):break
+            case .failure(let error):legacyAttempted.remove(account);return .failure(error)
+            }
+        }
+        let result:Result<AppearanceBackendRecord?,AppearanceSyncError>
+        if let merged=AppearanceEnvelope.reconciling(envelopes),let data=try? AppearanceSyncClient.encode(merged).get() {result = .success(AppearanceBackendRecord(data:data,accessGroup:accessGroup))}
+        else {result = .success(nil)}
+        switch result {
+        case .success(let record?):
+            switch write(record.data,account:account) {
+            case .success:preferences.set(true,forKey:marker);return .success(record)
+            case .failure(let error):legacyAttempted.remove(account);return .failure(error)
+            }
+        case .success(nil):preferences.set(true,forKey:marker);return .success(nil)
+        case .failure(let error):legacyAttempted.remove(account);return .failure(error)
+        }
     }
     func write(_ data: Data, account: String) -> Result<String?, AppearanceSyncError> {
         guard data.count <= AppearanceSyncClient.maximumPayloadBytes else { return .failure(.invalidPayload) }

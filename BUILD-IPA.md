@@ -1,9 +1,9 @@
-# Build106 / V49 CPU 输入修复
+# Build107 / V49 CPU
 
-沿用 V49 local1408/global94661 的精确主干和双头，不训练、不重新转换权重。CPU-only保持不变。解码策略 build106-lexical-mixed-recall-1，候选64/池256，真实首音节字菜单保留原输入收据。
+模型仍为V49 local1408/global94661的同一主干和双头；CPU-only。当前解码策略 build107-structured-canonical-recall-1，8模型路径/32状态/64可见/256池预算保留，前缀与末端使用同一词格能量。
 
-新增本地英文词表、确认键原样提交、Space中文选择、完整词组全拼/简拼记忆及数字前缀补全。继承App/键盘的Bundle ID、App Group与原用户记录，按epoch隔离清除。
+安装恢复使用私有容器连续性与owner/世代命名空间；新安装不读旧共享/Keychain镜像，覆盖升级依可信私有连续性保留。iOS没有卸载时执行App代码的钩子，此方案在下次启动读取数据前生效；不宽删其它App共享数据。
 
-执行 `bash Scripts/build-ipa.sh dist` 只做静态身份/哈希核对和Release编译封装，不执行模型或测试。Core ML源包来自已验证构建43366860373，SHA256 55142f2bb28776107fdf49c9ccb6f53f828f454a6238da1d824efdbaa4c8060e，artifact过期后可用本机原包放BuildAssets/V49/models.zip重建。
+`bash Scripts/build-ipa.sh dist`仅做静态身份核对、Release编译和封装，不执行预测或测试。源Core ML包来自既有构建43366860373，SHA256 55142f2bb28776107fdf49c9ccb6f53f828f454a6238da1d824efdbaa4c8060e；历史artifact过期可使用本机原包BuildAssets/V49/models.zip。
 
-所有用户案例和真机速度/内存/准确率均待用户验收。
+研究报告与实测分开；本轮未量测准确率/速度/内存/删除重装效果，均由用户验收。

@@ -10,9 +10,11 @@ final class KernelMeasurementTransport: @unchecked Sendable {
     private var readStatus: Int32?
     private var writeStatus: Int32?
     private var selectedGroup: String?
-    private let service = "com.clearkeyboard.kernel.measurement.v3"
+    private var service:String {InstallationLifecycle.service("com.clearkeyboard.kernel.measurement.v3")}
     #if canImport(Security)
-    private lazy var groups: [String] = {
+    private var cachedGroups:[String]?
+    private var groups: [String] {
+        if let cachedGroups,!cachedGroups.isEmpty{return cachedGroups}
         var probe: [String: Any] = [kSecClass as String:kSecClassGenericPassword,
             kSecAttrService as String:service+".prefix", kSecAttrAccount as String:"installation",
             kSecReturnAttributes as String:true]
@@ -34,8 +36,10 @@ final class KernelMeasurementTransport: @unchecked Sendable {
             candidates.append(configured.hasPrefix(prefix) ? configured:prefix+configured)
         }
         candidates.append(actual)
-        var seen=Set<String>();return candidates.filter{seen.insert($0).inserted}
-    }()
+        var seen=Set<String>();let resolved=candidates.filter{seen.insert($0).inserted}
+        if !resolved.isEmpty {cachedGroups=resolved}
+        return resolved
+    }
     private func query(_ account:String)->[String:Any] {
         [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,
          kSecAttrAccount as String:account,kSecAttrSynchronizable as String:false]

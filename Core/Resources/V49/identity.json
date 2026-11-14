@@ -20,15 +20,15 @@
   "files": {
     "Native/V21NativeIME/Package.swift": "82d4540a6908f9e37aded6aba9756019b47294f093af05eafa3bb4d541945bd9",
     "Native/V21NativeIME/Sources/CV21IMECore/include/V21IMECore.h": "422e0e6b50b077964d25ee9a5cfdac04cd20531c0e3bf6593a696e00febfb39e",
-    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "672d4f0a1bc341e2b3c8965cae439d73472b666139a2b88feb4fd176eeb332ad",
-    "Native/V21NativeIME/Sources/CV21IMECore/v23_parser.inc": "e948d299fbb295bb8cba363783e6ac43e0c818683d6f2c8193d85710739d666c",
-    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "0cad8975dfb8b16a3cdc5099629af59810e1c5f59e7a21552a590969b8969fed",
+    "Native/V21NativeIME/Sources/CV21IMECore/V21IMECore.cpp": "f3c7ef0730bac3f55ef95caab554384317768fca316da68cfc6dbebe5b68c2f5",
+    "Native/V21NativeIME/Sources/CV21IMECore/v23_parser.inc": "26c7dc3719714b3e87911648ebe5041accbb04cfb45109e8ee5fc06160614a21",
+    "Native/V21NativeIME/Sources/V21NativeIME/Resources/runtime_config.json": "c7bccb4ee626ad6309d8cd772829b392f68233469ae2a77c2bad1c8a3d824692",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V19Resources.bin": "e59e0dbd43a7abc6a1cb70066010ad6643b15a8cccb6a24615ad335b2a8bcfeb",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V21Statistics.bin": "e505eb88eebf31fe9b203d249c511e1099240e302d33dd13fa80c3abfd28d807",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.bin": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/V22Language.json": "0862d85946682a75741768ba4f8aa53e7c33a2ac09eb3f799997ded5c52ac976",
     "Native/V21NativeIME/Sources/V21NativeIME/Resources/vocabulary.json": "4e71ba7022f4d8517cfb6a71c3668188277e121435bc7ef2b5d53c15b35460a1",
-    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "570413ccad5215a2c20971187edaa2cec04dbebf321cd57806772663da3aea29",
+    "Native/V21NativeIME/Sources/V21NativeIME/V21IMEKernel.swift": "9c651fadef71aa39272c9b5b19eaee24060aefff5fa0b73e839c3d3954a43adb",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Input.swift": "413e61b99689d089bb1652f4221f23d1d20e94df2a8f761cbae32749d5e2afa8",
     "Native/V21NativeIME/Sources/V21NativeIME/V21Types.swift": "7cecef54aec869499ce3e4347da6d2d05329edd6e1ce1b633013c518841fcbc9",
     "Native/V21NativeIME/Sources/V21NativeIME/V22Measurement.swift": "6b8d1f00f79506480a740b0a2f544904fc47035aedd870caff14d1a1dbf5452b",
@@ -46,17 +46,20 @@
     "Core/Resources/EnglishWords/words.txt": "d8dd720502b888eedf465c0899ffe137d537cd22527842c2febda2ea4ef2712d"
   },
   "sdk_adaptations": [
-    "CPU only for main and auxiliary models",
-    "build106-lexical-mixed-recall-1",
-    "64 visible / 256 pool; up to32 character expansions per prefix",
-    "full raw with exact first-syllable partial consumption in character mode",
-    "request-bound local learned/English/number candidates; persistent epoch-guarded memory"
+    "CPU only",
+    "build107-structured-canonical-recall-1",
+    "32 receipt-aware states / 8 distinct readings / 64 visible / 256 pool",
+    "stream complete pronunciation buckets within existing edge bounds",
+    "prefix and final canonical lexical energy share a 13-cell ring DP",
+    "Build106 real single-character selection and local-memory contracts retained"
   ],
-  "ranking_policy_version": "build106-lexical-mixed-recall-1",
+  "ranking_policy_version": "build107-structured-canonical-recall-1",
   "maximum_visible_candidates": 64,
   "english_dictionary_words": 65986,
   "neural_weights_changed_in_this_revision": false,
   "decoder_policy_changed": true,
   "learning_enabled_in_final_candidates": true,
-  "manual_character_selection": "real first-syllable receipts; no full-sequence head call"
+  "manual_character_selection": "real first-syllable receipts; no full-sequence head call",
+  "source_package_build": 107,
+  "installation_lifecycle": "private continuity / owner-generation scoped recovery"
 }

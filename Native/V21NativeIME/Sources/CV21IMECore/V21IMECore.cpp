@@ -35,7 +35,7 @@ std::string number(double value){if(!std::isfinite(value))return "null";std::ost
 template<class T,class F>void top(std::vector<T>& v,size_t n,F score){std::stable_sort(v.begin(),v.end(),[&](const T&a,const T&b){return score(a)>score(b);});if(v.size()>n)v.resize(n);}
 struct Segment{uint16_t id=0;int32_t start=0,end=0;uint8_t kind=0,edits=0;uint16_t fuzzy=0;double cost=0;int32_t crossSwap=-1;uint8_t crossSide=0;};
 struct Path{std::vector<Segment> parts;double logWeight=0,logPrior=0,inputCost=0;uint32_t modeBits=0;std::string completion;double rawLogWeight=0;};
-struct Prefix{std::vector<uint16_t> chars;double model=0,language=0,energy=0,backoff=0;size_t validated=0;int words=0;std::array<uint8_t,65> reachable{1};std::vector<std::pair<int,int>> wordSpans;};
+struct Prefix{std::vector<uint16_t> chars;double model=0,language=0,energy=0,backoff=0;size_t validated=0;int words=0;std::array<uint8_t,65> reachable{1};std::array<double,13> lexicalDP{};std::vector<std::pair<int,int>> wordSpans;};
 struct Candidate{std::string id,text,reading;double score,model,language,backoffLanguage;int path;std::vector<uint16_t> chars;int ordinal=-1;double baseScore=0,sequenceLogit=0,channelLogit=0,sequenceAdjustment=0,channelAdjustment=0;bool learned=false;std::vector<std::pair<int,int>> wordSpans;};
 struct Trie{std::array<int32_t,26> next;int id=-1;Trie(){next.fill(-1);}};
 struct WordIDs{const uint16_t*p=nullptr;const uint16_t*begin()const{return p;}uint16_t operator[](size_t i)const{return p[i];}};
@@ -112,7 +112,7 @@ std::string candidateFlow(const V21Request&q){
  std::ostringstream o;o<<std::setprecision(17);std::vector<const Candidate*>base,final;for(const auto&c:q.all){base.push_back(&c);final.push_back(&c);}
  auto rank=[](auto&v,auto value){std::stable_sort(v.begin(),v.end(),[&](const Candidate*a,const Candidate*b){double x=value(*a),y=value(*b);return x==y?a->ordinal<b->ordinal:x>y;});};rank(base,[](const Candidate&c){return c.baseScore;});rank(final,[](const Candidate&c){return c.score;});
  std::unordered_map<int,int>br,fr,dr,bdr;std::unordered_set<std::string>baseSeen;int baseUnique=0;std::unordered_map<std::string,int>winner;int unique=0;for(size_t i=0;i<base.size();i++){br[base[i]->ordinal]=int(i)+1;if(baseSeen.insert(base[i]->text).second)bdr[base[i]->ordinal]=++baseUnique;}for(size_t i=0;i<final.size();i++){fr[final[i]->ordinal]=int(i)+1;if(!winner.count(final[i]->text)){winner[final[i]->text]=final[i]->ordinal;dr[final[i]->ordinal]=++unique;}}
- o<<"{\"diagnostic_schema\":\"clear-ime-flow/2\",\"request_id\":"<<quote(q.requestID)<<",\"input_version\":"<<q.inputVersion<<",\"head_enabled\":"<<(q.headEnabled?"true":"false")<<",\"pool_count\":"<<q.all.size()<<",\"objects_truncated\":false,\"revision\":\"build106-lexical-mixed-recall-1\",\"pool_stage\":\"retained_complete_words_or_manual_first_syllable_legal_domain\",\"pool_limit\":256,\"score_direction\":\"higher_is_better\",\"all_paths_decoded\":"<<(std::count(q.decoded.begin(),q.decoded.end(),true)==int(q.paths.size())?"true":"false")<<",\"learned_scores_applied\":"<<(q.scored&&q.headEnabled?"true":"false")<<",\"target_used_in_generation\":false,\"objects\":[";
+ o<<"{\"diagnostic_schema\":\"clear-ime-flow/2\",\"request_id\":"<<quote(q.requestID)<<",\"input_version\":"<<q.inputVersion<<",\"head_enabled\":"<<(q.headEnabled?"true":"false")<<",\"pool_count\":"<<q.all.size()<<",\"objects_truncated\":false,\"revision\":\"build107-structured-canonical-recall-1\",\"pool_stage\":\"retained_complete_words_or_manual_first_syllable_legal_domain\",\"pool_limit\":256,\"score_direction\":\"higher_is_better\",\"all_paths_decoded\":"<<(std::count(q.decoded.begin(),q.decoded.end(),true)==int(q.paths.size())?"true":"false")<<",\"learned_scores_applied\":"<<(q.scored&&q.headEnabled?"true":"false")<<",\"target_used_in_generation\":false,\"objects\":[";
  for(size_t i=0;i<q.all.size();i++){const auto&c=q.all[i];const auto&p=q.paths[c.path];if(i)o<<',';o<<"{\"pool_ordinal\":"<<c.ordinal<<",\"candidate_id\":"<<quote(c.id)<<",\"path_id\":"<<c.path<<",\"text\":"<<quote(c.text)<<",\"reading\":"<<quote(c.reading)<<",\"consumed_raw_utf8_range\":[0,"<<candidateRawEnd(q,c)<<"],\"full_consumption\":"<<(candidateRawEnd(q,c)==q.raw.size()?"true":"false")<<",\"remaining_input\":"<<quote(q.raw.substr(candidateRawEnd(q,c)))<<",\"source\":"<<quote(q.characterSelection?"manual_first_syllable_legal_domain":c.wordSpans.empty()?"character_lattice_or_uncaptured_word_route":"word_character_lattice")<<",\"word_character_spans\":[";
   for(size_t k=0;k<c.wordSpans.size();k++){if(k)o<<',';o<<'['<<c.wordSpans[k].first<<','<<c.wordSpans[k].second<<']';}
   o<<"],\"syllable_ids\":[";for(size_t k=0;k<p.parts.size();k++){if(k)o<<',';o<<p.parts[k].id;}
@@ -185,16 +185,31 @@ double tokenEnergy(double model,double language,int width,double prior,double co
  return width*std::max(base,blended);
 }
 
+// Per-path lookup contains only observed words whose complete reading really
+// matches this path. Its values reference the immutable mapped dictionary.
+struct LexicalPathIndex{
+ std::array<std::unordered_multimap<uint64_t,uint32_t>,65> ending;
+ size_t entries=0;
+ void add(size_t end,uint64_t hash,uint32_t word){
+  if(end>=ending.size()||entries>=131072)throw std::runtime_error("Canonical lexical index workspace bound");
+  ending[end].emplace(hash,word);entries++;
+ }
+};
 struct WordEdge{uint32_t word;double model=0,inside=0,prior=0,confidence=0,neuralCertainty=0,upper=0;int width=0;};
-std::vector<WordEdge> wordEdges(const V21Request&q,const Path&path,size_t start,const std::vector<LogRow>&rows){
+std::vector<WordEdge> wordEdges(const V21Request&q,const Path&path,size_t start,const std::vector<LogRow>&rows,LexicalPathIndex*lexical=nullptr){
  const auto&r=*q.r;std::vector<WordEdge> result;std::vector<uint16_t> key;
  for(size_t n=1;n<=std::min<size_t>(12,path.parts.size()-start);n++){
   key.push_back(path.parts[start+n-1].id);if(n<2)continue;
   auto it=std::lower_bound(r.wordPinyinOrder.begin(),r.wordPinyinOrder.end(),key,[&](uint32_t i,const auto&k){auto w=r.words[i];return std::lexicographical_compare(w.pinyin.begin(),w.pinyin.begin()+w.width,k.begin(),k.end());});
-  std::vector<WordEdge> choices;int seen=0;
-  for(;it!=r.wordPinyinOrder.end()&&seen<64;++it){auto w=r.words[*it];if(w.width!=n||!std::equal(key.begin(),key.end(),w.pinyin.begin()))break;seen++;WordEdge edge;edge.word=*it;edge.width=int(n);edge.prior=std::min(0.0,w.logp-w.logMass);edge.confidence=(!(w.flags&3)||(!path.completion.empty()&&start+n==path.parts.size()))?0:w.confidence;
+  std::vector<WordEdge> choices;
+  for(;it!=r.wordPinyinOrder.end();++it){auto w=r.words[*it];if(w.width!=n||!std::equal(key.begin(),key.end(),w.pinyin.begin()))break;if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled during phonetic word bucket");WordEdge edge;edge.word=*it;edge.width=int(n);edge.prior=std::min(0.0,w.logp-w.logMass);edge.confidence=(!(w.flags&3)||(!path.completion.empty()&&start+n==path.parts.size()))?0:w.confidence;
    for(size_t k=0;k<n;k++){const auto&legal=r.legal[key[k]];auto at=std::lower_bound(legal.begin(),legal.end(),w.chars[k]);edge.model+=rows[start+k].p[at-legal.begin()];edge.neuralCertainty+=rows[start+k].certainty;if(k)edge.inside+=q.charLog(w.chars[k-1],w.chars[k]);}
-   edge.neuralCertainty/=n;edge.upper=tokenEnergy(edge.model,edge.inside,int(n),edge.prior,edge.confidence,edge.neuralCertainty);choices.push_back(edge);
+   edge.neuralCertainty/=n;edge.upper=tokenEnergy(edge.model,edge.inside,int(n),edge.prior,edge.confidence,edge.neuralCertainty);
+   if(lexical&&edge.confidence>0)lexical->add(start+n,hashIDs(w.chars.begin(),n),*it);
+   choices.push_back(edge);
+   // Entire phonetic bucket is inspected; streaming selection bounds storage
+   // independently of source order. Current immutable dictionary max bucket=116.
+   if(choices.size()>16)top(choices,8,[](const WordEdge&e){return e.upper;});
   }
   top(choices,8,[](const WordEdge&e){return e.upper;});result.insert(result.end(),choices.begin(),choices.end());
  }
@@ -203,20 +218,48 @@ std::vector<WordEdge> wordEdges(const V21Request&q,const Path&path,size_t start,
  if(result.size()>32){std::vector<WordEdge> kept,remaining;std::unordered_set<int> widths;for(const auto&e:result){if(widths.insert(e.width).second)kept.push_back(e);else remaining.push_back(e);}top(remaining,32-kept.size(),[](const WordEdge&e){return e.upper/e.width;});kept.insert(kept.end(),remaining.begin(),remaining.end());return kept;}
  return result;
 }
+// Advance the same canonical fixed-text segmentation objective used at output.
+// At most twelve syllables can form a word, so thirteen ring cells retain every
+// predecessor needed by a new character without copying an unbounded DP table.
+void extendCanonicalEnergy(const V21Request&q,const Path&path,const std::vector<LogRow>&rows,const LexicalPathIndex&lexical,Prefix&prefix,size_t begin){
+ const auto&r=*q.r;
+ for(size_t end=begin+1;end<=prefix.chars.size();end++){
+  if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled during canonical word lattice");
+  double model=0,language=0,certainty=0,best=-INFINITY;
+  for(size_t width=1;width<=std::min<size_t>(12,end);width++){
+   size_t pos=end-width;const auto&legal=r.legal[path.parts[pos].id];
+   auto at=std::lower_bound(legal.begin(),legal.end(),prefix.chars[pos]);
+   if(at==legal.end()||*at!=prefix.chars[pos])throw std::runtime_error("Canonical word lattice legal-domain mismatch");
+   model+=rows[pos].p[at-legal.begin()];language+=q.charLog(pos?prefix.chars[pos-1]:q.contextLast,prefix.chars[pos]);certainty+=rows[pos].certainty;
+   if(width==1){best=prefix.lexicalDP[(end-1)%13]+model+.25*language;continue;}
+   const auto&entries=lexical.ending[end];auto range=entries.equal_range(hashIDs(prefix.chars.data()+pos,width));
+   for(auto it=range.first;it!=range.second;++it){auto word=r.words[it->second];
+    if(word.width!=width||!std::equal(prefix.chars.begin()+pos,prefix.chars.begin()+end,word.chars.begin()))continue;
+    double value=tokenEnergy(model,language,int(width),std::min(0.0,word.logp-word.logMass),word.confidence,certainty/width);
+    best=std::max(best,prefix.lexicalDP[pos%13]+value);
+   }
+  }
+  prefix.lexicalDP[end%13]=best;
+ }
+ prefix.energy=prefix.lexicalDP[prefix.chars.size()%13];
+}
+
 double fullWordLogPrior(const V21Request&q,const std::vector<uint16_t>&ids,const Path&path){int at=q.r->matchingWord(ids.data(),ids.size(),path,0);if(at<0)return -INFINITY;auto w=q.r->words[at];return std::min(0.0,w.logp-w.logMass);}
 std::vector<Prefix> search(const V21Request&q,int p,const std::vector<std::vector<float>>&values,std::vector<std::string>*stages=nullptr,const std::vector<uint16_t>*target=nullptr){
  const auto&r=*q.r;const auto&path=q.paths[p];auto rows=normalizeRows(r,path,values);size_t n=path.parts.size();std::vector<std::vector<Prefix>> frontier(n+1);frontier[0].push_back(Prefix{});
+ LexicalPathIndex lexical;std::vector<std::vector<WordEdge>> edgesByStart(n);
+ for(size_t pos=0;pos<n;pos++)edgesByStart[pos]=wordEdges(q,path,pos,rows,&lexical);
  auto retain=[](std::vector<Prefix>&row){top(row,row.size(),[](const Prefix&x){return x.energy;});std::unordered_set<std::string> seen;size_t out=0;for(size_t i=0;i<row.size();i++){std::string key;if(!row[i].chars.empty())key.assign(reinterpret_cast<const char*>(row[i].chars.data()),row[i].chars.size()*2);if(!seen.insert(key).second)continue;if(out!=i)row[out]=std::move(row[i]);if(++out==32)break;}row.resize(out);};
  for(size_t pos=0;pos<n;pos++){
   if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled");size_t beforeRetain=frontier[pos].size();retain(frontier[pos]);
   if(q.capture){if(q.flowEvents.size()<1024){V21Request::FlowEvent event{p,int(pos),beforeRetain,frontier[pos].size(),"frontier_after_retain",{}};for(const auto&item:frontier[pos]){if(q.flowPrefixItems>=4096){q.flowTruncated=true;break;}event.kept.push_back(item.chars);q.flowPrefixItems++;}q.flowEvents.push_back(std::move(event));}else q.flowTruncated=true;}
-  if(frontier[pos].empty())continue;auto edges=wordEdges(q,path,pos,rows);
+  if(frontier[pos].empty())continue;const auto&edges=edgesByStart[pos];
   std::unordered_map<int,std::vector<size_t>> charOrder;
   for(const auto&b:frontier[pos]){
    if(q.cancelled.load(std::memory_order_relaxed))throw std::runtime_error("cancelled");int previous=b.chars.empty()?q.contextLast:b.chars.back();const auto&legal=r.legal[path.parts[pos].id];
    auto found=charOrder.find(previous);if(found==charOrder.end()){std::vector<size_t> order;for(size_t i=0;i<legal.size();i++)order.push_back(i);top(order,order.size(),[&](size_t i){return rows[pos].p[i]+r.charWeight*q.charLog(previous,legal[i]);});found=charOrder.emplace(previous,std::move(order)).first;}
-   int accepted=0;for(size_t i:found->second){Prefix next=b;next.chars.push_back(legal[i]);size_t checked=b.validated;q.readingChecks++;if(!r.readingIncrement(next.chars,path,pos+1==n,b.chars.size(),next.reachable))continue;next.validated=checked;double language=q.charLog(previous,legal[i]);next.model+=rows[pos].p[i];next.language+=language;next.energy+=rows[pos].p[i]+r.charWeight*language;frontier[pos+1].push_back(std::move(next));if(++accepted==32)break;}
-   for(const auto&edge:edges){auto w=r.words[edge.word];Prefix next=b;next.chars.insert(next.chars.end(),w.chars.begin(),w.chars.begin()+w.width);size_t checked=b.validated;q.readingChecks++;if(!r.readingIncrement(next.chars,path,pos+w.width==n,b.chars.size(),next.reachable))continue;next.validated=checked;double language=edge.inside+q.charLog(previous,w.chars[0]);next.model+=edge.model;next.language+=language;next.backoff+=edge.prior;next.energy+=tokenEnergy(edge.model,language,w.width,edge.prior,edge.confidence,edge.neuralCertainty);next.words++;if(q.capture)next.wordSpans.push_back({int(pos),int(pos+w.width)});auto&destination=frontier[pos+w.width];destination.push_back(std::move(next));if(destination.size()>=256)retain(destination);}
+   int accepted=0;for(size_t i:found->second){Prefix next=b;next.chars.push_back(legal[i]);size_t checked=b.validated;q.readingChecks++;if(!r.readingIncrement(next.chars,path,pos+1==n,b.chars.size(),next.reachable))continue;next.validated=checked;double language=q.charLog(previous,legal[i]);next.model+=rows[pos].p[i];next.language+=language;extendCanonicalEnergy(q,path,rows,lexical,next,b.chars.size());frontier[pos+1].push_back(std::move(next));if(++accepted==32)break;}
+   for(const auto&edge:edges){auto w=r.words[edge.word];Prefix next=b;next.chars.insert(next.chars.end(),w.chars.begin(),w.chars.begin()+w.width);size_t checked=b.validated;q.readingChecks++;if(!r.readingIncrement(next.chars,path,pos+w.width==n,b.chars.size(),next.reachable))continue;next.validated=checked;double language=edge.inside+q.charLog(previous,w.chars[0]);next.model+=edge.model;next.language+=language;next.backoff+=edge.prior;extendCanonicalEnergy(q,path,rows,lexical,next,b.chars.size());next.words++;if(q.capture)next.wordSpans.push_back({int(pos),int(pos+w.width)});auto&destination=frontier[pos+w.width];destination.push_back(std::move(next));if(destination.size()>=256)retain(destination);}
    if(frontier[pos+1].size()>=256)retain(frontier[pos+1]);
   }
   if(target&&stages&&stages->empty()){bool possible=false;for(size_t end=pos+1;end<=n&&!possible;end++)for(const auto&b:frontier[end])if(b.chars.size()<=target->size()&&std::equal(b.chars.begin(),b.chars.end(),target->begin())){possible=true;break;}if(!possible)stages->push_back("position"+std::to_string(pos)+":word_character_frontier_pruned");}
@@ -228,27 +271,11 @@ std::vector<Prefix> search(const V21Request&q,int p,const std::vector<std::vecto
 // search emitted it by individual characters or by a word edge. Deduplication
 // can never bypass observed lexical evidence through a second generation route.
 double canonicalSequenceEnergy(const V21Request&q,const std::vector<uint16_t>&ids,const Path&path,const std::vector<LogRow>&rows){
- const size_t n=ids.size();if(n!=path.parts.size())return -INFINITY;
- std::array<double,65> model{},language{},certainty{},dp;dp.fill(-INFINITY);dp[0]=0;
- for(size_t i=0;i<n;i++){
-  const auto&legal=q.r->legal[path.parts[i].id];auto at=std::lower_bound(legal.begin(),legal.end(),ids[i]);
-  if(at==legal.end()||*at!=ids[i])return -INFINITY;
-  model[i+1]=model[i]+rows[i].p[at-legal.begin()];
-  language[i+1]=language[i]+q.charLog(i?ids[i-1]:q.contextLast,ids[i]);
-  certainty[i+1]=certainty[i]+rows[i].certainty;
- }
- for(size_t pos=0;pos<n;pos++){
-  dp[pos+1]=std::max(dp[pos+1],dp[pos]+model[pos+1]-model[pos]+.25*(language[pos+1]-language[pos]));
-  for(size_t width=2;width<=std::min<size_t>(12,n-pos);width++){
-   int at=q.r->matchingWord(ids.data()+pos,width,path,pos);if(at<0)continue;auto w=q.r->words[at];
-   double confidence=(!(w.flags&3)||(!path.completion.empty()&&pos+width==n))?0:w.confidence;
-   if(confidence<=0)continue;
-   double value=tokenEnergy(model[pos+width]-model[pos],language[pos+width]-language[pos],int(width),std::min(0.0,w.logp-w.logMass),confidence,(certainty[pos+width]-certainty[pos])/width);
-   dp[pos+width]=std::max(dp[pos+width],dp[pos]+value);
-  }
- }
- return dp[n];
+ if(ids.size()!=path.parts.size())return -INFINITY;
+ LexicalPathIndex lexical;for(size_t pos=0;pos<ids.size();pos++)wordEdges(q,path,pos,rows,&lexical);
+ Prefix prefix;prefix.chars=ids;extendCanonicalEnergy(q,path,rows,lexical,prefix,0);return prefix.energy;
 }
+
 // Manual character selection owns real first-syllable receipts. It never
 // builds a fake full-word answer or asks the model to run a second time.
 bool sameCharacterPrefix(const Path&a,const Path&b){
@@ -359,8 +386,8 @@ int32_t v21_decode_path(V21Request*q,int32_t p,const float *logits,size_t count,
  if(!q||q->scored||v21_path_length(q,p)<1||!logits||ps<1||cs<1||q->decoded[p])throw std::runtime_error("Invalid/duplicate decode");const auto& path=q->paths[p];std::vector<std::vector<float>> values;Capture capture;
  for(size_t i=0;i<path.parts.size();i++){size_t n=q->r->legal[path.parts[i].id].size();if(!n||i*size_t(ps)+(n-1)*size_t(cs)>=count)throw std::runtime_error("Compact logits bounds mismatch");values.emplace_back();for(size_t j=0;j<n;j++){float x=logits[i*ps+j*cs];if(!std::isfinite(x))throw std::runtime_error("Nonfinite logits");values.back().push_back(x);}if(fullZ&&zs>0&&i*size_t(zs)<zCount)capture.fullZ.push_back(fullZ[i*zs]);}
  if(q->characterSelection){decodeCharacterRow(*q,p,values);if(q->capture){capture.logits=std::move(values);q->captures[p]=std::move(capture);}q->decoded[p]=true;return 0;}
- auto rows=normalizeRows(*q->r,path,values);auto beam=search(*q,p,values);
- for(const auto& b:beam){Candidate c;c.chars=b.chars;c.path=p;c.model=b.model/path.parts.size();c.language=b.language/path.parts.size();c.backoffLanguage=b.backoff/path.parts.size();double canonical=canonicalSequenceEnergy(*q,b.chars,path,rows);if(!std::isfinite(canonical))throw std::runtime_error("Invalid canonical lexical energy");c.score=canonical/path.parts.size()+q->r->priorWeight*path.logPrior-path.inputCost;
+ auto beam=search(*q,p,values);
+ for(const auto& b:beam){Candidate c;c.chars=b.chars;c.path=p;c.model=b.model/path.parts.size();c.language=b.language/path.parts.size();c.backoffLanguage=b.backoff/path.parts.size();double canonical=b.energy;if(!std::isfinite(canonical))throw std::runtime_error("Invalid canonical lexical energy");c.score=canonical/path.parts.size()+q->r->priorWeight*path.logPrior-path.inputCost;
   c.ordinal=int(q->all.size());c.baseScore=c.score;if(q->capture)c.wordSpans=b.wordSpans;
   for(uint16_t id:b.chars)c.text+=q->r->chars[id];for(const auto& part:path.parts){if(!c.reading.empty())c.reading+=' ';c.reading+=q->r->py[part.id];}std::string key=q->raw;key+='\0';key+=c.text;key+='\0';key+=c.reading;key+='\0';key+=std::to_string(q->raw.size());char hex[17];std::snprintf(hex,sizeof(hex),"%016llx",static_cast<unsigned long long>(hashText(key)));c.id=hex;q->all.push_back(std::move(c));
  }if(q->capture){capture.logits=std::move(values);q->captures[p]=std::move(capture);}if(q->all.size()>256)throw std::runtime_error("Candidate workspace bound");q->decoded[p]=true;return 0;
@@ -381,7 +408,7 @@ int32_t v21_finish_if_rank_certified(V21Request*q,int32_t requested){if(q&&!q->s
 }
 const char *v21_runtime_json(V21Request*q){if(!q)return "{}";double bound=-INFINITY,leading=-INFINITY;for(size_t i=0;i<q->paths.size();i++)if(!q->decoded[i])bound=std::max(bound,q->r->priorWeight*q->paths[i].logPrior);for(const auto& c:q->all)leading=std::max(leading,c.score);
  std::string state=!q->scored?(q->characterSelection?"awaiting_character_menu_finalization":"awaiting_learned_scores"):q->all.empty()?"no_candidate_yet":(leading>bound?"rank_certified":"candidate_exists_bound_not_passed");
- std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<",\"ranking_policy\":\"build106-lexical-mixed-recall-1\",\"candidate_scores\":[";
+ std::ostringstream o;o<<std::setprecision(17)<<"{\"completed_paths\":"<<v21_completed_paths(q)<<",\"total_paths\":"<<q->paths.size()<<",\"certification\":"<<quote(state)<<",\"remaining_score_upper_bound\":";if(std::isfinite(bound))o<<bound;else o<<"null";o<<",\"leading_score\":";if(std::isfinite(leading))o<<leading;else o<<"null";o<<",\"char_log_cache_hits\":"<<q->pairHits<<",\"char_log_cache_misses\":"<<q->pairMisses<<",\"char_log_cache_slots\":16384,\"reading_checks\":"<<q->readingChecks<<",\"ranking_policy\":\"build107-structured-canonical-recall-1\",\"candidate_scores\":[";
  std::vector<size_t> order;for(size_t i=0;i<q->all.size();i++)order.push_back(i);top(order,order.size(),[&](size_t i){return q->all[i].score;});std::unordered_set<std::string> seen;int emitted=0;
  for(size_t i:order){const auto&c=q->all[i];if(!seen.insert(c.text).second)continue;if(emitted++)o<<',';const auto&path=q->paths[c.path];double word=fullWordLogPrior(*q,c.chars,path);
   o<<"{\"id\":"<<quote(c.id)<<",\"path\":"<<c.path<<",\"model_mean_logp\":"<<c.model<<",\"character_mean_logp\":"<<c.language<<",\"input_and_learned_adjustment\":"<<c.score-c.model-q->r->charWeight*c.language-q->r->priorWeight*path.logPrior<<",\"word_backoff_mean_logp\":"<<c.backoffLanguage<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"score\":"<<c.score<<",\"complete_word_log_prior\":";if(std::isfinite(word))o<<word;else o<<"null";o<<'}';if(emitted==8)break;
@@ -405,7 +432,7 @@ const char *v21_diagnostic_json(V21Request*q,const char *targetText){try{
   // Generalized modes report only actually retained mobile paths; no answer-guided oracle.
 
  }
- std::ostringstream o;o<<std::setprecision(17)<<"{\"score_version\":\"v23-input-sequence-energy-1\",\"ranking_policy\":\"build106-lexical-mixed-recall-1\",\"single_character_selection\":"<<(q->characterSelection?"true":"false")<<",\"raw_input\":"<<quote(q->raw)<<",\"normalized_input\":"<<quote(q->normalized)<<",\"target_diagnostic_only\":"<<(targetText?quote(targetText):"null")<<",\"target_in_vocab\":"<<(validTarget?"true":"false")<<",\"completed_paths\":"<<v21_completed_paths(q)<<",\"paths\":[";
+ std::ostringstream o;o<<std::setprecision(17)<<"{\"score_version\":\"v23-input-sequence-energy-1\",\"ranking_policy\":\"build107-structured-canonical-recall-1\",\"single_character_selection\":"<<(q->characterSelection?"true":"false")<<",\"raw_input\":"<<quote(q->raw)<<",\"normalized_input\":"<<quote(q->normalized)<<",\"target_diagnostic_only\":"<<(targetText?quote(targetText):"null")<<",\"target_in_vocab\":"<<(validTarget?"true":"false")<<",\"completed_paths\":"<<v21_completed_paths(q)<<",\"paths\":[";
  for(size_t i=0;i<q->paths.size();i++){if(i)o<<',';const auto& path=q->paths[i];o<<"{\"index\":"<<i<<",\"segmentation_log_weight\":"<<path.logWeight<<",\"segmentation_log_prior\":"<<path.logPrior<<",\"completion_suffix\":"<<quote(path.completion)<<",\"decoded\":"<<(q->decoded[i]?"true":"false")<<",\"segments\":[";
   for(size_t k=0;k<path.parts.size();k++){if(k)o<<',';const auto& s=path.parts[k];o<<"{\"id\":"<<s.id<<",\"syllable\":"<<quote(r.py[s.id])<<",\"normalized_range\":["<<s.start<<','<<s.end<<"],\"original_utf8_range\":["<<q->starts[s.start]<<','<<q->ends[s.end-1]<<"]}";}o<<']';
   if(!q->captures[i].logits.empty()){

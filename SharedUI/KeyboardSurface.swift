@@ -23,7 +23,7 @@ import SwiftUI
     private var toolbarNavigationState = ""
     private var editorTiles: [ToolbarTool: ToolTileButton] = [:]
     private var activeTool: ToolbarTool?
-    private var toolbarOffset = CGFloat(UserDefaults.standard.double(forKey: "clear.toolbar.offset.v1"))
+    private var toolbarOffset = CGFloat(InstallationLifecycle.privateDefaults().double(forKey: "clear.toolbar.offset.v1"))
     private var draggedTool: ToolbarTool?
     private var dragIcon: UIImageView?
     private var dragPoint = CGPoint.zero
@@ -691,7 +691,7 @@ import SwiftUI
     private func rememberToolbarOffset() {
         toolbarScroll.pendingOffset = nil
         toolbarOffset = toolbarScroll.isLooping ? toolbarScroll.phaseOffset : toolbarScroll.clampedOffset(toolbarScroll.contentOffset.x)
-        UserDefaults.standard.set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
+        InstallationLifecycle.privateDefaults().set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === toolbarManagementHold else { return true }

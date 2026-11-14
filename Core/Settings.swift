@@ -119,7 +119,9 @@ public struct KeyboardSettings: Codable, Equatable {
 public final class SettingsStore {
     public static let key = "clear.settings.v1"
     public let defaults: UserDefaults
-    public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults === UserDefaults.standard ? InstallationLifecycle.privateDefaults():defaults
+    }
     public func load() -> KeyboardSettings {
         guard let data = defaults.data(forKey: Self.key), var value = try? JSONDecoder().decode(KeyboardSettings.self, from: data) else { return KeyboardSettings() }
         value.sanitize()
