@@ -1,7 +1,7 @@
-name: Build109 settings clipboard and initials repair
+name: Build110 full syllable segmentation repair
 on:
   push:
-    branches: [codex/keyboard-feedback-build109]
+    branches: [codex/pinyin-segmentation-build110]
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ClearKeyboard-Build109-V49-CPU-IPA
+          name: ClearKeyboard-Build110-V49-CPU-IPA
           path: dist/
           compression-level: 0
           retention-days: 14

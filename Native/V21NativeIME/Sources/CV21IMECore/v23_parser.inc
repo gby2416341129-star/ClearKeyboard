@@ -5,6 +5,7 @@ bool adjacentKey(char a,char b){
  if(a<'a'||a>'z'||b<'a'||b>'z')return false;
  static const double xy[26][2]={{1.0,1.0},{6.0,2.0},{4.0,2.0},{3.0,1.0},{2.5,0.0},{4.0,1.0},{5.0,1.0},{6.0,1.0},{7.5,0.0},{7.0,1.0},{8.0,1.0},{9.0,1.0},{8.0,2.0},{7.0,2.0},{8.5,0.0},{9.5,0.0},{0.5,0.0},{3.5,0.0},{2.0,1.0},{4.5,0.0},{6.5,0.0},{5.0,2.0},{1.5,0.0},{3.0,2.0},{5.5,0.0},{2.0,2.0}};double dx=xy[a-'a'][0]-xy[b-'a'][0],dy=xy[a-'a'][1]-xy[b-'a'][1];return dx*dx+dy*dy<=2.25;
 }
+#include "v110_word_typo.inc"
 void parse(V21Request&q,bool completion){
  const auto&r=*q.r;const size_t size=q.normalized.size();
  struct Node{Segment part{};uint32_t parent=0;uint16_t depth=0;double lm=0,cost=0;int edits=0;uint32_t modes=0;int exactBytes=0;uint64_t canonicalHash=14695981039346656037ULL;};
@@ -30,7 +31,7 @@ void parse(V21Request&q,bool completion){
   }
   double score=priority(p);auto it=std::find_if(row.begin(),row.end(),[&](const Pending&b){return score>priority(b);});row.insert(it,std::move(p));
   if(row.size()<=32)return;
-  std::array<size_t,4> lane;lane.fill(row.size());size_t faithful=row.size();
+  std::array<size_t,4> lane;lane.fill(row.size());size_t faithful=row.size(),compactExact=row.size();
   for(size_t i=0;i<row.size();i++){
    if(!(row[i].modes&(1U<<V23_INCOMPLETE))){
     if(row[i].modes==1&&lane[0]==row.size())lane[0]=i;
@@ -38,9 +39,10 @@ void parse(V21Request&q,bool completion){
     if(clean(row[i])&&(row[i].modes&(1U<<V23_FUZZY))&&lane[2]==row.size())lane[2]=i;
     if(row[i].edits&&lane[3]==row.size())lane[3]=i;
    }
+   if(row[i].modes==1&&(compactExact==row.size()||row[i].depth<row[compactExact].depth))compactExact=i;
    if(clean(row[i])&&(faithful==row.size()||row[i].exactBytes>row[faithful].exactBytes))faithful=i;
   }
-  size_t victim=row.size()-1;while(victim>0&&(victim==faithful||std::find(lane.begin(),lane.end(),victim)!=lane.end()))--victim;
+  size_t victim=row.size()-1;while(victim>0&&(victim==faithful||victim==compactExact||std::find(lane.begin(),lane.end(),victim)!=lane.end()))--victim;
   row.erase(row.begin()+victim);
  };
  auto persist=[&](const Pending&p){if(!p.part.id)return p.parent;uint32_t parent=p.parent;
@@ -116,7 +118,8 @@ void parse(V21Request&q,bool completion){
  // Build actual distinct phonetic paths before allocating the eight neural
  // calls. A literal, a legal abbreviated/mixed, an explicitly enabled fuzzy,
  // and an ordinary-edit path each retain a search opportunity when present.
- // They still compete with exactly the same final score; no class is promoted.
+ // Path slots preserve opportunities. Final presentation uses the explicitly
+ // documented input-integrity lanes, then the unchanged numerical model score.
  std::vector<Path> distinct;std::unordered_set<std::string> canonical;
  for(const auto&f:finals){Path p;p.logWeight=f.lm;p.rawLogWeight=nodes[f.node].lm+r.pyLog(nodes[f.node].part.id,510);p.inputCost=nodes[f.node].cost;p.modeBits=nodes[f.node].modes;uint32_t node=f.node;p.parts.resize(nodes[node].depth);
   for(size_t i=p.parts.size();i>0;i--){p.parts[i-1]=nodes[node].part;node=nodes[node].parent;}
@@ -125,7 +128,11 @@ void parse(V21Request&q,bool completion){
  }
  // Query existing lexical prefixes before spending the neural path budget.
  auto wordProposals=initialWordProposals(q,distinct);
- if(wordProposals.size()>3)wordProposals.resize(3);
+ auto corrections=wordTypoProposals(q);wordProposals.insert(wordProposals.end(),corrections.begin(),corrections.end());
+ std::stable_sort(wordProposals.begin(),wordProposals.end(),[](const InitialWordProposal&a,const InitialWordProposal&b){if(a.frequency!=b.frequency)return a.frequency>b.frequency;return a.path.logWeight-a.path.inputCost>b.path.logWeight-b.path.inputCost;});
+ std::vector<InitialWordProposal> uniqueWords;
+ for(const auto&proposal:wordProposals){if(std::none_of(uniqueWords.begin(),uniqueWords.end(),[&](const InitialWordProposal&old){return samePhoneticReading(old.path,proposal.path);}))uniqueWords.push_back(proposal);if(uniqueWords.size()==3)break;}
+ wordProposals=std::move(uniqueWords);
  for(const auto&proposal:wordProposals){
   auto found=std::find_if(distinct.begin(),distinct.end(),[&](const Path&p){return samePhoneticReading(p,proposal.path);});
   if(found==distinct.end())distinct.push_back(proposal.path);
@@ -141,6 +148,8 @@ void parse(V21Request&q,bool completion){
  auto protect=[&](auto predicate){for(size_t i=0;i<distinct.size();i++)if(predicate(distinct[i])){if(std::find(protectedPaths.begin(),protectedPaths.end(),i)==protectedPaths.end())protectedPaths.push_back(i);break;}};
  auto noOrdinaryEdits=[](const Path&p){return !(p.modeBits&(1U<<V23_TYPO))&&p.completion.empty();};
  protect([](const Path&p){return p.modeBits==1;});
+ size_t compactExact=distinct.size();for(size_t i=0;i<distinct.size();i++)if(distinct[i].modeBits==1&&(compactExact==distinct.size()||distinct[i].parts.size()<distinct[compactExact].parts.size()))compactExact=i;
+ if(compactExact<distinct.size()&&std::find(protectedPaths.begin(),protectedPaths.end(),compactExact)==protectedPaths.end())protectedPaths.push_back(compactExact);
  protect([&](const Path&p){return noOrdinaryEdits(p)&&(p.modeBits&(1U<<V23_INITIAL));});
  protect([&](const Path&p){return noOrdinaryEdits(p)&&(p.modeBits&(1U<<V23_FUZZY));});
  protect([](const Path&p){return p.completion.empty()&&(p.modeBits&(1U<<V23_TYPO));});

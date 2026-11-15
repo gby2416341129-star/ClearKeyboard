@@ -28,7 +28,7 @@
   "prebuilt_phrase_indices": true,
   "neural_source": "V19 best step38750",
   "graph_export_version": "v23-b1-enumerated-1",
-  "SDK_version": "build109-word-initials-recall-1",
+  "SDK_version": "build110-syllable-reading-lanes-1",
   "execution_adapter": "v23-input-graph-sequence-1",
   "prediction_batch": 1,
   "target_buckets": [
@@ -40,13 +40,13 @@
   "statistical_resources_refitted": false,
   "language_policy_version": "clear-v22-word-lattice-data-2",
   "language_data_sha256": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
-  "ranking_policy_version": "build109-word-initials-recall-1",
+  "ranking_policy_version": "build110-syllable-reading-lanes-1",
   "word_character_beam": 32,
   "word_edges_per_position": 32,
   "word_candidates_per_span": 8,
   "neural_parent_sha256": "d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7",
   "feature_contract": "v23-input-evidence-1",
-  "kernel_revision": "build109-word-initials-recall-1",
+  "kernel_revision": "build110-syllable-reading-lanes-1",
   "neural_model": "V23",
   "weights_changed_in_this_revision": false,
   "new_training_performed": false,
@@ -84,5 +84,23 @@
     "alignment": "whole raw EXACT or INITIAL only, one-letter or zh/ch/sh, at least one INITIAL; no completion, edits or fuzzy substitution",
     "skip": "initials disabled, character selection, full EXACT path available, fewer than2 or more than72 letters",
     "composition": "whole existing dictionary word only; no phrase-combination expansion"
-  }
+  },
+  "standalone_reading_policy": "V19 source and V22 active registered primary union, intersect actual legal domain; other nonprimary readings still require existing word/phrase reachability",
+  "word_typo_recall": {
+    "ordinary_edits": 1,
+    "initials": false,
+    "fuzzy": false,
+    "max_states": 8192,
+    "max_probes": 32768,
+    "max_word_syllables": 12,
+    "shared_proposal_slots": 3,
+    "priority_guard": "complete untruncated query, no observed zero-edit whole word, actual one-edit candidate text matches an observed whole-word record"
+  },
+  "input_ranking_lanes": [
+    "observed whole-word single-edit correction when guard holds",
+    "normal candidates including lexicalized split readings",
+    "unlicensed INITIAL/single-letter fine splits locally mergeable into a full syllable; apostrophe/space boundaries never crossed"
+  ],
+  "input_ranking_contract": "lane ascending, original final_score descending, stable original ordinal; body/aux coefficients unchanged; no incomplete-path certificate",
+  "minimum_exact_path": "additional minimum-syllable complete EXACT opportunity inside32 states and8 readings; other exact segmentations remain selectable"
 }
