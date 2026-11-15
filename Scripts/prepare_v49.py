@@ -72,6 +72,6 @@ def main():
     runtime=ROOT/'Core/Resources/Runtime/V49';runtime.mkdir(parents=True,exist_ok=True)
     for name in DATA:shutil.copyfile(source/name,runtime/name)
     for name in ['identity.json','ordinary_probes_160.json']:shutil.copyfile(model_root/name,runtime/name)
-    print('Build107: exact V49 pair, structured canonical SDK and English dictionary staged; CPU only; no inference executed.')
+    print('Build108: exact V49 pair, structured canonical SDK and English dictionary staged; CPU only; no inference executed.')
 
 if __name__=='__main__':main()

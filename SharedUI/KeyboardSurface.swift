@@ -23,6 +23,8 @@ import SwiftUI
     private var toolbarNavigationState = ""
     private var editorTiles: [ToolbarTool: ToolTileButton] = [:]
     private var activeTool: ToolbarTool?
+    private static let toolbarPersistenceQueue=DispatchQueue(label:"clear.toolbar.position",qos:.utility)
+    private var toolbarOffsetSave:DispatchWorkItem?
     private var toolbarOffset = CGFloat(InstallationLifecycle.privateDefaults().double(forKey: "clear.toolbar.offset.v1"))
     private var draggedTool: ToolbarTool?
     private var dragIcon: UIImageView?
@@ -464,12 +466,16 @@ import SwiftUI
         }
         let showsLocal = panel == nil && !movingCursor && model.settings.language == .chinese &&
             !model.composition.isEmpty && model.document?.usesLocalPinyinComposition == true
-        let spellingWidth = ceil((model.composition.raw as NSString).size(withAttributes: [.font: localPreedit.font!]).width) + 8
-        let width = showsLocal ? min(max(26, spellingWidth), min(90, max(0, header.width * 0.26))) : 0
-        localPreedit.isHidden = width <= 0
+        localPreedit.isHidden = !showsLocal
         localPreedit.text = showsLocal ? model.composition.raw : nil
-        localPreedit.frame = CGRect(x: header.minX, y: header.minY, width: width, height: KeyboardGeometry.headerHeight)
-        if width > 0 { header.origin.x += width + 8; header.size.width -= width + 8 }
+        localPreedit.accessibilityLabel = showsLocal ? "拼音：" + model.composition.raw : nil
+        localPreedit.frame = CGRect(x: header.minX + 4, y: header.minY, width: max(0, header.width - 8), height: 15)
+        if showsLocal {
+            // Keep spelling above the candidates instead of squeezing long
+            // input into a 90-point slot beside the first word.
+            header.origin.y += 15; header.size.height = max(0, header.height - 15)
+            characterButton.frame = CGRect(x: base.maxX - 37, y: header.midY - 14, width: 34, height: 28)
+        }
         if candidateScroll.frame != header { candidateScroll.frame = header }
         hint.frame = header
     }
@@ -643,7 +649,7 @@ import SwiftUI
                 let enabled = model.settings.localPinyinComposition == true
                 button.subviews.compactMap { $0 as? ToolIconView }.first?.setCompatibilityEnabled(enabled)
                 if !toolbarEditing {
-                    button.accessibilityLabel = enabled ? "兼容输入，已开启" : "兼容输入，已关闭"
+                    button.accessibilityLabel = enabled ? "拼音显示在候选栏" : "拼音显示在输入框"
                     button.accessibilityTraits = enabled ? [.button, .selected] : .button
                 }
             }
@@ -656,20 +662,19 @@ import SwiftUI
             // precede the next layout pass, especially during recentering or
             // deceleration; leaving its old frame can mask the entire row.
             toolbarScroll.refreshEdgeAppearance()
-            toolbarScroll.updateScrollFeedback()
         }
     }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if scrollView === toolbarScroll, !decelerate { rememberToolbarOffset() }
+        if scrollView === toolbarScroll, !decelerate {toolbarScroll.finishScrollInteraction();rememberToolbarOffset()}
     }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === toolbarScroll { rememberToolbarOffset() } }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { if scrollView === toolbarScroll {toolbarScroll.finishScrollInteraction();rememberToolbarOffset()} }
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard scrollView === toolbarScroll else { return }
         if !toolbarScroll.isLooping { targetContentOffset.pointee.x = toolbarScroll.clampedOffset(targetContentOffset.pointee.x) }
     }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         if scrollView === toolbarScroll {
-            toolbarScroll.pendingOffset = nil
+            toolbarScroll.pendingOffset = nil;toolbarScroll.beginScrollInteraction()
             if model.settings.usesToolbarScrollVibration { toolbarVibration.attach(to: self); toolbarVibration.prepareScroll() }
         }
     }
@@ -685,13 +690,21 @@ import SwiftUI
         toolbarScroll.isScrollEnabled = false
         toolbarScroll.setContentOffset(offset, animated: false)
         toolbarScroll.isScrollEnabled = wasEnabled
-        rememberToolbarOffset()
+        toolbarScroll.finishScrollInteraction();rememberToolbarOffset()
         toolbarScroll.suppressScrollFeedback = suppressed
     }
     private func rememberToolbarOffset() {
         toolbarScroll.pendingOffset = nil
         toolbarOffset = toolbarScroll.isLooping ? toolbarScroll.phaseOffset : toolbarScroll.clampedOffset(toolbarScroll.contentOffset.x)
-        InstallationLifecycle.privateDefaults().set(Double(toolbarOffset), forKey: "clear.toolbar.offset.v1")
+        // Final inertial frames never synchronously enter defaults/bootstrap.
+        // The serial queue keeps the latest settled phase and coalesces stops.
+        toolbarOffsetSave?.cancel()
+        let phase=Double(toolbarOffset)
+        let write=DispatchWorkItem { @Sendable [phase] in
+            InstallationLifecycle.privateDefaults().set(phase,forKey:"clear.toolbar.offset.v1")
+        }
+        toolbarOffsetSave=write
+        Self.toolbarPersistenceQueue.asyncAfter(deadline:.now()+0.12,execute:write)
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === toolbarManagementHold else { return true }
@@ -777,7 +790,7 @@ import SwiftUI
             toolbarSignature = ""; render()
             toolbar.layoutIfNeeded(); toolbarShortcuts.layoutIfNeeded()
         }
-        toolbarScroll.refreshEdgeAppearance(); rememberToolbarOffset()
+        toolbarScroll.refreshEdgeAppearance(force:true); rememberToolbarOffset()
     }
     @objc private func toolbarHold(_ gesture: UILongPressGestureRecognizer) {
         guard let instance = toolbarInstances.first(where: { $0.button === gesture.view }) else { return }
@@ -837,7 +850,7 @@ import SwiftUI
             }
         }
         performToolbarDrop(tool, at: dragPoint)
-        toolbarScroll.refreshEdgeAppearance()
+        toolbarScroll.refreshEdgeAppearance(force:true)
     }
     private func presentToolbarDragOrder(_ tools: [ToolbarTool]) {
         let visible = tools.filter { $0 != .language }
@@ -986,7 +999,7 @@ import SwiftUI
         default: return nil
         }
     }
-    func stopInteractions(preservePanel: Bool = false) { toolbarEffects.cancel(); rememberToolbarOffset(); keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); if !preservePanel { candidateActions?.close(); closePanel(animated: false) }; panelTransition.cancel() }
+    func stopInteractions(preservePanel: Bool = false) { toolbarEffects.cancel(); toolbarScroll.finishScrollInteraction(); rememberToolbarOffset(); keys.forEach { $0.0.stopTracking() }; KeyboardVibration.shared.stop(); finishToolbarDrag(); setCursorMode(false); if !preservePanel { candidateActions?.close(); closePanel(animated: false) }; panelTransition.cancel() }
     private func announce(_ text: String) {
         guard UIAccessibility.isVoiceOverRunning else { return }
         UIAccessibility.post(notification: .announcement, argument: text)
@@ -1109,11 +1122,11 @@ import SwiftUI
         buildGrid(items, in: stack, identifiers: [compatibilityInputTitle: "keyboard.compatibleInput"]); finishPanelTransition()
     }
     private var compatibilityInputTitle: String {
-        model.settings.localPinyinComposition == true ? "兼容输入 · 开" : "兼容输入 · 关"
+        model.settings.localPinyinComposition == true ? "拼音 · 候选栏" : "拼音 · 输入框"
     }
     func toggleLocalPinyinComposition() {
         guard model.composition.isEmpty else { return }
-        model.settings.localPinyinComposition = model.settings.localPinyinComposition == true ? nil : true
+        model.settings.localPinyinComposition = model.settings.localPinyinComposition != true
         updateToolbarState()
         allPanelViews(panel).compactMap { $0 as? ToolTileButton }.first {
             $0.accessibilityIdentifier == "keyboard.compatibleInput"
@@ -1175,6 +1188,19 @@ import SwiftUI
         }
         if kind == .vibration {
             let content = KeyboardHapticPanel(current: { [weak model] in model?.settings ?? KeyboardSettings() }, save: { [weak model] in model?.settings = $0 })
+            panel = content; addSubview(content); finishPanelTransition(); return
+        }
+        if kind == .emoji {
+            let content = EmoticonPanel { [weak self] entry in
+                guard let self else { return }
+                self.toolbarPulse()
+                let legacy: [String: (String, String)] = [
+                    "legacy-sticker-received": ("收到啦", "🫡"), "legacy-sticker-cheer": ("好耶", "🎉"),
+                    "legacy-sticker-thanks": ("谢谢", "🫶"), "legacy-sticker-night": ("晚安", "🌙")]
+                if let sticker = legacy[entry.id] { self.copySticker(sticker.0, emoji: sticker.1) }
+                else { self.model.insertLiteral(entry.code) }
+            }
+            content.setQuery(model.composition.raw)
             panel = content; addSubview(content); finishPanelTransition(); return
         }
         if kind == .appearance {

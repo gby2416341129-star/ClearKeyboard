@@ -57,9 +57,19 @@
   "maximum_visible_candidates": 64,
   "english_dictionary_words": 65986,
   "neural_weights_changed_in_this_revision": false,
-  "decoder_policy_changed": true,
+  "decoder_policy_changed": false,
   "learning_enabled_in_final_candidates": true,
   "manual_character_selection": "real first-syllable receipts; no full-sequence head call",
-  "source_package_build": 107,
-  "installation_lifecycle": "private continuity / owner-generation scoped recovery"
+  "source_package_build": 108,
+  "installation_lifecycle": "private continuity / owner-generation scoped recovery",
+  "feedback_revision": "build108-math-numeric-toolbar-haptics-emoticons-preedit",
+  "feedback_features": [
+    "inline arithmetic suffix ownership",
+    "confirmed numeric memory and prefix suffix completion",
+    "native toolbar deceleration with coalesced edge work",
+    "one haptic settings card",
+    "traceable WeChat sprite and text codes",
+    "raw-bound emoticon suggestions",
+    "input-field or candidate-row pinyin display"
+  ]
 }

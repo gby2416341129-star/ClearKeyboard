@@ -1,0 +1,50 @@
+{
+  "schema": "clear-emoticons-resource/1",
+  "source_repository": "wechat-miniprogram/miniprogram-component-plus",
+  "source_commit": "2aad739689acf4ed19066ce171f2e17d7c62c4ba",
+  "source_package": "@miniprogram-component-plus/emoji@1.0.1",
+  "source_package_sha256": "b935e3e244fed17cf37e29c9b691c7a82cbe587fa9777f0f074109f0934f423f",
+  "source_png_pixels": [
+    724,
+    658
+  ],
+  "source_data_rows": 139,
+  "unique_source_codes": 138,
+  "supplemental_text_codes": 6,
+  "wechat_codes": 144,
+  "real_image_regions": 110,
+  "unicode_emoji": 104,
+  "kaomoji": 12,
+  "original_sticker_actions": 4,
+  "total_entries": 264,
+  "complete_current_wechat_claim": false,
+  "runtime_network_required": false,
+  "model_or_business_algorithms_executed": false,
+  "tests_executed": false,
+  "files": {
+    "LICENSE-MIT.txt": {
+      "bytes": 1075,
+      "sha256": "e1df5224ddaec61dfdeb5bb1651a189fba742a614e0daf16dc6dfba50d47d80c"
+    },
+    "wechat-source-sprite.png": {
+      "bytes": 616827,
+      "sha256": "a79df3f4f8cc58ad11a3b93ebdc8d08b053fa6efd1e511552a215c493cea6594"
+    },
+    "catalog.json": {
+      "bytes": 80848,
+      "sha256": "39f023452729fcb0e7688af79115a09f6ba44aa31958c0847dbdd38eb82a8bae"
+    },
+    "SOURCE-NOTICE.txt": {
+      "bytes": 3835,
+      "sha256": "5a961dc4af909c986ab9e6b1014dd44b0d823fad0f851f923c02deef19584d04"
+    },
+    "UPSTREAM-NPM-PACKAGE.json": {
+      "bytes": 323,
+      "sha256": "eb70ecc29317ccaa7ff4a9f2dd02e3b2b4b97f0eaf2cae3ae7c75f2510f3b731"
+    },
+    "LICENSE-ISC.txt": {
+      "bytes": 1147,
+      "sha256": "01801a6079857dcf773603d82ffe8e1b963f72fc26c2e090869fb12fd8f02cc3"
+    }
+  }
+}

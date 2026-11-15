@@ -279,7 +279,7 @@ struct ToolIcon: UIViewRepresentable {
     static let itemPitch: CGFloat = 44
     var pendingOffset: CGFloat? { didSet { if pendingOffset != nil { setNeedsLayout() } } }
     var expectedContentWidth: CGFloat = 0 { didSet { if expectedContentWidth != oldValue { setNeedsLayout() } } }
-    var edgeIcons: [ToolIconView] = []
+    var edgeIcons: [ToolIconView] = [] { didSet { lastEdgeBounds = .null } }
     var loopPeriod: CGFloat = 0
     var loopCenter: CGFloat = 0
     var isLooping: Bool { loopPeriod > 0 }
@@ -289,14 +289,63 @@ struct ToolIcon: UIViewRepresentable {
         return phase < 0 ? phase + loopPeriod : phase
     }
     var onTooth: ((CGFloat) -> Void)?
-    var suppressScrollFeedback = false
+    var suppressScrollFeedback = false {didSet {if suppressScrollFeedback {feedbackResetPending=true}}}
     private var feedbackOffset: CGFloat?
     private var feedbackTime: CFTimeInterval = 0
     private var toothDistance: CGFloat = 0
     private var lastTooth: CFTimeInterval = 0
+    private var feedbackResetPending=false
     private var recentering = false
     private let edgeMask = CAGradientLayer()
     private let verticalMask = CAGradientLayer()
+    private var lastEdgeBounds = CGRect.null
+    private var lastEdgeWidth:CGFloat = -1
+    private var lastEdgeLooping = false
+    private var maskSize = CGSize.zero
+    private var maskLeft:Bool?, maskRight:Bool?
+    private var scrollUpdates:UIUpdateLink?
+    private var interactionUpdatesActive=false
+    private var edgesNeedUpdate=false
+    private var visibleInHierarchy:Bool {
+        guard window != nil else{return false}
+        var ancestor:UIView?=self
+        while let view=ancestor {
+            if view.isHidden || view.alpha <= 0.01 {return false}
+            ancestor=view.superview
+        }
+        return true
+    }
+    func beginScrollInteraction() {
+        guard visibleInHierarchy else{return}
+        feedbackOffset=contentOffset.x;feedbackTime=CACurrentMediaTime();toothDistance=0;feedbackResetPending=suppressScrollFeedback
+        interactionUpdatesActive=true;edgesNeedUpdate=true
+        if scrollUpdates == nil {
+            let updates=UIUpdateLink(view:self)
+            updates.addAction(to:.beforeCATransactionCommit) { [weak self] _,_ in
+                guard let self,self.interactionUpdatesActive else{return}
+                // Hiding an ancestor can interrupt native deceleration without
+                // another scroll callback. Never leave a hidden row requesting frames.
+                guard self.visibleInHierarchy else{self.finishScrollInteraction();return}
+                guard self.edgesNeedUpdate else{return}
+                self.edgesNeedUpdate=false
+                self.updateEdges();self.updateScrollFeedback()
+            }
+            scrollUpdates=updates
+        }
+        let rate=Float(window?.screen.maximumFramesPerSecond ?? 60)
+        scrollUpdates?.preferredFrameRateRange=CAFrameRateRange(minimum:min(60,rate),maximum:rate,preferred:rate)
+        scrollUpdates?.requiresContinuousUpdates=true;scrollUpdates?.isEnabled=true
+    }
+    func finishScrollInteraction() {
+        interactionUpdatesActive=false;edgesNeedUpdate=false
+        scrollUpdates?.requiresContinuousUpdates=false;scrollUpdates?.isEnabled=false
+        updateEdges()
+        feedbackOffset=nil;feedbackTime=0;toothDistance=0;feedbackResetPending=false
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {finishScrollInteraction()}
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
         if abs(contentSize.width - expectedContentWidth) > 0.5 || contentSize.height != bounds.height {
@@ -317,13 +366,21 @@ struct ToolIcon: UIViewRepresentable {
             contentOffset.x = loopCenter + phaseOffset
             recentering = false
         }
-        updateEdges()
+        refreshEdgeAppearance()
     }
     func clampedOffset(_ proposed: CGFloat) -> CGFloat {
         min(max(0, proposed.isFinite ? proposed : 0), max(0, expectedContentWidth - bounds.width))
     }
-    func refreshEdgeAppearance() { updateEdges() }
+    func refreshEdgeAppearance(force:Bool=false) {
+        // UIScrollView remains the only owner of motion. Layout and delegate
+        // changes share one pre-commit edge update, including inertial tail frames.
+        if force {lastEdgeBounds = .null}
+        if interactionUpdatesActive {edgesNeedUpdate=true}
+        else {updateEdges()}
+    }
     private func updateEdges() {
+        guard lastEdgeBounds != bounds || lastEdgeWidth != expectedContentWidth || lastEdgeLooping != isLooping else{return}
+        lastEdgeBounds=bounds;lastEdgeWidth=expectedContentWidth;lastEdgeLooping=isLooping
         let overflow = max(0, expectedContentWidth - bounds.width)
         if !isLooping, overflow <= 0.5 {
             CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -337,18 +394,23 @@ struct ToolIcon: UIViewRepresentable {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if bounds.width > 0 {
             if layer.mask !== edgeMask { layer.mask = edgeMask }
-            edgeMask.frame = bounds
-            verticalMask.frame = edgeMask.bounds
-            verticalMask.startPoint = CGPoint(x: 0.5, y: 0); verticalMask.endPoint = CGPoint(x: 0.5, y: 1)
-            let margin = min(0.15, 3 / max(1, bounds.height))
-            verticalMask.colors = [UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
-            verticalMask.locations = [0, NSNumber(value: Double(margin)), NSNumber(value: Double(1 - margin)), 1]
-            edgeMask.mask = verticalMask
-            edgeMask.startPoint = CGPoint(x: 0, y: 0.5); edgeMask.endPoint = CGPoint(x: 1, y: 0.5)
-            edgeMask.colors = [UIColor.black.withAlphaComponent(left ? 0 : 1).cgColor, UIColor.black.cgColor,
-                               UIColor.black.cgColor, UIColor.black.withAlphaComponent(right ? 0 : 1).cgColor]
-            edgeMask.locations = [0, NSNumber(value: Double(fade / bounds.width)),
-                                  NSNumber(value: Double(1 - fade / bounds.width)), 1]
+            if edgeMask.frame != bounds {edgeMask.frame = bounds}
+            if maskSize != bounds.size {
+                maskSize=bounds.size
+                verticalMask.frame=edgeMask.bounds
+                verticalMask.startPoint=CGPoint(x:0.5,y:0);verticalMask.endPoint=CGPoint(x:0.5,y:1)
+                let margin=min(0.15,3/max(1,bounds.height))
+                verticalMask.colors=[UIColor.clear.cgColor,UIColor.black.cgColor,UIColor.black.cgColor,UIColor.clear.cgColor]
+                verticalMask.locations=[0,NSNumber(value:Double(margin)),NSNumber(value:Double(1-margin)),1]
+                edgeMask.startPoint=CGPoint(x:0,y:0.5);edgeMask.endPoint=CGPoint(x:1,y:0.5)
+                edgeMask.locations=[0,NSNumber(value:Double(fade/bounds.width)),NSNumber(value:Double(1-fade/bounds.width)),1]
+            }
+            if edgeMask.mask !== verticalMask {edgeMask.mask=verticalMask}
+            if maskLeft != left || maskRight != right {
+                maskLeft=left;maskRight=right
+                edgeMask.colors=[left ? UIColor.clear.cgColor:UIColor.black.cgColor,UIColor.black.cgColor,
+                                 UIColor.black.cgColor,right ? UIColor.clear.cgColor:UIColor.black.cgColor]
+            }
         } else { layer.mask = nil }
         CATransaction.commit()
         // UIView conversion uses one coherent model coordinate space. Mixing
@@ -361,10 +423,13 @@ struct ToolIcon: UIViewRepresentable {
             icon.softenEdge(1 - min(fade, max(0, distance)) / max(1, fade))
         }
     }
-    func updateScrollFeedback() {
+    private func updateScrollFeedback() {
         guard !recentering else { return }
         let now = CACurrentMediaTime(), offset = contentOffset.x
         defer { feedbackOffset = offset; feedbackTime = now }
+        // A structural rebuild can restore its suppression flag before this
+        // deferred update. Preserve that event until the latest offset is sampled.
+        if feedbackResetPending {feedbackResetPending=false;toothDistance=0;return}
         guard !suppressScrollFeedback, isDragging || isDecelerating, let previous = feedbackOffset else {
             toothDistance = 0; return
         }
@@ -373,6 +438,9 @@ struct ToolIcon: UIViewRepresentable {
         guard delta.isFinite, abs(delta) > 0.01 else { return }
         toothDistance += abs(delta)
         let speed = abs(delta) / CGFloat(max(1.0 / 240, now - feedbackTime))
+        // Do not discharge leftover travel as a late tick while UIKit settles.
+        // Finger-controlled slow dragging still keeps its distance-based ticks.
+        if isDecelerating,speed < Self.itemPitch {toothDistance=0;return}
         if toothDistance >= 22, now - lastTooth >= 0.055 {
             toothDistance.formTruncatingRemainder(dividingBy: 22); lastTooth = now; onTooth?(speed)
         }

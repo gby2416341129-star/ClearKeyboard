@@ -579,6 +579,7 @@ import V21NativeIME
     }()
     private let plate = UIView()
     private let label = CandidatePaintLabel()
+    private var displayedText: String?
     private(set) var transitionDeadline: CFTimeInterval = 0
     private static let transitionDuration: CFTimeInterval = 0.24
     override init(frame: CGRect) {
@@ -596,7 +597,8 @@ import V21NativeIME
     required init?(coder: NSCoder) { fatalError("init(coder:) is unsupported") }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let height = max(0, min(bounds.height - 12, max(28, ceil(label.font.lineHeight) + 8)))
+        let verticalInset: CGFloat = bounds.height < 36 ? 2 : 12
+        let height = max(0, min(bounds.height - verticalInset, max(28, ceil(label.font.lineHeight) + 8)))
         plate.frame = CGRect(x: 0, y: (bounds.height - height) / 2,
                              width: max(0, bounds.width - 4), height: height)
         // Ink uses the row's full height, independently of its smaller rounded
@@ -604,6 +606,11 @@ import V21NativeIME
         label.frame = CGRect(x: 8, y: 0, width: max(0, bounds.width - 20), height: bounds.height)
     }
     static func width(_ candidate: Candidate, font: UIFont) -> CGFloat {
+        if candidate.localChoice?.kind == .emoticon,
+           let entry = EmoticonCatalog.shared.entry(forCode: candidate.text),
+           EmoticonImageProvider.image(for: entry) != nil {
+            return max(22, ceil(font.lineHeight)) + 20
+        }
         let key = "\(font.fontName):\(font.pointSize):\(candidate.text)" as NSString
         if let value = measuredWidths.object(forKey: key) { return CGFloat(value.doubleValue) }
         let width = max(36, ceil((candidate.text as NSString).size(withAttributes: [.font: font]).width) + 16)
@@ -636,10 +643,21 @@ import V21NativeIME
                    voiceOver: Bool? = nil, firstAppearance: Bool = false) {
         let reduceMotion = reduceMotion ?? UIAccessibility.isReduceMotionEnabled
         let voiceOver = voiceOver ?? UIAccessibility.isVoiceOverRunning
-        let oldText = label.text
+        let oldText = displayedText
         let changedFont = label.font != font
         if label.font != font { label.font = font }
-        if label.text != candidate.text { label.text = candidate.text }
+        if oldText != candidate.text || changedFont {
+            displayedText = candidate.text
+            if candidate.localChoice?.kind == .emoticon,
+               let entry = EmoticonCatalog.shared.entry(forCode: candidate.text),
+               let image = EmoticonImageProvider.image(for: entry) {
+                let attachment = NSTextAttachment()
+                attachment.image = image
+                let size = max(22, ceil(font.lineHeight))
+                attachment.bounds = CGRect(x: 0, y: (font.capHeight - size) / 2, width: size, height: size)
+                label.attributedText = NSAttributedString(attachment: attachment)
+            } else { label.attributedText = nil; label.text = candidate.text }
+        }
         label.textColor = normalColor ?? (first ? accent : .label)
         plate.backgroundColor = first ? .secondarySystemFill : .clear
         accessibilityLabel = "候选：" + candidate.text; accessibilityIdentifier = "candidate." + candidate.text

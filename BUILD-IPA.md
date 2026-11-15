@@ -1,9 +1,9 @@
-# Build107 / V49 CPU
+# Build108 / V49 CPU
 
-模型仍为V49 local1408/global94661的同一主干和双头；CPU-only。当前解码策略 build107-structured-canonical-recall-1，8模型路径/32状态/64可见/256池预算保留，前缀与末端使用同一词格能量。
+0.1.105，Build108。本轮仅修复七组键盘反馈；V49 local1408/global94661、配套SDK与CPU-only保持。
 
-安装恢复使用私有容器连续性与owner/世代命名空间；新安装不读旧共享/Keychain镜像，覆盖升级依可信私有连续性保留。iOS没有卸载时执行App代码的钩子，此方案在下次启动读取数据前生效；不宽删其它App共享数据。
+修复数学结果被数字候选覆盖与消费范围；长数字提交记忆/前缀补尾；工具栏滑动尾帧工作；触感集中布局；加入可追溯微信表情资源及文字联想候选；移除About两个入口；拼音输入框/候选栏双模式。
 
-`bash Scripts/build-ipa.sh dist`仅做静态身份核对、Release编译和封装，不执行预测或测试。源Core ML包来自既有构建43366860373，SHA256 55142f2bb28776107fdf49c9ccb6f53f828f454a6238da1d824efdbaa4c8060e；历史artifact过期可使用本机原包BuildAssets/V49/models.zip。
+表情使用资源内SOURCE-NOTICE和manifest说明的固定官方快照；缺官方图片的新代码显示名称，不冒称取得2026全部最新图片。微信文字代码由宿主识别，其他App不保证渲染。
 
-研究报告与实测分开；本轮未量测准确率/速度/内存/删除重装效果，均由用户验收。
+`bash Scripts/build-ipa.sh dist`仅做来源/身份校验、Release编译和封装。没有运行任何预测或测试，全部手机功能、准确率、速度、回归与验收由用户执行。

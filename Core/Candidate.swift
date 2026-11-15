@@ -11,7 +11,7 @@ public struct V21Choice: Sendable {
     public var isCompletePinyinInput: Bool { completionSuffix.isEmpty }
 }
 public enum LocalCandidateKind: String, Equatable, Sendable {
-    case learned, english, numeric
+    case learned, english, numeric, emoticon
 }
 /// Local user memory/literal choices are bound to the exact current input.
 /// They do not impersonate a neural decoder alignment or recommendation.

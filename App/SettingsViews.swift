@@ -34,23 +34,12 @@ struct CustomizationView: View {
                     }
                 }
             }
+            PinyinDisplayOptions()
             AppSectionTitle(title: "触感")
             AppCard {
                 PreferenceToggle(title: "按键震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesVibration }, set: { preferences.settings.vibrationEnabled = $0 }))
                     .accessibilityIdentifier("custom.vibration")
-                if preferences.settings.usesVibration {
-                    Divider()
-                    Picker("触感", selection: Binding(get: { preferences.settings.resolvedVibrationMode }, set: {
-                        preferences.settings.vibrationMode = $0; previewVibration()
-                    })) {
-                        ForEach(VibrationMode.allCases) { Text($0.title).tag($0) }
-                    }.pickerStyle(.segmented).accessibilityIdentifier("custom.vibrationMode")
-                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: {
-                        preferences.settings.vibrationIntensity = $0; previewVibration()
-                    }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
-                }
-            }
-            AppCard {
+                Divider()
                 PreferenceToggle(title: "Logo 点击震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesLogoVibration }, set: { preferences.settings.logoVibrationEnabled = $0 }))
                     .accessibilityIdentifier("custom.logoVibration")
                 Divider()
@@ -62,6 +51,17 @@ struct CustomizationView: View {
                 Divider()
                 PreferenceToggle(title: "选词震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesCandidateVibration }, set: { preferences.settings.candidateVibrationEnabled = $0 }))
                     .accessibilityIdentifier("custom.candidateVibration")
+                if preferences.settings.usesVibration {
+                    Divider()
+                    Picker("触感", selection: Binding(get: { preferences.settings.resolvedVibrationMode }, set: {
+                        preferences.settings.vibrationMode = $0; previewVibration()
+                    })) {
+                        ForEach(VibrationMode.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented).accessibilityIdentifier("custom.vibrationMode")
+                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: {
+                        preferences.settings.vibrationIntensity = $0; previewVibration()
+                    }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
+                }
             }
             AppCard {
                 Button { showToolbarEditor = true } label: { AppRow(title: "快捷工具", detail: "排列与选择", symbol: "rectangle.3.group") }
@@ -267,10 +267,7 @@ struct InputAboutView: View {
                 Text("V49 本地输入模型 · CPU").font(.system(size: 16, weight: .medium))
                 Text("V49 在本机使用 CPU 处理全拼、简拼、混合拼音及输入纠错。模糊音按输入设置生效。主动确认的词语可记忆，并通过全拼或简拼调出；完整连续数字可按前缀补全。确认键保留原始输入，空格选择中文候选。")
                     .font(.subheadline).foregroundStyle(.secondary)
-                Divider()
-                AppNavigationLink { LicenseView() } label: { AppRow(title: "开源许可", detail: "", symbol: "doc.text") }.buttonStyle(.plain)
             }
-            KernelMeasurementControls()
             AppSectionTitle(title: "使用手势")
             AppCard {
                 Label("长按空格，滑动定位光标", systemImage: "cursorarrow.motionlines")

@@ -5,10 +5,10 @@ import hashlib,json,sys
 def seal(app):
     ext=Path(app)/'PlugIns/ClearKeyboardExtension.appex'
     models=[ext/(name+'.mlmodelc') for name in ['V49PinyinB1FP16','V49InputSequenceFP16']];runtime=ext/'V49'
-    english=ext/'EnglishWords'
-    assert all(model.is_dir() for model in models) and runtime.is_dir() and english.is_dir()
+    english=ext/'EnglishWords';emoticons=ext/'Emoticons'
+    assert all(model.is_dir() for model in models) and runtime.is_dir() and english.is_dir() and emoticons.is_dir()
     files={}
-    for root in models+[runtime,english]:
+    for root in models+[runtime,english,emoticons]:
         for p in sorted(root.rglob('*')):
             if p.is_file() and p != runtime/'packaged_manifest.json':
                 files[p.relative_to(ext).as_posix()]=hashlib.sha256(p.read_bytes()).hexdigest()

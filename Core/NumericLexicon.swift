@@ -11,6 +11,17 @@ public struct NumericLexicon: Codable {
     static func isDigits(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.allSatisfy { (48...57).contains($0) }
     }
+    /// Read-only recall can also follow editing or a prefilled visible prefix.
+    /// This lookup never creates a learned record or proves a submitted run.
+    static func visiblePrefix(in before:String)->String? {
+        guard let last=before.utf8.last,(48...57).contains(last) else{return nil}
+        let formatted=before.allSatisfy{$0.isASCII && ($0.isNumber || $0==" " || $0=="-")}
+        let suffix=before.reversed().prefix{character in
+            character.isASCII && (character.isNumber || (formatted && (character==" " || character=="-")))
+        }
+        let digits=String(suffix.reversed().filter{$0.isASCII && $0.isNumber})
+        return (1..<maximumDigits).contains(digits.utf8.count) ? digits:nil
+    }
     private static func isRememberable(_ value:String)->Bool {
         guard (4...maximumDigits).contains(value.utf8.count) else{return false}
         if isDigits(value){return true}
@@ -60,18 +71,36 @@ public struct NumericInputRun {
     public init() {}
     public mutating func reset() { value = ""; anchor = ""; after = ""; document = "" }
     public func prefix(before: String, after: String, document: String) -> String? {
-        guard !value.isEmpty,self.document==document,self.after==after,before.hasPrefix(anchor) else{return nil}
-        let tail=before.dropFirst(anchor.count)
-        guard tail.utf8.count<=value.utf8.count*2+4 else{return nil}
-        var observed=""
-        for scalar in tail.unicodeScalars {
-            if scalar.value==32 || scalar.value==45{continue} // Host card-number grouping only.
-            guard (48...57).contains(scalar.value) || scalar.value==88 || scalar.value==120 else{return nil}
-            observed.unicodeScalars.append(scalar)
+        boundary(before:before,after:after,document:document) == nil ? nil:value
+    }
+    public func hasHostFormatting(before:String,after:String,document:String)->Bool {
+        boundary(before:before,after:after,document:document)?.formatted ?? false
+    }
+    private static func separator(_ character:Character)->Bool {
+        [" ","-","\u{00a0}","\u{2007}","\u{2009}","\u{202f}"].contains(character)
+    }
+    private func boundary(before:String,after:String,document:String)->(formatted:Bool,anchor:String)? {
+        guard !value.isEmpty,self.document==document,self.after==after else{return nil}
+        var index=before.endIndex,formatted=false,steps=0
+        for expected in value.reversed() {
+            var found=false
+            while index>before.startIndex {
+                index=before.index(before:index);steps+=1
+                guard steps<=value.count*2+8 else{return nil}
+                let character=before[index]
+                if Self.separator(character){formatted=true;continue}
+                guard character==expected else{return nil}
+                found=true;break
+            }
+            guard found else{return nil} // Never infer digits cropped out by the host.
         }
-        // Formatting can change, but no digit, X case, field or trailing context
-        // may differ from the run that the user actually typed.
-        return observed==value ? value:nil
+        let observed=String(before[..<index])
+        if anchor.hasSuffix(observed) || (!anchor.isEmpty && observed.hasSuffix(anchor)) {return(formatted,observed)}
+        // Some hosts reveal more left context after the first key. Accept only
+        // a clear nonnumeric boundary, not the tail of an existing number.
+        let trim=observed.reversed().drop(while:{Self.separator($0)})
+        guard anchor.isEmpty,trim.first.map({!$0.isASCII || !$0.isNumber}) ?? true else{return nil}
+        return(formatted,observed)
     }
     public func canAppendIdentifierSuffix(_ text:String,before:String,after:String,document:String)->Bool {
         (text=="X" || text=="x") && value.utf8.count==17 && NumericLexicon.isDigits(value) &&
@@ -80,6 +109,7 @@ public struct NumericInputRun {
     public mutating func append(_ digits: String, before: String, after: String, document: String) {
         if canAppendIdentifierSuffix(digits,before:before,after:after,document:document) {value+=digits;return}
         guard NumericLexicon.isDigits(digits) else { reset(); return }
+        guard !value.hasSuffix("X"),!value.hasSuffix("x") else{reset();return}
         if prefix(before: before, after: after, document: document) == nil {
             reset()
             // Starting in the middle of an existing number would learn only

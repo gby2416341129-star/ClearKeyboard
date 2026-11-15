@@ -1,0 +1,60 @@
+ClearKeyboard Emoticons resource notice — Build108
+
+This directory contains a finite, offline catalog. It is not an official, complete
+or current WeChat catalog, and it does not inject WeChat-private sticker objects.
+The owner inserts the entry's exact text code. WeChat may render a recognized
+code; other apps may keep the code as ordinary text. Current device/app behavior
+has not been tested by Codex.
+
+Original artwork: unchanged docs/img/emoji-sprite.png from the official
+wechat-miniprogram/miniprogram-component-plus repository, fixed commit:
+2aad739689acf4ed19066ce171f2e17d7c62c4ba (2021-06-04).
+URL:
+https://raw.githubusercontent.com/wechat-miniprogram/miniprogram-component-plus/2aad739689acf4ed19066ce171f2e17d7c62c4ba/docs/img/emoji-sprite.png
+Stored as wechat-source-sprite.png, 616827 bytes, 724 by 658 pixels.
+SHA256: a79df3f4f8cc58ad11a3b93ebdc8d08b053fa6efd1e511552a215c493cea6594
+The repository's original MIT license is retained in LICENSE-MIT.txt.
+No artwork has been redrawn, recolored, generated or replaced by Unicode glyphs.
+The provider crops the original CSS regions on demand for display.
+
+Names, Chinese/Hong Kong/English codes and exact sprite regions were read from
+the data declaration and CSS in the official wechat-miniprogram npm publication:
+@miniprogram-component-plus/emoji 1.0.1, published 2020-04-02.
+https://registry.npmjs.org/@miniprogram-component-plus/emoji/-/emoji-1.0.1.tgz
+Tarball SHA256: b935e3e244fed17cf37e29c9b691c7a82cbe587fa9777f0f074109f0934f423f
+The package declares ISC, author sanfordsun, publisher wechat-miniprogram. Its
+original package.json is retained as UPSTREAM-NPM-PACKAGE.json. The tarball did
+not include a separate copyright/license text; see LICENSE-ISC.txt. No upstream
+JavaScript was executed or copied into the app. Only finite mapping data was
+converted to catalog.json. The PNG is covered by its separate MIT source.
+
+Scope: 139 official package rows become 138 unique Chinese text codes after
+deduplicating [礼物], preferring its real mapped artwork. All 110 CSS image
+regions have their original PNG matches. 28 older codes have no region in this
+source sprite and are shown as text in “更多代码”, not fabricated pictures.
+
+Six supplementary text entries: [翻白眼] [666] [让我看看] [叹气] [苦涩] [裂开].
+They were requested explicitly in Build108 and cross-checked against the named
+2020 rollout reports reproduced on Tencent Cloud. That is an attributed repost,
+not a new first-party distributable asset list:
+https://cloud.tencent.com/developer/news/727020
+No licensed first-party artwork for these six was obtained. Their entries have
+no sprite region and display their names; they are not claimed to be present in
+the old sprite. The repository was archived in 2024; issue 53 requests an updated
+sprite and has no maintainer answer. These limits prevent a “latest complete
+WeChat” claim.
+https://github.com/wechat-miniprogram/miniprogram-component-plus/issues/53
+
+Additional content: 104 ordinary Unicode Emoji use the host system's font, not
+redistributed Apple font artwork. 12 text/kaomoji entries preserve the original
+keyboard choices and add ordinary text expressions. Four original text-sticker
+actions retain fixed IDs and are routed by the owner to its previous copySticker
+implementation; this catalog does not remove their full-access requirement.
+
+Semantic/pinyin aliases, grouping and UI are ClearKeyboard additions. Derived
+Latin search keys never change the selected source code or user's input case.
+Suggestions are optional and appended after language choices. They never own
+Space, Enter, an English first candidate, or a Chinese decoder recommendation.
+
+Source review and static resource preparation only. No model inference,
+business-algorithm execution, accuracy/speed tests, probes or device tests run.

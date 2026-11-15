@@ -1,7 +1,7 @@
-name: Build107 research-guided V49 CPU and install lifecycle repair
+name: Build108 focused keyboard feedback repair
 on:
   push:
-    branches: [codex/v49-research-install-build107]
+    branches: [codex/keyboard-feedback-build108]
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ClearKeyboard-Build107-V49-CPU-IPA
+          name: ClearKeyboard-Build108-V49-CPU-IPA
           path: dist/
           compression-level: 0
           retention-days: 14

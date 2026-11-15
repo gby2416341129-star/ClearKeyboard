@@ -18,7 +18,7 @@ def verify(path):
             for symbol in [b'v21_decode_path',b'v23_configure_request',b'v24_apply_scores',b'V21IMEKernel']:
                 assert symbol in data,'Paired V49 SDK not linked: '+str(symbol)
             info=plistlib.loads(ipa.read(prefix+'Info.plist'))
-            assert str(info['CFBundleVersion'])=='107' and info['CFBundleShortVersionString']=='0.1.104'
+            assert str(info['CFBundleVersion'])=='108' and info['CFBundleShortVersionString']=='0.1.105'
         assert plistlib.loads(ipa.read(BASE+'Info.plist'))['CFBundleIdentifier']=='com.example.clearkeyboard'
         ext_info=plistlib.loads(ipa.read(EXT+'Info.plist'))
         assert ext_info['CFBundleIdentifier']=='com.example.clearkeyboard.Keyboard'
@@ -42,6 +42,15 @@ def verify(path):
         for name in english_names:
             assert [n for n in names if n.endswith('/EnglishWords/'+name)]==[EXT+'EnglishWords/'+name],name
             assert hashlib.sha256(ipa.read(EXT+'EnglishWords/'+name)).hexdigest()==identity['files']['Core/Resources/EnglishWords/'+name],name
+        emoticons=json.loads(ipa.read(EXT+'Emoticons/manifest.json'))
+        catalog=json.loads(ipa.read(EXT+'Emoticons/catalog.json'))
+        assert len(catalog['entries'])==emoticons['total_entries']==264
+        assert emoticons['wechat_codes']==144 and emoticons['real_image_regions']==110
+        assert emoticons['complete_current_wechat_claim'] is False
+        for name,record in emoticons['files'].items():
+            payload=ipa.read(EXT+'Emoticons/'+name)
+            assert len(payload)==record['bytes'] and hashlib.sha256(payload).hexdigest()==record['sha256'],name
+        assert not any(n.startswith(BASE+'Emoticons/') for n in names),'Keep a single copy in the keyboard bundle'
         prefix='Native/V21NativeIME/Sources/V21NativeIME/Resources/'
         for name in DATA:
             assert hashlib.sha256(ipa.read(EXT+'V49/'+name)).hexdigest()==identity['files'][prefix+name],name
@@ -51,17 +60,19 @@ def verify(path):
         assert hashlib.sha256(ipa.read(EXT+'V49/ordinary_probes_160.json')).hexdigest()==identity['files']['Core/Resources/V49/ordinary_probes_160.json']
         manifest=json.loads(ipa.read(EXT+'V49/packaged_manifest.json'))
         assert manifest['kernel']=='V49' and manifest['compute_units']=='cpuOnly'
-        expected={n[len(EXT):] for n in names if n.startswith(tuple([EXT+'V49/',EXT+'EnglishWords/']+[EXT+m+'/' for m in MODELS])) and not n.endswith('/') and n!=EXT+'V49/packaged_manifest.json'}
+        expected={n[len(EXT):] for n in names if n.startswith(tuple([EXT+'V49/',EXT+'EnglishWords/',EXT+'Emoticons/']+[EXT+m+'/' for m in MODELS])) and not n.endswith('/') and n!=EXT+'V49/packaged_manifest.json'}
         assert set(manifest['files'])==expected,'Final manifest coverage mismatch'
         for name,digest in manifest['files'].items():assert hashlib.sha256(ipa.read(EXT+name)).hexdigest()==digest,name
         icons={n[len(BASE+'ToolIcons/'):]:hashlib.sha256(ipa.read(n)).hexdigest() for n in names if n.startswith(BASE+'ToolIcons/') and n.endswith('.png')}
         keyboard_icons={n[len(EXT+'ToolIcons/'):]:hashlib.sha256(ipa.read(n)).hexdigest() for n in names if n.startswith(EXT+'ToolIcons/') and n.endswith('.png')}
         assert icons and icons==keyboard_icons
-    result={'build':107,'version':'0.1.104','kernel':'V49','source_checkpoint_sha256':CHECKPOINT,
+    result={'build':108,'version':'0.1.105','kernel':'V49','source_checkpoint_sha256':CHECKPOINT,
             'source_local_step':1408,'source_global_step':94661,'compute_units':'cpuOnly',
             'paired_compiled_models':MODELS,'compiled_resources_verified':len(manifest['files']),
             'decoder_policy':'build107-structured-canonical-recall-1','maximum_visible_candidates':64,
             'english_dictionary_words':identity['english_dictionary_words'],
+            'emoticon_entries':emoticons['total_entries'],'wechat_text_codes':emoticons['wechat_codes'],
+            'wechat_image_regions':emoticons['real_image_regions'],'complete_current_wechat_claim':False,
             'inference_executed':False,'tests_executed':False,'user_device_acceptance':'pending'}
     Path(path).with_suffix('.verification.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(result))
