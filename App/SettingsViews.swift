@@ -35,33 +35,13 @@ struct CustomizationView: View {
                 }
             }
             PinyinDisplayOptions()
-            AppSectionTitle(title: "触感")
             AppCard {
-                PreferenceToggle(title: "按键震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesVibration }, set: { preferences.settings.vibrationEnabled = $0 }))
-                    .accessibilityIdentifier("custom.vibration")
+                PreferenceToggle(title: "按键气泡", symbol: "keyboard.fill", subtitle: "按下字符键时放大显示", isOn: Binding(get: { preferences.settings.usesKeyPressPreview }, set: { preferences.settings.keyPressPreviewEnabled = $0 }))
+                    .accessibilityIdentifier("custom.keyPressPreview")
                 Divider()
-                PreferenceToggle(title: "Logo 点击震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesLogoVibration }, set: { preferences.settings.logoVibrationEnabled = $0 }))
-                    .accessibilityIdentifier("custom.logoVibration")
-                Divider()
-                PreferenceToggle(title: "小图标点击震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesToolbarTapVibration }, set: { preferences.settings.toolbarTapVibrationEnabled = $0 }))
-                    .accessibilityIdentifier("custom.toolbarTapVibration")
-                Divider()
-                PreferenceToggle(title: "小图标滑动震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesToolbarScrollVibration }, set: { preferences.settings.toolbarScrollVibrationEnabled = $0 }))
-                    .accessibilityIdentifier("custom.toolbarScrollVibration")
-                Divider()
-                PreferenceToggle(title: "选词震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesCandidateVibration }, set: { preferences.settings.candidateVibrationEnabled = $0 }))
-                    .accessibilityIdentifier("custom.candidateVibration")
-                if preferences.settings.usesVibration {
-                    Divider()
-                    Picker("触感", selection: Binding(get: { preferences.settings.resolvedVibrationMode }, set: {
-                        preferences.settings.vibrationMode = $0; previewVibration()
-                    })) {
-                        ForEach(VibrationMode.allCases) { Text($0.title).tag($0) }
-                    }.pickerStyle(.segmented).accessibilityIdentifier("custom.vibrationMode")
-                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: {
-                        preferences.settings.vibrationIntensity = $0; previewVibration()
-                    }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
-                }
+                AppNavigationLink { HapticSettingsView() } label: {
+                    AppRow(title: "触感", detail: "按键与交互反馈", symbol: "haptic")
+                }.accessibilityIdentifier("custom.haptics")
             }
             AppCard {
                 Button { showToolbarEditor = true } label: { AppRow(title: "快捷工具", detail: "排列与选择", symbol: "rectangle.3.group") }
@@ -90,6 +70,48 @@ struct CustomizationView: View {
         case .candidateSize: return preferences.settings.resolvedCandidateTextSize.title
         default: return item.colorPath.flatMap { preferences.settings[keyPath: $0] } ?? "默认"
         }
+    }
+}
+
+struct HapticSettingsView: View {
+    @EnvironmentObject private var preferences: Preferences
+    var body: some View {
+        AppPage(title: "触感") {
+            AppSectionTitle(title: "触感")
+            AppCard {
+                PreferenceToggle(title: "按键震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesVibration }, set: { preferences.settings.vibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.vibration")
+                Divider()
+                PreferenceToggle(title: "Logo 点击震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesLogoVibration }, set: { preferences.settings.logoVibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.logoVibration")
+                Divider()
+                PreferenceToggle(title: "小图标点击震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesToolbarTapVibration }, set: { preferences.settings.toolbarTapVibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.toolbarTapVibration")
+                Divider()
+                PreferenceToggle(title: "小图标滑动震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesToolbarScrollVibration }, set: { preferences.settings.toolbarScrollVibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.toolbarScrollVibration")
+                Divider()
+                PreferenceToggle(title: "选词震动", symbol: "haptic", isOn: Binding(get: { preferences.settings.usesCandidateVibration }, set: { preferences.settings.candidateVibrationEnabled = $0 }))
+                    .accessibilityIdentifier("custom.candidateVibration")
+                if preferences.settings.usesVibration {
+                    Divider()
+                    Picker("触感", selection: Binding(get: { preferences.settings.resolvedVibrationMode }, set: {
+                        preferences.settings.vibrationMode = $0; previewVibration()
+                    })) {
+                        ForEach(VibrationMode.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented).accessibilityIdentifier("custom.vibrationMode")
+                    GlassValueSlider(title: "震动力度", value: Binding(get: { preferences.settings.resolvedVibrationIntensity }, set: {
+                        preferences.settings.vibrationIntensity = $0; previewVibration()
+                    }), range: 0...1, defaultValue: 0.45, identifier: "custom.vibrationIntensity", percent: true)
+                }
+            }
+        }.tint(AppPalette.accent)
+            .navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            .onAppear { preferences.reload() }
+            .background(VibrationPreviewAnchor().allowsHitTesting(false))
+    }
+    private func previewVibration() {
+        KeyboardVibration.shared.pulse(intensity: preferences.settings.resolvedVibrationIntensity, mode: preferences.settings.resolvedVibrationMode)
     }
 }
 

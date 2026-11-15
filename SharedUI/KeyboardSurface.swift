@@ -365,16 +365,19 @@ import SwiftUI
         if railMode != settings.hand { railMode = settings.hand; rebuildRail() }
         candidateScroll.selectionVibrationEnabled = settings.usesCandidateVibration
         (panel as? KeyboardHapticPanel)?.apply(settings)
-        let style = "\(settings.usesToolbarTapVibration)-\(settings.usesLogoVibration)-\(settings.usesToolbarScrollVibration)-\(settings.usesCandidateVibration)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
+        let style = "\(settings.usesKeyPressPreview)-\(settings.usesToolbarTapVibration)-\(settings.usesLogoVibration)-\(settings.usesToolbarScrollVibration)-\(settings.usesCandidateVibration)-\(settings.accent)-\(settings.customAccentHex ?? "")-\(settings.resolvedKeyGlassStrength)-\(settings.keyColorHex ?? "")-\(settings.candidateColorHex ?? "")-\(settings.usesVibration)-\(settings.resolvedVibrationIntensity)-\(settings.resolvedVibrationMode)-\(traitCollection.userInterfaceStyle.rawValue)"
         let appearanceChanged = style != appearanceSignature
         if appearanceChanged {
-            appearanceSignature = style; tintColor = settings.accentInkColor
+            tintColor = settings.accentInkColor
             (panel as? KeyboardHapticPanel)?.apply(settings)
         }
         let presentation = KeyPresentation(uppercase: uppercase, chinese: settings.language == .chinese,
             shifted: model.shifted, capsLocked: model.capsLocked,
             enter: model.composition.isEmpty ? (model.document?.enterTitle ?? "换行") : "确认")
         if panel == nil && (appearanceChanged || keyPresentation != presentation) {
+            // A settings panel may render the new controls while keys are hidden.
+            // Mark the style applied only when the actual key views receive it.
+            if appearanceChanged { appearanceSignature = style }
             keyPresentation = presentation
             for (button, _, _, _) in keys {
                 var title: String? = nil

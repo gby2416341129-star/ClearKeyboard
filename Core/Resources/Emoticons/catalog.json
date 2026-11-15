@@ -1,117 +1,197 @@
 {
-  "schema": "clear-emoticons/1",
+  "schema": "clear-emoticons-user-whitelist/1",
+  "allowedCodes": [
+    "[微笑]",
+    "[撇嘴]",
+    "[色]",
+    "[发呆]",
+    "[得意]",
+    "[流泪]",
+    "[害羞]",
+    "[闭嘴]",
+    "[睡]",
+    "[大哭]",
+    "[尴尬]",
+    "[发怒]",
+    "[调皮]",
+    "[呲牙]",
+    "[惊讶]",
+    "[难过]",
+    "[囧]",
+    "[抓狂]",
+    "[吐]",
+    "[偷笑]",
+    "[愉快]",
+    "[白眼]",
+    "[傲慢]",
+    "[困]",
+    "[惊恐]",
+    "[憨笑]",
+    "[悠闲]",
+    "[咒骂]",
+    "[疑问]",
+    "[嘘]",
+    "[晕]",
+    "[衰]",
+    "[骷髅]",
+    "[敲打]",
+    "[再见]",
+    "[擦汗]",
+    "[抠鼻]",
+    "[鼓掌]",
+    "[坏笑]",
+    "[左哼哼]",
+    "[右哼哼]",
+    "[亲亲]",
+    "[可怜]",
+    "[笑脸]",
+    "[生病]",
+    "[脸红]",
+    "[破涕为笑]",
+    "[恐惧]",
+    "[失望]",
+    "[无语]",
+    "[嘿哈]",
+    "[捂脸]",
+    "[奸笑]",
+    "[机智]",
+    "[皱眉]",
+    "[耶]",
+    "[吃瓜]",
+    "[加油]",
+    "[汗]",
+    "[天啊]",
+    "[Emm]",
+    "[社会社会]",
+    "[旺柴]",
+    "[好的]",
+    "[打脸]",
+    "[哇]",
+    "[翻白眼]",
+    "[666]",
+    "[让我看看]",
+    "[叹气]",
+    "[苦涩]",
+    "[裂开]",
+    "[嘴唇]",
+    "[爱心]",
+    "[心碎]",
+    "[拥抱]",
+    "[强]",
+    "[弱]",
+    "[握手]",
+    "[胜利]",
+    "[抱拳]",
+    "[勾引]",
+    "[拳头]",
+    "[OK]",
+    "[合十]",
+    "[啤酒]",
+    "[咖啡]",
+    "[蛋糕]",
+    "[玫瑰]",
+    "[凋谢]",
+    "[菜刀]",
+    "[炸弹]",
+    "[便便]",
+    "[月亮]",
+    "[太阳]",
+    "[庆祝]",
+    "[礼物]",
+    "[红包]",
+    "[發]",
+    "[福]",
+    "[烟花]",
+    "[爆竹]",
+    "[猪头]",
+    "[跳跳]",
+    "[发抖]",
+    "[转圈]"
+  ],
   "entries": [
     {
-      "id": "wx-0",
+      "id": "wx-000",
       "name": "微笑",
       "code": "[微笑]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-000.png",
+      "sprite": null,
       "aliases": [
         "微笑",
-        "Smile",
-        "/::)",
-        "/微笑",
         "weixiao",
         "笑",
         "笑一笑"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-1",
+      "id": "wx-001",
       "name": "撇嘴",
       "code": "[撇嘴]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-001.png",
+      "sprite": null,
       "aliases": [
         "撇嘴",
         "Grimace",
         "/::~",
         "/撇嘴"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 594,
-        "width": 63,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-2",
+      "id": "wx-002",
       "name": "色",
       "code": "[色]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-002.png",
+      "sprite": null,
       "aliases": [
         "色",
         "Drool",
         "/::B",
         "/色"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-3",
+      "id": "wx-003",
       "name": "发呆",
       "code": "[发呆]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-003.png",
+      "sprite": null,
       "aliases": [
         "发呆",
         "發呆",
         "Scowl",
         "/::|",
         "/发呆"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-4",
+      "id": "wx-004",
       "name": "得意",
       "code": "[得意]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-004.png",
+      "sprite": null,
       "aliases": [
-        "得意",
-        "CoolGuy",
-        "/:8-)",
-        "/得意"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
+        "得意"
+      ]
     },
     {
-      "id": "wx-5",
+      "id": "wx-005",
       "name": "流泪",
       "code": "[流泪]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-005.png",
+      "sprite": null,
       "aliases": [
         "流泪",
-        "流淚",
-        "Sob",
-        "/::<",
-        "/流泪",
         "liulei",
         "哭",
         "ku",
@@ -119,20 +199,16 @@
         "xiangku",
         "难受",
         "nanshou"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-6",
+      "id": "wx-006",
       "name": "害羞",
       "code": "[害羞]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-006.png",
+      "sprite": null,
       "aliases": [
         "害羞",
         "Shy",
@@ -141,20 +217,16 @@
         "haixiu",
         "不好意思",
         "buhaoyisi"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-7",
+      "id": "wx-007",
       "name": "闭嘴",
       "code": "[闭嘴]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-007.png",
+      "sprite": null,
       "aliases": [
         "闭嘴",
         "閉嘴",
@@ -162,20 +234,16 @@
         "/::X",
         "/闭嘴",
         "bizui"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-8",
+      "id": "wx-008",
       "name": "睡",
       "code": "[睡]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-008.png",
+      "sprite": null,
       "aliases": [
         "睡",
         "Sleep",
@@ -186,45 +254,34 @@
         "shuijiao",
         "晚安",
         "wanan"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-9",
+      "id": "wx-009",
       "name": "大哭",
       "code": "[大哭]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-009.png",
+      "sprite": null,
       "aliases": [
         "大哭",
-        "Cry",
-        "/::\"(",
-        "/大哭",
         "daku",
         "哭哭",
         "kuku",
         "想哭",
         "伤心",
         "shangxin"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-10",
+      "id": "wx-010",
       "name": "尴尬",
       "code": "[尴尬]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-010.png",
+      "sprite": null,
       "aliases": [
         "尴尬",
         "尷尬",
@@ -234,20 +291,16 @@
         "ganga",
         "尴尬了",
         "gangale"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-11",
+      "id": "wx-011",
       "name": "发怒",
       "code": "[发怒]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-011.png",
+      "sprite": null,
       "aliases": [
         "发怒",
         "發怒",
@@ -259,40 +312,28 @@
         "shengqi",
         "气死了",
         "qisile"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-12",
+      "id": "wx-012",
       "name": "调皮",
       "code": "[调皮]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-012.png",
+      "sprite": null,
       "aliases": [
-        "调皮",
-        "調皮",
-        "Tongue",
-        "/::P",
-        "/调皮"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+        "调皮"
+      ]
     },
     {
-      "id": "wx-13",
+      "id": "wx-013",
       "name": "呲牙",
       "code": "[呲牙]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-013.png",
+      "sprite": null,
       "aliases": [
         "呲牙",
         "Grin",
@@ -303,20 +344,16 @@
         "哈哈",
         "开心",
         "kaixin"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-14",
+      "id": "wx-014",
       "name": "惊讶",
       "code": "[惊讶]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-014.png",
+      "sprite": null,
       "aliases": [
         "惊讶",
         "驚訝",
@@ -326,20 +363,16 @@
         "jingya",
         "吃惊",
         "chijing"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-15",
+      "id": "wx-015",
       "name": "难过",
       "code": "[难过]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-015.png",
+      "sprite": null,
       "aliases": [
         "难过",
         "難過",
@@ -353,53 +386,28 @@
         "nanshou",
         "伤心",
         "shangxin"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-16",
-      "name": "酷",
-      "code": "[酷]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "酷",
-        "Ruthless",
-        "/::+",
-        "/酷"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-17",
-      "name": "冷汗",
-      "code": "[冷汗]",
+      "id": "wx-016",
+      "name": "囧",
+      "code": "[囧]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-016.png",
+      "sprite": null,
       "aliases": [
-        "冷汗",
-        "Blush",
-        "/:--b",
-        "/冷汗"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
+        "囧"
+      ]
     },
     {
-      "id": "wx-18",
+      "id": "wx-017",
       "name": "抓狂",
       "code": "[抓狂]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-017.png",
+      "sprite": null,
       "aliases": [
         "抓狂",
         "Scream",
@@ -408,44 +416,30 @@
         "zhuakuang",
         "烦死了",
         "fansile"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-19",
+      "id": "wx-018",
       "name": "吐",
       "code": "[吐]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-018.png",
+      "sprite": null,
       "aliases": [
-        "吐",
-        "Puke",
-        "/::T",
-        "/吐"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
+        "吐"
+      ]
     },
     {
-      "id": "wx-20",
+      "id": "wx-019",
       "name": "偷笑",
       "code": "[偷笑]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-019.png",
+      "sprite": null,
       "aliases": [
         "偷笑",
-        "Chuckle",
-        "/:,@P",
-        "/偷笑",
         "touxiao",
         "haha",
         "hah",
@@ -453,20 +447,16 @@
         "哈哈",
         "好笑",
         "太好笑了"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-21",
+      "id": "wx-020",
       "name": "愉快",
       "code": "[愉快]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-020.png",
+      "sprite": null,
       "aliases": [
         "愉快",
         "Joyful",
@@ -479,73 +469,43 @@
         "gaoxing",
         "快乐",
         "kuaile"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-22",
+      "id": "wx-021",
       "name": "白眼",
       "code": "[白眼]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-021.png",
+      "sprite": null,
       "aliases": [
-        "白眼",
-        "Slight",
-        "/::d",
-        "/白眼"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+        "白眼"
+      ]
     },
     {
-      "id": "wx-23",
+      "id": "wx-022",
       "name": "傲慢",
       "code": "[傲慢]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-022.png",
+      "sprite": null,
       "aliases": [
         "傲慢",
         "Smug",
         "/:,@o",
         "/傲慢"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-24",
-      "name": "饥饿",
-      "code": "[饥饿]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "饥饿",
-        "饑餓",
-        "Hungry",
-        "/::g",
-        "/饥饿"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-25",
+      "id": "wx-023",
       "name": "困",
       "code": "[困]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-023.png",
+      "sprite": null,
       "aliases": [
         "困",
         "累",
@@ -555,62 +515,31 @@
         "kun",
         "困了",
         "kunle"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-26",
+      "id": "wx-024",
       "name": "惊恐",
       "code": "[惊恐]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-024.png",
+      "sprite": null,
       "aliases": [
         "惊恐",
-        "驚恐",
-        "Panic",
-        "/::!",
-        "/惊恐",
         "jingkong",
         "害怕",
         "haipa"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-27",
-      "name": "流汗",
-      "code": "[流汗]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "流汗",
-        "Sweat",
-        "/::L",
-        "/流汗"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-28",
+      "id": "wx-025",
       "name": "憨笑",
       "code": "[憨笑]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-025.png",
+      "sprite": null,
       "aliases": [
         "憨笑",
         "大笑",
@@ -620,289 +549,191 @@
         "hanxiao",
         "哈哈",
         "daxiao"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-29",
+      "id": "wx-026",
       "name": "悠闲",
       "code": "[悠闲]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-026.png",
+      "sprite": null,
       "aliases": [
         "悠闲",
         "悠閑",
         "Commando",
         "/::,@",
         "/大兵"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-30",
-      "name": "奋斗",
-      "code": "[奋斗]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "奋斗",
-        "奮鬥",
-        "Determined",
-        "/:,@f",
-        "/奋斗"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-31",
+      "id": "wx-027",
       "name": "咒骂",
       "code": "[咒骂]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-027.png",
+      "sprite": null,
       "aliases": [
         "咒骂",
         "咒罵",
         "Scold",
         "/::-S",
         "/咒骂"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-32",
+      "id": "wx-028",
       "name": "疑问",
       "code": "[疑问]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-028.png",
+      "sprite": null,
       "aliases": [
         "疑问",
-        "疑問",
-        "Shocked",
-        "/:?",
-        "/疑问",
         "yiwen",
         "疑惑",
         "yihuo",
         "问号",
         "wenhao"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-33",
+      "id": "wx-029",
       "name": "嘘",
       "code": "[嘘]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-029.png",
+      "sprite": null,
       "aliases": [
         "嘘",
         "噓",
         "Shhh",
         "/:,@x",
         "/嘘"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-34",
+      "id": "wx-030",
       "name": "晕",
       "code": "[晕]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-030.png",
+      "sprite": null,
       "aliases": [
         "晕",
-        "暈",
-        "Dizzy",
-        "/:,@@",
-        "/晕",
         "yun",
         "晕了",
         "yunle"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-35",
-      "name": "疯了",
-      "code": "[疯了]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "疯了",
-        "瘋了",
-        "Tormented",
-        "/::8",
-        "/折磨"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-36",
+      "id": "wx-031",
       "name": "衰",
       "code": "[衰]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-031.png",
+      "sprite": null,
       "aliases": [
         "衰",
         "Toasted",
         "/:,@!",
         "/衰"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-37",
+      "id": "wx-032",
       "name": "骷髅",
       "code": "[骷髅]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-032.png",
+      "sprite": null,
       "aliases": [
         "骷髅",
         "骷髏頭",
         "Skull",
         "/:!!!",
         "/骷髅"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-38",
+      "id": "wx-033",
       "name": "敲打",
       "code": "[敲打]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-033.png",
+      "sprite": null,
       "aliases": [
         "敲打",
         "Hammer",
         "/:xx",
         "/敲打"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-39",
+      "id": "wx-034",
       "name": "再见",
       "code": "[再见]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-034.png",
+      "sprite": null,
       "aliases": [
         "再见",
-        "再見",
-        "Wave",
-        "/:bye",
-        "/再见",
         "zaijian",
         "拜拜",
         "baibai",
         "bye"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-40",
+      "id": "wx-035",
       "name": "擦汗",
       "code": "[擦汗]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-035.png",
+      "sprite": null,
       "aliases": [
         "擦汗",
         "Speechless",
         "/:wipe",
         "/擦汗"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-41",
+      "id": "wx-036",
       "name": "抠鼻",
       "code": "[抠鼻]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-036.png",
+      "sprite": null,
       "aliases": [
         "抠鼻",
         "摳鼻",
         "NosePick",
         "/:dig",
         "/抠鼻"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-42",
+      "id": "wx-037",
       "name": "鼓掌",
       "code": "[鼓掌]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-037.png",
+      "sprite": null,
       "aliases": [
         "鼓掌",
-        "Clap",
-        "/:handclap",
-        "/鼓掌",
         "guzhang",
         "厉害",
         "lihai",
@@ -910,198 +741,62 @@
         "bang",
         "真棒",
         "zhenbang"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-43",
-      "name": "糗大了",
-      "code": "[糗大了]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "糗大了",
-        "羞辱",
-        "Shame",
-        "/:&-(",
-        "/糗大了"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-44",
+      "id": "wx-038",
       "name": "坏笑",
       "code": "[坏笑]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-038.png",
+      "sprite": null,
       "aliases": [
         "坏笑",
         "壞笑",
         "Trick",
         "/:B-)",
         "/坏笑"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-45",
+      "id": "wx-039",
       "name": "左哼哼",
       "code": "[左哼哼]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-039.png",
+      "sprite": null,
       "aliases": [
         "左哼哼",
         "Bah！L",
         "/:<@",
         "/左哼哼"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-46",
+      "id": "wx-040",
       "name": "右哼哼",
       "code": "[右哼哼]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-040.png",
+      "sprite": null,
       "aliases": [
         "右哼哼",
         "Bah！R",
         "/:@>",
         "/右哼哼"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-47",
-      "name": "哈欠",
-      "code": "[哈欠]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "哈欠",
-        "Yawn",
-        "/::-O",
-        "/哈欠",
-        "haqian",
-        "好困",
-        "haokun"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-48",
-      "name": "鄙视",
-      "code": "[鄙视]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "鄙视",
-        "鄙視",
-        "Pooh-pooh",
-        "/:>-|",
-        "/鄙视"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-49",
-      "name": "委屈",
-      "code": "[委屈]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "委屈",
-        "Shrunken",
-        "/:P-(",
-        "/委屈",
-        "weiqu",
-        "委屈了"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-50",
-      "name": "快哭了",
-      "code": "[快哭了]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "快哭了",
-        "TearingUp",
-        "/::\"|",
-        "/快哭了",
-        "kuaikule",
-        "要哭了",
-        "yaokule"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-51",
-      "name": "阴险",
-      "code": "[阴险]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "阴险",
-        "陰險",
-        "Sly",
-        "/:X-)",
-        "/阴险"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-52",
+      "id": "wx-041",
       "name": "亲亲",
       "code": "[亲亲]",
       "kind": "wechat",
-      "group": "wechat-gesture",
+      "group": "wechat-face",
+      "image": "Images/wx-041.png",
+      "sprite": null,
       "aliases": [
         "亲亲",
         "親親",
@@ -1111,1227 +806,72 @@
         "qinqin",
         "亲一个",
         "qinyige"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-53",
-      "name": "吓",
-      "code": "[吓]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "吓",
-        "嚇",
-        "Wrath",
-        "/:@x",
-        "/吓"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-54",
+      "id": "wx-042",
       "name": "可怜",
       "code": "[可怜]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-042.png",
+      "sprite": null,
       "aliases": [
         "可怜",
-        "可憐",
-        "Whimper",
-        "/:8*",
-        "/可怜",
         "kelian",
         "求求了",
         "qiuqiule"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-55",
-      "name": "菜刀",
-      "code": "[菜刀]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "菜刀",
-        "Cleaver",
-        "/:pd",
-        "/菜刀"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-56",
-      "name": "西瓜",
-      "code": "[西瓜]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "西瓜",
-        "Watermelon",
-        "/:<W>",
-        "/西瓜",
-        "xigua"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-57",
-      "name": "啤酒",
-      "code": "[啤酒]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "啤酒",
-        "Beer",
-        "/:beer",
-        "/啤酒",
-        "pijiu",
-        "干杯",
-        "ganbei"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-58",
-      "name": "篮球",
-      "code": "[篮球]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "篮球",
-        "籃球",
-        "Basketball",
-        "/:basketb",
-        "/篮球"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-59",
-      "name": "乒乓",
-      "code": "[乒乓]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "乒乓",
-        "PingPong",
-        "/:oo",
-        "/乒乓"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-60",
-      "name": "咖啡",
-      "code": "[咖啡]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "咖啡",
-        "Coffee",
-        "/:coffee",
-        "/咖啡",
-        "kafei"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-61",
-      "name": "饭",
-      "code": "[饭]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "饭",
-        "飯",
-        "Rice",
-        "/:eat",
-        "/饭"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-62",
-      "name": "猪头",
-      "code": "[猪头]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "猪头",
-        "豬頭",
-        "Pig",
-        "/:pig",
-        "/猪头"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-63",
-      "name": "玫瑰",
-      "code": "[玫瑰]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "玫瑰",
-        "Rose",
-        "/:rose",
-        "/玫瑰",
-        "meigui",
-        "花",
-        "hua"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-64",
-      "name": "凋谢",
-      "code": "[凋谢]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "凋谢",
-        "枯萎",
-        "Wilt",
-        "/:fade",
-        "/凋谢",
-        "diaoxie"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-65",
-      "name": "嘴唇",
-      "code": "[嘴唇]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "嘴唇",
-        "Lips",
-        "/:showlove",
-        "/示爱"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-66",
-      "name": "爱心",
-      "code": "[爱心]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "爱心",
-        "愛心",
-        "Heart",
-        "/:heart",
-        "/爱心",
-        "aixin",
-        "爱你",
-        "aini",
-        "喜欢",
-        "xihuan"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-67",
-      "name": "心碎",
-      "code": "[心碎]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "心碎",
-        "BrokenHeart",
-        "/:break",
-        "/心碎",
-        "xinsui",
-        "失恋",
-        "shilian"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-68",
-      "name": "蛋糕",
-      "code": "[蛋糕]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "蛋糕",
-        "Cake",
-        "/:cake",
-        "/蛋糕",
-        "dangao",
-        "生日",
-        "shengri",
-        "生日快乐",
-        "shengrikuaile"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-69",
-      "name": "闪电",
-      "code": "[闪电]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "闪电",
-        "閃電",
-        "Lightning",
-        "/:li",
-        "/闪电"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-70",
-      "name": "炸弹",
-      "code": "[炸弹]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "炸弹",
-        "炸彈",
-        "Bomb",
-        "/:bome",
-        "/炸弹"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-71",
-      "name": "刀",
-      "code": "[刀]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "刀",
-        "Dagger",
-        "/:kn",
-        "/刀"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-72",
-      "name": "足球",
-      "code": "[足球]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "足球",
-        "Soccer",
-        "/:footb",
-        "/足球"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-73",
-      "name": "瓢虫",
-      "code": "[瓢虫]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "瓢虫",
-        "甲蟲",
-        "Ladybug",
-        "/:ladybug",
-        "/瓢虫"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-74",
-      "name": "便便",
-      "code": "[便便]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "便便",
-        "Poop",
-        "/:shit",
-        "/便便"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-75",
-      "name": "月亮",
-      "code": "[月亮]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "月亮",
-        "Moon",
-        "/:moon",
-        "/月亮"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-76",
-      "name": "太阳",
-      "code": "[太阳]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "太阳",
-        "太陽",
-        "Sun",
-        "/:sun",
-        "/太阳"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-312",
-      "name": "礼物",
-      "code": "[礼物]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "礼物",
-        "\\ue112",
-        "liwu"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-78",
-      "name": "拥抱",
-      "code": "[拥抱]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "拥抱",
-        "擁抱",
-        "Hug",
-        "/:hug",
-        "/拥抱",
-        "yongbao",
-        "抱抱",
-        "baobao",
-        "安慰",
-        "anwei"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-79",
-      "name": "强",
-      "code": "[强]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "强",
-        "強",
-        "ThumbsUp",
-        "/:strong",
-        "/强",
-        "qiang",
-        "赞",
-        "zan",
-        "点赞",
-        "dianzan",
-        "厉害",
-        "lihai"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-80",
-      "name": "弱",
-      "code": "[弱]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "弱",
-        "ThumbsDown",
-        "/:weak",
-        "/弱",
-        "ruo",
-        "踩",
-        "cai"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-81",
-      "name": "握手",
-      "code": "[握手]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "握手",
-        "Shake",
-        "/:share",
-        "/握手",
-        "woshou",
-        "合作",
-        "hezuo"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-82",
-      "name": "胜利",
-      "code": "[胜利]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "胜利",
-        "勝利",
-        "Peace",
-        "/:v",
-        "/胜利",
-        "shengli",
-        "耶",
-        "ye",
-        "成功",
-        "chenggong"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-83",
-      "name": "抱拳",
-      "code": "[抱拳]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "抱拳",
-        "Fight",
-        "/:@)",
-        "/抱拳",
-        "baoquan",
-        "谢谢",
-        "xiexie",
-        "多谢",
-        "duoxie"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-84",
-      "name": "勾引",
-      "code": "[勾引]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "勾引",
-        "Beckon",
-        "/:jj",
-        "/勾引"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-85",
-      "name": "拳头",
-      "code": "[拳头]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "拳头",
-        "拳頭",
-        "Fist",
-        "/:@@",
-        "/拳头"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-86",
-      "name": "差劲",
-      "code": "[差劲]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "差劲",
-        "差勁",
-        "Pinky",
-        "/:bad",
-        "/差劲"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-87",
-      "name": "爱你",
-      "code": "[爱你]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "爱你",
-        "愛你",
-        "RockOn",
-        "/:lvu",
-        "/爱你"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-88",
-      "name": "NO",
-      "code": "[NO]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "NO",
-        "Nuh-uh",
-        "/:no",
-        "/NO"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-89",
-      "name": "OK",
-      "code": "[OK]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "OK",
-        "/:ok",
-        "/OK",
-        "ok",
-        "可以",
-        "keyi",
-        "没问题",
-        "meiwenti"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-90",
-      "name": "爱情",
-      "code": "[爱情]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "爱情",
-        "愛情",
-        "InLove",
-        "/:love",
-        "/爱情"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-91",
-      "name": "飞吻",
-      "code": "[飞吻]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "飞吻",
-        "飛吻",
-        "Blowkiss",
-        "/:<L>",
-        "/飞吻"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-92",
-      "name": "跳跳",
-      "code": "[跳跳]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "跳跳",
-        "Waddle",
-        "/:jump",
-        "/跳跳"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-93",
-      "name": "发抖",
-      "code": "[发抖]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "发抖",
-        "發抖",
-        "Tremble",
-        "/:shake",
-        "/发抖"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-94",
-      "name": "怄火",
-      "code": "[怄火]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "怄火",
-        "噴火",
-        "Aaagh!",
-        "/:<O>",
-        "/怄火"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-95",
-      "name": "转圈",
-      "code": "[转圈]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "转圈",
-        "轉圈",
-        "Twirl",
-        "/:circle",
-        "/转圈"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-96",
-      "name": "磕头",
-      "code": "[磕头]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "磕头",
-        "磕頭",
-        "Kotow",
-        "/:kotow",
-        "/磕头"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-97",
-      "name": "回头",
-      "code": "[回头]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "回头",
-        "回頭",
-        "Dramatic",
-        "/:turn",
-        "/回头"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-98",
-      "name": "跳绳",
-      "code": "[跳绳]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "跳绳",
-        "跳繩",
-        "JumpRope",
-        "/:skip",
-        "/跳绳"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-99",
-      "name": "投降",
-      "code": "[投降]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "投降",
-        "Surrender",
-        "/:oY",
-        "/挥手"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-100",
-      "name": "激动",
-      "code": "[激动]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "激动",
-        "激動",
-        "Hooray",
-        "/:#-0",
-        "/激动"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-101",
-      "name": "乱舞",
-      "code": "[乱舞]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "乱舞",
-        "亂舞",
-        "Meditate",
-        "/:hiphot",
-        "/街舞"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-102",
-      "name": "献吻",
-      "code": "[献吻]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "献吻",
-        "獻吻",
-        "Smooch",
-        "/:kiss",
-        "/献吻"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-103",
-      "name": "左太极",
-      "code": "[左太极]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "左太极",
-        "左太極",
-        "TaiChi L",
-        "/:<&",
-        "/左太极"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-104",
-      "name": "右太极",
-      "code": "[右太极]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "右太极",
-        "右太極",
-        "TaiChi R",
-        "/:&>",
-        "/右太极"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-204",
-      "name": "嘿哈",
-      "code": "[嘿哈]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "嘿哈",
-        "吼嘿",
-        "Hey"
-      ],
-      "sprite": {
-        "x": 462,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-205",
-      "name": "捂脸",
-      "code": "[捂脸]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "捂脸",
-        "掩面",
-        "Facepalm",
-        "wulian",
-        "哈哈",
-        "无奈",
-        "wunai",
-        "没眼看",
-        "尴尬了"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-202",
-      "name": "奸笑",
-      "code": "[奸笑]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "奸笑",
-        "Smirk",
-        "jianxiao",
-        "嘿嘿",
-        "heihei"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-206",
-      "name": "机智",
-      "code": "[机智]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "机智",
-        "機智",
-        "Smart"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-212",
-      "name": "皱眉",
-      "code": "[皱眉]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "皱眉",
-        "皺眉",
-        "Moue"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-211",
-      "name": "耶",
-      "code": "[耶]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "耶",
-        "歐耶",
-        "Yeah!",
-        "ye",
-        "好耶",
-        "haoye"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-207",
-      "name": "茶",
-      "code": "[茶]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "茶",
-        "Tea",
-        "cha",
-        "喝茶",
-        "hecha"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-209",
-      "name": "红包",
-      "code": "[红包]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "红包",
-        "Packet",
-        "hongbao",
-        "恭喜发财",
-        "gongxifacai"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-210",
-      "name": "蜡烛",
-      "code": "[蜡烛]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "蜡烛",
-        "蠟燭",
-        "Candle"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-215",
-      "name": "福",
-      "code": "[福]",
-      "kind": "wechat",
-      "group": "wechat-code",
-      "aliases": [
-        "福",
-        "Blessing",
-        "fu",
-        "祝福",
-        "zhufu"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-214",
-      "name": "鸡",
-      "code": "[鸡]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "鸡",
-        "小雞",
-        "Chick"
-      ],
-      "sprite": {
-        "x": 66,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-300",
+      "id": "wx-043",
       "name": "笑脸",
       "code": "[笑脸]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-043.png",
+      "sprite": null,
       "aliases": [
         "笑脸",
-        "\\ue415",
         "xiaolian",
         "笑",
         "开心",
         "kaixin"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-301",
+      "id": "wx-044",
       "name": "生病",
       "code": "[生病]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-044.png",
+      "sprite": null,
       "aliases": [
         "生病",
         "\\ue40c"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-302",
+      "id": "wx-045",
+      "name": "脸红",
+      "code": "[脸红]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-045.png",
+      "sprite": null,
+      "aliases": [
+        "脸红"
+      ]
+    },
+    {
+      "id": "wx-046",
       "name": "破涕为笑",
       "code": "[破涕为笑]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-046.png",
+      "sprite": null,
       "aliases": [
         "破涕为笑",
         "\\ue412",
@@ -2345,122 +885,605 @@
         "哈哈",
         "hah",
         "hh"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-303",
-      "name": "吐舌",
-      "code": "[吐舌]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "吐舌",
-        "\\ue409"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-304",
-      "name": "脸红",
-      "code": "[脸红]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "脸红",
-        "\\ue40d"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 462,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-305",
+      "id": "wx-047",
       "name": "恐惧",
       "code": "[恐惧]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-047.png",
+      "sprite": null,
       "aliases": [
         "恐惧",
         "\\ue107"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-306",
+      "id": "wx-048",
       "name": "失望",
       "code": "[失望]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-048.png",
+      "sprite": null,
       "aliases": [
-        "失望",
-        "\\ue403"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
+        "失望"
+      ]
     },
     {
-      "id": "wx-307",
+      "id": "wx-049",
       "name": "无语",
       "code": "[无语]",
       "kind": "wechat",
       "group": "wechat-face",
+      "image": "Images/wx-049.png",
+      "sprite": null,
       "aliases": [
-        "无语",
-        "\\ue40e"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 198,
-        "width": 64,
-        "height": 64
-      }
+        "无语"
+      ]
     },
     {
-      "id": "wx-308",
-      "name": "鬼魂",
-      "code": "[鬼魂]",
+      "id": "wx-050",
+      "name": "嘿哈",
+      "code": "[嘿哈]",
       "kind": "wechat",
-      "group": "wechat-object",
+      "group": "wechat-face",
+      "image": "Images/wx-050.png",
+      "sprite": null,
       "aliases": [
-        "鬼魂",
-        "\\ue11b"
-      ],
-      "sprite": {
-        "x": 594,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
+        "嘿哈",
+        "吼嘿",
+        "Hey"
+      ]
     },
     {
-      "id": "wx-309",
+      "id": "wx-051",
+      "name": "捂脸",
+      "code": "[捂脸]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-051.png",
+      "sprite": null,
+      "aliases": [
+        "捂脸",
+        "掩面",
+        "Facepalm",
+        "wulian",
+        "哈哈",
+        "无奈",
+        "wunai",
+        "没眼看",
+        "尴尬了"
+      ]
+    },
+    {
+      "id": "wx-052",
+      "name": "奸笑",
+      "code": "[奸笑]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-052.png",
+      "sprite": null,
+      "aliases": [
+        "奸笑",
+        "Smirk",
+        "jianxiao",
+        "嘿嘿",
+        "heihei"
+      ]
+    },
+    {
+      "id": "wx-053",
+      "name": "机智",
+      "code": "[机智]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-053.png",
+      "sprite": null,
+      "aliases": [
+        "机智",
+        "機智",
+        "Smart"
+      ]
+    },
+    {
+      "id": "wx-054",
+      "name": "皱眉",
+      "code": "[皱眉]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-054.png",
+      "sprite": null,
+      "aliases": [
+        "皱眉",
+        "皺眉",
+        "Moue"
+      ]
+    },
+    {
+      "id": "wx-055",
+      "name": "耶",
+      "code": "[耶]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-055.png",
+      "sprite": null,
+      "aliases": [
+        "耶",
+        "歐耶",
+        "Yeah!",
+        "ye",
+        "好耶",
+        "haoye"
+      ]
+    },
+    {
+      "id": "wx-056",
+      "name": "吃瓜",
+      "code": "[吃瓜]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-056.png",
+      "sprite": null,
+      "aliases": [
+        "吃瓜",
+        "chigua",
+        "围观",
+        "weiguan",
+        "看戏",
+        "kanxi"
+      ]
+    },
+    {
+      "id": "wx-057",
+      "name": "加油",
+      "code": "[加油]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-057.png",
+      "sprite": null,
+      "aliases": [
+        "加油"
+      ]
+    },
+    {
+      "id": "wx-058",
+      "name": "汗",
+      "code": "[汗]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-058.png",
+      "sprite": null,
+      "aliases": [
+        "汗",
+        "han",
+        "无语",
+        "wuyu"
+      ]
+    },
+    {
+      "id": "wx-059",
+      "name": "天啊",
+      "code": "[天啊]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-059.png",
+      "sprite": null,
+      "aliases": [
+        "天啊",
+        "tiana",
+        "天哪",
+        "tianna"
+      ]
+    },
+    {
+      "id": "wx-060",
+      "name": "Emm",
+      "code": "[Emm]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-060.png",
+      "sprite": null,
+      "aliases": [
+        "Emm",
+        "emm",
+        "emmm",
+        "无语",
+        "wuyu"
+      ]
+    },
+    {
+      "id": "wx-061",
+      "name": "社会社会",
+      "code": "[社会社会]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-061.png",
+      "sprite": null,
+      "aliases": [
+        "社会社会",
+        "shehuishehui",
+        "大佬",
+        "dalao"
+      ]
+    },
+    {
+      "id": "wx-062",
+      "name": "旺柴",
+      "code": "[旺柴]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-062.png",
+      "sprite": null,
+      "aliases": [
+        "旺柴",
+        "wangchai",
+        "狗头",
+        "goutou",
+        "doge"
+      ]
+    },
+    {
+      "id": "wx-063",
+      "name": "好的",
+      "code": "[好的]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-063.png",
+      "sprite": null,
+      "aliases": [
+        "好的",
+        "haode",
+        "好的",
+        "收到",
+        "shoudao",
+        "可以",
+        "keyi"
+      ]
+    },
+    {
+      "id": "wx-064",
+      "name": "打脸",
+      "code": "[打脸]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-064.png",
+      "sprite": null,
+      "aliases": [
+        "打脸",
+        "dalian"
+      ]
+    },
+    {
+      "id": "wx-065",
+      "name": "哇",
+      "code": "[哇]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-065.png",
+      "sprite": null,
+      "aliases": [
+        "哇",
+        "wa",
+        "好棒",
+        "haobang",
+        "惊喜",
+        "jingxi"
+      ]
+    },
+    {
+      "id": "wx-066",
+      "name": "翻白眼",
+      "code": "[翻白眼]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-066.png",
+      "sprite": null,
+      "aliases": [
+        "翻白眼",
+        "fanbaiyan",
+        "白眼",
+        "baiyan"
+      ]
+    },
+    {
+      "id": "wx-067",
+      "name": "666",
+      "code": "[666]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-067.png",
+      "sprite": null,
+      "aliases": [
+        "666",
+        "666",
+        "溜溜溜",
+        "liuliuliu",
+        "厉害",
+        "lihai"
+      ]
+    },
+    {
+      "id": "wx-068",
+      "name": "让我看看",
+      "code": "[让我看看]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-068.png",
+      "sprite": null,
+      "aliases": [
+        "让我看看",
+        "rangwokankan",
+        "看看",
+        "kankan",
+        "让我看看"
+      ]
+    },
+    {
+      "id": "wx-069",
+      "name": "叹气",
+      "code": "[叹气]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-069.png",
+      "sprite": null,
+      "aliases": [
+        "叹气",
+        "tanqi",
+        "唉",
+        "ai",
+        "无奈",
+        "wunai"
+      ]
+    },
+    {
+      "id": "wx-070",
+      "name": "苦涩",
+      "code": "[苦涩]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-070.png",
+      "sprite": null,
+      "aliases": [
+        "苦涩",
+        "kuse",
+        "苦笑",
+        "kuxiao",
+        "难受",
+        "nanshou"
+      ]
+    },
+    {
+      "id": "wx-071",
+      "name": "裂开",
+      "code": "[裂开]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-071.png",
+      "sprite": null,
+      "aliases": [
+        "裂开",
+        "liekai",
+        "裂开了",
+        "liekaile",
+        "我裂开了",
+        "崩溃",
+        "bengkui"
+      ]
+    },
+    {
+      "id": "wx-072",
+      "name": "嘴唇",
+      "code": "[嘴唇]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-072.png",
+      "sprite": null,
+      "aliases": [
+        "嘴唇",
+        "Lips",
+        "/:showlove",
+        "/示爱"
+      ]
+    },
+    {
+      "id": "wx-073",
+      "name": "爱心",
+      "code": "[爱心]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-073.png",
+      "sprite": null,
+      "aliases": [
+        "爱心",
+        "aixin",
+        "爱你",
+        "aini",
+        "喜欢",
+        "xihuan"
+      ]
+    },
+    {
+      "id": "wx-074",
+      "name": "心碎",
+      "code": "[心碎]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-074.png",
+      "sprite": null,
+      "aliases": [
+        "心碎",
+        "xinsui",
+        "失恋",
+        "shilian"
+      ]
+    },
+    {
+      "id": "wx-075",
+      "name": "拥抱",
+      "code": "[拥抱]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-075.png",
+      "sprite": null,
+      "aliases": [
+        "拥抱",
+        "yongbao",
+        "抱抱",
+        "baobao",
+        "安慰",
+        "anwei"
+      ]
+    },
+    {
+      "id": "wx-076",
+      "name": "强",
+      "code": "[强]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-076.png",
+      "sprite": null,
+      "aliases": [
+        "强",
+        "強",
+        "ThumbsUp",
+        "/:strong",
+        "/强",
+        "qiang",
+        "赞",
+        "zan",
+        "点赞",
+        "dianzan",
+        "厉害",
+        "lihai"
+      ]
+    },
+    {
+      "id": "wx-077",
+      "name": "弱",
+      "code": "[弱]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-077.png",
+      "sprite": null,
+      "aliases": [
+        "弱",
+        "ThumbsDown",
+        "/:weak",
+        "/弱",
+        "ruo",
+        "踩",
+        "cai"
+      ]
+    },
+    {
+      "id": "wx-078",
+      "name": "握手",
+      "code": "[握手]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-078.png",
+      "sprite": null,
+      "aliases": [
+        "握手",
+        "woshou",
+        "合作",
+        "hezuo"
+      ]
+    },
+    {
+      "id": "wx-079",
+      "name": "胜利",
+      "code": "[胜利]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-079.png",
+      "sprite": null,
+      "aliases": [
+        "胜利",
+        "shengli",
+        "耶",
+        "ye",
+        "成功",
+        "chenggong"
+      ]
+    },
+    {
+      "id": "wx-080",
+      "name": "抱拳",
+      "code": "[抱拳]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-080.png",
+      "sprite": null,
+      "aliases": [
+        "抱拳",
+        "Fight",
+        "/:@)",
+        "/抱拳",
+        "baoquan",
+        "谢谢",
+        "xiexie",
+        "多谢",
+        "duoxie"
+      ]
+    },
+    {
+      "id": "wx-081",
+      "name": "勾引",
+      "code": "[勾引]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-081.png",
+      "sprite": null,
+      "aliases": [
+        "勾引",
+        "Beckon",
+        "/:jj",
+        "/勾引"
+      ]
+    },
+    {
+      "id": "wx-082",
+      "name": "拳头",
+      "code": "[拳头]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-082.png",
+      "sprite": null,
+      "aliases": [
+        "拳头"
+      ]
+    },
+    {
+      "id": "wx-083",
+      "name": "OK",
+      "code": "[OK]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-083.png",
+      "sprite": null,
+      "aliases": [
+        "OK",
+        "/:ok",
+        "/OK",
+        "ok",
+        "可以",
+        "keyi",
+        "没问题",
+        "meiwenti"
+      ]
+    },
+    {
+      "id": "wx-084",
       "name": "合十",
       "code": "[合十]",
       "kind": "wechat",
-      "group": "wechat-gesture",
+      "group": "wechat-face",
+      "image": "Images/wx-084.png",
+      "sprite": null,
       "aliases": [
         "合十",
         "\\ue41d",
@@ -2471,1766 +1494,318 @@
         "ganxie",
         "拜托",
         "baituo"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 528,
-        "width": 64,
-        "height": 64
-      }
+      ]
     },
     {
-      "id": "wx-310",
-      "name": "强壮",
-      "code": "[强壮]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "强壮",
-        "\\ue14c",
-        "qiangzhuang",
-        "加油",
-        "jiayou"
-      ],
-      "sprite": {
-        "x": 660,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-311",
-      "name": "庆祝",
-      "code": "[庆祝]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "庆祝",
-        "\\ue312",
-        "qingzhu",
-        "恭喜",
-        "gongxi",
-        "好耶",
-        "haoye"
-      ],
-      "sprite": {
-        "x": 528,
-        "y": 594,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-313",
-      "name": "吃瓜",
-      "code": "[吃瓜]",
-      "kind": "wechat",
-      "group": "wechat-object",
-      "aliases": [
-        "吃瓜",
-        "chigua",
-        "围观",
-        "weiguan",
-        "看戏",
-        "kanxi"
-      ],
-      "sprite": {
-        "x": 132,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-314",
-      "name": "加油",
-      "code": "[加油]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "加油",
-        "jiayou",
-        "努力",
-        "nuli"
-      ],
-      "sprite": {
-        "x": 198,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-315",
-      "name": "汗",
-      "code": "[汗]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "汗",
-        "han",
-        "无语",
-        "wuyu"
-      ],
-      "sprite": {
-        "x": 264,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-316",
-      "name": "天啊",
-      "code": "[天啊]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "天啊",
-        "tiana",
-        "天哪",
-        "tianna"
-      ],
-      "sprite": {
-        "x": 330,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-317",
-      "name": "Emm",
-      "code": "[Emm]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "Emm",
-        "emm",
-        "emmm",
-        "无语",
-        "wuyu"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 0,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-318",
-      "name": "社会社会",
-      "code": "[社会社会]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "社会社会",
-        "shehuishehui",
-        "大佬",
-        "dalao"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 66,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-319",
-      "name": "旺柴",
-      "code": "[旺柴]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "旺柴",
-        "wangchai",
-        "狗头",
-        "goutou",
-        "doge"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 132,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-320",
-      "name": "好的",
-      "code": "[好的]",
-      "kind": "wechat",
-      "group": "wechat-gesture",
-      "aliases": [
-        "好的",
-        "haode",
-        "收到",
-        "shoudao",
-        "可以",
-        "keyi"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 264,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-321",
-      "name": "打脸",
-      "code": "[打脸]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "打脸",
-        "dalian"
-      ],
-      "sprite": {
-        "x": 396,
-        "y": 330,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-322",
-      "name": "哇",
-      "code": "[哇]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "哇",
-        "wa",
-        "好棒",
-        "haobang",
-        "惊喜",
-        "jingxi"
-      ],
-      "sprite": {
-        "x": 0,
-        "y": 396,
-        "width": 64,
-        "height": 64
-      }
-    },
-    {
-      "id": "wx-supplement-0",
-      "name": "翻白眼",
-      "code": "[翻白眼]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "翻白眼",
-        "fanbaiyan",
-        "白眼",
-        "baiyan"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-supplement-1",
-      "name": "666",
-      "code": "[666]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "666",
-        "666",
-        "溜溜溜",
-        "liuliuliu",
-        "厉害",
-        "lihai"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-supplement-2",
-      "name": "让我看看",
-      "code": "[让我看看]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "让我看看",
-        "rangwokankan",
-        "看看",
-        "kankan",
-        "让我看看"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-supplement-3",
-      "name": "叹气",
-      "code": "[叹气]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "叹气",
-        "tanqi",
-        "唉",
-        "ai",
-        "无奈",
-        "wunai"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-supplement-4",
-      "name": "苦涩",
-      "code": "[苦涩]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "苦涩",
-        "kuse",
-        "苦笑",
-        "kuxiao",
-        "难受",
-        "nanshou"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "wx-supplement-5",
-      "name": "裂开",
-      "code": "[裂开]",
-      "kind": "wechat",
-      "group": "wechat-face",
-      "aliases": [
-        "裂开",
-        "liekai",
-        "裂开了",
-        "liekaile",
-        "我裂开了",
-        "崩溃",
-        "bengkui"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-0",
-      "name": "开心笑脸",
-      "code": "😀",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "开心笑脸"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-1",
-      "name": "感动",
-      "code": "🥹",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "感动"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-2",
-      "name": "喜欢",
-      "code": "🥰",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "喜欢"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-3",
-      "name": "酷",
-      "code": "😎",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "酷"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-4",
-      "name": "派对",
-      "code": "🥳",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "派对"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-5",
-      "name": "大哭",
-      "code": "😭",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "大哭",
-        "daku",
-        "哭哭",
-        "kuku",
-        "想哭",
-        "伤心",
-        "shangxin"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-6",
-      "name": "思考",
-      "code": "🤔",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "思考"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-7",
-      "name": "比心",
-      "code": "🫶",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "比心"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-8",
-      "name": "点赞",
-      "code": "👍",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "点赞"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-9",
-      "name": "谢谢",
-      "code": "🙏",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "谢谢"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-10",
-      "name": "红心",
-      "code": "❤️",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "红心"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-11",
-      "name": "闪亮",
-      "code": "✨",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "闪亮"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-12",
-      "name": "庆祝",
-      "code": "🎉",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "庆祝",
-        "qingzhu",
-        "恭喜",
-        "gongxi",
-        "好耶",
-        "haoye"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-13",
-      "name": "晚安",
-      "code": "🌙",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "晚安"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-14",
-      "name": "咖啡",
-      "code": "☕️",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "咖啡",
-        "kafei",
-        "咖啡"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-15",
-      "name": "花",
-      "code": "🌸",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "花"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-16",
-      "name": "笑哭",
-      "code": "😂",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "笑哭"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-17",
-      "name": "笑翻",
-      "code": "🤣",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "笑翻"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-18",
-      "name": "微笑",
-      "code": "😊",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "微笑",
-        "weixiao",
-        "笑",
-        "笑一笑"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-19",
-      "name": "开心",
-      "code": "😄",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "开心"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-20",
-      "name": "大笑",
-      "code": "😁",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "大笑"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-21",
-      "name": "好笑",
-      "code": "😆",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "好笑"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-22",
-      "name": "苦笑",
-      "code": "😅",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "苦笑"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-23",
-      "name": "笑脸",
-      "code": "🙂",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "笑脸",
-        "xiaolian",
-        "笑",
-        "开心",
-        "kaixin"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-24",
-      "name": "倒脸",
-      "code": "🙃",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "倒脸"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-25",
-      "name": "眨眼",
-      "code": "😉",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "眨眼"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-26",
-      "name": "心动",
-      "code": "😍",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "心动"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-27",
-      "name": "飞吻",
-      "code": "😘",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "飞吻"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-28",
-      "name": "好吃",
-      "code": "😋",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "好吃"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-29",
-      "name": "调皮",
-      "code": "😜",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "调皮"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-30",
-      "name": "搞怪",
-      "code": "🤪",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "搞怪"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-31",
-      "name": "拥抱",
-      "code": "🤗",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "拥抱",
-        "yongbao",
-        "抱抱",
-        "baobao",
-        "安慰",
-        "anwei"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-32",
-      "name": "偷笑",
-      "code": "🤭",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "偷笑",
-        "touxiao",
-        "haha",
-        "hah",
-        "hh",
-        "哈哈",
-        "好笑",
-        "太好笑了"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-33",
-      "name": "安静",
-      "code": "🤫",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "安静"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-34",
-      "name": "收到",
-      "code": "🫡",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "收到"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-35",
-      "name": "疑问",
-      "code": "🤨",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "疑问",
-        "yiwen",
-        "疑惑",
-        "yihuo",
-        "问号",
-        "wenhao"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-36",
-      "name": "无言",
-      "code": "😐",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "无言"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-37",
-      "name": "无语",
-      "code": "😑",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "无语"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-38",
-      "name": "白眼",
-      "code": "🙄",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "白眼"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-39",
-      "name": "得意",
-      "code": "😏",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "得意"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-40",
-      "name": "失落",
-      "code": "😔",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "失落"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-41",
-      "name": "失望",
-      "code": "😞",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "失望"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-42",
-      "name": "流泪",
-      "code": "😢",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "流泪",
-        "liulei",
-        "哭",
-        "ku",
-        "想哭",
-        "xiangku",
-        "难受",
-        "nanshou"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-43",
-      "name": "可怜",
-      "code": "🥺",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "可怜",
-        "kelian",
-        "求求了",
-        "qiuqiule"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-44",
-      "name": "生气",
-      "code": "😤",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "生气"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-45",
-      "name": "愤怒",
-      "code": "😡",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "愤怒"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-46",
-      "name": "震惊",
-      "code": "🤯",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "震惊"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-47",
-      "name": "脸红",
-      "code": "😳",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "脸红"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-48",
-      "name": "惊恐",
-      "code": "😱",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "惊恐",
-        "jingkong",
-        "害怕",
-        "haipa"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-49",
-      "name": "害怕",
-      "code": "😨",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "害怕"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-50",
-      "name": "紧张",
-      "code": "😰",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "紧张"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-51",
-      "name": "汗",
-      "code": "😓",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "汗",
-        "han",
-        "无语",
-        "wuyu"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-52",
-      "name": "睡觉",
-      "code": "😴",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "睡觉"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-53",
-      "name": "哈欠",
-      "code": "🥱",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "哈欠",
-        "haqian",
-        "好困",
-        "haokun"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-54",
-      "name": "发烧",
-      "code": "🤒",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "发烧"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-55",
-      "name": "口罩",
-      "code": "😷",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "口罩"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-56",
-      "name": "受伤",
-      "code": "🤕",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "受伤"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-57",
-      "name": "恶心",
-      "code": "🤢",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "恶心"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-58",
-      "name": "吐",
-      "code": "🤮",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "吐"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-59",
-      "name": "喷嚏",
-      "code": "🤧",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "喷嚏"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-60",
-      "name": "晕",
-      "code": "😵",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "晕",
-        "yun",
-        "晕了",
-        "yunle"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-61",
-      "name": "融化",
-      "code": "🫠",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "融化"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-62",
-      "name": "加油",
-      "code": "💪",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "加油",
-        "jiayou",
-        "努力",
-        "nuli"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-63",
-      "name": "鼓掌",
-      "code": "👏",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "鼓掌",
-        "guzhang",
-        "厉害",
-        "lihai",
-        "棒",
-        "bang",
-        "真棒",
-        "zhenbang"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-64",
-      "name": "太好了",
-      "code": "🙌",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "太好了"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-65",
-      "name": "握手",
-      "code": "🤝",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "握手",
-        "woshou",
-        "合作",
-        "hezuo"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-66",
-      "name": "胜利",
-      "code": "✌️",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "胜利",
-        "shengli",
-        "耶",
-        "ye",
-        "成功",
-        "chenggong"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-67",
-      "name": "好的",
-      "code": "👌",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "好的",
-        "haode",
-        "好的",
-        "收到",
-        "shoudao",
-        "可以",
-        "keyi"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-68",
-      "name": "再见",
-      "code": "👋",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "再见",
-        "zaijian",
-        "拜拜",
-        "baibai",
-        "bye"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-69",
-      "name": "拳头",
-      "code": "👊",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "拳头"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-70",
-      "name": "666",
-      "code": "🤙",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "666",
-        "666",
-        "溜溜溜",
-        "liuliuliu",
-        "厉害",
-        "lihai"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-71",
-      "name": "满分",
-      "code": "💯",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "满分"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-72",
-      "name": "心碎",
-      "code": "💔",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "心碎",
-        "xinsui",
-        "失恋",
-        "shilian"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-73",
-      "name": "爱心",
-      "code": "💕",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "爱心",
-        "aixin",
-        "爱你",
-        "aini",
-        "喜欢",
-        "xihuan"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-74",
-      "name": "闪亮爱心",
-      "code": "💖",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "闪亮爱心"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-75",
-      "name": "火",
-      "code": "🔥",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "火"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-76",
-      "name": "鲜花",
-      "code": "💐",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "鲜花"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-77",
-      "name": "生日蛋糕",
-      "code": "🎂",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "生日蛋糕"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-78",
-      "name": "礼物",
-      "code": "🎁",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "礼物",
-        "liwu",
-        "礼物"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-79",
-      "name": "气球",
-      "code": "🎈",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "气球"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-80",
-      "name": "彩带",
-      "code": "🎊",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "彩带"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-81",
-      "name": "红包",
-      "code": "🧧",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "红包",
-        "hongbao",
-        "恭喜发财",
-        "gongxifacai"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-82",
-      "name": "爆竹",
-      "code": "🧨",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "爆竹"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-83",
-      "name": "烟花",
-      "code": "🎆",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "烟花"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-84",
-      "name": "星星",
-      "code": "⭐️",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "星星"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-85",
-      "name": "太阳",
-      "code": "☀️",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "太阳"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-86",
-      "name": "彩虹",
-      "code": "🌈",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "彩虹"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-87",
-      "name": "幸运",
-      "code": "🍀",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "幸运"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-88",
-      "name": "西瓜",
-      "code": "🍉",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "西瓜",
-        "xigua"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-89",
+      "id": "wx-085",
       "name": "啤酒",
-      "code": "🍺",
-      "kind": "emoji",
-      "group": "emoji",
+      "code": "[啤酒]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-085.png",
+      "sprite": null,
       "aliases": [
         "啤酒",
         "pijiu",
         "干杯",
         "ganbei"
-      ],
-      "sprite": null
+      ]
     },
     {
-      "id": "unicode-90",
-      "name": "干杯",
-      "code": "🍻",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-086",
+      "name": "咖啡",
+      "code": "[咖啡]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-086.png",
+      "sprite": null,
       "aliases": [
-        "干杯"
-      ],
-      "sprite": null
+        "咖啡",
+        "kafei",
+        "咖啡"
+      ]
     },
     {
-      "id": "unicode-91",
-      "name": "喝茶",
-      "code": "🍵",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-087",
+      "name": "蛋糕",
+      "code": "[蛋糕]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-087.png",
+      "sprite": null,
       "aliases": [
-        "喝茶"
-      ],
-      "sprite": null
+        "蛋糕",
+        "Cake",
+        "/:cake",
+        "/蛋糕",
+        "dangao",
+        "生日",
+        "shengri",
+        "生日快乐",
+        "shengrikuaile"
+      ]
     },
     {
-      "id": "unicode-92",
-      "name": "米饭",
-      "code": "🍚",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-088",
+      "name": "玫瑰",
+      "code": "[玫瑰]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-088.png",
+      "sprite": null,
       "aliases": [
-        "米饭"
-      ],
-      "sprite": null
+        "玫瑰",
+        "Rose",
+        "/:rose",
+        "/玫瑰",
+        "meigui",
+        "花",
+        "hua"
+      ]
     },
     {
-      "id": "unicode-93",
-      "name": "面条",
-      "code": "🍜",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-089",
+      "name": "凋谢",
+      "code": "[凋谢]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-089.png",
+      "sprite": null,
       "aliases": [
-        "面条"
-      ],
-      "sprite": null
+        "凋谢",
+        "枯萎",
+        "Wilt",
+        "/:fade",
+        "/凋谢",
+        "diaoxie"
+      ]
     },
     {
-      "id": "unicode-94",
-      "name": "小狗",
-      "code": "🐶",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-090",
+      "name": "菜刀",
+      "code": "[菜刀]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-090.png",
+      "sprite": null,
       "aliases": [
-        "小狗"
-      ],
-      "sprite": null
+        "菜刀",
+        "Cleaver",
+        "/:pd",
+        "/菜刀"
+      ]
     },
     {
-      "id": "unicode-95",
-      "name": "小猫",
-      "code": "🐱",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "小猫"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-96",
-      "name": "小猪",
-      "code": "🐷",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "小猪"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-97",
-      "name": "鬼魂",
-      "code": "👻",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "鬼魂"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-98",
-      "name": "便便",
-      "code": "💩",
-      "kind": "emoji",
-      "group": "emoji",
-      "aliases": [
-        "便便"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "unicode-99",
+      "id": "wx-091",
       "name": "炸弹",
-      "code": "💣",
-      "kind": "emoji",
-      "group": "emoji",
+      "code": "[炸弹]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-091.png",
+      "sprite": null,
       "aliases": [
         "炸弹"
-      ],
-      "sprite": null
+      ]
     },
     {
-      "id": "unicode-100",
-      "name": "火箭",
-      "code": "🚀",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-092",
+      "name": "便便",
+      "code": "[便便]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-092.png",
+      "sprite": null,
       "aliases": [
-        "火箭"
-      ],
-      "sprite": null
+        "便便"
+      ]
     },
     {
-      "id": "unicode-101",
-      "name": "足球",
-      "code": "⚽️",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-093",
+      "name": "月亮",
+      "code": "[月亮]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-093.png",
+      "sprite": null,
       "aliases": [
-        "足球"
-      ],
-      "sprite": null
+        "月亮",
+        "Moon",
+        "/:moon",
+        "/月亮"
+      ]
     },
     {
-      "id": "unicode-102",
-      "name": "篮球",
-      "code": "🏀",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-094",
+      "name": "太阳",
+      "code": "[太阳]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-094.png",
+      "sprite": null,
       "aliases": [
-        "篮球"
-      ],
-      "sprite": null
+        "太阳"
+      ]
     },
     {
-      "id": "unicode-103",
-      "name": "乒乓",
-      "code": "🏓",
-      "kind": "emoji",
-      "group": "emoji",
+      "id": "wx-095",
+      "name": "庆祝",
+      "code": "[庆祝]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-095.png",
+      "sprite": null,
       "aliases": [
-        "乒乓"
-      ],
-      "sprite": null
+        "庆祝",
+        "qingzhu",
+        "恭喜",
+        "gongxi",
+        "好耶",
+        "haoye"
+      ]
     },
     {
-      "id": "kaomoji-0",
-      "name": "加油",
-      "code": "(๑•̀ㅂ•́)و✧",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-096",
+      "name": "礼物",
+      "code": "[礼物]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-096.png",
+      "sprite": null,
       "aliases": [
-        "加油"
-      ],
-      "sprite": null
+        "礼物",
+        "liwu",
+        "礼物"
+      ]
     },
     {
-      "id": "kaomoji-1",
-      "name": "好耶",
-      "code": "٩(ˊᗜˋ*)و",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-097",
+      "name": "红包",
+      "code": "[红包]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-097.png",
+      "sprite": null,
       "aliases": [
-        "好耶"
-      ],
-      "sprite": null
+        "红包",
+        "hongbao",
+        "恭喜发财",
+        "gongxifacai"
+      ]
     },
     {
-      "id": "kaomoji-2",
-      "name": "可爱",
-      "code": "(｡･ω･｡)",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-098",
+      "name": "發",
+      "code": "[發]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-098.png",
+      "sprite": null,
       "aliases": [
-        "可爱"
-      ],
-      "sprite": null
+        "發"
+      ]
     },
     {
-      "id": "kaomoji-3",
-      "name": "晚安",
-      "code": "晚安 🌙",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-099",
+      "name": "福",
+      "code": "[福]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-099.png",
+      "sprite": null,
       "aliases": [
-        "晚安"
-      ],
-      "sprite": null
+        "福",
+        "Blessing",
+        "fu",
+        "祝福",
+        "zhufu"
+      ]
     },
     {
-      "id": "kaomoji-4",
-      "name": "委屈",
-      "code": "(´･ω･`)",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-100",
+      "name": "烟花",
+      "code": "[烟花]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-100.png",
+      "sprite": null,
       "aliases": [
-        "委屈"
-      ],
-      "sprite": null
+        "烟花"
+      ]
     },
     {
-      "id": "kaomoji-5",
-      "name": "开心",
-      "code": "(≧▽≦)",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-101",
+      "name": "爆竹",
+      "code": "[爆竹]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-101.png",
+      "sprite": null,
       "aliases": [
-        "开心"
-      ],
-      "sprite": null
+        "爆竹"
+      ]
     },
     {
-      "id": "kaomoji-6",
-      "name": "抱抱",
-      "code": "(づ｡◕‿‿◕｡)づ",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-102",
+      "name": "猪头",
+      "code": "[猪头]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-102.png",
+      "sprite": null,
       "aliases": [
-        "抱抱"
-      ],
-      "sprite": null
+        "猪头",
+        "豬頭",
+        "Pig",
+        "/:pig",
+        "/猪头"
+      ]
     },
     {
-      "id": "kaomoji-7",
-      "name": "哭哭",
-      "code": "(╥﹏╥)",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-103",
+      "name": "跳跳",
+      "code": "[跳跳]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-103.png",
+      "sprite": null,
       "aliases": [
-        "哭哭"
-      ],
-      "sprite": null
+        "跳跳",
+        "Waddle",
+        "/:jump",
+        "/跳跳"
+      ]
     },
     {
-      "id": "kaomoji-8",
-      "name": "你好",
-      "code": "(￣▽￣)／",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-104",
+      "name": "发抖",
+      "code": "[发抖]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-104.png",
+      "sprite": null,
       "aliases": [
-        "你好"
-      ],
-      "sprite": null
+        "发抖",
+        "發抖",
+        "Tremble",
+        "/:shake",
+        "/发抖"
+      ]
     },
     {
-      "id": "kaomoji-9",
-      "name": "好吃",
-      "code": "(๑´ڡ`๑)",
-      "kind": "kaomoji",
-      "group": "kaomoji",
+      "id": "wx-105",
+      "name": "转圈",
+      "code": "[转圈]",
+      "kind": "wechat",
+      "group": "wechat-face",
+      "image": "Images/wx-105.png",
+      "sprite": null,
       "aliases": [
-        "好吃"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "kaomoji-10",
-      "name": "努力",
-      "code": "(ง •̀_•́)ง",
-      "kind": "kaomoji",
-      "group": "kaomoji",
-      "aliases": [
-        "努力"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "kaomoji-11",
-      "name": "无语",
-      "code": "(눈_눈)",
-      "kind": "kaomoji",
-      "group": "kaomoji",
-      "aliases": [
-        "无语"
-      ],
-      "sprite": null
-    },
-    {
-      "id": "legacy-sticker-received",
-      "name": "收到啦",
-      "code": "收到啦",
-      "kind": "kaomoji",
-      "group": "kaomoji",
-      "aliases": [],
-      "sprite": null
-    },
-    {
-      "id": "legacy-sticker-cheer",
-      "name": "好耶",
-      "code": "好耶",
-      "kind": "kaomoji",
-      "group": "kaomoji",
-      "aliases": [],
-      "sprite": null
-    },
-    {
-      "id": "legacy-sticker-thanks",
-      "name": "谢谢",
-      "code": "谢谢",
-      "kind": "kaomoji",
-      "group": "kaomoji",
-      "aliases": [],
-      "sprite": null
-    },
-    {
-      "id": "legacy-sticker-night",
-      "name": "晚安",
-      "code": "晚安",
-      "kind": "kaomoji",
-      "group": "kaomoji",
-      "aliases": [],
-      "sprite": null
+        "转圈",
+        "轉圈",
+        "Twirl",
+        "/:circle",
+        "/转圈"
+      ]
     }
   ]
 }

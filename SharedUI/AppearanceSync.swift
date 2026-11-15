@@ -24,6 +24,7 @@ struct AppearanceSnapshot: Codable, Equatable {
     let oneHandWidth: Double?
     let toolbar: [ToolbarTool]?
     let localPinyinComposition: Bool?
+    let keyPressPreviewEnabled: Bool?
     let automaticClipboard: Bool?
     let clipboardLifetimeHours: Double?
     let language: InputLanguage?
@@ -48,6 +49,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         candidateVibrationEnabled = value.usesCandidateVibration
         hand = value.hand; preferredHand = value.preferredHand; oneHandWidth = value.oneHandFraction; toolbar = value.toolbar
         localPinyinComposition = value.localPinyinComposition == true
+        keyPressPreviewEnabled = value.usesKeyPressPreview
         automaticClipboard = value.capturesClipboard; clipboardLifetimeHours = value.clipboardLifetimeHours
         language = includeInputPreferences ? value.language : nil
         fuzzyPairs = includeInputPreferences ? value.fuzzyPairs : nil
@@ -75,6 +77,7 @@ struct AppearanceSnapshot: Codable, Equatable {
         if let oneHandWidth { value.oneHandWidth = oneHandWidth }
         if let toolbar { value.toolbar = toolbar }
         if let localPinyinComposition { value.localPinyinComposition = localPinyinComposition }
+        if let keyPressPreviewEnabled { value.keyPressPreviewEnabled = keyPressPreviewEnabled }
         if let automaticClipboard { value.automaticClipboard = automaticClipboard }
         if let clipboardLifetimeHours { value.clipboardLifetimeHours = clipboardLifetimeHours }
         if let language { value.language = language }

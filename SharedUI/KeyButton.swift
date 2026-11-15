@@ -18,6 +18,7 @@ final class KeyButton: UIButton {
     private var deletionDirection = 0
     private var choiceGesture: UILongPressGestureRecognizer?
     private var choicePopup: KeyChoicePopup?
+    private var characterPreview: UILabel?
     private weak var choiceHost: UIView?
     private var choices: [String] = []
     private let punctuationHint = CenteredKeyLabel()
@@ -166,6 +167,7 @@ final class KeyButton: UIButton {
         }
         if vibrationEnabled && !suppressTypingVibration { vibration.prepare(mode: vibrationMode) }
         appearanceSettings = settings; applyAppearance(settings)
+        if !settings.usesKeyPressPreview { hideCharacterPreview() }
         pressWash.backgroundColor = UIColor.label.withAlphaComponent(0.24)
         updateShift(active: active, capsLocked: capsLocked)
         if let title { updateTitle(title) }
@@ -189,6 +191,7 @@ final class KeyButton: UIButton {
         if caption.text != title { caption.text = title; accessibilityLabel = title }
     }
     func setCursorMode(_ active: Bool) {
+        if active { hideCharacterPreview() }
         cursorMode = active
         if key.action != .space { isUserInteractionEnabled = !active }
         caption.isHidden = active || icon.image != nil; icon.isHidden = active
@@ -206,6 +209,7 @@ final class KeyButton: UIButton {
         plate.transform = UIAccessibility.isReduceMotionEnabled ? .identity
             : CGAffineTransform(translationX: 0, y: 1.3).scaledBy(x: 0.945, y: 0.945)
         onPrepare?(key.action)
+        showCharacterPreview()
         if key.action == .space { vibration.attach(to: self); vibration.prepareCursorActivation() }
         if vibrationEnabled && !suppressTypingVibration {
             var host: UIView = self
@@ -231,6 +235,7 @@ final class KeyButton: UIButton {
         cancelPress()
     }
     @objc func cancelPress() {
+        hideCharacterPreview()
         // Dragging away from the original key belongs to the choice picker.
         // Do not prematurely cancel its ordered input contact on touchDragExit.
         guard choicePopup == nil else { return }
@@ -279,6 +284,7 @@ final class KeyButton: UIButton {
         switch gesture.state {
         case .began:
             guard choices.count > 1 else { return }
+            hideCharacterPreview()
             suppressTap = true; onAlternateBegan?()
             var ancestor = superview
             while let value = ancestor, !(value is KeyboardSurface) { ancestor = value.superview }
@@ -336,11 +342,34 @@ final class KeyButton: UIButton {
         }
     }
     func stopTracking() {
+        hideCharacterPreview()
         choicePopup?.removeFromSuperview(); choicePopup = nil; choiceHost = nil
         suppressTap = true
         onDeleteHint?(nil)
         if draggingCursor { draggingCursor = false; onCursorEnded?() }
         cancelPress()
     }
+    private func showCharacterPreview() {
+        hideCharacterPreview()
+        guard appearanceSettings?.usesKeyPressPreview == true, !cursorMode,
+              case .text = key.action, let text = caption.text, text.count == 1 else { return }
+        var ancestor = superview
+        while let view = ancestor, !(view is KeyboardSurface) { ancestor = view.superview }
+        guard let host = ancestor, host.window != nil else { return }
+        let anchor = convert(bounds, to: host)
+        let width: CGFloat = 58, height: CGFloat = 58
+        let preview = UILabel(frame: CGRect(x: min(max(4, anchor.midX - width / 2), max(4, host.bounds.width - width - 4)),
+            y: max(2, anchor.minY - height + 4), width: width, height: height))
+        preview.text = text; preview.font = .systemFont(ofSize: 32, weight: .medium)
+        preview.textAlignment = .center; preview.textColor = .label
+        preview.backgroundColor = .secondarySystemBackground
+        preview.layer.cornerRadius = 16; preview.layer.cornerCurve = .continuous
+        preview.clipsToBounds = true; preview.layer.borderWidth = 1
+        preview.layer.borderColor = accent.withAlphaComponent(0.45).cgColor
+        preview.isUserInteractionEnabled = false; preview.isAccessibilityElement = false
+        preview.accessibilityIdentifier = "keyboard.characterPreview"
+        host.addSubview(preview); characterPreview = preview
+    }
+    private func hideCharacterPreview() { characterPreview?.removeFromSuperview(); characterPreview = nil }
     deinit { repeatTimer?.invalidate(); repeatStart?.cancel(); pressRelease?.cancel() }
 }

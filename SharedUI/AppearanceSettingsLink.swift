@@ -64,8 +64,7 @@ final class AppearanceMirroredBackend: AppearanceSyncBackend {
                 }
             } catch {
                 let error = error as NSError
-                if (error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError) ||
-                    (error.domain == NSPOSIXErrorDomain && error.code == 2) { diagnostics.fileRead = "missing" }
+                if InstallationLifecycle.isMissingFile(error) { diagnostics.fileRead = "missing" }
                 else {
                     diagnostics.fileRead = "failed"; diagnostics.fileReadError = error.code
                     fileFailure = .file(error.code)
@@ -170,6 +169,7 @@ private enum AppearanceSyncNotification {
     private var localSnapshot: AppearanceSnapshot?
     private var lastDelivered: UUID?
     private var receiptAttempt: UUID?
+    private var outboxKey: String { "clear.appearance.pending.v1." + (role == .app ? "app" : "keyboard") }
     var onReceive: ((AppearanceSnapshot) -> Void)?
     var onStatus: ((Status) -> Void)?
     var currentSettings: (() -> KeyboardSettings)?
@@ -266,10 +266,35 @@ private enum AppearanceSyncNotification {
         generation += 1;latest=nil;pendingEnvelope=nil;localSnapshot=nil
         writingRevisions.removeAll();lastDelivered=nil;receiptAttempt=nil
         if snapshot.ready {
+            restorePendingWrite()
             let preferences=SharedStorage.defaults(allowShared:role == .app || diagnostics.fullAccess == true)
             let clean=SettingsStore(defaults:preferences).load()
-            onReceive?(AppearanceSnapshot(settings:clean,includeInputPreferences:includeInputPreferences))
+            onReceive?(pendingEnvelope?.snapshot ?? AppearanceSnapshot(settings:clean,includeInputPreferences:includeInputPreferences))
         }
+    }
+    /// Keep the last unacknowledged local delta across extension suspension.
+    /// This private, installation-scoped preference never reads legacy mirrors.
+    private func persistPendingWrite(_ envelope: AppearanceEnvelope) {
+        guard production, let data = try? AppearanceSyncClient.encode(envelope).get() else { return }
+        let preferences = InstallationLifecycle.privateDefaults()
+        preferences.set(data, forKey: outboxKey)
+        _ = preferences.synchronize()
+    }
+    private func restorePendingWrite() {
+        guard production, installationReady, pendingEnvelope == nil else { return }
+        let preferences = InstallationLifecycle.privateDefaults()
+        guard let data = preferences.data(forKey: outboxKey),
+              let envelope = try? AppearanceSyncClient.decode(data).get() else { return }
+        generation += 1; latest = envelope; pendingEnvelope = envelope; localSnapshot = envelope.snapshot
+        diagnostics.latestRevision = envelope.revision; diagnostics.event = "pending-restored"
+    }
+    private func clearPendingWrite(_ revision: UUID) {
+        guard production else { return }
+        let preferences = InstallationLifecycle.privateDefaults()
+        guard let data = preferences.data(forKey: outboxKey),
+              let envelope = try? AppearanceSyncClient.decode(data).get(), envelope.revision == revision else { return }
+        preferences.removeObject(forKey: outboxKey)
+        _ = preferences.synchronize()
     }
     private func reconcileInstallationAndRefresh() {
         reconcileInstallation();refresh()
@@ -284,6 +309,7 @@ private enum AppearanceSyncNotification {
     }
     func activate() {
         reconcileInstallation()
+        restorePendingWrite()
         guard !active else { refresh(); return }
         active = true; receiptAttempt = nil
         // Notifications are hints. Reconcile while visible as well, so a write
@@ -302,6 +328,7 @@ private enum AppearanceSyncNotification {
         client.flush(completion: completion)
     }
     func publish(_ settings: KeyboardSettings, previous: KeyboardSettings? = nil) {
+        restorePendingWrite()
         let snapshot = AppearanceSnapshot(settings: settings, includeInputPreferences: includeInputPreferences)
         if localSnapshot == snapshot {
             if let pendingEnvelope { send(pendingEnvelope) }
@@ -320,6 +347,7 @@ private enum AppearanceSyncNotification {
         let date = max(Date(), (latest?.updatedAt ?? .distantPast).addingTimeInterval(0.0001))
         for field in changed { fieldDates[field] = bootstrap ? .distantPast : date }
         let envelope = AppearanceEnvelope(snapshot: snapshot, updatedAt: date, changedFields: fields, fieldDates: fieldDates); latest = envelope; pendingEnvelope = envelope
+        persistPendingWrite(envelope)
         diagnostics.latestRevision = envelope.revision; diagnostics.event = "local-edit"
         diagnostics.rejection = nil
         onStatus?(.saved)
@@ -336,6 +364,7 @@ private enum AppearanceSyncNotification {
             switch result {
             case .success:
                 self.pendingEnvelope = nil
+                self.clearPendingWrite(envelope.revision)
                 self.diagnostics.event = "persisted"
                 self.onStatus?(.waitingForKeyboard)
                 if self.role == .keyboard { self.confirm(envelope) }
@@ -352,6 +381,7 @@ private enum AppearanceSyncNotification {
     func refresh() {
         if production,!installationReady {reconcileInstallation()}
         guard active else { return }
+        restorePendingWrite()
         if let pendingEnvelope { send(pendingEnvelope); return }
         let request = generation
         client.load { [weak self] result in

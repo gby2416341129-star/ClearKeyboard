@@ -25,16 +25,16 @@ struct PinyinDisplayOptions: View {
         } label: {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(value ? " " : "wei xin shu ru fa")
+                    Text(value ? " " : "jin tian tian qi")
                         .font(.system(size: 12)).foregroundStyle(.primary)
                         .lineLimit(1).minimumScaleFactor(0.6)
                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                         .padding(.horizontal, 6)
                         .background(.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                    Text(value ? "wei'xin'shu'ru'fa" : " ")
+                    Text(value ? "jin'tian'tian'qi" : " ")
                         .font(.system(size: 11)).lineLimit(1).minimumScaleFactor(0.6)
                         .foregroundStyle(AppPalette.secondaryInk)
-                    Text("微信输入法  微信")
+                    Text("今天天气  今天")
                         .font(.system(size: 11)).foregroundStyle(AppPalette.secondaryInk)
                         .lineLimit(1).minimumScaleFactor(0.6)
                 }

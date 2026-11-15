@@ -28,7 +28,7 @@
   "prebuilt_phrase_indices": true,
   "neural_source": "V19 best step38750",
   "graph_export_version": "v23-b1-enumerated-1",
-  "SDK_version": "build107-structured-canonical-recall-1",
+  "SDK_version": "build109-word-initials-recall-1",
   "execution_adapter": "v23-input-graph-sequence-1",
   "prediction_batch": 1,
   "target_buckets": [
@@ -40,13 +40,13 @@
   "statistical_resources_refitted": false,
   "language_policy_version": "clear-v22-word-lattice-data-2",
   "language_data_sha256": "1d23e83db36df44e9a3131d0287b12c38f6089109550e8010fd1ecb4669d1865",
-  "ranking_policy_version": "build107-structured-canonical-recall-1",
+  "ranking_policy_version": "build109-word-initials-recall-1",
   "word_character_beam": 32,
   "word_edges_per_position": 32,
   "word_candidates_per_span": 8,
   "neural_parent_sha256": "d9d1c4974a513236d72f489d0b13f51cb6c7a94b4f2cd5d51400d314dfba80a7",
   "feature_contract": "v23-input-evidence-1",
-  "kernel_revision": "build107-structured-canonical-recall-1",
+  "kernel_revision": "build109-word-initials-recall-1",
   "neural_model": "V23",
   "weights_changed_in_this_revision": false,
   "new_training_performed": false,
@@ -61,7 +61,7 @@
   "source_model": "V49",
   "export_status": "V49 standalone user-operated latency probe",
   "parser_lm_normalization": "mean per real syllable including EOS",
-  "protected_parse_lanes": "identical complete reading and per-edge input-receipt dedup inside32 states; distinct EXACT, legal INITIAL/MIXED, enabled FUZZY, TYPO and maximum exact-byte clean opportunities inside8 neural paths; final same score",
+  "protected_parse_lanes": "identical complete reading and per-edge input-receipt dedup inside32 states; distinct EXACT, legal INITIAL/MIXED, enabled FUZZY, TYPO and maximum exact-byte clean opportunities inside8 neural paths; final same score; up to3 existing-word initials readings inside the same8 after original channel protection",
   "lexical_policy": "same incremental and final fixed-text canonical DP; observed wordfreq/jieba evidence; full phonetic bucket scanned before8/32 edge limits",
   "candidate_pool_limit": 256,
   "visible_candidate_limit": 64,
@@ -72,5 +72,17 @@
   "lexical_span_limit": 12,
   "lexical_lookup": "request-path observed-word hash index with full glyph collision check; indices reference unchanged mapped records",
   "word_phonetic_bucket_scan": "all matching records; immutable current maximum116; streaming8 edge choices with17 transient scratch",
-  "lexical_word_index_limit": 131072
+  "lexical_word_index_limit": 131072,
+  "word_initials_recall": {
+    "index": "unchanged wordPinyinOrder as implicit syllable trie; no new dictionary/index binary",
+    "maximum_prefix_states": 8192,
+    "maximum_index_checks": 32768,
+    "maximum_distinct_word_proposals": 32,
+    "maximum_reserved_word_readings": 3,
+    "maximum_word_syllables": 12,
+    "score": "original wordfreq/jieba log-frequency selects proposal opportunities only; final production score unchanged",
+    "alignment": "whole raw EXACT or INITIAL only, one-letter or zh/ch/sh, at least one INITIAL; no completion, edits or fuzzy substitution",
+    "skip": "initials disabled, character selection, full EXACT path available, fewer than2 or more than72 letters",
+    "composition": "whole existing dictionary word only; no phrase-combination expansion"
+  }
 }

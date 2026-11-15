@@ -100,7 +100,7 @@ private final class V21NativePreparation: @unchecked Sendable {
               manifest.max_segmentations == 8, manifest.context_length == 32,
               manifest.maximum_target_length == 64, manifest.max_legal_characters == 136 else { throw V21Error.resource("V21 resource identity/score contract mismatch") }
         let language = try NSData(contentsOf: directory.appendingPathComponent("V22Language.bin"), options: .alwaysMapped)
-        guard manifest.language_policy_version == "clear-v22-word-lattice-data-2",manifest.ranking_policy_version == "build107-structured-canonical-recall-1",digest(Data(referencing:language)) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
+        guard manifest.language_policy_version == "clear-v22-word-lattice-data-2",manifest.ranking_policy_version == "build109-word-initials-recall-1",digest(Data(referencing:language)) == manifest.language_data_sha256 else {throw V21Error.resource("Word/reading resource identity mismatch")}
         let readEnd = tick()
         let words = try JSONDecoder().decode(V21Vocabulary.self, from: Data(contentsOf: directory.appendingPathComponent("vocabulary.json")))
         guard words.syllables.count == 411 else { throw V21Error.resource("Wrong syllable IDs") }
@@ -281,7 +281,7 @@ private final class V21Runner: @unchecked Sendable {
         self.preparationMemory=memory
         self.identity=["checkpoint_sha256":manifest.source_checkpoint_sha256,"source_step":String(manifest.source_step),"resource_sha256":manifest.resource_binary_sha256,
             "statistics_sha256":manifest.statistics_sha256,"kernel_version":"v49_v46_text_rank_initials_10h","neural_parent":"V46 best -> V49 best local1408/global94661",
-            "graph_export_version":"v23-b1-enumerated-1","SDK_version":"build107-structured-canonical-recall-1",
+            "graph_export_version":"v23-b1-enumerated-1","SDK_version":"build109-word-initials-recall-1",
             "compute_units_requested":String(describing:configuration.computeUnits),"compute_units_effective_configuration":String(describing:weights.units),
             "model_load_recovery":weights.recovery,"load_adapter":"clear-v22-load-plan-recovery-1",
             "execution_adapter":"v23-input-graph-sequence-1","ranking_policy":manifest.ranking_policy_version,"language_policy":manifest.language_policy_version,"language_data_sha256":manifest.language_data_sha256,"preparation_mode":"parallel_dedicated_cpu_load",
@@ -464,7 +464,7 @@ private final class V21Runner: @unchecked Sendable {
             let text = job.diagnosticTarget.map { target in target.withCString { String(cString: v21_diagnostic_json(request,$0)) } } ?? String(cString: v21_diagnostic_json(request,nil))
             var object = (try JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
             object["kernel_instance"] = instanceID.uuidString; object["process_id"] = ProcessInfo.processInfo.processIdentifier
-            object["sdk_revision"]="build107-structured-canonical-recall-1";object["neural_model"]="V49 best local1408/global94661";object["checkpoint_sha256"] = checkpointSHA; object["source_step"] = sourceStep; object["neural_weights_updated"] = true
+            object["sdk_revision"]="build109-word-initials-recall-1";object["neural_model"]="V49 best local1408/global94661";object["checkpoint_sha256"] = checkpointSHA; object["source_step"] = sourceStep; object["neural_weights_updated"] = true
             object["identity"] = identity
             object["input_version"] = job.version; object["context_used"] = String(String.UnicodeScalarView(scalars))
             object["actual_model_calls"] = capturedCalls

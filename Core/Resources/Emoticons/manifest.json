@@ -1,50 +1,1092 @@
 {
-  "schema": "clear-emoticons-resource/1",
-  "source_repository": "wechat-miniprogram/miniprogram-component-plus",
-  "source_commit": "2aad739689acf4ed19066ce171f2e17d7c62c4ba",
-  "source_package": "@miniprogram-component-plus/emoji@1.0.1",
-  "source_package_sha256": "b935e3e244fed17cf37e29c9b691c7a82cbe587fa9777f0f074109f0934f423f",
-  "source_png_pixels": [
-    724,
-    658
-  ],
-  "source_data_rows": 139,
-  "unique_source_codes": 138,
-  "supplemental_text_codes": 6,
-  "wechat_codes": 144,
-  "real_image_regions": 110,
-  "unicode_emoji": 104,
-  "kaomoji": 12,
-  "original_sticker_actions": 4,
-  "total_entries": 264,
+  "schema": "clear-emoticons-user-whitelist-resource/1",
+  "total_entries": 106,
+  "wechat_codes": 106,
+  "real_image_regions": 106,
+  "individual_pngs": 106,
+  "unicode_emoji": 0,
+  "kaomoji": 0,
+  "original_sticker_actions": 0,
+  "source_sprite_regions": 0,
+  "direct_official_cdn_pngs": 98,
+  "archived_original_pngs": 8,
+  "screenshot_whitelist": true,
   "complete_current_wechat_claim": false,
   "runtime_network_required": false,
-  "model_or_business_algorithms_executed": false,
   "tests_executed": false,
+  "model_or_business_algorithms_executed": false,
   "files": {
-    "LICENSE-MIT.txt": {
-      "bytes": 1075,
-      "sha256": "e1df5224ddaec61dfdeb5bb1651a189fba742a614e0daf16dc6dfba50d47d80c"
-    },
-    "wechat-source-sprite.png": {
-      "bytes": 616827,
-      "sha256": "a79df3f4f8cc58ad11a3b93ebdc8d08b053fa6efd1e511552a215c493cea6594"
-    },
     "catalog.json": {
-      "bytes": 80848,
-      "sha256": "39f023452729fcb0e7688af79115a09f6ba44aa31958c0847dbdd38eb82a8bae"
+      "bytes": 36686,
+      "sha256": "b7a9b7ddd6eb98562dfb45062f048b90c11a34c7487b3d6681a6749762936a99"
+    },
+    "Images/wx-000.png": {
+      "bytes": 4601,
+      "sha256": "25198ea91ee0279b69bf7b8b8040a3399dae18f32826a1a1f7e46adb377a345d",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_1@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "微笑",
+      "code": "[微笑]"
+    },
+    "Images/wx-001.png": {
+      "bytes": 4550,
+      "sha256": "3dfca6e92aff87911d6534f10d66ee75788eed6cddbe4aafb312edd254fbd4f1",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_2@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "撇嘴",
+      "code": "[撇嘴]"
+    },
+    "Images/wx-002.png": {
+      "bytes": 4970,
+      "sha256": "025efa94056e42a63f7e21804f0ffdd0e6bade6e50d66c41f81e293c920335a6",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_3@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "色",
+      "code": "[色]"
+    },
+    "Images/wx-003.png": {
+      "bytes": 4815,
+      "sha256": "98f634c707a340be62559e93355bfe9df76e32c25ece46022291cf0b0d98ea33",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_4@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "发呆",
+      "code": "[发呆]"
+    },
+    "Images/wx-004.png": {
+      "bytes": 4553,
+      "sha256": "1fad85b16e4ba72c643baae9cdb12622c246ed0528eb65cd6961bbe228c239a4",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_5@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "得意",
+      "code": "[得意]"
+    },
+    "Images/wx-005.png": {
+      "bytes": 4413,
+      "sha256": "9544db6714fce7341c89ad42f4a8c6f4cb38dd6308000d909999853d6fff8e9b",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_6@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "流泪",
+      "code": "[流泪]"
+    },
+    "Images/wx-006.png": {
+      "bytes": 4810,
+      "sha256": "07f1b7df74c1ce2439e2fb62bba76beebd87d4397beff9deebe506e23e5c40da",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_7@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "害羞",
+      "code": "[害羞]"
+    },
+    "Images/wx-007.png": {
+      "bytes": 5015,
+      "sha256": "03f36cd78afa29fbba907ee8979ccb87ad47599cd94da6eeee6d3f3bf99bd877",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_8@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "闭嘴",
+      "code": "[闭嘴]"
+    },
+    "Images/wx-008.png": {
+      "bytes": 4692,
+      "sha256": "4a804c55d1ba0f7be8584cf18a6c4ba143dde2aae569e69b27e9201da3a88a5e",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_9@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "睡",
+      "code": "[睡]"
+    },
+    "Images/wx-009.png": {
+      "bytes": 4914,
+      "sha256": "297236d08585e999893d1d3687f82c79b896ce35283bd668ef4cfb9707feb3f5",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_10@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "大哭",
+      "code": "[大哭]"
+    },
+    "Images/wx-010.png": {
+      "bytes": 4491,
+      "sha256": "619e735bc6660a5727a385992b85c921ef7d8b8d38a2ada89b97c1a70b83aa73",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_11@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "尴尬",
+      "code": "[尴尬]"
+    },
+    "Images/wx-011.png": {
+      "bytes": 4478,
+      "sha256": "35b1b8c990b34fb0fce98c05559cfffb8febf63d105ab4a635cfadecfc4446ac",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_12@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "发怒",
+      "code": "[发怒]"
+    },
+    "Images/wx-012.png": {
+      "bytes": 4508,
+      "sha256": "682e011f09e2f11cd181fac62c248d037d02e830f5342c1a09a2548fc89df53b",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_13@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "调皮",
+      "code": "[调皮]"
+    },
+    "Images/wx-013.png": {
+      "bytes": 5078,
+      "sha256": "83f7f50bdd4b2e6d4406a99aaebfe1ae513e831768559d2e3aa0ef325f5ee021",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_14@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "呲牙",
+      "code": "[呲牙]"
+    },
+    "Images/wx-014.png": {
+      "bytes": 4741,
+      "sha256": "90042cf07201b7fb33fdf1e5598c8891341ff332f5509b2fd1c37fb42c34679e",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_15@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "惊讶",
+      "code": "[惊讶]"
+    },
+    "Images/wx-015.png": {
+      "bytes": 4394,
+      "sha256": "5fc1ba4322934528b8689387ac55d306b2368f9ddee3253477c8d95f113445dc",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_16@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "难过",
+      "code": "[难过]"
+    },
+    "Images/wx-016.png": {
+      "bytes": 4579,
+      "sha256": "e345b5c1217066cce6bf2d29270185a8ad7d4a18c407fac731bceed1c029031d",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_18@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "囧",
+      "code": "[囧]"
+    },
+    "Images/wx-017.png": {
+      "bytes": 5332,
+      "sha256": "132483d13242def76c6387990d186c8e6851cec2444ca6d0e4bf64ac40c20b09",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_19@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "抓狂",
+      "code": "[抓狂]"
+    },
+    "Images/wx-018.png": {
+      "bytes": 5239,
+      "sha256": "9eb4c6332138bdda2ece4fa63c0a8fd1f447eb7154be81e3f1063d404c21f7b0",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_20@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "吐",
+      "code": "[吐]"
+    },
+    "Images/wx-019.png": {
+      "bytes": 5019,
+      "sha256": "3135bea2364d54c2f660d427f2cbe2eb5a604ae2fa8ed7dbd6ea197585fd530a",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_21@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "偷笑",
+      "code": "[偷笑]"
+    },
+    "Images/wx-020.png": {
+      "bytes": 4606,
+      "sha256": "b610072875f77d1f335200f317c61b761546df62342450779cca3bb347fe288c",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_22@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "愉快",
+      "code": "[愉快]"
+    },
+    "Images/wx-021.png": {
+      "bytes": 4781,
+      "sha256": "6ee4478ef862ec4d506eb5858b8c9f54d999b1248c94130a12e5895f9c281df7",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_23@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "白眼",
+      "code": "[白眼]"
+    },
+    "Images/wx-022.png": {
+      "bytes": 4782,
+      "sha256": "cff5693a974295bf4cec4b2e892c83fda9a98792521d0ed6734def1d0557abfe",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_24@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "傲慢",
+      "code": "[傲慢]"
+    },
+    "Images/wx-023.png": {
+      "bytes": 4239,
+      "sha256": "c5cbf1f36de15f3119bcd2c438314087806bd1f8c2cf7224cc4037c7cd875157",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_26@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "困",
+      "code": "[困]"
+    },
+    "Images/wx-024.png": {
+      "bytes": 4796,
+      "sha256": "8d34e9600fcb87532c88fde6b42c88d942b7aad1648e83111e0a37106e594345",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_27@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "惊恐",
+      "code": "[惊恐]"
+    },
+    "Images/wx-025.png": {
+      "bytes": 5028,
+      "sha256": "3bce315f4f25afd7e3830cb0943a6e13a83f6d499b100a8143787323153661fb",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_29@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "憨笑",
+      "code": "[憨笑]"
+    },
+    "Images/wx-026.png": {
+      "bytes": 4160,
+      "sha256": "b31730f507f8703322ef39d3f8921b26db55d864caf9b5ddfc7be4e5fb6e7465",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_30@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "悠闲",
+      "code": "[悠闲]"
+    },
+    "Images/wx-027.png": {
+      "bytes": 5710,
+      "sha256": "6a93e966f2a3786d9daa4ece9635a1cc63f1056499ab3ad07a8ee5c84c5367e1",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_32@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "咒骂",
+      "code": "[咒骂]"
+    },
+    "Images/wx-028.png": {
+      "bytes": 5582,
+      "sha256": "18b79d069fccfb4822e7dbabce182ac8f7ac618d33e865993d3a49237a317595",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_33@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "疑问",
+      "code": "[疑问]"
+    },
+    "Images/wx-029.png": {
+      "bytes": 4921,
+      "sha256": "a1f568f6827ec8b42d657cbe1d7c6b8ed7abab62651e0588cd626ce827c80b5a",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_34@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "嘘",
+      "code": "[嘘]"
+    },
+    "Images/wx-030.png": {
+      "bytes": 5020,
+      "sha256": "f24cc4195774f18cc0c3fca5a4050d3c453a61332e4e802052dc7fd7ac827166",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_35@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "晕",
+      "code": "[晕]"
+    },
+    "Images/wx-031.png": {
+      "bytes": 4527,
+      "sha256": "01da54ea623e3648956b29615052e6a9f2536d0eadeade7226d934cae57fa56b",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_37@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "衰",
+      "code": "[衰]"
+    },
+    "Images/wx-032.png": {
+      "bytes": 4633,
+      "sha256": "aa5ef3cd7e2b19790eb69238edf42e0d7314e05ad3a8d2a5b2846cbaac455cd0",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_38@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "骷髅",
+      "code": "[骷髅]"
+    },
+    "Images/wx-033.png": {
+      "bytes": 5721,
+      "sha256": "eb2af7b5fa6011772755407fdc91a2d2e881c10ba6ecb4852ba3e71dc0d1736c",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_39@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "敲打",
+      "code": "[敲打]"
+    },
+    "Images/wx-034.png": {
+      "bytes": 4794,
+      "sha256": "6425eb341a264e60cf96f7534ece3c1c207c0d68c6f76020d3c5a917fcdd0d77",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_40@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "再见",
+      "code": "[再见]"
+    },
+    "Images/wx-035.png": {
+      "bytes": 4906,
+      "sha256": "142b2dc51457a8ca7edb45752caa5b5d184587d9b2cf209f451f7c6bf6a40341",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_41@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "擦汗",
+      "code": "[擦汗]"
+    },
+    "Images/wx-036.png": {
+      "bytes": 4748,
+      "sha256": "5fa21b79537ee5a93e728af00198f9faef4c863b8ecdf88ecc79a63cb7ed503b",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_42@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "抠鼻",
+      "code": "[抠鼻]"
+    },
+    "Images/wx-037.png": {
+      "bytes": 5356,
+      "sha256": "5ef50df0281812d260a8f947cc090d3f91794a9d4448d1c4f633d62e08e5a3d0",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_43@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "鼓掌",
+      "code": "[鼓掌]"
+    },
+    "Images/wx-038.png": {
+      "bytes": 4890,
+      "sha256": "9f147a5cd03518bf575f38d29711316a549c9e6c83b00a88e872326e53d47fdf",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_45@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "坏笑",
+      "code": "[坏笑]"
+    },
+    "Images/wx-039.png": {
+      "bytes": 4635,
+      "sha256": "b14e564aa9184cd20eb1f70950e67cc64ead41f05f5cb7cdda8ac1b46d116ae5",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_46@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "左哼哼",
+      "code": "[左哼哼]"
+    },
+    "Images/wx-040.png": {
+      "bytes": 4392,
+      "sha256": "f1ded62b71bb4ee2575ff0905b239ee79aedf44250841c571e86780569055203",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_47@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "右哼哼",
+      "code": "[右哼哼]"
+    },
+    "Images/wx-041.png": {
+      "bytes": 4681,
+      "sha256": "9b811759104193d25fa3f91e756db871c6b59c372917e5ffdb428e6e0b516858",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_53@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "亲亲",
+      "code": "[亲亲]"
+    },
+    "Images/wx-042.png": {
+      "bytes": 5317,
+      "sha256": "8c2ba2c330fae7d92838f5d00e11d4bd1d92d39b1713e63d563af5453fb0f5eb",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_55@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "可怜",
+      "code": "[可怜]"
+    },
+    "Images/wx-043.png": {
+      "bytes": 4802,
+      "sha256": "097de526298b6e943f79e59f9191bf578fc413dc1952d3245e3fa9ce903fbcab",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Happy.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "笑脸",
+      "code": "[笑脸]"
+    },
+    "Images/wx-044.png": {
+      "bytes": 4965,
+      "sha256": "da852cef8f0588ce23c57c9bb5cdb7fae1b43f556a55ce2b621a8740975e3a62",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Sick.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "生病",
+      "code": "[生病]"
+    },
+    "Images/wx-045.png": {
+      "bytes": 4968,
+      "sha256": "5c5a8f45cb9f016ec2c9376c8d8431f65a2bfa915b395815603b444dc4a844b3",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Flushed.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "脸红",
+      "code": "[脸红]"
+    },
+    "Images/wx-046.png": {
+      "bytes": 5293,
+      "sha256": "455d5d76c2fce45335650838f07eb00672eae88a1e7673ef6010cd7ecc948b7a",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Lol.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "破涕为笑",
+      "code": "[破涕为笑]"
+    },
+    "Images/wx-047.png": {
+      "bytes": 4959,
+      "sha256": "0c59fdd5e591054e584c144d2abcefcb9e5b04cf958e8fa7f34afa3ef5591dfe",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Terror.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "恐惧",
+      "code": "[恐惧]"
+    },
+    "Images/wx-048.png": {
+      "bytes": 4503,
+      "sha256": "2f632ed49090c6e00910c74a0fd58f54723da0951a6b4b4c215b65916c3c4929",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/LetDown.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "失望",
+      "code": "[失望]"
+    },
+    "Images/wx-049.png": {
+      "bytes": 4614,
+      "sha256": "adb4a1ccf8c0a2aebf9ce444bdb36133bc8e96bc26c4da30a7c38837005bb014",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Duh.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "无语",
+      "code": "[无语]"
+    },
+    "Images/wx-050.png": {
+      "bytes": 5312,
+      "sha256": "57c09bdfd9c38f224fca6dc959b997d1d3a95ab7a83cd8b86f5f1bd332e4cffd",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_04.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "嘿哈",
+      "code": "[嘿哈]"
+    },
+    "Images/wx-051.png": {
+      "bytes": 5485,
+      "sha256": "f1eaa8fd59a6c31e97357667640228a151d9f0efb8407522c62df782ffc28c9f",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_05.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "捂脸",
+      "code": "[捂脸]"
+    },
+    "Images/wx-052.png": {
+      "bytes": 5011,
+      "sha256": "765f5f60737dec484702ef5f9325ac479027072468aeead69b652299429fd2b0",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_02.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "奸笑",
+      "code": "[奸笑]"
+    },
+    "Images/wx-053.png": {
+      "bytes": 5168,
+      "sha256": "4f74085540d81c89193fb26bea9f05ce899db494f44dd98e0318fcc6f9576524",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_06.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "机智",
+      "code": "[机智]"
+    },
+    "Images/wx-054.png": {
+      "bytes": 4660,
+      "sha256": "6e3accf35eb5400f0daaf609c715e785ba96f862ee2cc5645b109341559626bd",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_12.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "皱眉",
+      "code": "[皱眉]"
+    },
+    "Images/wx-055.png": {
+      "bytes": 5604,
+      "sha256": "4bafadac492fdd166a41ef8853cbc084a43e3c43fb8894967344785460e8b223",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_11.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "耶",
+      "code": "[耶]"
+    },
+    "Images/wx-056.png": {
+      "bytes": 13311,
+      "sha256": "533d257ae7ac717c7c316e46031145663c3ea72ef48b7c72a533819c7df776ab",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/mp.weixin.qq.com/uncompressed/%E5%90%83%E7%93%9C.png",
+      "width": 64,
+      "height": 64,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "吃瓜",
+      "code": "[吃瓜]"
+    },
+    "Images/wx-057.png": {
+      "bytes": 12449,
+      "sha256": "b49a987c9946e907cfa98452e4cda20c7afa12f4bc073633a5dffd31411c52a5",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/mp.weixin.qq.com/uncompressed/%E5%8A%A0%E6%B2%B9.png",
+      "width": 64,
+      "height": 64,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "加油",
+      "code": "[加油]"
+    },
+    "Images/wx-058.png": {
+      "bytes": 4459,
+      "sha256": "3f8f883f88ddcbd6f0d79eb6666c4ae763cef506fa1e5f55c4896b8b33836a01",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Sweat.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "汗",
+      "code": "[汗]"
+    },
+    "Images/wx-059.png": {
+      "bytes": 13343,
+      "sha256": "1ba4332b5cdcbe536cc9523dca90de9cdba9e926400e472d6bba84781a5ef405",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/mp.weixin.qq.com/uncompressed/%E5%A4%A9%E5%95%8A.png",
+      "width": 64,
+      "height": 64,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "天啊",
+      "code": "[天啊]"
+    },
+    "Images/wx-060.png": {
+      "bytes": 11668,
+      "sha256": "fe1abaf31e88a99da59c92c7965850a69c1ab45a72b72b5f60660a130f8361a7",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/mp.weixin.qq.com/uncompressed/Emm.png",
+      "width": 64,
+      "height": 64,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "Emm",
+      "code": "[Emm]"
+    },
+    "Images/wx-061.png": {
+      "bytes": 13326,
+      "sha256": "e7f377d95577e350e391bace245742dd05a4789f108bd068d12a9f1145a8ed70",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/mp.weixin.qq.com/uncompressed/%E7%A4%BE%E4%BC%9A%E7%A4%BE%E4%BC%9A.png",
+      "width": 64,
+      "height": 64,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "社会社会",
+      "code": "[社会社会]"
+    },
+    "Images/wx-062.png": {
+      "bytes": 10705,
+      "sha256": "7771df7c352917a7b87a59b2086448b83c8b2ab779ce59777d0b422165a6bfb1",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/mp.weixin.qq.com/uncompressed/%E6%97%BA%E6%9F%B4.png",
+      "width": 64,
+      "height": 64,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "旺柴",
+      "code": "[旺柴]"
+    },
+    "Images/wx-063.png": {
+      "bytes": 5386,
+      "sha256": "fee5fb4caf14f611e1b198ce5166386ac881d1e61b6b4429e93935c7e170d13d",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/NoProb.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "好的",
+      "code": "[好的]"
+    },
+    "Images/wx-064.png": {
+      "bytes": 12536,
+      "sha256": "186a98d0f7bdb9c5e33c8c812d8762416bc32a739be50ba573bed5decce3ac95",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/mp.weixin.qq.com/uncompressed/%E6%89%93%E8%84%B8.png",
+      "width": 64,
+      "height": 64,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "打脸",
+      "code": "[打脸]"
+    },
+    "Images/wx-065.png": {
+      "bytes": 5181,
+      "sha256": "f476c1eb7a659be09dac0a6768c8c98aaf230215a46c85da6bd5d28a9999b8c5",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Wow.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "哇",
+      "code": "[哇]"
+    },
+    "Images/wx-066.png": {
+      "bytes": 4077,
+      "sha256": "5fd1ae713efe67d0f04b93903fcf1c7d4551d1730ea621cd904a645616faa32e",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Boring.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "翻白眼",
+      "code": "[翻白眼]"
+    },
+    "Images/wx-067.png": {
+      "bytes": 5690,
+      "sha256": "ac3054c804f9f167b18723533bcd732704c04bdfca1fa6b777490f63bcca8107",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/666.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "666",
+      "code": "[666]"
+    },
+    "Images/wx-068.png": {
+      "bytes": 5233,
+      "sha256": "ddfb43b7bea9f9cf29af8f7935884ddcc49f88ad5660be2be7f33b1aa5050ffc",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/LetMeSee.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "让我看看",
+      "code": "[让我看看]"
+    },
+    "Images/wx-069.png": {
+      "bytes": 4895,
+      "sha256": "dedbb2e27843c8f943b8cc3a0bda7dda0b0478385d2f4ac11ae1a381aa2f0388",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Sigh.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "叹气",
+      "code": "[叹气]"
+    },
+    "Images/wx-070.png": {
+      "bytes": 4478,
+      "sha256": "9cc6b0df1728a3aa1eda79b38bc081bcdae51f130f03cbf9c8166dceefd094b4",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Hurt.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "苦涩",
+      "code": "[苦涩]"
+    },
+    "Images/wx-071.png": {
+      "bytes": 5255,
+      "sha256": "52ed00211f0d4636c2c63e63fe1655bf245714f89c5a31118ff52f6799547cbb",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Broken.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "裂开",
+      "code": "[裂开]"
+    },
+    "Images/wx-072.png": {
+      "bytes": 3742,
+      "sha256": "1dde12f4373d626d4012abf086e2763d023186294e20aacf9d29e75df87520e1",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_66@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "嘴唇",
+      "code": "[嘴唇]"
+    },
+    "Images/wx-073.png": {
+      "bytes": 3162,
+      "sha256": "24ccf5893e67f64ffdd22b1cc01f5563fd717adea138acb7b7c7ec6e5bf29538",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_67@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "爱心",
+      "code": "[爱心]"
+    },
+    "Images/wx-074.png": {
+      "bytes": 3653,
+      "sha256": "5db7987ac91f750d98d259c061031856a2e45ae5e443f668fe917e33c4d86ea3",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_68@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "心碎",
+      "code": "[心碎]"
+    },
+    "Images/wx-075.png": {
+      "bytes": 4262,
+      "sha256": "acd7cd9e6a29b8afe412a349b7777377febcb401cefd4ae893ff06b1e77c994b",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_79@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "拥抱",
+      "code": "[拥抱]"
+    },
+    "Images/wx-076.png": {
+      "bytes": 3302,
+      "sha256": "859c93af608fbc77ddb1f9688bd8ced5798dad46702667d14fed5c3a2f133412",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_80@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "强",
+      "code": "[强]"
+    },
+    "Images/wx-077.png": {
+      "bytes": 3321,
+      "sha256": "980e2a5bb700c7b103a1f15972900510e4eb8b5ad65c8f90761611e23044ec16",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_81@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "弱",
+      "code": "[弱]"
+    },
+    "Images/wx-078.png": {
+      "bytes": 4339,
+      "sha256": "1bf960e4f6d14aaf93ecd2568703945ebc591590d0047e5511fd49d38ab5701b",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_82@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "握手",
+      "code": "[握手]"
+    },
+    "Images/wx-079.png": {
+      "bytes": 4425,
+      "sha256": "3f046a5e291b8f89007c7e39fc7ed0120350f693d1f3c73bb5626f272e4b8ea0",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_83@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "胜利",
+      "code": "[胜利]"
+    },
+    "Images/wx-080.png": {
+      "bytes": 4072,
+      "sha256": "f96b511bfa31b5aea2f0e206ddb84f4d88d684f29d98242efa9d79f728e1ede7",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_84@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "抱拳",
+      "code": "[抱拳]"
+    },
+    "Images/wx-081.png": {
+      "bytes": 4124,
+      "sha256": "6bf754ca84980ebac3d5d263f0f57c9daed4ec69536f55af5e40199b27bdf824",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_85@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "勾引",
+      "code": "[勾引]"
+    },
+    "Images/wx-082.png": {
+      "bytes": 4564,
+      "sha256": "68c1ff71e89c9ea1caf51a82a48631d49b2b8eeefd64f9a975ea5c46cf636cd1",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_86@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "拳头",
+      "code": "[拳头]"
+    },
+    "Images/wx-083.png": {
+      "bytes": 4606,
+      "sha256": "349cdc20e74ee4eab921aeef53f5723b90277117fe611013612b150c9a629429",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_90@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "OK",
+      "code": "[OK]"
+    },
+    "Images/wx-084.png": {
+      "bytes": 3838,
+      "sha256": "a39a3c0d43b1148479a8cbb9eb4361de56298b15ec3c3c96c9160ff0d0a14a1c",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Worship.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "合十",
+      "code": "[合十]"
+    },
+    "Images/wx-085.png": {
+      "bytes": 5113,
+      "sha256": "bfd7c8aa5c6f3a93faa5abda06a8e744c551261c3dbc205149c42c4a17a7d792",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_58@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "啤酒",
+      "code": "[啤酒]"
+    },
+    "Images/wx-086.png": {
+      "bytes": 4625,
+      "sha256": "d97a27d91dbabf2e1f576b1e3000562bef23330c8648c5d78e8b552b228d60ad",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_61@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "咖啡",
+      "code": "[咖啡]"
+    },
+    "Images/wx-087.png": {
+      "bytes": 4990,
+      "sha256": "cbe069841d7902c3f094c359b59fea08684bbb61522e148a8388d800817a03ac",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_69@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "蛋糕",
+      "code": "[蛋糕]"
+    },
+    "Images/wx-088.png": {
+      "bytes": 3198,
+      "sha256": "53bdad1c3e2fd4bc205bd63a74d78704b4caf277cccd560785721ccb4937f478",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_64@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "玫瑰",
+      "code": "[玫瑰]"
+    },
+    "Images/wx-089.png": {
+      "bytes": 4058,
+      "sha256": "d52ed8e0256f02cab4c00c8ec4ff37cddcbb666a3dc588a2b819581f83636337",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_65@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "凋谢",
+      "code": "[凋谢]"
+    },
+    "Images/wx-090.png": {
+      "bytes": 2410,
+      "sha256": "6f8019297d8eb3c58313f572748e41254b3d7c3b0ee6b0446cfed791ccf92e71",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_56@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "菜刀",
+      "code": "[菜刀]"
+    },
+    "Images/wx-091.png": {
+      "bytes": 4156,
+      "sha256": "898a26573772de12f39a7dbbb757624e546eee835035238717de02cba270bf21",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_71@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "炸弹",
+      "code": "[炸弹]"
+    },
+    "Images/wx-092.png": {
+      "bytes": 4372,
+      "sha256": "ad431926f81c3e83eea72bcd36214880b9953ce3ed2596407c25ab47e3a18f1c",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_75@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "便便",
+      "code": "[便便]"
+    },
+    "Images/wx-093.png": {
+      "bytes": 4380,
+      "sha256": "cf916926bd520c73b147e8bf720ba43f4a2d6a328b469dbd53b1e0a3b4d0ba42",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_76@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "月亮",
+      "code": "[月亮]"
+    },
+    "Images/wx-094.png": {
+      "bytes": 5022,
+      "sha256": "5e00b99be0fe2c54c53c988f4eff0a4c413c20ff53b9c661b903e9e4c81ef774",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_77@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "太阳",
+      "code": "[太阳]"
+    },
+    "Images/wx-095.png": {
+      "bytes": 4557,
+      "sha256": "31160e6cfd41ad33badc775cbf890cc89227b228d447505d34021d2535a016bc",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Party.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "庆祝",
+      "code": "[庆祝]"
+    },
+    "Images/wx-096.png": {
+      "bytes": 4991,
+      "sha256": "f6d363e84da85714d078aed0193f2eed2c88221b25db3b8919635c4da5982082",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_78@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "礼物",
+      "code": "[礼物]"
+    },
+    "Images/wx-097.png": {
+      "bytes": 2286,
+      "sha256": "ffbf109355a4df1000875edaee2607109bc2615179f7944202fd7e04e6f17134",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_09.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "红包",
+      "code": "[红包]"
+    },
+    "Images/wx-098.png": {
+      "bytes": 5351,
+      "sha256": "f43fee5cb91c642ffdf9d010a5817946da86d0ec1a34a74c0f5bd7081b30d228",
+      "url": "https://raw.githubusercontent.com/airinghost/wechat-emoji/2896eb55348041f5c5a66e4eccfb4882ab9cda0c/web.wechat.com/uncompressed/102_%E7%99%BC.png",
+      "width": 128,
+      "height": 128,
+      "source": "unchanged 2021 WeChat original archived by airinghost; upstream platform stated by mirror; no open-source license claimed",
+      "name": "發",
+      "code": "[發]"
+    },
+    "Images/wx-099.png": {
+      "bytes": 3226,
+      "sha256": "c7e9731ceaa9ee4860f10a1ca00109554d25ba95d7a119293dbed035e34f5262",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/2_15.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "福",
+      "code": "[福]"
+    },
+    "Images/wx-100.png": {
+      "bytes": 6046,
+      "sha256": "7aff8eddcb0a11dae825f37efb8814aba7d336ed4e86c751ed966f8e43f0011b",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Fireworks.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "烟花",
+      "code": "[烟花]"
+    },
+    "Images/wx-101.png": {
+      "bytes": 4093,
+      "sha256": "784faa536a30173b6ccb5bdbab9889b8dcccfda56807657d3c1a38e1453f9b1d",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/newemoji/Firecracker.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "爆竹",
+      "code": "[爆竹]"
+    },
+    "Images/wx-102.png": {
+      "bytes": 4114,
+      "sha256": "627a15e9d76bab9d753a00ad28154f1ea397cec6d34f2bf4c3edeba16c004a88",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_63@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "猪头",
+      "code": "[猪头]"
+    },
+    "Images/wx-103.png": {
+      "bytes": 3775,
+      "sha256": "678d3a854d12981954b5182d18a59c5f02128ef44c1819bc35845dc32992acbf",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_93@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "跳跳",
+      "code": "[跳跳]"
+    },
+    "Images/wx-104.png": {
+      "bytes": 4052,
+      "sha256": "1cadc33af595ef71a332f9138a457f378b92ab73b4dbb4944a67ac54d9e2cf98",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_94@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "发抖",
+      "code": "[发抖]"
+    },
+    "Images/wx-105.png": {
+      "bytes": 3611,
+      "sha256": "60b5566007b13538ea3b0934509908ea7713a0490760b304f4237c6e13c6c5ec",
+      "url": "https://res.wx.qq.com/t/wx_fed/we-emoji/res/v1.3.10/assets/Expression/Expression_96@2x.png",
+      "width": 128,
+      "height": 128,
+      "source": "official WeChat CDN original, unchanged",
+      "name": "转圈",
+      "code": "[转圈]"
     },
     "SOURCE-NOTICE.txt": {
-      "bytes": 3835,
-      "sha256": "5a961dc4af909c986ab9e6b1014dd44b0d823fad0f851f923c02deef19584d04"
+      "bytes": 1538,
+      "sha256": "ddaa52ddb20ab3bb63208157662fa687e6a777c8d7381960404b658d827e99ad"
     },
-    "UPSTREAM-NPM-PACKAGE.json": {
-      "bytes": 323,
-      "sha256": "eb70ecc29317ccaa7ff4a9f2dd02e3b2b4b97f0eaf2cae3ae7c75f2510f3b731"
-    },
-    "LICENSE-ISC.txt": {
-      "bytes": 1147,
-      "sha256": "01801a6079857dcf773603d82ffe8e1b963f72fc26c2e090869fb12fd8f02cc3"
+    "whitelist.json": {
+      "bytes": 3952,
+      "sha256": "6725d22c410e75e89026ab2749c827480641067370897fa267e927048d8d7b28"
     }
   }
 }

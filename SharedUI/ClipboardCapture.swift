@@ -67,6 +67,7 @@ import UniformTypeIdentifiers
     func activate(settings: KeyboardSettings, allowed: Bool, retryPermission: Bool = false, userRequested: Bool = false) {
         self.settings = settings
         guard allowed, settings.capturesClipboard else { stop(); return }
+        if !active { observation.beginSession() }
         active = true
         if retryPermission { observation.retry() }
         makeStore().prune(lifetime: settings.clipboardLifetimeHours * 3600)
@@ -87,12 +88,12 @@ import UniformTypeIdentifiers
     func captureIfChanged() {
         guard active else { return }
         let count = changeCount()
-        guard observation.shouldRead(changeCount: count, hasContent: hasContent()) else { return }
+        guard observation.shouldRead(changeCount: count, hasContent: hasContent(), existingClipIDs: makeStore().clips.map(\.id)) else { return }
         // Suppress repeated attempts in this visible session. A failed read
         // must not permanently suppress the same revision after reopening.
         observation.didAttempt(changeCount: count)
         if saveCurrentContent() {
-            if count == changeCount() { observation.didCapture(changeCount: count) }
+            if count == changeCount() { observation.didCapture(changeCount: count, clipID: makeStore().clips.first?.id) }
             captured()
 
         }
@@ -103,7 +104,7 @@ import UniformTypeIdentifiers
     func captureOnUserRequest() {
         guard active else { return }
         let count = changeCount()
-        guard observation.shouldReadOnUserRequest(changeCount: count, hasContent: hasContent()) else { return }
+        guard observation.shouldReadOnUserRequest(changeCount: count, hasContent: hasContent(), existingClipIDs: makeStore().clips.map(\.id)) else { return }
         observation.didRequest(changeCount: count)
         _ = captureManually()
     }
@@ -112,7 +113,7 @@ import UniformTypeIdentifiers
         let saved = saveCurrentContent()
         observation.didAttempt(changeCount: count)
         if saved {
-            if count == changeCount() { observation.didCapture(changeCount: count) }
+            if count == changeCount() { observation.didCapture(changeCount: count, clipID: makeStore().clips.first?.id) }
             captured()
         }; return saved
     }
@@ -123,7 +124,7 @@ import UniformTypeIdentifiers
         return captureManually() ? .contentRead : .unavailable
     }
     func retryAfterPermissionChange() { observation.retry(); captureIfChanged() }
-    func ignoreCurrentRevision() { observation.didCapture(changeCount: changeCount()) }
+    func ignoreCurrentRevision() { observation.ignore(changeCount: changeCount()) }
     func acceptText(_ text: String, revision: Int? = nil, completion: (() -> Void)? = nil) {
         save(revision: revision, completion: completion) { $0.add(text) }
     }
@@ -150,7 +151,7 @@ import UniformTypeIdentifiers
     }
     private func acceptRevision(_ revision: Int?) {
         guard let revision, revision == changeCount() else { return }
-        observation.didAttempt(changeCount: revision); observation.didCapture(changeCount: revision)
+        observation.didAttempt(changeCount: revision); observation.didCapture(changeCount: revision, clipID: makeStore().clips.first?.id)
     }
     func reportFailure(_ error: ClipboardStore.Failure?) {
         let text = error == .capacity ? "内容过大，未收录" : "未能保存，请重新复制后重试"

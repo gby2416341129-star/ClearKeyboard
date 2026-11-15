@@ -1,25 +1,18 @@
 import UIKit
 
-/// Decodes the unchanged, licensed source PNG once. Individual regions are
-/// cropped on demand; absent official artwork stays a text code, never a fake icon.
+/// Loads only unchanged PNGs from the screenshot whitelist. No old sprite,
+/// Unicode approximation, screenshot crop or generated artwork is used.
 @MainActor enum EmoticonImageProvider {
     private static let cache = NSCache<NSString, UIImage>()
-    private static var sheet: UIImage?
-    private static var attempted = false
     static func image(for entry: EmoticonEntry) -> UIImage? {
-        guard let region = entry.sprite else { return nil }
+        guard entry.hasImage else { return nil }
         let key = entry.id as NSString
         if let image = cache.object(forKey: key) { return image }
-        if !attempted {
-            attempted = true
-            if let url = EmoticonCatalog.shared.spriteURL() { sheet = UIImage(contentsOfFile: url.path) }
-            cache.countLimit = 160
-        }
-        guard let cg = sheet?.cgImage,
-              region.x + region.width <= cg.width, region.y + region.height <= cg.height,
-              let crop = cg.cropping(to: CGRect(x: CGFloat(region.x), y: CGFloat(region.y), width: CGFloat(region.width), height: CGFloat(region.height))) else { return nil }
-        let image = UIImage(cgImage: crop, scale: CGFloat(max(region.width, region.height)) / 28, orientation: .up)
-        cache.setObject(image, forKey: key)
+        guard let url = EmoticonCatalog.shared.imageURL(for: entry),
+              let original = UIImage(contentsOfFile: url.path), let cg = original.cgImage else { return nil }
+        cache.countLimit = 64; cache.totalCostLimit = 4 * 1024 * 1024
+        let image = UIImage(cgImage: cg, scale: CGFloat(max(cg.width, cg.height)) / 28, orientation: .up)
+        cache.setObject(image, forKey: key, cost: cg.width * cg.height * 4)
         return image
     }
 }
@@ -175,4 +168,3 @@ import UIKit
         return button
     }
 }
-

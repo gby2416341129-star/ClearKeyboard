@@ -52,6 +52,8 @@ public struct KeyboardSettings: Codable, Equatable {
     public var language: InputLanguage = .chinese
     /// Nil/false use normal inline marked text. True explicitly keeps pinyin local.
     public var localPinyinComposition: Bool? = nil
+    public var keyPressPreviewEnabled: Bool? = nil
+    public var usesKeyPressPreview: Bool { keyPressPreviewEnabled ?? true }
     public var accent: Accent = .ocean
     public var customAccentHex: String? = nil
     public var keyGlassStrength: Double? = nil

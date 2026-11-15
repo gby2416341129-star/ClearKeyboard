@@ -1,5 +1,6 @@
-// Bounded syllable graph; no answer, lexicon-word scan or Cartesian expansion.
+// Bounded syllable graph plus existing-index whole-word initials proposals; no answer or Cartesian expansion.
 enum { V23_EXACT=0,V23_INITIAL=1,V23_INCOMPLETE=2,V23_FUZZY=3,V23_TYPO=4 };
+#include "v109_initials.inc"
 bool adjacentKey(char a,char b){
  if(a<'a'||a>'z'||b<'a'||b>'z')return false;
  static const double xy[26][2]={{1.0,1.0},{6.0,2.0},{4.0,2.0},{3.0,1.0},{2.5,0.0},{4.0,1.0},{5.0,1.0},{6.0,1.0},{7.5,0.0},{7.0,1.0},{8.0,1.0},{9.0,1.0},{8.0,2.0},{7.0,2.0},{8.5,0.0},{9.5,0.0},{0.5,0.0},{3.5,0.0},{2.0,1.0},{4.5,0.0},{6.5,0.0},{5.0,2.0},{1.5,0.0},{3.0,2.0},{5.5,0.0},{2.0,2.0}};double dx=xy[a-'a'][0]-xy[b-'a'][0],dy=xy[a-'a'][1]-xy[b-'a'][1];return dx*dx+dy*dy<=2.25;
@@ -122,6 +123,20 @@ void parse(V21Request&q,bool completion){
   std::string key;for(const auto&s:p.parts){key+=char(s.id&255);key+=char(s.id>>8);}if(!canonical.insert(key).second)continue;
   const auto&last=p.parts.back();if(last.kind==V23_INCOMPLETE)p.completion=r.py[last.id].substr(size_t(last.end-last.start));distinct.push_back(std::move(p));
  }
+ // Query existing lexical prefixes before spending the neural path budget.
+ auto wordProposals=initialWordProposals(q,distinct);
+ if(wordProposals.size()>3)wordProposals.resize(3);
+ for(const auto&proposal:wordProposals){
+  auto found=std::find_if(distinct.begin(),distinct.end(),[&](const Path&p){return samePhoneticReading(p,proposal.path);});
+  if(found==distinct.end())distinct.push_back(proposal.path);
+  else {
+   // Same main-model reading still owns only one real input receipt, matching
+   // the existing canonical-reading policy; retain its best graph score.
+   if(proposal.path.logWeight-proposal.path.inputCost>found->logWeight-found->inputCost)*found=proposal.path;
+   found->initialWord=int32_t(proposal.word);
+  }
+ }
+ top(distinct,distinct.size(),[](const Path&p){return p.logWeight-p.inputCost;});
  std::vector<size_t> protectedPaths;size_t faithful=distinct.size();int faithfulBytes=-1;
  auto protect=[&](auto predicate){for(size_t i=0;i<distinct.size();i++)if(predicate(distinct[i])){if(std::find(protectedPaths.begin(),protectedPaths.end(),i)==protectedPaths.end())protectedPaths.push_back(i);break;}};
  auto noOrdinaryEdits=[](const Path&p){return !(p.modeBits&(1U<<V23_TYPO))&&p.completion.empty();};
@@ -132,6 +147,15 @@ void parse(V21Request&q,bool completion){
  for(size_t i=0;i<distinct.size();i++)if(noOrdinaryEdits(distinct[i])){int bytes=0;for(const auto&s:distinct[i].parts)if(s.kind==V23_EXACT)bytes+=s.end-s.start;if(bytes>faithfulBytes){faithful=i;faithfulBytes=bytes;}}
  if(faithful<distinct.size()&&std::find(protectedPaths.begin(),protectedPaths.end(),faithful)==protectedPaths.end())protectedPaths.push_back(faithful);
  std::vector<size_t> selected=protectedPaths;
+ size_t lexicalRetained=0;
+ for(const auto&proposal:wordProposals){
+  auto found=std::find_if(distinct.begin(),distinct.end(),[&](const Path&p){return samePhoneticReading(p,proposal.path);});
+  if(found==distinct.end())continue;size_t at=size_t(found-distinct.begin());
+  if(std::find(selected.begin(),selected.end(),at)==selected.end()){
+   if(selected.size()>=8)break;selected.push_back(at);
+  }
+  if(++lexicalRetained==3)break;
+ }
  for(size_t i=0;i<distinct.size()&&selected.size()<8;i++)if(std::find(selected.begin(),selected.end(),i)==selected.end())selected.push_back(i);
  std::sort(selected.begin(),selected.end());for(size_t i:selected)q.paths.push_back(std::move(distinct[i]));
 

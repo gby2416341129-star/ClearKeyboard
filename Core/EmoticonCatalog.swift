@@ -16,7 +16,9 @@ public struct EmoticonEntry: Codable, Hashable, Sendable, Identifiable {
     public let group: String
     public let aliases: [String]
     public let sprite: Sprite?
-    public var hasImage: Bool { sprite != nil }
+    /// Unchanged individual source PNG inside Emoticons/Images.
+    public let image: String?
+    public var hasImage: Bool { image != nil }
 }
 
 public struct EmoticonGroup: Hashable, Sendable, Identifiable {
@@ -27,7 +29,11 @@ public struct EmoticonGroup: Hashable, Sendable, Identifiable {
 /// Local, finite source catalog. It suggests optional symbols; it never selects
 /// a Chinese/English candidate or changes what Space/Enter commits.
 public struct EmoticonCatalog: Sendable {
-    private struct Document: Decodable { let entries: [EmoticonEntry] }
+    private struct Document: Decodable {
+        let schema: String
+        let allowedCodes: [String]
+        let entries: [EmoticonEntry]
+    }
     public static let shared = EmoticonCatalog()
     public let entries: [EmoticonEntry]
     public let groups: [EmoticonGroup]
@@ -39,23 +45,22 @@ public struct EmoticonCatalog: Sendable {
         let loaded: [EmoticonEntry]
         if let url = InputResources.url("catalog", extension: "json", directory: "Emoticons"),
            let data = try? Data(contentsOf: url), data.count <= 1_048_576,
-           let document = try? JSONDecoder().decode(Document.self, from: data) {
+           let document = try? JSONDecoder().decode(Document.self, from: data),
+           document.schema == "clear-emoticons-user-whitelist/1",
+           document.allowedCodes.count == 106, Set(document.allowedCodes).count == 106,
+           document.entries.count == 106,
+           Set(document.entries.map(\.code)) == Set(document.allowedCodes),
+           document.entries.allSatisfy({ $0.kind == .wechat && $0.image != nil }) {
             var seen = Set<String>()
             loaded = document.entries.filter { entry in
                 !entry.id.isEmpty && !entry.name.isEmpty && !entry.code.isEmpty &&
                 entry.code.utf16.count <= 128 && seen.insert(entry.id).inserted &&
-                (entry.sprite.map { $0.x >= 0 && $0.y >= 0 && $0.width > 0 && $0.height > 0 } ?? true)
+                entry.image?.hasPrefix("Images/wx-") == true &&
+                entry.image?.hasSuffix(".png") == true && entry.image?.contains("..") == false
             }
         } else { loaded = [] }
         entries = loaded
-        let definitions = [
-            EmoticonGroup(id: "wechat-face", title: "微信表情"),
-            EmoticonGroup(id: "wechat-gesture", title: "手势心意"),
-            EmoticonGroup(id: "wechat-object", title: "物品庆祝"),
-            EmoticonGroup(id: "wechat-code", title: "更多代码"),
-            EmoticonGroup(id: "emoji", title: "Emoji"),
-            EmoticonGroup(id: "kaomoji", title: "颜文字")
-        ]
+        let definitions = [EmoticonGroup(id: "wechat-face", title: "微信表情")]
         let available = Set(loaded.map(\.group))
         groups = definitions.filter { available.contains($0.id) }
         var codes: [String: EmoticonEntry] = [:]
@@ -90,8 +95,11 @@ public struct EmoticonCatalog: Sendable {
     public var imageEntryCount: Int { entries.filter(\.hasImage).count }
     public func entry(forCode code: String) -> EmoticonEntry? { byCode[code] }
     public func entries(in group: String) -> [EmoticonEntry] { entries.filter { $0.group == group } }
-    public func spriteURL() -> URL? {
-        InputResources.url("wechat-source-sprite", extension: "png", directory: "Emoticons")
+    public func imageURL(for entry: EmoticonEntry) -> URL? {
+        guard byCode[entry.code]?.id == entry.id, let image = entry.image,
+              image.hasPrefix("Images/wx-"), image.hasSuffix(".png"), !image.contains("..") else { return nil }
+        let name = String(image.dropFirst("Images/".count).dropLast(4))
+        return InputResources.url(name, extension: "png", directory: "Emoticons/Images")
     }
 
     /// Exact semantic/pinyin aliases and bounded laughter forms. Callers append

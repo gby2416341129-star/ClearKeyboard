@@ -5,31 +5,45 @@ import CoreFoundation
 /// Clipboard contents are shared, but the system's access decision belongs to
 /// the process that reads them. An extension attempt cannot stand in for an
 /// attempt by its containing app, including a denied attempt.
-struct ClipboardObservation {
+final class ClipboardObservation {
     enum Owner: String { case app, keyboard }
     private let defaults: UserDefaults
     private let key: String
+    private var attempted: Int?
+    private var requested: Int?
+    private struct CaptureReceipt: Codable { let count: Int; let clipID: UUID?; let ignored: Bool }
+    private let capturedKey = "clear.clipboard.captureRecord.v4"
     init(defaults: UserDefaults, owner: Owner) {
         self.defaults = defaults
         key = "clear.clipboard.observedChangeCount.v2." + owner.rawValue
     }
-    func shouldRead(changeCount: Int, hasContent: Bool) -> Bool {
-        hasContent && !wasCaptured(changeCount)
-            && (defaults.object(forKey: key) == nil || defaults.integer(forKey: key) != changeCount)
+    func beginSession() { attempted = nil; requested = nil }
+    func shouldRead(changeCount: Int, hasContent: Bool, existingClipIDs: [UUID] = []) -> Bool {
+        hasContent && !wasCaptured(changeCount, existingClipIDs: existingClipIDs) && attempted != changeCount
     }
-    private func wasCaptured(_ count: Int) -> Bool {
+    private func wasCaptured(_ count: Int, existingClipIDs: [UUID]) -> Bool {
+        if let data = defaults.data(forKey: capturedKey),
+           let receipt = try? JSONDecoder().decode(CaptureReceipt.self, from: data) {
+            return receipt.count == count && (receipt.ignored || receipt.clipID.map { existingClipIDs.contains($0) } == true)
+        }
+        // Keep successful pre-v4 deduplication only while history still exists.
+        // A shared counter alone must not hide content from an empty store.
         let captured = "clear.clipboard.capturedChangeCount.v3"
-        return defaults.object(forKey: captured) != nil && defaults.integer(forKey: captured) == count
+        return !existingClipIDs.isEmpty && defaults.object(forKey: captured) != nil && defaults.integer(forKey: captured) == count
     }
-    func shouldReadOnUserRequest(changeCount: Int, hasContent: Bool) -> Bool {
-        let requested = key + ".userRequested"
-        return hasContent && !wasCaptured(changeCount)
-            && (defaults.object(forKey: requested) == nil || defaults.integer(forKey: requested) != changeCount)
+    func shouldReadOnUserRequest(changeCount: Int, hasContent: Bool, existingClipIDs: [UUID] = []) -> Bool {
+        hasContent && !wasCaptured(changeCount, existingClipIDs: existingClipIDs) && requested != changeCount
     }
-    func didRequest(changeCount: Int) { defaults.set(changeCount, forKey: key + ".userRequested") }
-    func didAttempt(changeCount: Int) { defaults.set(changeCount, forKey: key) }
-    func didCapture(changeCount: Int) { defaults.set(changeCount, forKey: "clear.clipboard.capturedChangeCount.v3") }
-    func retry() { defaults.removeObject(forKey: key) }
+    func didRequest(changeCount: Int) { requested = changeCount }
+    func didAttempt(changeCount: Int) { attempted = changeCount }
+    func didCapture(changeCount: Int, clipID: UUID?) {
+        save(CaptureReceipt(count: changeCount, clipID: clipID, ignored: false))
+    }
+    func ignore(changeCount: Int) { save(CaptureReceipt(count: changeCount, clipID: nil, ignored: true)) }
+    private func save(_ value: CaptureReceipt) {
+        if let data = try? JSONEncoder().encode(value) { defaults.set(data, forKey: capturedKey) }
+    }
+    func retry() { beginSession() }
 }
 
 public struct ClipAttachment: Codable, Equatable {

@@ -39,6 +39,7 @@ enum InstallationLifecycle {
     private static let lock=NSRecursiveLock()
     private static var cached:Snapshot?
     private static var firstDecision:String?
+    private static var preparationError:String?
     private static var proxies:[String:InstallationDefaults]=[:]
     private static var migratingDomains=Set<String>()
     private static let markerName="installation-v1.json"
@@ -58,7 +59,7 @@ enum InstallationLifecycle {
                 guard valid(decoded,owner:owner,token:token) else{throw NSError(domain:NSCocoaErrorDomain,code:NSFileReadCorruptFileError)}
                 old=decoded
             }
-            catch let error as NSError where error.domain==NSCocoaErrorDomain && error.code==NSFileReadNoSuchFileError {old=nil}
+            catch where isMissingFile(error) {old=nil}
             catch {throw error} // Protected/corrupt state is not a fresh-install signal.
             let evidence=try hasPrivateLegacyEvidence()
             let chosen=try lockedGroups(groups.sorted{$0.identifier<$1.identifier},index:0,owner:token) {() throws->Snapshot in
@@ -68,7 +69,7 @@ enum InstallationLifecycle {
                     do {
                         let value=try JSONDecoder().decode(Snapshot.self,from:Data(contentsOf:ledger))
                         if valid(value,owner:owner,token:token),value.bundleAnchor==anchor {records.append(value)}
-                    } catch let error as NSError where error.domain==NSCocoaErrorDomain && error.code==NSFileReadNoSuchFileError {}
+                    } catch where isMissingFile(error) {}
                     catch {throw error}
                 }
                 if let value=readRendezvous(owner:owner,token:token,anchor:anchor){records.append(value)}
@@ -104,6 +105,7 @@ enum InstallationLifecycle {
             }
             let oldPolicy=cached.map{policy($0)}
             cached=chosen
+            preparationError=nil
             if firstDecision==nil {firstDecision=old != nil ? "existing":evidence ? "legacy-upgrade":"fresh"}
             if oldPolicy != policy(chosen) {
                 CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),CFNotificationName(rawValue:"com.clearkeyboard.appearance.changed.v1" as CFString),nil,nil,true)
@@ -114,8 +116,20 @@ enum InstallationLifecycle {
             // A temporary empty namespace cannot recover or erase old data.
             let value=Snapshot(owner:owner,ownerToken:token,identifier:"pending-"+pending,bundleAnchor:anchor,
                                legacy:false,continuity:false,ready:false)
+            let failure=error as NSError
+            preparationError=failure.domain+":"+String(failure.code)
             cached=value;return value
         }
+    }
+    /// Foundation file reads and attribute lookups use two Cocoa missing-file
+    /// codes; POSIX-backed reads may expose ENOENT directly. None means that
+    /// protected, denied or corrupt installation state is safe to replace.
+    static func isMissingFile(_ error:Error)->Bool {
+        let value=error as NSError
+        if value.domain==NSCocoaErrorDomain {
+            return value.code==NSFileNoSuchFileError || value.code==NSFileReadNoSuchFileError
+        }
+        return value.domain==NSPOSIXErrorDomain && value.code==Int(ENOENT)
     }
     static func scopedDefaults(_ backing:UserDefaults,domain:String)->UserDefaults {
         let snapshot=ensureDefaults(backing,domain:domain)
@@ -161,6 +175,7 @@ enum InstallationLifecycle {
         return ["schema":"clear-installation-lifecycle/1","decision":firstDecision ?? "deferred",
                 "owner":value.owner,"installation":value.identifier,"bundle_anchor":value.bundleAnchor,
                 "private_marker_ready":String(value.ready),"legacy_recovery_allowed":String(value.legacy),
+                "preparation_error":preparationError ?? "none",
                 "legacy_unowned_storage":value.legacy ? "trusted one-time upgrade migration":"isolated",
                 "physical_legacy_deletion":"none","cleanup_timing":"before recovery on new process startup, not at uninstall"]
     }

@@ -63,7 +63,7 @@ def main():
     config=json.loads((source/'runtime_config.json').read_bytes())
     assert config['source_checkpoint_sha256']==CHECKPOINT and config['source_step']==94661
     assert config['score_version']==identity['score_version']=='v23-input-sequence-energy-1'
-    assert config['ranking_policy_version']==identity['ranking_policy_version']=='build107-structured-canonical-recall-1'
+    assert config['ranking_policy_version']==identity['ranking_policy_version']=='build109-word-initials-recall-1'
     assert config['topk']==64
     english=json.loads((ROOT/'Core/Resources/EnglishWords/manifest.json').read_bytes())
     assert digest(ROOT/'Core/Resources/EnglishWords/words.txt')==english['payload']['sha256']
@@ -72,6 +72,6 @@ def main():
     runtime=ROOT/'Core/Resources/Runtime/V49';runtime.mkdir(parents=True,exist_ok=True)
     for name in DATA:shutil.copyfile(source/name,runtime/name)
     for name in ['identity.json','ordinary_probes_160.json']:shutil.copyfile(model_root/name,runtime/name)
-    print('Build108: exact V49 pair, structured canonical SDK and English dictionary staged; CPU only; no inference executed.')
+    print('Build109: exact V49 pair, structured canonical SDK and English dictionary staged; CPU only; no inference executed.')
 
 if __name__=='__main__':main()
