@@ -1198,7 +1198,7 @@ import SwiftUI
                     "legacy-sticker-received": ("收到啦", "🫡"), "legacy-sticker-cheer": ("好耶", "🎉"),
                     "legacy-sticker-thanks": ("谢谢", "🫶"), "legacy-sticker-night": ("晚安", "🌙")]
                 if let sticker = legacy[entry.id] { self.copySticker(sticker.0, emoji: sticker.1) }
-                else { self.model.insertLiteral(entry.code) }
+                else { self.model.insertEmoticon(entry) }
             }
             content.setQuery(model.composition.raw)
             panel = content; addSubview(content); finishPanelTransition(); return

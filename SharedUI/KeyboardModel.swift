@@ -703,6 +703,24 @@ struct DeletedInput { let text: String; let selection: NSRange }
         if awaitingCommit { finishCompositionAsTyped() } else if !finishForDocumentAction() { return }
         insertText(text); refreshCandidates()
     }
+    func insertEmoticon(_ entry: EmoticonEntry) {
+        beginDocumentEdit(); defer { endDocumentEdit() }
+        guard EmoticonCatalog.shared.entry(forCode: entry.code)?.id == entry.id else { return }
+        let raw = composition.raw
+        if !raw.isEmpty, !awaitingCommit, matchesEmoticon(entry.code, raw: raw) {
+            guard let document, let context = activeCandidateContext(), context == candidateContext,
+                  document.validateCandidate(before: context.before, after: context.after, identity: context.document) else { return }
+            let candidate = Candidate(text: entry.code, reading: entry.name, consumed: raw.utf16.count,
+                localChoice: LocalCandidateChoice(kind: .emoticon, raw: raw))
+            guard commitLanguageCandidate(candidate, document: document, explicit: true) else { return }
+            onCandidateSelection?(); refreshCandidates()
+        } else { insertLiteral(entry.code) }
+    }
+    private func matchesEmoticon(_ code: String, raw: String) -> Bool {
+        let catalog = EmoticonCatalog.shared
+        return catalog.suggestions(for: raw, limit: 32).contains(where: {$0.code == code}) ||
+            catalog.search(raw).contains(where: {$0.code == code})
+    }
     func chooseArithmetic(_ text: String) {
         beginDocumentEdit(); defer { endDocumentEdit() }
         guard let document, let arithmetic, arithmetic.candidates.contains(text),
@@ -751,7 +769,7 @@ struct DeletedInput { let text: String; let selection: NSRange }
                 selected=candidate.text;remaining="";skipsLearning=false
             case .emoticon:
                 guard explicit, !characterSelectionMode,
-                      EmoticonCatalog.shared.suggestions(for: spelling, limit: 3).contains(where: {$0.code == candidate.text}) else {return false}
+                      matchesEmoticon(candidate.text, raw: spelling) else {return false}
                 selected=candidate.text;remaining="";skipsLearning=true
             case .numeric:return false
             }
