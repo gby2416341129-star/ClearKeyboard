@@ -34,7 +34,7 @@ import UIKit
     private let grid = UIStackView()
     private let navigation = UIStackView()
     private let previous = UIButton(type: .system)
-    private let next = UIButton(type: .system)
+    private let nextPageButton = UIButton(type: .system)
     private let pageLabel = UILabel()
     private let hint = UILabel()
     private var groupID: String
@@ -74,16 +74,16 @@ import UIKit
         grid.axis = .vertical; grid.distribution = .fillEqually; grid.spacing = 3
         navigation.axis = .horizontal; navigation.spacing = 6
         previous.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        next.setImage(UIImage(systemName: "chevron.right"), for: .normal)
-        previous.accessibilityLabel = "上一页表情"; next.accessibilityLabel = "下一页表情"
-        previous.accessibilityIdentifier = "emoticons.previous"; next.accessibilityIdentifier = "emoticons.next"
+        nextPageButton.setImage(UIImage(systemName: "chevron.right"), for: .normal)
+        previous.accessibilityLabel = "上一页表情"; nextPageButton.accessibilityLabel = "下一页表情"
+        previous.accessibilityIdentifier = "emoticons.previous"; nextPageButton.accessibilityIdentifier = "emoticons.next"
         previous.addAction(UIAction { [weak self] _ in self?.changePage(-1) }, for: .touchUpInside)
-        next.addAction(UIAction { [weak self] _ in self?.changePage(1) }, for: .touchUpInside)
+        nextPageButton.addAction(UIAction { [weak self] _ in self?.changePage(1) }, for: .touchUpInside)
         pageLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         pageLabel.textAlignment = .center; pageLabel.textColor = .secondaryLabel
-        navigation.addArrangedSubview(previous); navigation.addArrangedSubview(pageLabel); navigation.addArrangedSubview(next)
+        navigation.addArrangedSubview(previous); navigation.addArrangedSubview(pageLabel); navigation.addArrangedSubview(nextPageButton)
         previous.widthAnchor.constraint(equalToConstant: 44).isActive = true
-        next.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        nextPageButton.widthAnchor.constraint(equalToConstant: 44).isActive = true
         hint.font = .systemFont(ofSize: 10); hint.textColor = .secondaryLabel
         hint.numberOfLines = 2; hint.textAlignment = .center
         let vertical = UIStackView(arrangedSubviews: [groupScroll, grid, navigation, hint])
@@ -144,7 +144,7 @@ import UIKit
             grid.addArrangedSubview(row)
         }
         pageLabel.text = items.isEmpty ? "没有匹配的表情" : "\(page + 1) / \(pages) · \(items.count)"
-        previous.isEnabled = page > 0; next.isEnabled = page + 1 < pages
+        previous.isEnabled = page > 0; nextPageButton.isEnabled = page + 1 < pages
         hint.text = items.contains(where: { $0.kind == .wechat })
             ? "点选插入微信表情代码，其他 App 可能显示文字。"
             : "点选输入 Emoji 或颜文字。"
@@ -175,3 +175,4 @@ import UIKit
         return button
     }
 }
+
