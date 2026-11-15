@@ -1197,11 +1197,7 @@ import SwiftUI
             let content = EmoticonPanel { [weak self] entry in
                 guard let self else { return }
                 self.toolbarPulse()
-                let legacy: [String: (String, String)] = [
-                    "legacy-sticker-received": ("收到啦", "🫡"), "legacy-sticker-cheer": ("好耶", "🎉"),
-                    "legacy-sticker-thanks": ("谢谢", "🫶"), "legacy-sticker-night": ("晚安", "🌙")]
-                if let sticker = legacy[entry.id] { self.copySticker(sticker.0, emoji: sticker.1) }
-                else { self.model.insertEmoticon(entry) }
+                self.model.insertEmoticon(entry)
             }
             content.setQuery(model.composition.raw)
             panel = content; addSubview(content); finishPanelTransition(); return
@@ -1220,7 +1216,7 @@ import SwiftUI
         let stack = panelStack(title: kind.title)
         switch kind {
         case .clipboard, .phrases: break
-        case .emoji: buildEmoji(stack)
+        case .emoji: break
         case .language: model.toggleLanguage(); closePanel()
         case .oneHand:
             let segment = UISegmentedControl(items: HandMode.allCases.map(\.title))
@@ -1260,38 +1256,5 @@ import SwiftUI
         let label = UILabel(); label.text = text; label.numberOfLines = 0
         label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabel; return label
     }
-    private func buildEmoji(_ stack: UIStackView) {
-        let groups = [["😀", "🥹", "🥰", "😎", "🥳", "😭", "🤔", "🫶"], ["👍", "🙏", "❤️", "✨", "🎉", "🌙", "☕️", "🌸"], ["(๑•̀ㅂ•́)و✧", "٩(ˊᗜˋ*)و", "(｡･ω･｡)", "晚安 🌙"]]
-        for group in groups {
-            let row = UIStackView(); row.axis = .horizontal; row.distribution = .fillEqually
-            for emoji in group {
-                let button = actionButton(emoji) { [weak self] in self?.model.insertLiteral(emoji) }
-                button.titleLabel?.font = .systemFont(ofSize: emoji.count == 1 ? 26 : 11)
-                row.addArrangedSubview(button)
-            }
-            stack.addArrangedSubview(row)
-        }
-        let stickers = UIStackView(); stickers.axis = .horizontal; stickers.distribution = .fillEqually
-        for (title, emoji) in [("收到啦", "🫡"), ("好耶", "🎉"), ("谢谢", "🫶"), ("晚安", "🌙")] {
-            stickers.addArrangedSubview(actionButton(title) { [weak self] in self?.copySticker(title, emoji: emoji) })
-        }
-        stack.addArrangedSubview(stickers)
-    }
-    private func copySticker(_ title: String, emoji: String) {
-        guard model.document?.fullAccess == true else {
-            announce("图片贴纸需要完全访问；文字表情可直接输入。")
-            return
-        }
-        let color = model.settings.accentColor
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 300)).image { context in
-            let rect = CGRect(x: 8, y: 8, width: 284, height: 284)
-            color.withAlphaComponent(0.16).setFill(); UIBezierPath(roundedRect: rect, cornerRadius: 64).fill()
-            (emoji as NSString).draw(in: CGRect(x: 70, y: 30, width: 180, height: 160), withAttributes: [.font: UIFont.systemFont(ofSize: 120)])
-            let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center
-            (title as NSString).draw(in: CGRect(x: 20, y: 208, width: 260, height: 68), withAttributes: [.font: UIFont.systemFont(ofSize: 42, weight: .semibold), .foregroundColor: model.settings.accentInkColor, .paragraphStyle: paragraph])
-            _ = context
-        }
-        if let data = image.pngData() { UIPasteboard.general.setItems([["public.png": data]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)]) }
-        announce("贴纸已复制，请在消息框粘贴")
-    }
 }
+
